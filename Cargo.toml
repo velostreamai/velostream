@@ -10,3 +10,4 @@ env_logger = "0.10.0"
 rdkafka = "0.34.0"
 tokio = { version = "1.32.0", features = ["full"] }
 chrono = "0.4"
+uuid = { version = "1.17.0", features = ["v4"] }
