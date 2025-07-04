@@ -1,0 +1,12 @@
+[package]
+name = "test-setup1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pretty_env_logger = "0.5.0"
+log = "0.4.20"
+env_logger = "0.10.0"
+rdkafka = "0.34.0"
+tokio = { version = "1.32.0", features = ["full"] }
+chrono = "0.4"
