@@ -1,8 +1,8 @@
-use test_setup1::simple::kafka::app::{KafkaProducer, KafkaConsumer};
 use std::time::Duration;
 use std::net::TcpStream;
 use chrono::Utc;
 use uuid::Uuid;
+use ferrisstream::{KafkaConsumer, KafkaProducer};
 
 const TOPIC: &str = "functional-test-topic";
 

@@ -1,81 +1,28 @@
-# Kafka Docker Setup
+# ferrisstreams
 
-This repository includes a Docker Compose configuration for running Apache Kafka locally.
+![Rust CI](https://github.com/bluemonk3y/ferrisstreams/workflows/Rust%20CI/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/ferrisstreams.svg)](https://crates.io/crates/ferrisstreams)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](./LICENSE)
 
-## Prerequisites
+A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams**.
 
-- [Docker](https://www.docker.com/get-started)
-- [Docker Compose](https://docs.docker.com/compose/install/) (usually included with Docker Desktop)
+## 🌟 Features
 
-## Running Kafka
+* **Asynchronous Kafka Interaction:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O with Kafka brokers.
+* **Comprehensive Client Support:** Includes robust implementations for:
+    * **Producers:** Reliably send messages to Kafka topics.
+    * **Consumers:** Efficiently consume messages from Kafka, supporting group management.
+    * **Parallel Consumers:** Leverage concurrent processing for high-throughput message handling across multiple partitions and topics.
+* **Flexible Serialization/Deserialization (`serde`):** Provides a modular `serde` framework, with out-of-the-box support for JSON and extensible traits for custom formats (e.g., Avro, Protobuf via feature flags).
+* **KTable-like Stateful Processing:** Build and manage local, fault-tolerant state stores for stream processing applications, enabling aggregations, joins, and materializing views across various input streams.
+* **Robust Error Handling:** Utilizes `thiserror` for precise, user-friendly error types and `anyhow` for convenient error propagation.
+* **Configurable and Extensible:** Designed with builder patterns and traits to allow for easy customization and integration.
 
-To start the Kafka environment:
+## ⚡️ Quick Start
 
-```bash
-docker-compose up -d
-```
+Add `ferrisstreams` to your `Cargo.toml`:
 
-This will start:
-- Kafka broker on port 9092
-- Kafka controller on port 9093 (KRaft mode)
-
-To stop the containers:
-
-```bash
-docker-compose down
-```
-
-## Verifying the Setup
-
-Check if the containers are running:
-
-```bash
-docker-compose ps
-```
-
-## Testing Kafka
-
-### Create a Topic
-
-```bash
-docker exec -it kafka kafka-topics --create --topic test-topic --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
-```
-
-### List Topics
-
-```bash
-docker exec -it kafka kafka-topics --list --bootstrap-server localhost:9092
-```
-
-### Produce Messages
-
-```bash
-docker exec -it kafka kafka-console-producer --topic test-topic --bootstrap-server localhost:9092
-```
-
-Type messages and press Enter. Press Ctrl+C to exit.
-
-### Consume Messages
-
-```bash
-docker exec -it kafka kafka-console-consumer --topic test-topic --from-beginning --bootstrap-server localhost:9092
-```
-
-Press Ctrl+C to exit.
-
-## Integration with Rust Application
-
-To integrate Kafka with your Rust application, you can use libraries like:
-- [rdkafka](https://crates.io/crates/rdkafka)
-- [kafka-rust](https://crates.io/crates/kafka)
-
-Example Cargo.toml addition:
 ```toml
 [dependencies]
-rdkafka = "0.25"
-```
-
-## Troubleshooting
-
-- If you encounter connection issues, ensure that the ports 9092 and 9093 are not being used by other applications.
-- Check container logs with `docker-compose logs kafka`.
+ferrisstreams = "0.1.0" # Use the latest version available on crates.io
+tokio = { version = "1", features = ["full"] } # Or specific tokio features

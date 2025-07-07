@@ -1,2 +1,2 @@
-// Re-export the simple module
-pub mod simple;
+// Re-export the ferris module
+pub mod ferris;

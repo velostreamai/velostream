@@ -1,4 +1,3 @@
-use test_setup1::simple::kafka::app::KafkaProducer;
 use std::time::Duration;
 use std::thread;
 use std::net::TcpStream;
@@ -26,6 +25,7 @@ use std::net::TcpStream;
 mod kafka_producer_tests {
     use std::fmt::format;
     use chrono::{Local, Utc};
+    use ferrisstream::ferris::kafka::KafkaProducer;
     use super::*;
 
     /// Helper function to check if Kafka is running

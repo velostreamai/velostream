@@ -1,4 +1,3 @@
-use test_setup1::simple::kafka::app::KafkaConsumer;
 use std::time::Duration;
 use std::net::TcpStream;
 use uuid::Uuid;
@@ -11,6 +10,7 @@ fn is_kafka_running() -> bool {
 #[cfg(test)]
 mod kafka_consumer_tests {
     use uuid::Uuid;
+    use ferrisstream::KafkaConsumer;
     use super::*;
 
     #[test]

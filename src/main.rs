@@ -1,10 +1,10 @@
 
 use log::{info, warn, error, debug, trace, LevelFilter};
 use env_logger::Env;
-use crate::simple::kafka::app::KafkaProducer;
+use crate::ferris::kafka::KafkaProducer;
 
 // Import the module structure
-mod simple;
+mod ferris;
 
 
 #[tokio::main]
