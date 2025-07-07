@@ -1,6 +1,5 @@
 use std::time::Duration;
 use std::thread;
-use std::net::TcpStream;
 
 /// This test class demonstrates how to use the KafkaProducer
 /// 
@@ -22,31 +21,19 @@ use std::net::TcpStream;
 /// 
 /// If Kafka is not running, the tests that require sending messages
 /// will be skipped with a note indicating that Kafka is required.
+#[cfg(test)]
 mod kafka_producer_tests {
-    use std::fmt::format;
     use chrono::{Local, Utc};
-    use ferrisstream::ferris::kafka::KafkaProducer;
+    use ferrisstreams::ferris::kafka::KafkaProducer;
+    use crate::ferris::kafka::test_utils::{init, is_kafka_running};
     use super::*;
 
-    /// Helper function to check if Kafka is running
-    fn is_kafka_running() -> bool {
-        match TcpStream::connect("localhost:9092") {
-            Ok(_) => true,
-            Err(_) => {
-                println!("WARNING: Kafka is not running at localhost:9092");
-                println!("Start Kafka with: docker-compose up -d");
-                println!("Wait for it to start with: ./test-kafka.sh");
-                println!("Tests requiring Kafka will be skipped.");
-                false
-            }
-        }
-    }
 
     /// Test creating a new KafkaProducer
     #[test]
     fn test_create_producer() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+
+        if !init() { return; }
 
         println!("Testing KafkaProducer creation...");
 
@@ -59,19 +46,16 @@ mod kafka_producer_tests {
         println!("KafkaProducer created successfully!");
     }
 
+
+
     /// Test sending a message with a key
     #[tokio::test]
     async fn test_send_with_key() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
+
 
         println!("Testing sending a message with a key...");
 
-        // Skip test if Kafka is not running
-        if !is_kafka_running() {
-            println!("Skipping test_send_with_key because Kafka is not running");
-            return;
-        }
 
         // Create a KafkaProducer instance
         let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
@@ -93,8 +77,7 @@ mod kafka_producer_tests {
     /// Test sending a message without a key
     #[tokio::test]
     async fn test_send_without_key() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
 
         println!("Testing sending a message without a key...");
 
@@ -124,8 +107,7 @@ mod kafka_producer_tests {
     /// Test sending a message to a specific topic
     #[tokio::test]
     async fn test_send_to_topic() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
 
         println!("Testing sending a message to a specific topic...");
 
@@ -155,8 +137,7 @@ mod kafka_producer_tests {
     /// Test flushing the producer
     #[test]
     fn test_flush() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
 
         println!("Testing flushing the producer...");
 
@@ -180,8 +161,7 @@ mod kafka_producer_tests {
     /// Test sending a message with a timestamp
     #[tokio::test]
     async fn test_send_with_timestamp() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
 
         println!("Testing sending a message with a timestamp...");
 
@@ -217,8 +197,7 @@ mod kafka_producer_tests {
     /// Test a complete workflow
     #[tokio::test]
     async fn test_complete_workflow() {
-        // Initialize the logger for better test output
-        let _ = env_logger::builder().is_test(true).try_init();
+        if !init() { return; }
 
         println!("Testing complete workflow...");
 

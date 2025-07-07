@@ -2,22 +2,15 @@ use std::time::Duration;
 use std::net::TcpStream;
 use chrono::Utc;
 use uuid::Uuid;
-use ferrisstream::{KafkaConsumer, KafkaProducer};
+use ferrisstreams::{KafkaConsumer, KafkaProducer};
+use crate::ferris::kafka::test_utils::is_kafka_running;
 
 const TOPIC: &str = "functional-test-topic";
-
-fn is_kafka_running() -> bool {
-    TcpStream::connect("localhost:9092").is_ok()
-}
-
 
 
 #[tokio::test]
 async fn test_produce_and_consume() {
-    if !is_kafka_running() {
-        println!("Kafka is not running. Skipping test.");
-        return;
-    }
+    if !is_kafka_running() { return; }
 
     let test_key = "test-key";
     let timestamp = Utc::now().to_rfc3339();

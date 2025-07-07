@@ -1,24 +1,19 @@
 use std::time::Duration;
-use std::net::TcpStream;
 use uuid::Uuid;
-
 /// Helper function to check if Kafka is running
-fn is_kafka_running() -> bool {
-    TcpStream::connect("localhost:9092").is_ok()
-}
 
 #[cfg(test)]
 mod kafka_consumer_tests {
     use uuid::Uuid;
-    use ferrisstream::KafkaConsumer;
+    use ferrisstreams::KafkaConsumer;
+    use crate::ferris::kafka::test_utils::init;
+
     use super::*;
 
     #[test]
     fn test_consume_message() {
-        if !is_kafka_running() {
-            println!("Kafka is not running. Skipping test.");
-            return;
-        }
+        if !init() { return; }
+
         let topic = "test-topic";
         let group_id = format!("test-group-{}", Uuid::new_v4());
         let consumer = KafkaConsumer::new("localhost:9092", &group_id)
@@ -31,6 +26,13 @@ mod kafka_consumer_tests {
 
         // Try to poll a message (may be none if topic is empty)
         let result = consumer.poll_message(Duration::from_secs(2));
+
+        assert!(
+            result.is_some(),
+            "No messages received from Kafka topic '{}'. Consider producing a message before running this test.",
+            topic
+        );
+
         if let Some((payload, headers)) = result {
             let payload_str = String::from_utf8_lossy(&payload);
             println!("Message payload: {}", payload_str);
@@ -42,18 +44,6 @@ mod kafka_consumer_tests {
         } else {
             println!("No messages received.");
         }
-
-        // // We don't assert on result, as topic may be empty
-        // println!("Polled message: {:?}", result);
-        // if let Some((payload, headers)) = result {
-        //
-        //     println!("Message payload: {:?}, headers: {:?}", payload, headers);
-        // } else {
-        //     println!("No messages received.");
-        // }
-
-
-
     }
 }
 

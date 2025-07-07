@@ -3,7 +3,6 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use std::time::Duration;
 use log::{info, error};
-use chrono::Local;
 
 /// A wrapper around rdkafka's FutureProducer to simplify Kafka message production
 pub struct KafkaProducer {
