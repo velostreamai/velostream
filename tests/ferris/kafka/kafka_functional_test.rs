@@ -5,7 +5,7 @@ use uuid::Uuid;
 use ferrisstreams::{KafkaConsumer, KafkaProducer};
 use crate::ferris::kafka::test_utils::is_kafka_running;
 
-const TOPIC: &str = "functional-test-topic";
+const TOPIC: &str = "kafka-functional-test-topic";
 
 
 #[tokio::test]
