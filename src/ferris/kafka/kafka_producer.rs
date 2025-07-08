@@ -1,12 +1,12 @@
+use crate::ferris::kafka::convert_kafka_log_level;
+use log::{error, info, log, Level};
 use rdkafka::client::{ClientContext, DefaultClientContext};
 use rdkafka::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::message::DeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, NoCustomPartitioner, Producer, ProducerContext};
 use rdkafka::util::Timeout;
 use std::time::Duration;
-use log::{info, error, Level, log};
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::message::DeliveryResult;
-use crate::ferris::kafka::convert_kafka_log_level;
 
 /// Custom context for tracking producer state and errors
 pub struct LoggingProducerContext;
@@ -51,21 +51,27 @@ pub struct KafkaProducer {
 }
 
 impl KafkaProducer {
-    /// Creates a new KafkaProducer
+    /// Creates a new KafkaProducer with an optional custom context
     ///
     /// # Arguments
     ///
     /// * `brokers` - Comma-separated list of broker addresses (e.g., "localhost:9092")
     /// * `default_topic` - The default topic to produce messages to
+    /// * `context` - Optional LoggingProducerContext (if None, a default is used)
     ///
     /// # Returns
     ///
     /// A Result containing the KafkaProducer or an error
-    pub fn new(brokers: &str, default_topic: &str) -> Result<Self, rdkafka::error::KafkaError> {
+    pub fn new_with_context(
+        brokers: &str,
+        default_topic: &str,
+        context: Option<LoggingProducerContext>,
+    ) -> Result<Self, rdkafka::error::KafkaError> {
+        let ctx = context.unwrap_or(LoggingProducerContext);
         let producer: FutureProducer<LoggingProducerContext> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "5000")
-            .create_with_context(LoggingProducerContext)?;
+            .create_with_context(ctx)?;
 
         info!("Created KafkaProducer connected to {} with default topic {}", brokers, default_topic);
 
@@ -73,6 +79,11 @@ impl KafkaProducer {
             producer,
             default_topic: default_topic.to_string(),
         })
+    }
+
+    /// Creates a new KafkaProducer (backward compatible, uses default context)
+    pub fn new(brokers: &str, default_topic: &str) -> Result<Self, rdkafka::error::KafkaError> {
+        Self::new_with_context(brokers, default_topic, None)
     }
 
     /// Sends a message to the default topic
@@ -151,3 +162,34 @@ impl KafkaProducer {
         self.producer.flush(Timeout::After(Duration::from_millis(timeout_ms)))
     }
 }
+
+/// Example of your own custom context
+pub struct MyCustomProducerContext;
+
+// Implement ProducerContext for your custom context
+impl ProducerContext for MyCustomProducerContext {
+    type DeliveryOpaque = ();
+
+    fn delivery(&self, delivery_result: &DeliveryResult<'_>, delivery_opaque: Self::DeliveryOpaque) {
+        // Your custom delivery logic here
+    }
+
+    fn get_custom_partitioner(&self) -> Option<&NoCustomPartitioner> {
+        None
+    }
+}
+
+// Implement ClientContext for your custom context
+impl ClientContext for MyCustomProducerContext {
+    fn error(&self, error: KafkaError, reason: &str) {
+        // Your custom error handling here
+    }
+
+    fn log(&self, level: RDKafkaLogLevel, fac: &str, message: &str) {
+        // Your custom logging here
+    }
+}
+
+// Example usage: create a producer with your custom context
+// let custom_context = MyCustomProducerContext;
+// let producer = KafkaProducer::new_with_context(brokers, topic, Some(custom_context));

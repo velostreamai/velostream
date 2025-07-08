@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 /// This test class demonstrates how to use the KafkaProducer
 /// 
@@ -23,14 +23,36 @@ use std::thread;
 /// will be skipped with a note indicating that Kafka is required.
 #[cfg(test)]
 mod kafka_producer_tests {
-    use chrono::{Local, Utc};
-    use ferrisstreams::ferris::kafka::KafkaProducer;
-    use ferrisstreams::ferris::kafka::LoggingProducerContext;
-    use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-    use logtest::Logger;
-    use rdkafka::{ClientContext};
     use super::*;
     use crate::ferris::kafka::test_utils::{init, is_kafka_running};
+    use chrono::{Local, Utc};
+    use ferrisstreams::ferris::kafka::{KafkaProducer};
+    use ferrisstreams::ferris::kafka::LoggingProducerContext;
+    use logtest::Logger;
+    use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+    use rdkafka::ClientContext;
+
+    // #[test]
+    // fn test_kafka_producer_new_with_context() {
+    //     use rdkafka::producer::{ProducerContext, NoCustomPartitioner};
+    //     use rdkafka::client::ClientContext;
+    //     use rdkafka::message::DeliveryResult;
+    //     use rdkafka::config::RDKafkaLogLevel;
+    //     use rdkafka::error::KafkaError;
+    //
+    //     // Use the custom context defined in kafka_producer.rs
+    //     let brokers = "localhost:9092";
+    //     let topic = "test-topic";
+    //     let custom_context = MyCustomProducerContext::default();
+    //     let context = Some(custom_context);
+    //
+    //     // You must create the producer manually with the correct type
+    //     let producer: Result<KafkaProducer<MyCustomProducerContext>, _> =
+    //         KafkaProducer::new_with_context(brokers, topic, context);
+    //
+    //     assert!(producer.is_ok() || producer.is_err());
+    // }
+
 
     #[test]
     fn test_logging_producer_context_error_logs() {

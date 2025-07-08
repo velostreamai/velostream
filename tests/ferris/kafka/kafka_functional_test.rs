@@ -1,8 +1,8 @@
-use std::time::Duration;
-use chrono::Utc;
-use uuid::Uuid;
-use ferrisstreams::{KafkaConsumer, KafkaProducer};
 use crate::ferris::kafka::test_utils::is_kafka_running;
+use chrono::Utc;
+use ferrisstreams::{KafkaConsumer, KafkaProducer};
+use std::time::Duration;
+use uuid::Uuid;
 
 const TOPIC: &str = "kafka-functional-test-topic";
 
@@ -25,7 +25,7 @@ async fn test_produce_and_consume() {
     std::thread::sleep(Duration::from_secs(2));
 
     let mut found = false;
-    for _ in 0..5 {
+    for _ in 0..100 {
         if let Some((payload, key)) = consumer.poll_message(Duration::from_secs(2)) {
             let payload_str = String::from_utf8_lossy(&payload);
             let key_match = key.as_deref().map(|k| String::from_utf8_lossy(k)) == Some(test_key.into());

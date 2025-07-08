@@ -1,12 +1,10 @@
 use std::time::Duration;
-use uuid::Uuid;
-/// Helper function to check if Kafka is running
 
 #[cfg(test)]
 mod kafka_consumer_tests {
-    use uuid::Uuid;
-    use ferrisstreams::KafkaConsumer;
     use crate::ferris::kafka::test_utils::init;
+    use ferrisstreams::KafkaConsumer;
+    use uuid::Uuid;
 
     use super::*;
 

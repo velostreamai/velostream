@@ -1,5 +1,5 @@
+use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::message::Message;
 use std::time::Duration;
 
