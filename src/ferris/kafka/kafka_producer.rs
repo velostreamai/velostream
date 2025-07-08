@@ -1,12 +1,52 @@
-use rdkafka::config::ClientConfig;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::client::{ClientContext, DefaultClientContext};
+use rdkafka::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
+use rdkafka::producer::{FutureProducer, FutureRecord, NoCustomPartitioner, Producer, ProducerContext};
 use rdkafka::util::Timeout;
 use std::time::Duration;
-use log::{info, error};
+use log::{info, error, Level, log};
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::message::DeliveryResult;
+use crate::ferris::kafka::convert_kafka_log_level;
+
+/// Custom context for tracking producer state and errors
+pub struct LoggingProducerContext;
+
+
+impl ProducerContext for LoggingProducerContext {
+    type DeliveryOpaque = ();
+
+    fn delivery(&self, delivery_result: &DeliveryResult<'_>, delivery_opaque: Self::DeliveryOpaque) {
+        todo!()
+    }
+
+    fn get_custom_partitioner(&self) -> Option<&NoCustomPartitioner> {
+        todo!()
+    }
+}
+
+impl ClientContext for LoggingProducerContext {
+    // This method is called by rdkafka when a global error occurs.
+    fn error(&self, error: KafkaError, reason: &str) {
+    // fn error(&self, error: fn(RDKafkaErrorCode) -> KafkaError, reason: &str) {
+        // Use the 'error!' macro from the `log` crate for consistency.
+        // It automatically uses the 'error' log level.
+        error!("Kafka client error: {:?}, reason: {}", error, reason);
+        // You can add custom logic here, e.g., incrementing error metrics,
+        // sending alerts, or attempting recovery.
+    }
+
+    // This method is called by rdkafka to provide internal log messages.
+    fn log(&self, level: RDKafkaLogLevel, fac: &str, message: &str) {
+        // Use the `log::log!` macro to emit the log message with the determined level.
+        // The `fac` (facility) string often indicates the source within librdkafka (e.g., "BROKER", "TOPIC").
+        log::log!(convert_kafka_log_level(level), "Kafka log ({}): {}", fac, message);
+    }
+}
+
 
 /// A wrapper around rdkafka's FutureProducer to simplify Kafka message production
 pub struct KafkaProducer {
-    producer: FutureProducer,
+    producer: FutureProducer<LoggingProducerContext>,
     default_topic: String,
 }
 
@@ -22,10 +62,10 @@ impl KafkaProducer {
     ///
     /// A Result containing the KafkaProducer or an error
     pub fn new(brokers: &str, default_topic: &str) -> Result<Self, rdkafka::error::KafkaError> {
-        let producer: FutureProducer = ClientConfig::new()
+        let producer: FutureProducer<LoggingProducerContext> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "5000")
-            .create()?;
+            .create_with_context(LoggingProducerContext)?;
 
         info!("Created KafkaProducer connected to {} with default topic {}", brokers, default_topic);
 

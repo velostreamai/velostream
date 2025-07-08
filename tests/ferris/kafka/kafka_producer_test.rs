@@ -25,8 +25,43 @@ use std::thread;
 mod kafka_producer_tests {
     use chrono::{Local, Utc};
     use ferrisstreams::ferris::kafka::KafkaProducer;
-    use crate::ferris::kafka::test_utils::{init, is_kafka_running};
+    use ferrisstreams::ferris::kafka::LoggingProducerContext;
+    use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+    use logtest::Logger;
+    use rdkafka::{ClientContext};
     use super::*;
+    use crate::ferris::kafka::test_utils::{init, is_kafka_running};
+
+    #[test]
+    fn test_logging_producer_context_error_logs() {
+        let mut logger = Logger::start();
+        let ctx = LoggingProducerContext;
+
+        let error_reason = "things broke";
+        let error_variant = KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut);
+
+        ctx.error(error_variant, error_reason);
+
+        let log_entry = logger.pop().expect("No log entry was captured");
+        assert_eq!(
+            log_entry.level(),
+            log::Level::Error,
+            "Expected log level ERROR"
+        );
+        assert!(
+            log_entry.args().contains("Kafka client error"),
+            "Log message should contain 'Kafka client error'"
+        );
+        assert!(
+            log_entry.args().contains(error_reason),
+            "Log message should contain the error reason: {}",
+            error_reason
+        );
+        assert!(
+            log_entry.args().contains("Message production error"),
+            "Log message should mention the error variant"
+        );
+    }
 
 
     /// Test creating a new KafkaProducer

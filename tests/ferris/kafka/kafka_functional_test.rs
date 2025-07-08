@@ -1,5 +1,4 @@
 use std::time::Duration;
-use std::net::TcpStream;
 use chrono::Utc;
 use uuid::Uuid;
 use ferrisstreams::{KafkaConsumer, KafkaProducer};
