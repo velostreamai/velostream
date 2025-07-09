@@ -1,7 +1,7 @@
 
 use log::{info, warn, error, debug, trace, LevelFilter};
 use env_logger::Env;
-use crate::ferris::kafka::KafkaProducer;
+use crate::ferris::kafka::{KafkaProducer, LoggingProducerContext};
 
 // Import the module structure
 mod ferris;
@@ -15,7 +15,7 @@ async fn main() -> Result<(), rdkafka::error::KafkaError> {
     println!("Kafka Producer Example");
 
     // Create a KafkaProducer instance
-    let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+    let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
         Ok(p) => {
             info!("Successfully created Kafka producer");
             p

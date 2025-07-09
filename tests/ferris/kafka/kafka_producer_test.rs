@@ -24,7 +24,7 @@ use std::time::Duration;
 #[cfg(test)]
 mod kafka_producer_tests {
     use super::*;
-    use crate::ferris::kafka::test_utils::{init, is_kafka_running};
+    use crate::ferris::kafka::test_utils::{init};
     use chrono::{Local, Utc};
     use ferrisstreams::ferris::kafka::{KafkaProducer};
     use ferrisstreams::ferris::kafka::LoggingProducerContext;
@@ -32,61 +32,31 @@ mod kafka_producer_tests {
     use rdkafka::error::{KafkaError, RDKafkaErrorCode};
     use rdkafka::ClientContext;
 
-    // #[test]
-    // fn test_kafka_producer_new_with_context() {
-    //     use rdkafka::producer::{ProducerContext, NoCustomPartitioner};
-    //     use rdkafka::client::ClientContext;
-    //     use rdkafka::message::DeliveryResult;
-    //     use rdkafka::config::RDKafkaLogLevel;
-    //     use rdkafka::error::KafkaError;
-    //
-    //     // Use the custom context defined in kafka_producer.rs
-    //     let brokers = "localhost:9092";
-    //     let topic = "test-topic";
-    //     let custom_context = MyCustomProducerContext::default();
-    //     let context = Some(custom_context);
-    //
-    //     // You must create the producer manually with the correct type
-    //     let producer: Result<KafkaProducer<MyCustomProducerContext>, _> =
-    //         KafkaProducer::new_with_context(brokers, topic, context);
-    //
-    //     assert!(producer.is_ok() || producer.is_err());
-    // }
+    #[tokio::test]
+    async fn test_kakfa_producer_new_with_context() {
+        if !init() { return; }
 
+        println!("Testing KafkaProducer creation with custom context...");
 
-    #[test]
-    fn test_logging_producer_context_error_logs() {
-        let mut logger = Logger::start();
-        let ctx = LoggingProducerContext;
+        // Create a KafkaProducer instance with LoggingProducerContext
+        let context = LoggingProducerContext::default();
+        let producer = match KafkaProducer::<LoggingProducerContext>::new_with_context("localhost:9092", "test-topic", context) {
+            Ok(p) => p,
+            Err(e) => {
+                panic!("Failed to create KafkaProducer: {}", e);
+            }
+        };
+        let result = producer.send(Some("test-key"), "Test message with key", None).await;
 
-        let error_reason = "things broke";
-        let error_variant = KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut);
+        // Check if the message was sent successfully
+        assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
-        ctx.error(error_variant, error_reason);
+        // let last = producer.context().last_delivery();
 
-        let log_entry = logger.pop().expect("No log entry was captured");
-        assert_eq!(
-            log_entry.level(),
-            log::Level::Error,
-            "Expected log level ERROR"
-        );
-        assert!(
-            log_entry.args().contains("Kafka client error"),
-            "Log message should contain 'Kafka client error'"
-        );
-        assert!(
-            log_entry.args().contains(error_reason),
-            "Log message should contain the error reason: {}",
-            error_reason
-        );
-        assert!(
-            log_entry.args().contains("Message production error"),
-            "Log message should mention the error variant"
-        );
+        // Check if the producer was created successfully
+        println!("KafkaProducer created successfully with custom context!");
     }
 
-
-    /// Test creating a new KafkaProducer
     #[test]
     fn test_create_producer() {
 
@@ -95,7 +65,7 @@ mod kafka_producer_tests {
         println!("Testing KafkaProducer creation...");
 
         // Create a KafkaProducer instance
-        let producer = KafkaProducer::new("localhost:9092", "test-topic");
+        let producer = KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic");
 
         // Check if the producer was created successfully
         assert!(producer.is_ok(), "Failed to create KafkaProducer: {:?}", producer.err());
@@ -115,7 +85,7 @@ mod kafka_producer_tests {
 
 
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -138,14 +108,8 @@ mod kafka_producer_tests {
 
         println!("Testing sending a message without a key...");
 
-        // Skip test if Kafka is not running
-        if !is_kafka_running() {
-            println!("Skipping test_send_without_key because Kafka is not running");
-            return;
-        }
-
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -168,14 +132,8 @@ mod kafka_producer_tests {
 
         println!("Testing sending a message to a specific topic...");
 
-        // Skip test if Kafka is not running
-        if !is_kafka_running() {
-            println!("Skipping test_send_to_topic because Kafka is not running");
-            return;
-        }
-
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -199,7 +157,7 @@ mod kafka_producer_tests {
         println!("Testing flushing the producer...");
 
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -222,14 +180,8 @@ mod kafka_producer_tests {
 
         println!("Testing sending a message with a timestamp...");
 
-        // Skip test if Kafka is not running
-        if !is_kafka_running() {
-            println!("Skipping test_send_with_timestamp because Kafka is not running");
-            return;
-        }
-
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -258,14 +210,8 @@ mod kafka_producer_tests {
 
         println!("Testing complete workflow...");
 
-        // Skip test if Kafka is not running
-        if !is_kafka_running() {
-            println!("Skipping test_complete_workflow because Kafka is not running");
-            return;
-        }
-
         // Create a KafkaProducer instance
-        let producer = match KafkaProducer::new("localhost:9092", "test-topic") {
+        let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -293,5 +239,37 @@ mod kafka_producer_tests {
         assert!(result.is_ok(), "Failed to flush producer: {:?}", result.err());
 
         println!("Complete workflow executed successfully!");
+    }
+
+
+    #[test]
+    fn test_logging_producer_context_error_logs() {
+        let mut logger = Logger::start();
+        let ctx = LoggingProducerContext::default();
+
+        let error_reason = "things broke";
+        let error_variant = KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut);
+
+        ctx.error(error_variant, error_reason);
+
+        let log_entry = logger.pop().expect("No log entry was captured");
+        assert_eq!(
+            log_entry.level(),
+            log::Level::Error,
+            "Expected log level ERROR"
+        );
+        assert!(
+            log_entry.args().contains("Kafka client error"),
+            "Log message should contain 'Kafka client error'"
+        );
+        assert!(
+            log_entry.args().contains(error_reason),
+            "Log message should contain the error reason: {}",
+            error_reason
+        );
+        assert!(
+            log_entry.args().contains("Message production error"),
+            "Log message should mention the error variant"
+        );
     }
 }

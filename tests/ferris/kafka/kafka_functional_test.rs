@@ -3,6 +3,7 @@ use chrono::Utc;
 use ferrisstreams::{KafkaConsumer, KafkaProducer};
 use std::time::Duration;
 use uuid::Uuid;
+use ferrisstreams::ferris::kafka::LoggingProducerContext;
 
 const TOPIC: &str = "kafka-functional-test-topic";
 
@@ -15,7 +16,7 @@ async fn test_produce_and_consume() {
     let timestamp = Utc::now().to_rfc3339();
     let test_payload = format!("hello, kafka! @ {}", timestamp);
 
-    let producer = KafkaProducer::new("localhost:9092", TOPIC).expect("Failed to create KafkaProducer");
+    let producer = KafkaProducer::<LoggingProducerContext>::new("localhost:9092", TOPIC).expect("Failed to create KafkaProducer");
     let result = producer.send_to_topic(TOPIC, Some(test_key), &test_payload, None).await;
     assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
