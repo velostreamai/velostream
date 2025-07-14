@@ -65,7 +65,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send(&self, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<(), rdkafka::error::KafkaError> {
+    pub async fn send(&self, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
         self.send_to_topic(&self.default_topic, key, payload, timestamp).await
     }
 
@@ -79,7 +79,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send_without_timestamp(&self, key: Option<&str>, payload: &str) -> Result<(), rdkafka::error::KafkaError> {
+    pub async fn send_without_timestamp(&self, key: Option<&str>, payload: &str) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
         self.send(key, payload, None).await
     }
 
@@ -95,7 +95,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<(), rdkafka::error::KafkaError> {
+    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
         let mut record = FutureRecord::to(topic)
             .payload(payload)
             .key(key.unwrap_or(""));
@@ -105,10 +105,11 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
             record = record.timestamp(ts);
         }
 
-        match self.producer.send(record, Timeout::After(Duration::from_secs(SEND_WAIT))).await {
-            Ok(_) => {
+        info!("Sending message to topic '{}': key={:?}, payload='{}'", topic, key, payload);
+        match self.producer.send(record, Timeout::After(Duration::from_secs(SEND_WAIT))).await{
+            Ok(delivery) => {
                 info!("Message sent to topic '{}'", topic);
-                Ok(())
+                Ok(delivery)
             }
             Err((err, _)) => {
                 error!("Failed to send message to topic '{}': {}", topic, err);

@@ -100,6 +100,15 @@ mod kafka_producer_tests {
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
+        if let Ok(delivery) = result {
+            println!("Message sent successfully with delivery: {:?}", delivery);
+            // assert!(delivery.is_some(), "Delivery result should not be None");
+            assert!(delivery.offset > 0, "Delivery offset should be greater than 0");
+        } else {
+            println!("Failed to send message: {:?}", result.err());
+        }
+
+
         println!("Message with key sent successfully!");
     }
 
