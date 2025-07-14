@@ -1,41 +1,44 @@
 use crate::ferris::kafka::convert_kafka_log_level;
+use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 use log::{error, info, log, Level};
-use rdkafka::client::{ClientContext, DefaultClientContext};
 use rdkafka::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::DeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, NoCustomPartitioner, Producer, ProducerContext};
 use rdkafka::util::{DefaultRuntime, Timeout};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 
 /// A wrapper around rdkafka's FutureProducer to simplify Kafka message production
-pub struct KafkaProducer<C: ClientContext + ProducerContext + 'static> {
+pub struct KafkaProducer<C: ProducerContext + 'static> {
     producer: FutureProducer<C>,
     default_topic: String,
 }
+const SEND_WAIT: u64 = 30;
 
-impl<C: ClientContext + ProducerContext + 'static> KafkaProducer<C> {
-
+impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// Creates a new KafkaProducer with an optional custom context
     ///
     /// # Arguments
     ///
     /// * `brokers` - Comma-separated list of broker addresses (e.g., "localhost:9092")
     /// * `default_topic` - The default topic to produce messages to
-    /// * `context` - Optional LoggingProducerContext (if None, a default is used)
+    /// * `context` - Optional ProducerContext (if None, a default is used)
     ///
     /// # Returns
     ///
     /// A Result containing the KafkaProducer or an error
     pub fn new_with_context(
-            brokers: &str,
-            default_topic: &str,
-            context: C,
-        ) -> Result<KafkaProducer<C>, rdkafka::error::KafkaError> {
+        brokers: &str,
+        default_topic: &str,
+        context: C,
+    ) -> Result<KafkaProducer<C>, rdkafka::error::KafkaError> {
         let producer: FutureProducer<C> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "5000")
+
+            // 7: Debug, 6:Info, 3:Error
+            .set("log_level", "7")
             .create_with_context(context)?;
 
         info!("Created KafkaProducer connected to {} with default topic {}", brokers, default_topic);
@@ -102,11 +105,11 @@ impl<C: ClientContext + ProducerContext + 'static> KafkaProducer<C> {
             record = record.timestamp(ts);
         }
 
-        match self.producer.send(record, Timeout::After(Duration::from_secs(5))).await {
-            Ok((partition, offset)) => {
-                info!("Message sent to topic '{}', partition {}, offset {}", topic, partition, offset);
+        match self.producer.send(record, Timeout::After(Duration::from_secs(SEND_WAIT))).await {
+            Ok(_) => {
+                info!("Message sent to topic '{}'", topic);
                 Ok(())
-            },
+            }
             Err((err, _)) => {
                 error!("Failed to send message to topic '{}': {}", topic, err);
                 Err(err)
@@ -122,7 +125,8 @@ impl<C: ClientContext + ProducerContext + 'static> KafkaProducer<C> {
     ///
     /// # Returns
     ///
-    /// A Result indicating success or failure
+    /// A Result indicating
+    /// success or failure
     pub fn flush(&self, timeout_ms: u64) -> Result<(), rdkafka::error::KafkaError> {
         self.producer.flush(Timeout::After(Duration::from_millis(timeout_ms)))
     }

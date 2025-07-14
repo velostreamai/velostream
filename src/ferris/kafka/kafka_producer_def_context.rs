@@ -66,7 +66,6 @@ impl ClientContext for LoggingProducerContext {
 
     // This method is called by rdkafka when a global error occurs.
     fn error(&self, error: KafkaError, reason: &str) {
-    // fn error(&self, error: fn(RDKafkaErrorCode) -> KafkaError, reason: &str) {
         // Use the 'error!' macro from the `log` crate for consistency.
         // It automatically uses the 'error' log level.
         error!("Kafka client error: {:?}, reason: {}", error, reason);

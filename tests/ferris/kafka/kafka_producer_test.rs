@@ -31,6 +31,9 @@ mod kafka_producer_tests {
     use logtest::Logger;
     use rdkafka::error::{KafkaError, RDKafkaErrorCode};
     use rdkafka::ClientContext;
+    use rdkafka::config::RDKafkaLogLevel;
+    use rdkafka::message::DeliveryResult;
+    use rdkafka::producer::ProducerContext;
 
     #[tokio::test]
     async fn test_kakfa_producer_new_with_context() {
@@ -39,8 +42,8 @@ mod kafka_producer_tests {
         println!("Testing KafkaProducer creation with custom context...");
 
         // Create a KafkaProducer instance with LoggingProducerContext
-        let context = LoggingProducerContext::default();
-        let producer = match KafkaProducer::<LoggingProducerContext>::new_with_context("localhost:9092", "test-topic", context) {
+        let context = MyProducerContext;
+        let producer = match KafkaProducer::<MyProducerContext>::new_with_context("localhost:9092", "test-topic", context) {
             Ok(p) => p,
             Err(e) => {
                 panic!("Failed to create KafkaProducer: {}", e);
@@ -51,7 +54,6 @@ mod kafka_producer_tests {
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
-        // let last = producer.context().last_delivery();
 
         // Check if the producer was created successfully
         println!("KafkaProducer created successfully with custom context!");
@@ -121,6 +123,8 @@ mod kafka_producer_tests {
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         println!("Message without key sent successfully!");
     }
@@ -271,5 +275,21 @@ mod kafka_producer_tests {
             log_entry.args().contains("Message production error"),
             "Log message should mention the error variant"
         );
+    }
+
+    struct MyProducerContext;
+
+    impl ClientContext for MyProducerContext {
+        fn log(&self, level: RDKafkaLogLevel, fac: &str, log_message: &str) {
+            println!(" LOGGGGGING MSG: {:?} - {} - {}", level, fac, log_message);
+        }
+
+    }
+
+    impl ProducerContext for MyProducerContext {
+        type DeliveryOpaque = ();
+        fn delivery(&self, delivery_result: &DeliveryResult, _: Self::DeliveryOpaque) {
+            println!("***** --->>> Delivery result: {:?}", delivery_result);
+        }
     }
 }
