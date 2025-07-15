@@ -4,6 +4,7 @@ use ferrisstreams::{KafkaConsumer, KafkaProducer};
 use std::time::Duration;
 use rdkafka::ClientContext;
 use rdkafka::config::RDKafkaLogLevel;
+use rdkafka::consumer::DefaultConsumerContext;
 use rdkafka::message::DeliveryResult;
 use rdkafka::producer::{DefaultProducerContext, ProducerContext};
 use uuid::Uuid;
@@ -37,7 +38,7 @@ async fn test_produce_and_consume() {
     assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
     let group_id = format!("test-functional-group-{}", Uuid::new_v4());
-    let consumer = KafkaConsumer::new("localhost:9092", &group_id);
+    let consumer = KafkaConsumer::new_with_context("localhost:9092", &group_id, DefaultConsumerContext);
     consumer.subscribe(&[TOPIC]);
     std::thread::sleep(Duration::from_secs(2));
 

@@ -6,7 +6,7 @@
 
 A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams**.
 
-## 🌟 Features
+## 🌟 Features (WIP)
 
 * **Asynchronous Kafka Interaction:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O with Kafka brokers.
 * **Comprehensive Client Support:** Includes robust implementations for:
@@ -17,6 +17,22 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **KTable-like Stateful Processing:** Build and manage local, fault-tolerant state stores for stream processing applications, enabling aggregations, joins, and materializing views across various input streams.
 * **Robust Error Handling:** Utilizes `thiserror` for precise, user-friendly error types and `anyhow` for convenient error propagation.
 * **Configurable and Extensible:** Designed with builder patterns and traits to allow for easy customization and integration.
+
+
+## 🚀 Work in Progress
+- Basic producer and consumer implementations including Context support
+- Consume from time 'time-X'
+- Compacting Producer (high throughput, low latency for ticking data sources)
+- Serialization and deserialization using json serde
+
+
+Higher order functions and more advanced features are planned for future releases, including:
+- Fan in (multiple topics to single topic)
+- Fan out (single topic to multiple topics)
+- KTable-like stateful processing
+- Bridging to other Kafka topics including support for filtering, mapping, and reducing streams and header propogation
+- 
+
 
 ## ⚡️ Quick Start
 

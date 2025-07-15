@@ -12,7 +12,7 @@ use std::time::Duration;
 /// A wrapper around rdkafka's FutureProducer to simplify Kafka message production
 pub struct KafkaProducer<C: ProducerContext + 'static> {
     producer: FutureProducer<C>,
-    default_topic: String,
+    default_topic: String
 }
 const SEND_WAIT: u64 = 30;
 
@@ -45,7 +45,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
 
         Ok(KafkaProducer {
             producer,
-            default_topic: default_topic.to_string(),
+            default_topic: default_topic.to_string()
         })
     }
 
