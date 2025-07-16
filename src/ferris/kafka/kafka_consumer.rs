@@ -6,6 +6,7 @@ use std::time::Duration;
 use log::{error, info, log, Level};
 use rdkafka::bindings::rd_kafka_event_debug_contexts;
 use rdkafka::error::KafkaError;
+use futures::StreamExt;
 
 pub struct KafkaConsumer<C: ConsumerContext + 'static> {
     consumer: StreamConsumer<C>,
@@ -54,16 +55,17 @@ impl<C: ConsumerContext + 'static> KafkaConsumer<C> {
     }
 
 
-    pub fn poll_message(&self, timeout: Duration) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
-        // match self.consumer.poll() {
-        //     Some(Ok(msg)) => {
-        //         let payload = msg.payload().map(|p| p.to_vec()).unwrap_or_default();
-        //         let key = msg.key().map(|k| k.to_vec());
-        //         Some((payload, key))
-        //     },
-        //     _ => None,
-        // }
-        panic!("Not implemented yet");
-        // None
+
+    pub async fn poll_message(&self, timeout: Duration) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+        use tokio::time;
+        let mut stream = self.consumer.stream();
+        match time::timeout(timeout, stream.next()).await {
+            Ok(Some(Ok(msg))) => {
+                let payload = msg.payload().map(|p| p.to_vec()).unwrap_or_default();
+                let key = msg.key().map(|k| k.to_vec());
+                Some((payload, key))
+            }
+            _ => None,
+        }
     }
 }

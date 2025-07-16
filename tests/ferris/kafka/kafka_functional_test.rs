@@ -44,7 +44,7 @@ async fn test_produce_and_consume() {
 
     let mut found = false;
     for _ in 0..100 {
-        if let Some((payload, key)) = consumer.poll_message(Duration::from_secs(2)) {
+        if let Some((payload, key)) = consumer.poll_message(Duration::from_secs(2)).await {
             let payload_str = String::from_utf8_lossy(&payload);
             let key_match = key.as_deref().map(|k| String::from_utf8_lossy(k)) == Some(test_key.into());
             println!("Received message: key={:?}, payload={}", key, payload_str);
