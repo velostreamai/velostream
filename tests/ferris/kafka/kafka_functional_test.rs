@@ -34,7 +34,7 @@ async fn test_produce_and_consume() {
         }
     };
         //.expect("Failed to create KafkaProducer");
-    let result = producer.send_to_topic(TOPIC, Some(test_key), &test_payload, None).await;
+    let result = producer.send_to_topic(TOPIC, Some(test_key), test_payload.as_bytes(), None).await;
     assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
 
     let group_id = format!("test-functional-group-{}", Uuid::new_v4());

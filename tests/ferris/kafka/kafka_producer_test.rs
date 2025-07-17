@@ -49,7 +49,7 @@ mod kafka_producer_tests {
                 panic!("Failed to create KafkaProducer: {}", e);
             }
         };
-        let result = producer.send(Some("test-key"), "Test message with key", None).await;
+        let result = producer.send(Some("test-key"), b"Test message with key", None).await;
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
@@ -95,7 +95,7 @@ mod kafka_producer_tests {
         };
 
         // Send a message with a key (without timestamp)
-        let result = producer.send(Some("test-key"), "Test message with key", None).await;
+        let result = producer.send(Some("test-key"), b"Test message with key", None).await;
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
@@ -128,7 +128,7 @@ mod kafka_producer_tests {
         };
 
         // Send a message without a key (without timestamp)
-        let result = producer.send(None, "Test message without key", None).await;
+        let result = producer.send(None, b"Test message without key", None).await;
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
@@ -154,7 +154,7 @@ mod kafka_producer_tests {
         };
 
         // Send a message to a specific topic (without timestamp)
-        let result = producer.send_to_topic("another-topic", Some("test-key"), "Test message to another topic", None).await;
+        let result = producer.send_to_topic("another-topic", Some("test-key"), b"Test message to another topic", None).await;
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message to topic: {:?}", result.err());
@@ -205,10 +205,13 @@ mod kafka_producer_tests {
         let now_local = Local::now();
         let now_string = now_local.format("%Y-%m-%d %H:%M:%S").to_string();
 
-        // Send a message with a specific timestamp
-        let result = producer.send(Some("timestamp-key"),
-                                               format!("Test message with timestamp {}", now_string).as_str(),
-                                               Some(current_time)).await;
+        // Send a message with a specific timestamp (as binary payload)
+        let payload = format!("Test message with timestamp {}", now_string);
+        let result = producer.send(
+            Some("timestamp-key"),
+            payload.as_bytes(), // send as &[u8]
+            Some(current_time)
+        ).await;
 
         // Check if the message was sent successfully
         assert!(result.is_ok(), "Failed to send message with timestamp: {:?}", result.err());
@@ -239,7 +242,7 @@ mod kafka_producer_tests {
         ];
 
         for (key, payload) in messages {
-            let result = producer.send(Some(key), payload, None).await;
+            let result = producer.send(Some(key), payload.as_bytes(), None).await;
             assert!(result.is_ok(), "Failed to send message with key {}: {:?}", key, result.err());
             println!("Sent message with key: {}", key);
 

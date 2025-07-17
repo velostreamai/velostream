@@ -1,12 +1,9 @@
-use crate::ferris::kafka::convert_kafka_log_level;
 use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
-use log::{error, info, log, Level};
-use rdkafka::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::message::DeliveryResult;
+use log::{error, info, debug, log, Level};
+use rdkafka::config::ClientConfig;
+use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, NoCustomPartitioner, Producer, ProducerContext};
-use rdkafka::util::{DefaultRuntime, Timeout};
-use std::sync::{Arc, Mutex};
+use rdkafka::util::Timeout;
 use std::time::Duration;
 
 /// A wrapper around rdkafka's FutureProducer to simplify Kafka message production
@@ -32,7 +29,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
         brokers: &str,
         default_topic: &str,
         context: C,
-    ) -> Result<KafkaProducer<C>, rdkafka::error::KafkaError> {
+    ) -> Result<KafkaProducer<C>, KafkaError> {
         let producer: FutureProducer<C> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("message.timeout.ms", "5000")
@@ -50,7 +47,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     }
 
     /// Creates a new KafkaProducer (backward compatible, uses default context)
-    pub fn new(brokers: &str, default_topic: &str) -> Result<KafkaProducer<LoggingProducerContext>, rdkafka::error::KafkaError> {
+    pub fn new(brokers: &str, default_topic: &str) -> Result<KafkaProducer<LoggingProducerContext>, KafkaError> {
         KafkaProducer::new_with_context(brokers, default_topic, LoggingProducerContext::default())
     }
 
@@ -59,28 +56,32 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// # Arguments
     ///
     /// * `key` - Optional message key
-    /// * `payload` - Message content
+    /// * `payload` - Message content as bytes
     /// * `timestamp` - Optional timestamp in milliseconds since the Unix epoch
     ///
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send(&self, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
+    pub async fn send(&self, key: Option<&str>, payload: &[u8], timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, KafkaError> {
         self.send_to_topic(&self.default_topic, key, payload, timestamp).await
     }
 
-    /// Sends a message to the default topic without specifying a timestamp
+    /// Sends a message to the default topic with the current system time as the timestamp
     ///
     /// # Arguments
     ///
     /// * `key` - Optional message key
-    /// * `payload` - Message content
+    /// * `payload` - Message content as bytes
     ///
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send_without_timestamp(&self, key: Option<&str>, payload: &str) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
-        self.send(key, payload, None).await
+    pub async fn send_with_current_timestamp(&self, key: Option<&str>, payload: &[u8]) -> Result<rdkafka::producer::future_producer::Delivery, KafkaError> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis() as i64;
+        self.send_to_topic(&self.default_topic, key, payload, Some(timestamp)).await
     }
 
     /// Sends a message to a specific topic
@@ -89,13 +90,13 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     ///
     /// * `topic` - The topic to send the message to
     /// * `key` - Optional message key
-    /// * `payload` - Message content
+    /// * `payload` - Message content as bytes
     /// * `timestamp` - Optional timestamp in milliseconds since the Unix epoch
     ///
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload: &str, timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
+    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload:  &[u8], timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
         let mut record = FutureRecord::to(topic)
             .payload(payload)
             .key(key.unwrap_or(""));
@@ -105,10 +106,9 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
             record = record.timestamp(ts);
         }
 
-        info!("Sending message to topic '{}': key={:?}, payload='{}'", topic, key, payload);
         match self.producer.send(record, Timeout::After(Duration::from_secs(SEND_WAIT))).await{
             Ok(delivery) => {
-                info!("Message sent to topic '{}'", topic);
+                debug!("Message sent to topic '{}'", topic);
                 Ok(delivery)
             }
             Err((err, _)) => {
@@ -117,6 +117,8 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
             }
         }
     }
+
+
 
     /// Flushes any pending messages
     ///

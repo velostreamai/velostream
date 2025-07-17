@@ -28,21 +28,21 @@ async fn main() -> Result<(), rdkafka::error::KafkaError> {
 
     // Example: Send a message with a key
     info!("Sending message with key...");
-    if let Err(e) = producer.send(Some("example-key"), "Hello, Kafka!", None).await {
+    if let Err(e) = producer.send(Some("example-key"), b"Hello, Kafka!", None).await {
         error!("Failed to send message: {}", e);
         return Err(e);
     }
 
     // Example: Send a message without a key
     info!("Sending message without key...");
-    if let Err(e) = producer.send(None, "Another message without a key", None).await {
+    if let Err(e) = producer.send(None, b"Another message without a key", None).await {
         error!("Failed to send message: {}", e);
         return Err(e);
     }
 
     // Example: Send a message to a different topic
     info!("Sending message to a different topic...");
-    if let Err(e) = producer.send_to_topic("another-topic", Some("different-key"), "Message to another topic", None).await {
+    if let Err(e) = producer.send_to_topic("another-topic", Some("different-key"), b"Message to another topic", None).await {
         error!("Failed to send message to different topic: {}", e);
         return Err(e);
     }
