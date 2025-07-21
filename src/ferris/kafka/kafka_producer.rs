@@ -1,4 +1,5 @@
 use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
+use crate::ferris::kafka::serialization::{SerializationError, Serializer};
 use log::{error, info, debug, log, Level};
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
@@ -12,6 +13,25 @@ pub struct KafkaProducer<C: ProducerContext + 'static> {
     default_topic: String
 }
 const SEND_WAIT: u64 = 30;
+
+/// Error type for combined serialization and Kafka errors
+#[derive(Debug)]
+pub enum ProducerError {
+    KafkaError(KafkaError),
+    SerializationError(SerializationError),
+}
+
+impl From<KafkaError> for ProducerError {
+    fn from(err: KafkaError) -> Self {
+        ProducerError::KafkaError(err)
+    }
+}
+
+impl From<SerializationError> for ProducerError {
+    fn from(err: SerializationError) -> Self {
+        ProducerError::SerializationError(err)
+    }
+}
 
 impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// Creates a new KafkaProducer with an optional custom context
@@ -96,7 +116,7 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     /// # Returns
     ///
     /// A Result indicating success or failure
-    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload:  &[u8], timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
+    pub async fn send_to_topic(&self, topic: &str, key: Option<&str>, payload: &[u8], timestamp: Option<i64>) -> Result<rdkafka::producer::future_producer::Delivery, rdkafka::error::KafkaError> {
         let mut record = FutureRecord::to(topic)
             .payload(payload)
             .key(key.unwrap_or(""));
@@ -118,8 +138,6 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
         }
     }
 
-
-
     /// Flushes any pending messages
     ///
     /// # Arguments
@@ -128,9 +146,51 @@ impl<C: ProducerContext + 'static> KafkaProducer<C> {
     ///
     /// # Returns
     ///
-    /// A Result indicating
-    /// success or failure
+    /// A Result indicating success or failure
     pub fn flush(&self, timeout_ms: u64) -> Result<(), rdkafka::error::KafkaError> {
         self.producer.flush(Timeout::After(Duration::from_millis(timeout_ms)))
+    }
+
+    /// Sends an object using the provided serializer to the default topic
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Optional message key
+    /// * `value` - The object to serialize and send
+    /// * `serializer` - The serializer to use for converting the object to bytes
+    /// * `timestamp` - Optional timestamp in milliseconds since the Unix epoch
+    ///
+    /// # Returns
+    ///
+    /// A Result indicating success or failure
+    pub async fn send_with_serializer<T, S>(&self, key: Option<&str>, value: &T, serializer: &S, timestamp: Option<i64>)
+        -> Result<rdkafka::producer::future_producer::Delivery, ProducerError>
+    where
+        S: Serializer<T>
+    {
+        let payload = serializer.serialize(value)?;
+        Ok(self.send(key, &payload, timestamp).await?)
+    }
+
+    /// Sends an object using the provided serializer to a specific topic
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The topic to send the message to
+    /// * `key` - Optional message key
+    /// * `value` - The object to serialize and send
+    /// * `serializer` - The serializer to use for converting the object to bytes
+    /// * `timestamp` - Optional timestamp in milliseconds since the Unix epoch
+    ///
+    /// # Returns
+    ///
+    /// A Result indicating success or failure
+    pub async fn send_to_topic_with_serializer<T, S>(&self, topic: &str, key: Option<&str>, value: &T, serializer: &S, timestamp: Option<i64>)
+        -> Result<rdkafka::producer::future_producer::Delivery, ProducerError>
+    where
+        S: Serializer<T>
+    {
+        let payload = serializer.serialize(value)?;
+        Ok(self.send_to_topic(topic, key, &payload, timestamp).await?)
     }
 }

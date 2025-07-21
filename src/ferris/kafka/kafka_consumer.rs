@@ -7,6 +7,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::{BorrowedMessage, Message};
 use std::task::Context;
 use std::time::Duration;
+use crate::ferris::kafka::serialization::{SerializationError, Serializer};
 
 /// KafkaConsumer is a wrapper around rdkafka's StreamConsumer, providing
 /// convenient methods for consuming messages from Kafka topics asynchronously.
@@ -23,6 +24,27 @@ use std::time::Duration;
 pub struct KafkaConsumer<C: ConsumerContext + 'static> {
     /// The underlying rdkafka StreamConsumer.
     consumer: StreamConsumer<C>,
+}
+
+/// Error type for consumer operations including Kafka and serialization errors
+#[derive(Debug)]
+pub enum ConsumerError {
+    KafkaError(KafkaError),
+    SerializationError(SerializationError),
+    Timeout,
+    NoMessage,
+}
+
+impl From<KafkaError> for ConsumerError {
+    fn from(err: KafkaError) -> Self {
+        ConsumerError::KafkaError(err)
+    }
+}
+
+impl From<SerializationError> for ConsumerError {
+    fn from(err: SerializationError) -> Self {
+        ConsumerError::SerializationError(err)
+    }
 }
 
 impl KafkaConsumer<DefaultConsumerContext> {
@@ -83,8 +105,13 @@ impl<C: ConsumerContext + 'static> KafkaConsumer<C> {
         self.consumer.commit_consumer_state(CommitMode::Sync)
     }
 
-
-    /// fake a poll_message function that waits for a message with a timeout
+    /// Poll for a message with a timeout
+    ///
+    /// # Arguments
+    /// * `timeout` - Maximum time to wait for a message
+    ///
+    /// # Returns
+    /// * `Option<(Vec<u8>, Option<Vec<u8>>)>` - The message payload and optional key
     pub async fn poll_message(&self, timeout: Duration) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
         use tokio::time;
         let mut stream = self.consumer.stream();
@@ -95,6 +122,28 @@ impl<C: ConsumerContext + 'static> KafkaConsumer<C> {
                 Some((payload, key))
             }
             _ => None,
+        }
+    }
+
+    /// Poll for a message and deserialize it using the provided serializer
+    ///
+    /// # Arguments
+    /// * `timeout` - Maximum time to wait for a message
+    /// * `serializer` - The serializer to use for deserializing the message
+    ///
+    /// # Returns
+    /// * `Result<(T, Option<Vec<u8>>), ConsumerError>` - The deserialized message and optional key
+    pub async fn poll_with_serializer<T, S>(&self, timeout: Duration, serializer: &S)
+        -> Result<(T, Option<Vec<u8>>), ConsumerError>
+    where
+        S: Serializer<T>
+    {
+        match self.poll_message(timeout).await {
+            Some((payload, key)) => {
+                let value = serializer.deserialize(&payload)?;
+                Ok((value, key))
+            },
+            None => Err(ConsumerError::Timeout),
         }
     }
 }
