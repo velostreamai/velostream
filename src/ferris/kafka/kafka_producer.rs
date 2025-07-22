@@ -21,6 +21,24 @@ pub enum ProducerError {
     SerializationError(SerializationError),
 }
 
+impl std::fmt::Display for ProducerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProducerError::KafkaError(e) => write!(f, "Kafka error: {}", e),
+            ProducerError::SerializationError(e) => write!(f, "Serialization error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ProducerError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ProducerError::KafkaError(e) => Some(e),
+            ProducerError::SerializationError(e) => Some(e),
+        }
+    }
+}
+
 impl From<KafkaError> for ProducerError {
     fn from(err: KafkaError) -> Self {
         ProducerError::KafkaError(err)

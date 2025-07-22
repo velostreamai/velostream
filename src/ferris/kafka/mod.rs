@@ -4,10 +4,16 @@ mod kafka_consumer;
 mod utils;
 mod kafka_producer_def_context;
 mod serialization;
+mod typed_producer;
+mod typed_consumer;
 
 pub use kafka_producer::KafkaProducer;
 pub use kafka_consumer::KafkaConsumer;
 pub use kafka_producer_def_context::LoggingProducerContext;
+
+// Type-safe producers and consumers
+pub use typed_producer::{TypedKafkaProducer, TypedProducerBuilder};
+pub use typed_consumer::{TypedKafkaConsumer, TypedConsumerBuilder, TypedMessage, KafkaConsumable};
 pub use utils::convert_kafka_log_level;
 pub use serialization::{
     // Original serialization exports
