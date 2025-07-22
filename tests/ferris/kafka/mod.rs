@@ -1,8 +1,5 @@
-// Include the kafka_producer_test module
-pub mod kafka_producer_test;
-mod prod_cons_func_test;
-mod kafka_consumer_test;
+// Core test modules
 mod test_utils;
-mod serialization_test;
-mod serializer_demo_func_tests;
-mod typed_kafka_func_test;
+mod kafka_integration_test;
+mod kafka_advanced_test;
+mod serialization_unit_test;

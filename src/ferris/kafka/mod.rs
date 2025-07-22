@@ -1,36 +1,16 @@
-// Re-export the KafkaProducer from the kafka_producer module
+// Kafka modules
 mod kafka_producer;
 mod kafka_consumer;
-mod utils;
 mod kafka_producer_def_context;
 mod serialization;
-mod typed_producer;
-mod typed_consumer;
+mod utils;
 
-pub use kafka_producer::KafkaProducer;
-pub use kafka_consumer::KafkaConsumer;
+// Re-export main API
+pub use kafka_producer::{KafkaProducer, ProducerBuilder, ProducerError};
+pub use kafka_consumer::{KafkaConsumer, ConsumerBuilder, ConsumerError, Message, KafkaConsumable};
 pub use kafka_producer_def_context::LoggingProducerContext;
-
-// Type-safe producers and consumers
-pub use typed_producer::{TypedKafkaProducer, TypedProducerBuilder};
-pub use typed_consumer::{TypedKafkaConsumer, TypedConsumerBuilder, TypedMessage, KafkaConsumable};
+pub use serialization::{Serializer, SerializationError, JsonSerializer};
 pub use utils::convert_kafka_log_level;
-pub use serialization::{
-    // Original serialization exports
-    KafkaSerialize,
-    KafkaDeserialize,
-    SerializationError,
-    to_json,
-    from_json,
-    to_avro,
-    from_avro,
-    to_proto,
-    from_proto,
-
-    // New Serializer trait and implementations
-    Serializer,
-    JsonSerializer,
-};
 
 // Conditional exports for feature-gated serializers
 #[cfg(feature = "protobuf")]

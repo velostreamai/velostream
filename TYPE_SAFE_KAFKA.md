@@ -85,12 +85,23 @@ let consumer = TypedKafkaConsumer::<OrderEvent, _>::new(
 
 consumer.subscribe(&["orders"]);
 
-match consumer.poll_message(Duration::from_secs(5)).await {
-    Ok(typed_message) => {
-        println!("Order: {:?}", typed_message.value());
-        // Process order...
+// Recommended: Use streaming for efficient message processing
+let mut stream = consumer.stream();
+while let Some(message_result) = stream.next().await {
+    match message_result {
+        Ok(borrowed_message) => {
+            if let Some(payload) = borrowed_message.payload() {
+                if let Ok(order) = JsonSerializer.deserialize(payload) {
+                    println!("Order: {:?}", order);
+                    // Process order...
+                }
+            }
+        }
+        Err(e) => {
+            println!("Stream error: {}", e);
+            break;
+        }
     }
-    Err(e) => println!("Error: {}", e),
 }
 ```
 
@@ -113,22 +124,40 @@ let consumer = TypedConsumerBuilder::<OrderEvent, _>::new(
 ).build();
 ```
 
-### Streaming Messages
+### Streaming Messages (Recommended)
 ```rust
-let mut stream = consumer.typed_stream();
+use futures::StreamExt;
+use rdkafka::message::Message;
 
-while let Some(result) = stream.next_typed().await {
-    match result {
-        Ok(typed_message) => {
-            println!("Received: {:?}", typed_message.value());
+// Always prefer streaming over polling for production code
+let mut stream = consumer.stream();
+
+while let Some(message_result) = stream.next().await {
+    match message_result {
+        Ok(borrowed_message) => {
+            if let Some(payload) = borrowed_message.payload() {
+                match JsonSerializer.deserialize(payload) {
+                    Ok(typed_message) => {
+                        println!("Received: {:?}", typed_message);
+                        // Process message...
+                    }
+                    Err(e) => eprintln!("Deserialization error: {}", e),
+                }
+            }
         }
         Err(e) => {
-            println!("Stream error: {:?}", e);
+            eprintln!("Stream error: {:?}", e);
             break;
         }
     }
 }
 ```
+
+**Why streaming is preferred:**
+- More efficient resource usage
+- Better async integration with tokio
+- Native rdkafka pattern for production systems
+- Automatic backpressure handling
 
 ### Convenience Trait
 ```rust

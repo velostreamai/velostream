@@ -5,18 +5,16 @@
 // Export the ferris.kafka.app module structure
 pub mod ferris;
 
-// Re-export for backward compatibility and convenience
+// Re-export main API
 pub use ferris::kafka::{
-    KafkaProducer, 
-    KafkaConsumer,
-    // Type-safe versions
-    TypedKafkaProducer,
-    TypedKafkaConsumer,
-    TypedProducerBuilder,
-    TypedConsumerBuilder,
-    TypedMessage,
+    KafkaProducer,
+    KafkaConsumer, 
+    ProducerBuilder,
+    ConsumerBuilder,
+    ProducerError,
+    ConsumerError,
+    Message,
     KafkaConsumable,
-    // Serialization
     JsonSerializer,
     Serializer,
     SerializationError,
