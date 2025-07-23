@@ -3,6 +3,7 @@ use ferrisstreams::{
     KafkaProducer, KafkaConsumer, ProducerBuilder, ConsumerBuilder,
     JsonSerializer, KafkaConsumable, Serializer
 };
+use ferrisstreams::ferris::kafka::Headers;
 use futures::StreamExt;
 use serde::{Serialize, Deserialize};
 use serial_test::serial;
@@ -42,10 +43,10 @@ async fn test_basic_producer_consumer() {
     let topic = format!("integration-basic-{}", Uuid::new_v4());
     let group_id = format!("basic-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -53,7 +54,7 @@ async fn test_basic_producer_consumer() {
     let test_message = TestMessage::new(1, "Basic integration test");
 
     // Test producer
-    producer.send(Some("test-key"), &test_message, None).await
+    producer.send(Some(&"test-key".to_string()), &test_message, Headers::new(), None).await
         .expect("Failed to send message");
     
     producer.flush(5000).expect("Failed to flush");
@@ -63,7 +64,7 @@ async fn test_basic_producer_consumer() {
     match consumer.poll_message(Duration::from_secs(3)).await {
         Ok(message) => {
             assert_eq!(*message.value(), test_message);
-            assert_eq!(message.key(), Some("test-key"));
+            assert_eq!(message.key(), Some(&"test-key".to_string()));
         }
         Err(e) => panic!("Failed to receive message: {:?}", e),
     }
@@ -79,10 +80,10 @@ async fn test_multiple_messages() {
     let topic = format!("integration-multi-{}", Uuid::new_v4());
     let group_id = format!("multi-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -96,7 +97,7 @@ async fn test_multiple_messages() {
 
     for (i, message) in messages.iter().enumerate() {
         let key = format!("key-{}", i + 1);
-        producer.send(Some(&key), message, None).await
+        producer.send(Some(&key), message, Headers::new(), None).await
             .expect("Failed to send message");
     }
 
@@ -112,9 +113,9 @@ async fn test_multiple_messages() {
     while received.len() < messages.len() && start_time.elapsed() < timeout_duration {
         if let Some(message_result) = stream.next().await {
             match message_result {
-                Ok(test_msg) => {
-                    // Message is already deserialized!
-                    received.push(test_msg);
+                Ok(message) => {
+                    // Message is already deserialized! Extract the value
+                    received.push(message.into_value());
                 }
                 Err(e) => {
                     eprintln!("Stream error: {:?}", e);
@@ -143,16 +144,16 @@ async fn test_different_message_types() {
     let simple_topic = format!("integration-simple-type-{}", Uuid::new_v4());
     let group_id = format!("types-group-{}", Uuid::new_v4());
 
-    let test_producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &test_topic, JsonSerializer)
+    let test_producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &test_topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create test producer");
     
-    let simple_producer = KafkaProducer::<SimpleMessage, _>::new("localhost:9092", &simple_topic, JsonSerializer)
+    let simple_producer = KafkaProducer::<String, SimpleMessage, _, _>::new("localhost:9092", &simple_topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create simple producer");
 
-    let test_consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let test_consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create test consumer");
     
-    let simple_consumer = KafkaConsumer::<SimpleMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let simple_consumer = KafkaConsumer::<String, SimpleMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create simple consumer");
 
     test_consumer.subscribe(&[&test_topic]).expect("Failed to subscribe to test topic");
@@ -161,10 +162,10 @@ async fn test_different_message_types() {
     let test_message = TestMessage::new(100, "Type test message");
     let simple_message = SimpleMessage { content: "Simple type test".to_string() };
 
-    test_producer.send(Some("test-key"), &test_message, None).await
+    test_producer.send(Some(&"test-key".to_string()), &test_message, Headers::new(), None).await
         .expect("Failed to send test message");
     
-    simple_producer.send(Some("simple-key"), &simple_message, None).await
+    simple_producer.send(Some(&"simple-key".to_string()), &simple_message, Headers::new(), None).await
         .expect("Failed to send simple message");
 
     test_producer.flush(5000).expect("Failed to flush test producer");
@@ -207,11 +208,11 @@ async fn test_builder_pattern() {
     let group_id = format!("builder-group-{}", Uuid::new_v4());
 
     // Test builder pattern
-    let producer = ProducerBuilder::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = ProducerBuilder::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .build()
         .expect("Failed to build producer");
 
-    let consumer = ConsumerBuilder::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = ConsumerBuilder::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .build()
         .expect("Failed to build consumer");
 
@@ -219,7 +220,7 @@ async fn test_builder_pattern() {
 
     let test_message = TestMessage::new(99, "Builder pattern test");
 
-    producer.send(Some("builder-key"), &test_message, None).await
+    producer.send(Some(&"builder-key".to_string()), &test_message, Headers::new(), None).await
         .expect("Failed to send message");
 
     producer.flush(5000).expect("Failed to flush");
@@ -243,7 +244,7 @@ async fn test_convenience_trait() {
     let group_id = format!("trait-group-{}", Uuid::new_v4());
     
     // Test KafkaConsumable trait
-    let consumer = TestMessage::consumer("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer via trait");
 
     let trait_topic = format!("trait-test-topic-{}", Uuid::new_v4());
@@ -279,10 +280,10 @@ async fn test_error_handling() {
     let topic = format!("integration-errors-{}", Uuid::new_v4());
     let group_id = format!("error-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -290,14 +291,14 @@ async fn test_error_handling() {
     let test_message = TestMessage::new(999, "Error handling test");
 
     // Test successful operations
-    producer.send(Some("error-key"), &test_message, None).await
+    producer.send(Some(&"error-key".to_string()), &test_message, Headers::new(), None).await
         .expect("Send should succeed");
 
     producer.flush(5000).expect("Flush should succeed");
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Test timeout behavior
-    let empty_consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &format!("empty-{}", Uuid::new_v4()), JsonSerializer)
+    let empty_consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &format!("empty-{}", Uuid::new_v4()), JsonSerializer, JsonSerializer)
         .expect("Failed to create empty consumer");
     
     let empty_topic = format!("empty-topic-{}", Uuid::new_v4());
@@ -317,10 +318,10 @@ async fn test_message_with_timestamp() {
     let topic = format!("integration-timestamp-{}", Uuid::new_v4());
     let group_id = format!("timestamp-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -329,7 +330,7 @@ async fn test_message_with_timestamp() {
     let test_message = TestMessage::new(123, "Timestamp test message");
 
     // Send with Kafka timestamp
-    producer.send(Some("timestamp-key"), &test_message, Some(current_time)).await
+    producer.send(Some(&"timestamp-key".to_string()), &test_message, Headers::new(), Some(current_time)).await
         .expect("Failed to send timestamped message");
 
     producer.flush(5000).expect("Failed to flush");
@@ -357,9 +358,10 @@ async fn test_performance_comparison() {
     // Test direct constructor performance
     let start = std::time::Instant::now();
     for i in 0..5 {
-        let _producer = KafkaProducer::<TestMessage, _>::new(
+        let _producer = KafkaProducer::<String, TestMessage, _, _>::new(
             "localhost:9092",
             &format!("{}-direct-{}", topic_prefix, i),
+            JsonSerializer,
             JsonSerializer,
         ).expect("Failed to create direct producer");
     }
@@ -368,9 +370,10 @@ async fn test_performance_comparison() {
     // Test builder performance
     let start = std::time::Instant::now();
     for i in 0..5 {
-        let _producer = ProducerBuilder::<TestMessage, _>::new(
+        let _producer = ProducerBuilder::<String, TestMessage, _, _>::new(
             "localhost:9092",
             &format!("{}-builder-{}", topic_prefix, i),
+            JsonSerializer,
             JsonSerializer,
         )
         .build()
@@ -394,10 +397,10 @@ async fn test_consumer_stream() {
     let topic = format!("integration-stream-{}", Uuid::new_v4());
     let group_id = format!("stream-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -411,7 +414,7 @@ async fn test_consumer_stream() {
 
     for (i, message) in messages.iter().enumerate() {
         let key = format!("stream-key-{}", i + 1);
-        producer.send(Some(&key), message, None).await
+        producer.send(Some(&key), message, Headers::new(), None).await
             .expect("Failed to send message");
     }
 
@@ -429,9 +432,9 @@ async fn test_consumer_stream() {
     while received_messages.len() < messages.len() && start_time.elapsed() < timeout_duration {
         if let Some(message_result) = stream.next().await {
             match message_result {
-                Ok(test_msg) => {
-                    // Message is already deserialized!
-                    received_messages.push(test_msg);
+                Ok(message) => {
+                    // Message is already deserialized! Extract the value
+                    received_messages.push(message.into_value());
                 }
                 Err(e) => {
                     eprintln!("Stream error: {:?}", e);
@@ -463,10 +466,10 @@ async fn test_fluent_consumer_style() {
     let topic = format!("integration-fluent-{}", Uuid::new_v4());
     let group_id = format!("fluent-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -480,7 +483,7 @@ async fn test_fluent_consumer_style() {
 
     for (i, message) in messages.iter().enumerate() {
         let key = format!("fluent-key-{}", i + 1);
-        producer.send(Some(&key), message, None).await
+        producer.send(Some(&key), message, Headers::new(), None).await
             .expect("Failed to send message");
     }
 
@@ -491,8 +494,8 @@ async fn test_fluent_consumer_style() {
     let result = consumer.stream()
         .take(messages.len())  // Take only as many as we sent
         .filter_map(|result| async move {
-            // Automatic deserialization - much simpler!
-            result.ok()
+            // Automatic deserialization - much simpler! Extract just the value
+            result.ok().map(|message| message.into_value())
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -516,10 +519,10 @@ async fn test_fluent_api_patterns() {
     let topic = format!("integration-fluent-patterns-{}", Uuid::new_v4());
     let group_id = format!("fluent-patterns-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -535,7 +538,7 @@ async fn test_fluent_api_patterns() {
 
     for (i, message) in messages.iter().enumerate() {
         let key = format!("pattern-key-{}", i + 1);
-        producer.send(Some(&key), message, None).await
+        producer.send(Some(&key), message, Headers::new(), None).await
             .expect("Failed to send message");
     }
 
@@ -546,8 +549,8 @@ async fn test_fluent_api_patterns() {
     let collected_messages = consumer.stream()
         .take(messages.len())
         .filter_map(|result| async move {
-            // Automatic deserialization - much cleaner!
-            result.ok()
+            // Automatic deserialization - much cleaner! Extract the value
+            result.ok().map(|message| message.into_value())
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -555,15 +558,15 @@ async fn test_fluent_api_patterns() {
     assert_eq!(collected_messages.len(), messages.len(), "Should collect all messages");
 
     // Pattern 2: Take only first N messages using take()
-    let consumer2 = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &format!("{}-2", group_id), JsonSerializer)
+    let consumer2 = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &format!("{}-2", group_id), JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer2");
     consumer2.subscribe(&[&topic]).expect("Failed to subscribe");
     
     let first_three = consumer2.stream()
         .take(3) // Only take first 3 messages
         .filter_map(|result| async move {
-            // Implicit deserialization
-            result.ok()
+            // Implicit deserialization - extract the value
+            result.ok().map(|message| message.into_value())
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -571,15 +574,15 @@ async fn test_fluent_api_patterns() {
     assert_eq!(first_three.len(), 3, "Should take exactly 3 messages");
 
     // Pattern 3: Filter by content and map to different type
-    let consumer3 = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &format!("{}-3", group_id), JsonSerializer)
+    let consumer3 = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &format!("{}-3", group_id), JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer3");
     consumer3.subscribe(&[&topic]).expect("Failed to subscribe");
 
     let filtered_ids = consumer3.stream()
         .take(messages.len())
         .filter_map(|result| async move {
-            // Implicit deserialization
-            result.ok()
+            // Implicit deserialization - extract the value
+            result.ok().map(|message| message.into_value())
         })
         .filter(|message: &TestMessage| {
             // Filter messages with even IDs 
@@ -609,10 +612,10 @@ async fn test_implicit_deserialization() {
     let topic = format!("integration-implicit-{}", Uuid::new_v4());
     let group_id = format!("implicit-group-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -625,7 +628,7 @@ async fn test_implicit_deserialization() {
 
     for (i, message) in messages.iter().enumerate() {
         let key = format!("implicit-key-{}", i + 1);
-        producer.send(Some(&key), message, None).await
+        producer.send(Some(&key), message, Headers::new(), None).await
             .expect("Failed to send message");
     }
 
@@ -635,7 +638,10 @@ async fn test_implicit_deserialization() {
     // The new API is beautifully simple - no manual deserialization needed!
     let received: Vec<TestMessage> = consumer.stream()
         .take(messages.len())
-        .filter_map(|result| async move { result.ok() }) // Just extract successful results
+        .filter_map(|result| async move { 
+            // Just extract successful results and get the value
+            result.ok().map(|message| message.into_value())
+        })
         .collect()
         .await;
 
@@ -645,4 +651,65 @@ async fn test_implicit_deserialization() {
     for message in &messages {
         assert!(received.contains(message), "Should contain sent message");
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn test_headers_functionality() {
+    if !is_kafka_running() { return; }
+
+    let topic = format!("integration-headers-{}", Uuid::new_v4());
+    let group_id = format!("headers-group-{}", Uuid::new_v4());
+
+    let producer = KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", &topic, JsonSerializer, JsonSerializer)
+        .expect("Failed to create producer");
+    
+    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new("localhost:9092", &group_id, JsonSerializer, JsonSerializer)
+        .expect("Failed to create consumer");
+
+    consumer.subscribe(&[&topic]).expect("Failed to subscribe");
+
+    let test_message = TestMessage::new(100, "Headers test message");
+    
+    // Create headers with various metadata
+    let headers = Headers::new()
+        .insert("source", "test-suite")
+        .insert("version", "1.0.0")
+        .insert("trace-id", "test-trace-123")
+        .insert("content-type", "application/json");
+
+    // Send message with headers
+    producer.send(Some(&"headers-key".to_string()), &test_message, headers, None).await
+        .expect("Failed to send message with headers");
+
+    producer.flush(5000).expect("Failed to flush");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Consume and verify headers
+    match consumer.poll_message(Duration::from_secs(3)).await {
+        Ok(message) => {
+            // Verify key and value
+            assert_eq!(*message.value(), test_message);
+            assert_eq!(message.key(), Some(&"headers-key".to_string()));
+            
+            // Verify headers
+            let received_headers = message.headers();
+            assert_eq!(received_headers.get("source"), Some("test-suite"));
+            assert_eq!(received_headers.get("version"), Some("1.0.0"));
+            assert_eq!(received_headers.get("trace-id"), Some("test-trace-123"));
+            assert_eq!(received_headers.get("content-type"), Some("application/json"));
+            
+            // Verify header count
+            assert_eq!(received_headers.len(), 4);
+            assert!(!received_headers.is_empty());
+            
+            // Verify non-existent header
+            assert_eq!(received_headers.get("non-existent"), None);
+            assert!(received_headers.contains_key("source"));
+            assert!(!received_headers.contains_key("non-existent"));
+        }
+        Err(e) => panic!("Failed to receive message with headers: {:?}", e),
+    }
+
+    consumer.commit().expect("Failed to commit");
 }

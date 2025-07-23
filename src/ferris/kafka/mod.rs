@@ -7,7 +7,7 @@ mod utils;
 
 // Re-export main API
 pub use kafka_producer::{KafkaProducer, ProducerBuilder, ProducerError};
-pub use kafka_consumer::{KafkaConsumer, ConsumerBuilder, ConsumerError, Message, KafkaConsumable};
+pub use kafka_consumer::{KafkaConsumer, ConsumerBuilder, ConsumerError, Message, KafkaConsumable, Headers};
 pub use kafka_producer_def_context::LoggingProducerContext;
 pub use serialization::{Serializer, SerializationError, JsonSerializer};
 pub use utils::convert_kafka_log_level;

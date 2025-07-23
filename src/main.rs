@@ -1,4 +1,4 @@
-use crate::ferris::kafka::{KafkaProducer, JsonSerializer};
+use crate::ferris::kafka::{KafkaProducer, JsonSerializer, Headers};
 use serde::{Serialize, Deserialize};
 
 // Import the module structure
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Kafka Producer Example");
 
     // Create a KafkaProducer instance
-    let producer = match KafkaProducer::<TestMessage, _>::new("localhost:9092", "test-topic", JsonSerializer) {
+    let producer = match KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", "test-topic", JsonSerializer, JsonSerializer) {
         Ok(p) => {
             println!("Successfully created Kafka producer");
             p
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Send the message
-    match producer.send(Some("test-key"), &message, None).await {
+    match producer.send(Some(&"test-key".to_string()), &message, Headers::new(), None).await {
         Ok(_) => println!("✅ Message sent successfully: {:?}", message),
         Err(e) => println!("❌ Failed to send message: {}", e),
     }

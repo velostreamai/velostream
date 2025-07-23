@@ -1,5 +1,6 @@
 use crate::ferris::kafka::test_utils::is_kafka_running;
 use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use ferrisstreams::ferris::kafka::Headers;
 use serde::{Serialize, Deserialize};
 use serial_test::serial;
 use std::time::Duration;
@@ -60,10 +61,10 @@ async fn test_multiple_user_workflow() {
     let topic = format!("users-advanced-{}", Uuid::new_v4());
     let group_id = format!("advanced-users-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<User, _>::new(broker, &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, User, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<User, _>::new(broker, &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, User, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
     
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -80,7 +81,7 @@ async fn test_multiple_user_workflow() {
     // Send all users
     for user in &users {
         let key = format!("user-{}", user.id);
-        producer.send(Some(&key), user, None).await
+        producer.send(Some(&key), user, Headers::new(), None).await
             .expect("Failed to send user");
     }
     
@@ -121,23 +122,23 @@ async fn test_cross_topic_messaging() {
     let group_id = format!("cross-topic-{}", Uuid::new_v4());
 
     // Create producers for different message types
-    let user_producer = KafkaProducer::<User, _>::new(broker, &user_topic, JsonSerializer)
+    let user_producer = KafkaProducer::<String, User, _, _>::new(broker, &user_topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create user producer");
     
-    let product_producer = KafkaProducer::<Product, _>::new(broker, &product_topic, JsonSerializer)
+    let product_producer = KafkaProducer::<String, Product, _, _>::new(broker, &product_topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create product producer");
 
-    let order_producer = KafkaProducer::<OrderEvent, _>::new(broker, &order_topic, JsonSerializer)
+    let order_producer = KafkaProducer::<String, OrderEvent, _, _>::new(broker, &order_topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create order producer");
 
     // Create consumers
-    let user_consumer = KafkaConsumer::<User, _>::new(broker, &group_id, JsonSerializer)
+    let user_consumer = KafkaConsumer::<String, User, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create user consumer");
     
-    let product_consumer = KafkaConsumer::<Product, _>::new(broker, &group_id, JsonSerializer)
+    let product_consumer = KafkaConsumer::<String, Product, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create product consumer");
 
-    let order_consumer = KafkaConsumer::<OrderEvent, _>::new(broker, &group_id, JsonSerializer)
+    let order_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create order consumer");
 
     user_consumer.subscribe(&[&user_topic]).expect("Failed to subscribe to users");
@@ -154,9 +155,9 @@ async fn test_cross_topic_messaging() {
     };
     let order = OrderEvent::new("order-100", "customer-100", 199.98, OrderStatus::Created);
 
-    user_producer.send(Some("user-100"), &user, None).await.expect("Failed to send user");
-    product_producer.send(Some("prod-100"), &product, None).await.expect("Failed to send product");
-    order_producer.send(Some("order-100"), &order, None).await.expect("Failed to send order");
+    user_producer.send(Some(&"user-100".to_string()), &user, Headers::new(), None).await.expect("Failed to send user");
+    product_producer.send(Some(&"prod-100".to_string()), &product, Headers::new(), None).await.expect("Failed to send product");
+    order_producer.send(Some(&"order-100".to_string()), &order, Headers::new(), None).await.expect("Failed to send order");
 
     user_producer.flush(5000).expect("Failed to flush user producer");
     product_producer.flush(5000).expect("Failed to flush product producer");
@@ -210,10 +211,10 @@ async fn test_high_throughput_scenario() {
     let topic = format!("high-throughput-{}", Uuid::new_v4());
     let group_id = format!("throughput-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<OrderEvent, _>::new(broker, &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, OrderEvent, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<OrderEvent, _>::new(broker, &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
     
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -235,7 +236,7 @@ async fn test_high_throughput_scenario() {
             }
         );
         
-        producer.send(Some(&format!("key-{}", i)), &order, None).await
+        producer.send(Some(&format!("key-{}", i)), &order, Headers::new(), None).await
             .expect("Failed to send order");
             
         // Small delay to avoid overwhelming
@@ -292,10 +293,10 @@ async fn test_complex_enum_serialization() {
     let topic = format!("enum-complex-{}", Uuid::new_v4());
     let group_id = format!("enum-{}", Uuid::new_v4());
 
-    let producer = KafkaProducer::<OrderEvent, _>::new(broker, &topic, JsonSerializer)
+    let producer = KafkaProducer::<String, OrderEvent, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer");
     
-    let consumer = KafkaConsumer::<OrderEvent, _>::new(broker, &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
     
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -310,7 +311,7 @@ async fn test_complex_enum_serialization() {
     ];
 
     for order in &orders {
-        producer.send(Some(&order.order_id), order, None).await
+        producer.send(Some(&order.order_id), order, Headers::new(), None).await
             .expect("Failed to send order");
     }
 
@@ -353,12 +354,12 @@ async fn test_concurrent_producers() {
     let group_id = format!("concurrent-{}", Uuid::new_v4());
 
     // Create multiple producers
-    let producer1 = KafkaProducer::<User, _>::new(broker, &topic, JsonSerializer)
+    let producer1 = KafkaProducer::<String, User, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer1");
-    let producer2 = KafkaProducer::<User, _>::new(broker, &topic, JsonSerializer)
+    let producer2 = KafkaProducer::<String, User, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
         .expect("Failed to create producer2");
 
-    let consumer = KafkaConsumer::<User, _>::new(broker, &group_id, JsonSerializer)
+    let consumer = KafkaConsumer::<String, User, _, _>::new(broker, &group_id, JsonSerializer, JsonSerializer)
         .expect("Failed to create consumer");
     
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
@@ -367,8 +368,10 @@ async fn test_concurrent_producers() {
     let user1 = User { id: 201, name: "Concurrent User 1".to_string(), email: Some("user1@concurrent.com".to_string()) };
     let user2 = User { id: 202, name: "Concurrent User 2".to_string(), email: Some("user2@concurrent.com".to_string()) };
 
-    let send1 = producer1.send(Some("concurrent-1"), &user1, None);
-    let send2 = producer2.send(Some("concurrent-2"), &user2, None);
+    let key1 = "concurrent-1".to_string();
+    let key2 = "concurrent-2".to_string();
+    let send1 = producer1.send(Some(&key1), &user1, Headers::new(), None);
+    let send2 = producer2.send(Some(&key2), &user2, Headers::new(), None);
 
     // Wait for both sends to complete
     let (result1, result2) = tokio::join!(send1, send2);

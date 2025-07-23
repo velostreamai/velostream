@@ -1,5 +1,6 @@
 use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 use crate::ferris::kafka::serialization::{Serializer, SerializationError};
+use crate::ferris::kafka::kafka_consumer::Headers; // Import Headers from consumer module
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
@@ -7,16 +8,68 @@ use rdkafka::util::Timeout;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-/// A Kafka producer that handles serialization automatically
-pub struct KafkaProducer<T, S, C = LoggingProducerContext> 
+/// A Kafka producer that handles serialization automatically for keys, values, and headers
+/// 
+/// This producer supports sending typed messages with:
+/// - **Keys**: Optional typed keys with dedicated serializer
+/// - **Values**: Typed message payloads with dedicated serializer  
+/// - **Headers**: Rich metadata support via the `Headers` type
+/// 
+/// # Examples
+/// 
+/// ## Basic Usage
+/// ```rust,no_run
+/// use ferrisstreams::{KafkaProducer, JsonSerializer};
+/// use ferrisstreams::ferris::kafka::Headers;
+/// 
+/// let producer = KafkaProducer::<String, MyMessage, _, _>::new(
+///     "localhost:9092",
+///     "my-topic",
+///     JsonSerializer,  // Key serializer
+///     JsonSerializer   // Value serializer
+/// )?;
+/// 
+/// let headers = Headers::new()
+///     .insert("source", "web-api")
+///     .insert("version", "1.0.0");
+/// 
+/// producer.send(Some(&key), &message, headers, None).await?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+/// 
+/// ## Headers for Message Routing
+/// ```rust,no_run
+/// # use ferrisstreams::{KafkaProducer, JsonSerializer};
+/// # use ferrisstreams::ferris::kafka::Headers;
+/// # let producer = KafkaProducer::<String, String, _, _>::new("localhost:9092", "topic", JsonSerializer, JsonSerializer)?;
+/// // Add routing and tracing headers
+/// let headers = Headers::new()
+///     .insert("event-type", "order-created")
+///     .insert("source-service", "order-api")
+///     .insert("trace-id", "abc-123-def")
+///     .insert("user-id", "user-456");
+/// 
+/// producer.send(
+///     Some(&"order-123".to_string()),
+///     &order_data,
+///     headers,
+///     None
+/// ).await?;
+/// # let order_data = "data";
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub struct KafkaProducer<K, V, KS, VS, C = LoggingProducerContext> 
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
     producer: FutureProducer<C>,
-    serializer: S,
+    key_serializer: KS,
+    value_serializer: VS,
     default_topic: String,
-    _phantom: PhantomData<T>,
+    _phantom_key: PhantomData<K>,
+    _phantom_value: PhantomData<V>,
 }
 
 /// Error type for producer operations
@@ -58,15 +111,17 @@ impl From<SerializationError> for ProducerError {
 
 const SEND_WAIT_SECS: u64 = 30;
 
-impl<T, S> KafkaProducer<T, S, LoggingProducerContext>
+impl<K, V, KS, VS> KafkaProducer<K, V, KS, VS, LoggingProducerContext>
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
 {
     /// Creates a new KafkaProducer with default context
     pub fn new(
         brokers: &str,
         default_topic: &str,
-        serializer: S,
+        key_serializer: KS,
+        value_serializer: VS,
     ) -> Result<Self, KafkaError> {
         let producer: FutureProducer<LoggingProducerContext> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
@@ -76,23 +131,27 @@ where
 
         Ok(KafkaProducer {
             producer,
-            serializer,
+            key_serializer,
+            value_serializer,
             default_topic: default_topic.to_string(),
-            _phantom: PhantomData,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
         })
     }
 }
 
-impl<T, S, C> KafkaProducer<T, S, C>
+impl<K, V, KS, VS, C> KafkaProducer<K, V, KS, VS, C>
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
     /// Creates a new KafkaProducer with custom context
     pub fn new_with_context(
         brokers: &str,
         default_topic: &str,
-        serializer: S,
+        key_serializer: KS,
+        value_serializer: VS,
         context: C,
     ) -> Result<Self, KafkaError> {
         let producer: FutureProducer<C> = ClientConfig::new()
@@ -103,49 +162,66 @@ where
 
         Ok(KafkaProducer {
             producer,
-            serializer,
+            key_serializer,
+            value_serializer,
             default_topic: default_topic.to_string(),
-            _phantom: PhantomData,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
         })
     }
 
     /// Sends a message to the default topic
     pub async fn send(
         &self,
-        key: Option<&str>,
-        value: &T,
+        key: Option<&K>,
+        value: &V,
+        headers: Headers,
         timestamp: Option<i64>,
     ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
-        self.send_to_topic(&self.default_topic, key, value, timestamp).await
+        self.send_to_topic(&self.default_topic, key, value, headers, timestamp).await
     }
 
     /// Sends a message to the default topic with current timestamp
     pub async fn send_with_current_timestamp(
         &self,
-        key: Option<&str>,
-        value: &T,
+        key: Option<&K>,
+        value: &V,
+        headers: Headers,
     ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as i64;
-        self.send(key, value, Some(timestamp)).await
+        self.send(key, value, headers, Some(timestamp)).await
     }
 
     /// Sends a message to a specific topic
     pub async fn send_to_topic(
         &self,
         topic: &str,
-        key: Option<&str>,
-        value: &T,
+        key: Option<&K>,
+        value: &V,
+        headers: Headers,
         timestamp: Option<i64>,
     ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
-        let payload = self.serializer.serialize(value)?;
+        let payload = self.value_serializer.serialize(value)?;
         
         let mut record = FutureRecord::to(topic).payload(&payload);
         
-        if let Some(k) = key {
-            record = record.key(k);
+        let key_bytes = if let Some(k) = key {
+            Some(self.key_serializer.serialize(k)?)
+        } else {
+            None
+        };
+        
+        if let Some(ref kb) = key_bytes {
+            record = record.key(kb);
+        }
+
+        // Add headers if not empty
+        if !headers.is_empty() {
+            let rdkafka_headers = headers.to_rdkafka_headers();
+            record = record.headers(rdkafka_headers);
         }
         
         if let Some(ts) = timestamp {
@@ -163,67 +239,81 @@ where
         self.producer.flush(Timeout::After(Duration::from_millis(timeout_ms)))
     }
 
-    /// Access the serializer
-    pub fn serializer(&self) -> &S {
-        &self.serializer
+    /// Access the key serializer
+    pub fn key_serializer(&self) -> &KS {
+        &self.key_serializer
+    }
+
+    /// Access the value serializer
+    pub fn value_serializer(&self) -> &VS {
+        &self.value_serializer
     }
 }
 
 /// Builder for creating KafkaProducer with configuration options
-pub struct ProducerBuilder<T, S, C = LoggingProducerContext> 
+pub struct ProducerBuilder<K, V, KS, VS, C = LoggingProducerContext> 
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
     brokers: String,
     default_topic: String,
-    serializer: S,
+    key_serializer: KS,
+    value_serializer: VS,
     context: Option<C>,
-    _phantom: PhantomData<T>,
+    _phantom_key: PhantomData<K>,
+    _phantom_value: PhantomData<V>,
 }
 
-impl<T, S> ProducerBuilder<T, S, LoggingProducerContext>
+impl<K, V, KS, VS> ProducerBuilder<K, V, KS, VS, LoggingProducerContext>
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
 {
     /// Creates a new builder with required parameters
-    pub fn new(brokers: &str, default_topic: &str, serializer: S) -> Self {
+    pub fn new(brokers: &str, default_topic: &str, key_serializer: KS, value_serializer: VS) -> Self {
         Self {
             brokers: brokers.to_string(),
             default_topic: default_topic.to_string(),
-            serializer,
+            key_serializer,
+            value_serializer,
             context: None,
-            _phantom: PhantomData,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
         }
     }
 
     /// Builds the KafkaProducer
-    pub fn build(self) -> Result<KafkaProducer<T, S, LoggingProducerContext>, KafkaError> {
+    pub fn build(self) -> Result<KafkaProducer<K, V, KS, VS, LoggingProducerContext>, KafkaError> {
         if let Some(context) = self.context {
             // This shouldn't happen for default context builders, but just in case
-            KafkaProducer::new_with_context(&self.brokers, &self.default_topic, self.serializer, context)
+            KafkaProducer::new_with_context(&self.brokers, &self.default_topic, self.key_serializer, self.value_serializer, context)
         } else {
-            KafkaProducer::new(&self.brokers, &self.default_topic, self.serializer)
+            KafkaProducer::new(&self.brokers, &self.default_topic, self.key_serializer, self.value_serializer)
         }
     }
 }
 
-impl<T, S, C> ProducerBuilder<T, S, C>
+impl<K, V, KS, VS, C> ProducerBuilder<K, V, KS, VS, C>
 where
-    S: Serializer<T>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
     /// Sets a custom producer context
-    pub fn with_context<NewC>(self, context: NewC) -> ProducerBuilder<T, S, NewC>
+    pub fn with_context<NewC>(self, context: NewC) -> ProducerBuilder<K, V, KS, VS, NewC>
     where
         NewC: ProducerContext + 'static,
     {
         ProducerBuilder {
             brokers: self.brokers,
             default_topic: self.default_topic,
-            serializer: self.serializer,
+            key_serializer: self.key_serializer,
+            value_serializer: self.value_serializer,
             context: Some(context),
-            _phantom: PhantomData,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
         }
     }
 
@@ -243,11 +333,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_producer_builder() {
-        let serializer = JsonSerializer;
-        let builder = ProducerBuilder::<TestMessage, _>::new(
+        let key_serializer = JsonSerializer;
+        let value_serializer = JsonSerializer;
+        let builder = ProducerBuilder::<String, TestMessage, _, _>::new(
             "localhost:9092",
             "test-topic",
-            serializer,
+            key_serializer,
+            value_serializer,
         );
 
         // This would fail if Kafka isn't running, but demonstrates the API
