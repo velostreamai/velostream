@@ -1,7 +1,6 @@
 use ferrisstreams::{
-    KafkaProducer, KafkaConsumer, JsonSerializer
+    KafkaProducer, KafkaConsumer, JsonSerializer, Headers
 };
-use ferrisstreams::ferris::kafka::Headers;
 use serde::{Serialize, Deserialize};
 use std::time::Duration;
 use uuid::Uuid;
