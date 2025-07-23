@@ -6,6 +6,47 @@ The Kafka integration has been completely redesigned to be type-safe by default,
 
 ## Key Simplifications
 
+### ✨ **Implicit Deserialization (Latest Feature!)**
+
+The consumer `stream()` method now returns already-deserialized typed messages:
+
+```rust
+// Before (manual deserialization)
+let mut stream = consumer.stream();
+while let Some(msg_result) = stream.next().await {
+    match msg_result {
+        Ok(borrowed_message) => {
+            if let Some(payload) = borrowed_message.payload() {
+                match JsonSerializer.deserialize(payload) {
+                    Ok(typed_message) => { /* process */ }
+                    Err(e) => eprintln!("Deserialization error: {}", e),
+                }
+            }
+        }
+        Err(e) => eprintln!("Kafka error: {}", e),
+    }
+}
+
+// After (implicit deserialization - much cleaner!)
+let mut stream = consumer.stream();
+while let Some(msg_result) = stream.next().await {
+    match msg_result {
+        Ok(typed_message) => { 
+            // Already deserialized! Ready to use.
+            process(typed_message);
+        }
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+
+// Fluent style is now incredibly clean:
+let messages: Vec<MyMessage> = consumer.stream()
+    .take(10)
+    .filter_map(|result| async move { result.ok() })
+    .collect()
+    .await;
+```
+
 
 #### API
 ```rust
@@ -21,12 +62,12 @@ let consumer = KafkaConsumer::<User, _>::new("localhost:9092", "group", JsonSeri
 consumer.subscribe(&["user-topic"])?;
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
-    if let Ok(borrowed_message) = message_result {
-        if let Some(payload) = borrowed_message.payload() {
-            if let Ok(user) = JsonSerializer.deserialize(payload) {
-                // Process user - already deserialized!
-            }
+    match message_result {
+        Ok(user) => {
+            // User is already deserialized! No manual work needed.
+            println!("Received user: {:?}", user);
         }
+        Err(e) => eprintln!("Stream error: {:?}", e),
     }
 }
 ```
@@ -57,6 +98,10 @@ Generic consumer with automatic deserialization:
 - **S**: Serializer (e.g., `JsonSerializer`)  
 - **C**: Context (defaults to `DefaultConsumerContext`)
 
+**Methods:**
+- `stream()` - Returns `impl Stream<Item = Result<T, ConsumerError>>` with **implicit deserialization**
+- `raw_stream()` - Returns raw Kafka messages for advanced use cases that need metadata
+
 ```rust
 use ferrisstreams::{KafkaConsumer, JsonSerializer};
 use futures::StreamExt;
@@ -74,12 +119,9 @@ consumer.subscribe(&["my-topic"])?;
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
     match message_result {
-        Ok(borrowed_message) => {
-            if let Some(payload) = borrowed_message.payload() {
-                if let Ok(my_message) = JsonSerializer.deserialize(payload) {
-                    println!("Received: {:?}", my_message);
-                }
-            }
+        Ok(my_message) => {
+            // Message is already deserialized! Super clean API.
+            println!("Received: {:?}", my_message);
         }
         Err(e) => {
             println!("Stream error: {}", e);
@@ -95,16 +137,29 @@ For efficient message processing, always use streaming:
 use futures::StreamExt;
 use rdkafka::message::Message;
 
-// Get stream and process messages efficiently
+// Get stream and process messages efficiently with implicit deserialization
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
+    match message_result {
+        Ok(my_message) => {
+            // Message is already deserialized! 
+            // Process my_message directly...
+            println!("Processing: {:?}", my_message);
+        }
+        Err(e) => eprintln!("Stream error: {}", e),
+    }
+}
+
+// For advanced use cases that need raw message metadata, use raw_stream()
+let mut raw_stream = consumer.raw_stream();
+while let Some(message_result) = raw_stream.next().await {
     match message_result {
         Ok(borrowed_message) => {
             // Access message metadata
             let key = borrowed_message.key();
             let partition = borrowed_message.partition();
             
-            // Deserialize payload
+            // Manual deserialization if needed
             if let Some(payload) = borrowed_message.payload() {
                 let my_message: MyMessage = JsonSerializer.deserialize(payload)?;
                 // Process my_message...
@@ -123,20 +178,12 @@ Chain multiple operations for powerful message processing:
 use futures::StreamExt;
 use rdkafka::message::Message;
 
-// Collect messages with fluent processing
+// Collect messages with fluent processing - much simpler with implicit deserialization!
 let processed_messages = consumer.stream()
     .take(100) // Process first 100 messages
     .filter_map(|msg_result| async move {
-        match msg_result {
-            Ok(borrowed_message) => {
-                if let Some(payload) = borrowed_message.payload() {
-                    JsonSerializer.deserialize(payload).ok()
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        // Just extract successful results - no manual deserialization!
+        msg_result.ok()
     })
     .filter(|message: &MyMessage| {
         // Filter by business logic
@@ -146,23 +193,15 @@ let processed_messages = consumer.stream()
     .collect::<Vec<TransformedMessage>>()
     .await;
 
-// Process each message in streaming fashion
+// Process each message in streaming fashion - beautifully simple!
 consumer.stream()
     .take_while(|msg_result| async move {
         // Continue processing until error or specific condition
         msg_result.is_ok()
     })
     .filter_map(|msg_result| async move {
-        match msg_result {
-            Ok(borrowed_message) => {
-                if let Some(payload) = borrowed_message.payload() {
-                    JsonSerializer.deserialize(payload).ok()
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        // Automatic deserialization - just extract successful results!
+        msg_result.ok()
     })
     .for_each(|message| async move {
         // Process each message individually
@@ -213,14 +252,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     consumer.subscribe(&["users"])?;
     
-    // Use streaming for efficient message processing
+    // Use streaming for efficient message processing with implicit deserialization
     let mut stream = consumer.stream();
-    if let Some(Ok(borrowed_message)) = stream.next().await {
-        if let Some(payload) = borrowed_message.payload() {
-            if let Ok(user) = JsonSerializer.deserialize(payload) {
-                println!("User: {:?}", user);
-            }
-        }
+    if let Some(Ok(user)) = stream.next().await {
+        // User is already deserialized - no manual work needed!
+        println!("User: {:?}", user);
     }
     
     Ok(())
@@ -275,18 +311,20 @@ match producer.send(Some("key"), &user, None).await {
     Err(ProducerError::SerializationError(e)) => println!("Serialization error: {}", e),
 }
 
-// Consumer with streaming (recommended for error handling)
+// Consumer with streaming (recommended for error handling) - much cleaner now!
 let mut stream = consumer.stream();
 match stream.next().await {
-    Some(Ok(borrowed_message)) => {
-        if let Some(payload) = borrowed_message.payload() {
-            match JsonSerializer.deserialize(payload) {
-                Ok(message) => println!("Received: {:?}", message),
-                Err(e) => println!("Deserialization error: {}", e),
-            }
-        }
+    Some(Ok(message)) => {
+        // Message is already deserialized!
+        println!("Received: {:?}", message);
     }
-    Some(Err(e)) => println!("Kafka error: {}", e),
+    Some(Err(ConsumerError::SerializationError(e))) => {
+        println!("Deserialization error: {}", e);
+    }
+    Some(Err(ConsumerError::KafkaError(e))) => {
+        println!("Kafka error: {}", e);
+    }
+    Some(Err(e)) => println!("Other error: {}", e),
     None => println!("Stream ended"),
 }
 ```
@@ -333,10 +371,12 @@ cargo test typed_kafka_func_test::test_producer_consumer_basic -- --nocapture
 
 1. **Compile-time Type Safety** - Impossible to send/receive wrong types
 2. **Zero Boilerplate** - No manual serialization code needed
-3. **Better Ergonomics** - Intuitive, clean API design  
-4. **Reduced Errors** - Automatic error handling and type checking
-5. **Performance** - Zero-cost abstractions over rdkafka
-6. **Flexibility** - Support for custom serializers and contexts
+3. **✨ Implicit Deserialization** - Stream returns typed messages directly
+4. **Better Ergonomics** - Intuitive, clean API design  
+5. **Reduced Errors** - Automatic error handling and type checking
+6. **Performance** - Zero-cost abstractions over rdkafka
+7. **Flexibility** - Support for custom serializers and contexts
+8. **🚀 Fluent API** - Incredibly clean chaining with `result.ok()`
 
 ### ✅ **Removed Complexity** 
 
@@ -344,15 +384,19 @@ cargo test typed_kafka_func_test::test_producer_consumer_basic -- --nocapture
 - ❌ Separate serialization steps
 - ❌ Error-prone type casting
 - ❌ Boilerplate serialization code
+- ❌ Manual `payload()` extraction
+- ❌ Repeated deserialization calls
 - ❌ Backward compatibility layers
 - ❌ Confusing dual APIs
 
 ### ✅ **What's Left**
 
 - ✅ Simple, type-safe producer/consumer
+- ✅ **Implicit deserialization** - no manual payload handling
 - ✅ Automatic serialization/deserialization
 - ✅ Builder patterns for configuration
 - ✅ Comprehensive error types
+- ✅ **Ultra-clean fluent API** - just `result.ok()`
 - ✅ Convenience traits and helpers
 - ✅ Custom serializer support
 

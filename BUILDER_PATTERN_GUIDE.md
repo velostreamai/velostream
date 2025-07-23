@@ -39,16 +39,13 @@ let consumer = KafkaConsumer::<MyMessage, _>::new(
 )?;
 consumer.subscribe(&["my-topic"])?;
 
-// Recommended: Use streaming for message consumption
+// Recommended: Use streaming for message consumption with implicit deserialization
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
     match message_result {
-        Ok(borrowed_message) => {
-            if let Some(payload) = borrowed_message.payload() {
-                if let Ok(my_message) = JsonSerializer.deserialize(payload) {
-                    println!("Received: {:?}", my_message);
-                }
-            }
+        Ok(my_message) => {
+            // Message is already deserialized! Beautiful and clean.
+            println!("Received: {:?}", my_message);
         }
         Err(e) => eprintln!("Stream error: {}", e),
     }
@@ -260,20 +257,13 @@ let consumer = KafkaConsumer::<MyMessage, _>::new(
 )?;
 consumer.subscribe(&["my-topic"])?;
 
-// Use streaming for efficient async processing
+// Use streaming for efficient async processing with implicit deserialization
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
     match message_result {
-        Ok(borrowed_message) => {
-            if let Some(payload) = borrowed_message.payload() {
-                match JsonSerializer.deserialize(payload) {
-                    Ok(my_message) => {
-                        // Process message
-                        println!("Received: {:?}", my_message);
-                    }
-                    Err(e) => eprintln!("Deserialization error: {}", e),
-                }
-            }
+        Ok(my_message) => {
+            // Message is already deserialized automatically!
+            println!("Received: {:?}", my_message);
         }
         Err(e) => eprintln!("Stream error: {}", e),
     }
@@ -314,38 +304,22 @@ You can chain multiple operations together for powerful data processing:
 use futures::StreamExt;
 use rdkafka::message::Message;
 
-// Pattern 1: Collect all messages
+// Pattern 1: Collect all messages - much simpler with implicit deserialization!
 let messages = consumer.stream()
     .take(10) // Process only first 10 messages
     .filter_map(|msg_result| async move {
-        match msg_result {
-            Ok(borrowed_message) => {
-                if let Some(payload) = borrowed_message.payload() {
-                    JsonSerializer.deserialize(payload).ok()
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        // Automatic deserialization - just extract successful results!
+        msg_result.ok()
     })
     .collect::<Vec<MyMessage>>()
     .await;
 
-// Pattern 2: Filter and transform
+// Pattern 2: Filter and transform - beautifully clean!
 let filtered_ids = consumer.stream()
     .take(100)
     .filter_map(|msg_result| async move {
-        match msg_result {
-            Ok(borrowed_message) => {
-                if let Some(payload) = borrowed_message.payload() {
-                    JsonSerializer.deserialize(payload).ok()
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        // Implicit deserialization - no manual work!
+        msg_result.ok()
     })
     .filter(|message: &MyMessage| {
         // Only process messages with even IDs
@@ -355,20 +329,12 @@ let filtered_ids = consumer.stream()
     .collect::<Vec<u32>>()
     .await;
 
-// Pattern 3: Process each message
+// Pattern 3: Process each message - super clean!
 consumer.stream()
     .take(50)
     .filter_map(|msg_result| async move {
-        match msg_result {
-            Ok(borrowed_message) => {
-                if let Some(payload) = borrowed_message.payload() {
-                    JsonSerializer.deserialize(payload).ok()
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        // Automatic deserialization!
+        msg_result.ok()
     })
     .for_each(|message| async move {
         // Process each message
@@ -379,7 +345,22 @@ consumer.stream()
 ```
 
 ### **Recommendation**
-Always use `consumer.stream()` for new applications. Combine with `StreamExt` methods for powerful fluent processing. Only use `poll_message()` for simple examples or when integrating with legacy code that requires explicit polling.
+Always use `consumer.stream()` for new applications - it now provides **implicit deserialization** making your code incredibly clean! Combine with `StreamExt` methods for powerful fluent processing. Only use `poll_message()` for simple examples or when integrating with legacy code that requires explicit polling.
+
+### **✨ Implicit Deserialization Benefits**
+
+The `stream()` method now returns `Result<T, ConsumerError>` directly:
+
+```rust
+// New beautifully simple API:
+let messages: Vec<MyMessage> = consumer.stream()
+    .take(10)
+    .filter_map(|result| async move { result.ok() }) // Just extract successful results!
+    .collect()
+    .await;
+
+// No more manual payload extraction or deserialization calls needed!
+```
 
 ## Performance Considerations
 

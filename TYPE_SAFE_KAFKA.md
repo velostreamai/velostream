@@ -85,17 +85,14 @@ let consumer = TypedKafkaConsumer::<OrderEvent, _>::new(
 
 consumer.subscribe(&["orders"]);
 
-// Recommended: Use streaming for efficient message processing
+// Recommended: Use streaming for efficient message processing with implicit deserialization
 let mut stream = consumer.stream();
 while let Some(message_result) = stream.next().await {
     match message_result {
-        Ok(borrowed_message) => {
-            if let Some(payload) = borrowed_message.payload() {
-                if let Ok(order) = JsonSerializer.deserialize(payload) {
-                    println!("Order: {:?}", order);
-                    // Process order...
-                }
-            }
+        Ok(order) => {
+            // Order is already deserialized! No manual work needed.
+            println!("Order: {:?}", order);
+            // Process order...
         }
         Err(e) => {
             println!("Stream error: {}", e);
@@ -129,21 +126,15 @@ let consumer = TypedConsumerBuilder::<OrderEvent, _>::new(
 use futures::StreamExt;
 use rdkafka::message::Message;
 
-// Always prefer streaming over polling for production code
+// Always prefer streaming over polling for production code with implicit deserialization
 let mut stream = consumer.stream();
 
 while let Some(message_result) = stream.next().await {
     match message_result {
-        Ok(borrowed_message) => {
-            if let Some(payload) = borrowed_message.payload() {
-                match JsonSerializer.deserialize(payload) {
-                    Ok(typed_message) => {
-                        println!("Received: {:?}", typed_message);
-                        // Process message...
-                    }
-                    Err(e) => eprintln!("Deserialization error: {}", e),
-                }
-            }
+        Ok(typed_message) => {
+            // Message is already deserialized! Super clean and safe.
+            println!("Received: {:?}", typed_message);
+            // Process message...
         }
         Err(e) => {
             eprintln!("Stream error: {:?}", e);

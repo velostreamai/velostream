@@ -4,7 +4,6 @@ use ferrisstreams::{
     JsonSerializer, KafkaConsumable, Serializer
 };
 use futures::StreamExt;
-use rdkafka::message::Message;
 use serde::{Serialize, Deserialize};
 use serial_test::serial;
 use std::time::Duration;
@@ -104,7 +103,7 @@ async fn test_multiple_messages() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Receive messages using stream
+    // Receive messages using stream with implicit deserialization
     let mut stream = consumer.stream();
     let mut received = Vec::new();
     let timeout_duration = Duration::from_secs(10);
@@ -113,17 +112,9 @@ async fn test_multiple_messages() {
     while received.len() < messages.len() && start_time.elapsed() < timeout_duration {
         if let Some(message_result) = stream.next().await {
             match message_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        match JsonSerializer.deserialize(payload) {
-                            Ok(test_msg) => {
-                                received.push(test_msg);
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to deserialize message: {:?}", e);
-                            }
-                        }
-                    }
+                Ok(test_msg) => {
+                    // Message is already deserialized!
+                    received.push(test_msg);
                 }
                 Err(e) => {
                     eprintln!("Stream error: {:?}", e);
@@ -427,7 +418,7 @@ async fn test_consumer_stream() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Test the stream functionality
+    // Test the stream functionality with implicit deserialization
     let mut stream = consumer.stream();
     let mut received_messages = Vec::new();
     
@@ -438,18 +429,9 @@ async fn test_consumer_stream() {
     while received_messages.len() < messages.len() && start_time.elapsed() < timeout_duration {
         if let Some(message_result) = stream.next().await {
             match message_result {
-                Ok(borrowed_message) => {
-                    // Extract the payload and deserialize it
-                    if let Some(payload) = borrowed_message.payload() {
-                        match JsonSerializer.deserialize(payload) {
-                            Ok(test_msg) => {
-                                received_messages.push(test_msg);
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to deserialize message: {:?}", e);
-                            }
-                        }
-                    }
+                Ok(test_msg) => {
+                    // Message is already deserialized!
+                    received_messages.push(test_msg);
                 }
                 Err(e) => {
                     eprintln!("Stream error: {:?}", e);
@@ -505,21 +487,12 @@ async fn test_fluent_consumer_style() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Demonstrate fluent-style processing with standard StreamExt
+    // Demonstrate fluent-style processing with implicit deserialization
     let result = consumer.stream()
         .take(messages.len())  // Take only as many as we sent
-        .filter_map(|message_result| async move {
-            // Fluent filtering and deserialization
-            match message_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        JsonSerializer.deserialize(payload).ok()
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            }
+        .filter_map(|result| async move {
+            // Automatic deserialization - much simpler!
+            result.ok()
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -569,20 +542,12 @@ async fn test_fluent_api_patterns() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Pattern 1: Collect all messages
+    // Pattern 1: Collect all messages with implicit deserialization
     let collected_messages = consumer.stream()
         .take(messages.len())
-        .filter_map(|msg_result| async move {
-            match msg_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        JsonSerializer.deserialize(payload).ok()
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            }
+        .filter_map(|result| async move {
+            // Automatic deserialization - much cleaner!
+            result.ok()
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -596,17 +561,9 @@ async fn test_fluent_api_patterns() {
     
     let first_three = consumer2.stream()
         .take(3) // Only take first 3 messages
-        .filter_map(|msg_result| async move {
-            match msg_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        JsonSerializer.deserialize(payload).ok()
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            }
+        .filter_map(|result| async move {
+            // Implicit deserialization
+            result.ok()
         })
         .collect::<Vec<TestMessage>>()
         .await;
@@ -620,20 +577,12 @@ async fn test_fluent_api_patterns() {
 
     let filtered_ids = consumer3.stream()
         .take(messages.len())
-        .filter_map(|msg_result| async move {
-            match msg_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        JsonSerializer.deserialize(payload).ok()
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            }
+        .filter_map(|result| async move {
+            // Implicit deserialization
+            result.ok()
         })
         .filter(|message: &TestMessage| {
-            // Filter messages with even IDs (using sync filter to avoid lifetime issues)
+            // Filter messages with even IDs 
             futures::future::ready(message.id % 2 == 0)
         })
         .map(|message| message.id) // Map to just the ID
@@ -650,4 +599,50 @@ async fn test_fluent_api_patterns() {
     consumer.commit().expect("Failed to commit");
     consumer2.commit().expect("Failed to commit");
     consumer3.commit().expect("Failed to commit");
+}
+
+#[tokio::test]
+#[serial]
+async fn test_implicit_deserialization() {
+    if !is_kafka_running() { return; }
+
+    let topic = format!("integration-implicit-{}", Uuid::new_v4());
+    let group_id = format!("implicit-group-{}", Uuid::new_v4());
+
+    let producer = KafkaProducer::<TestMessage, _>::new("localhost:9092", &topic, JsonSerializer)
+        .expect("Failed to create producer");
+    
+    let consumer = KafkaConsumer::<TestMessage, _>::new("localhost:9092", &group_id, JsonSerializer)
+        .expect("Failed to create consumer");
+
+    consumer.subscribe(&[&topic]).expect("Failed to subscribe");
+
+    // Send test messages
+    let messages = vec![
+        TestMessage::new(1, "Implicit test 1"),
+        TestMessage::new(2, "Implicit test 2"), 
+    ];
+
+    for (i, message) in messages.iter().enumerate() {
+        let key = format!("implicit-key-{}", i + 1);
+        producer.send(Some(&key), message, None).await
+            .expect("Failed to send message");
+    }
+
+    producer.flush(5000).expect("Failed to flush");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // The new API is beautifully simple - no manual deserialization needed!
+    let received: Vec<TestMessage> = consumer.stream()
+        .take(messages.len())
+        .filter_map(|result| async move { result.ok() }) // Just extract successful results
+        .collect()
+        .await;
+
+    consumer.commit().expect("Failed to commit");
+    
+    assert_eq!(received.len(), messages.len(), "Should receive all messages");
+    for message in &messages {
+        assert!(received.contains(message), "Should contain sent message");
+    }
 }

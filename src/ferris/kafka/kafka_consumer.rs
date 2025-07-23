@@ -152,9 +152,27 @@ where
         }
     }
 
-    /// Get a stream of messages
-    pub fn stream(&self) -> MessageStream<C> {
+    /// Get a stream of raw Kafka messages (for advanced use cases)
+    pub fn raw_stream(&self) -> MessageStream<C> {
         self.consumer.stream()
+    }
+
+    /// Get a stream that yields deserialized typed messages
+    pub fn stream(&self) -> impl futures::Stream<Item = Result<T, ConsumerError>> + '_ {
+        self.consumer.stream().map(|msg_result| {
+            match msg_result {
+                Ok(borrowed_message) => {
+                    if let Some(payload) = borrowed_message.payload() {
+                        self.serializer
+                            .deserialize(payload)
+                            .map_err(ConsumerError::SerializationError)
+                    } else {
+                        Err(ConsumerError::NoMessage)
+                    }
+                }
+                Err(e) => Err(ConsumerError::KafkaError(e)),
+            }
+        })
     }
 
 
