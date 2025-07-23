@@ -1,61 +1,53 @@
-
-use log::{info, warn, error, debug, trace, LevelFilter};
-use env_logger::Env;
-use crate::ferris::kafka::{KafkaProducer, LoggingProducerContext};
+use crate::ferris::kafka::{KafkaProducer, JsonSerializer, Headers};
+use serde::{Serialize, Deserialize};
 
 // Import the module structure
 mod ferris;
 
+#[derive(Serialize, Deserialize, Debug)]
+struct TestMessage {
+    id: u32,
+    content: String,
+}
 
 #[tokio::main]
-async fn main() -> Result<(), rdkafka::error::KafkaError> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the logger
     pretty_env_logger::init();
 
     println!("Kafka Producer Example");
 
     // Create a KafkaProducer instance
-    let producer = match KafkaProducer::<LoggingProducerContext>::new("localhost:9092", "test-topic") {
+    let producer = match KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", "test-topic", JsonSerializer, JsonSerializer) {
         Ok(p) => {
-            info!("Successfully created Kafka producer");
+            println!("Successfully created Kafka producer");
             p
         },
         Err(e) => {
-            error!("Failed to create Kafka producer: {}", e);
-            return Err(e);
+            println!("Failed to create Kafka producer: {}", e);
+            return Ok(());
         }
     };
 
-    // Example: Send a message with a key
-    info!("Sending message with key...");
-    if let Err(e) = producer.send(Some("example-key"), b"Hello, Kafka!", None).await {
-        error!("Failed to send message: {}", e);
-        return Err(e);
+    // Create and send a test message
+    let message = TestMessage {
+        id: 1,
+        content: "Hello, Kafka!".to_string(),
+    };
+
+    // Send the message
+    match producer.send(Some(&"test-key".to_string()), &message, Headers::new(), None).await {
+        Ok(_) => println!("✅ Message sent successfully: {:?}", message),
+        Err(e) => println!("❌ Failed to send message: {}", e),
     }
 
-    // Example: Send a message without a key
-    info!("Sending message without key...");
-    if let Err(e) = producer.send(None, b"Another message without a key", None).await {
-        error!("Failed to send message: {}", e);
-        return Err(e);
-    }
-
-    // Example: Send a message to a different topic
-    info!("Sending message to a different topic...");
-    if let Err(e) = producer.send_to_topic("another-topic", Some("different-key"), b"Message to another topic", None).await {
-        error!("Failed to send message to different topic: {}", e);
-        return Err(e);
-    }
-
-    // Flush any pending messages
-    info!("Flushing producer...");
+    // Flush to ensure message is sent
     if let Err(e) = producer.flush(5000) {
-        error!("Failed to flush producer: {}", e);
-        return Err(e);
+        println!("❌ Failed to flush producer: {}", e);
+    } else {
+        println!("✅ Producer flushed successfully");
     }
 
-    info!("All messages sent successfully!");
-    println!("Kafka Producer example completed successfully");
-
+    println!("Kafka Producer Example completed");
     Ok(())
 }
