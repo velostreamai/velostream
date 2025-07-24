@@ -242,7 +242,7 @@ impl PerformancePresets for ProducerConfig {
         presets::apply_max_durability_common(&mut self.common);
         self.enable_idempotence = true;
         self.acks = AckMode::All;
-        self.retries = u32::MAX;
+        self.retries = 2147483647; // Max allowed value by Kafka (i32::MAX)
         self.max_in_flight_requests = 1;
         self.delivery_timeout = Duration::from_secs(300); // 5 minutes
         self
@@ -252,6 +252,7 @@ impl PerformancePresets for ProducerConfig {
     fn development(mut self) -> Self {
         presets::apply_development_common(&mut self.common);
         self.acks = AckMode::Leader;
+        self.enable_idempotence = false; // Disable idempotence to allow Leader acks
         self.retries = 3;
         self.message_timeout = Duration::from_secs(10);
         self.compression_type = CompressionType::None;

@@ -1,3 +1,41 @@
+//! # Comprehensive Consumer with Headers Example
+//!
+//! This example provides a comprehensive demonstration of consuming Kafka messages 
+//! with full access to keys, values, and headers:
+//! - Multiple message types with different header patterns
+//! - Comprehensive header processing and routing
+//! - Different ways to extract and use message data
+//! - Production-ready patterns for header-based processing
+//!
+//! ## What You'll Learn
+//! - Advanced header creation with multiple metadata fields
+//! - Consuming messages with complex header processing
+//! - Different message extraction patterns (references vs owned)
+//! - Header-based message routing and processing
+//! - Best practices for production header usage
+//!
+//! ## Prerequisites
+//! - Kafka running on localhost:9092  
+//! - Run with: `cargo run --example consumer_with_headers`
+//!
+//! ## Key Features Demonstrated
+//! - **Multiple Message Types**: Different products with varied headers
+//! - **Rich Headers**: source, event-type, timestamp, session-id, app-version, platform
+//! - **Message Processing**: Both reference access and owned consumption
+//! - **UUID Topics**: Dynamic topic generation for isolation
+//! - **Comprehensive Logging**: Detailed output showing all message components
+//!
+//! ## Production Patterns
+//! - **Source Routing**: Messages from web-api, mobile-app, inventory-service
+//! - **Event Types**: product-created, product-updated events
+//! - **Tracing**: Session IDs and timestamps for debugging
+//! - **Platform Context**: App versions and platform information
+//!
+//! ## Next Steps  
+//! After this example, try:
+//! - `builder_configuration.rs` - Advanced producer/consumer configuration
+//! - `fluent_api_example.rs` - Stream-based processing with header filtering
+
 use ferrisstreams::{
     KafkaProducer, KafkaConsumer, JsonSerializer, Headers
 };

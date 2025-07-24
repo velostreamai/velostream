@@ -1,3 +1,39 @@
+//! # Headers Usage Example
+//!
+//! This example demonstrates how to work with Kafka message headers in ferrisstreams:
+//! - Creating and sending messages with rich header metadata  
+//! - Consuming messages and accessing header information
+//! - Using headers for message routing and metadata
+//! - Best practices for header usage
+//!
+//! ## What You'll Learn
+//! - How to create headers with the builder pattern
+//! - Sending messages with headers using producers
+//! - Accessing headers from consumed messages
+//! - Iterating over all headers in a message
+//! - Common header patterns (source, version, trace-id, etc.)
+//!
+//! ## Prerequisites  
+//! - Kafka running on localhost:9092
+//! - Run with: `cargo run --example headers_example`
+//!
+//! ## Key Concepts
+//! - **Headers API**: Custom Headers type with HashMap backing
+//! - **Metadata**: Headers carry metadata alongside the message payload
+//! - **Builder Pattern**: Fluent API for creating headers
+//! - **Optional Values**: Headers can have null values
+//!
+//! ## Use Cases Demonstrated
+//! - **Source Attribution**: Identifying where messages originate
+//! - **Versioning**: Including version information in headers
+//! - **Tracing**: Distributed tracing with trace IDs
+//! - **User Context**: Including user agent and session information
+//!
+//! ## Next Steps
+//! After this example, try:
+//! - `consumer_with_headers.rs` - More comprehensive header processing
+//! - `fluent_api_example.rs` - Stream-based header filtering
+
 use ferrisstreams::{
     KafkaProducer, KafkaConsumer, JsonSerializer, Headers
 };

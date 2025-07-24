@@ -1,3 +1,47 @@
+//! # Advanced Builder Configuration Example
+//!
+//! This example demonstrates advanced producer and consumer configuration using:
+//! - Builder patterns for flexible configuration
+//! - Performance presets for common use cases  
+//! - Custom configuration options
+//! - Different optimization strategies (throughput, latency, durability)
+//!
+//! ## What You'll Learn
+//! - When to use builders vs direct constructors
+//! - Performance presets: high_throughput, low_latency, max_durability, development
+//! - Custom configuration with compression, batching, retries
+//! - Consumer configuration patterns
+//! - Comparing different producer configurations
+//!
+//! ## Prerequisites
+//! - Kafka running on localhost:9092
+//! - Run with: `cargo run --example builder_configuration`
+//!
+//! ## Configuration Types Demonstrated
+//! ### Producers:
+//! - **Basic**: Default settings for most use cases
+//! - **High-Throughput**: Optimized for maximum message volume
+//! - **Low-Latency**: Optimized for minimal message delivery time
+//! - **Max-Durability**: Optimized for data safety and fault tolerance
+//! - **Custom**: Manual configuration of all parameters
+//!
+//! ### Consumers:
+//! - **Basic**: Default settings for most use cases
+//! - **High-Throughput**: Optimized for processing large message volumes
+//! - **Streaming**: Optimized for continuous message processing
+//! - **Development**: Easy debugging with auto-commit enabled
+//!
+//! ## Key Concepts
+//! - **Performance Presets**: Pre-configured settings for common scenarios
+//! - **Builder Pattern**: Flexible configuration construction
+//! - **Client IDs**: Identifying producers and consumers in monitoring
+//! - **Compression**: LZ4, Snappy, Gzip options for reducing network usage
+//!
+//! ## Next Steps
+//! After this example, try:
+//! - `fluent_api_example.rs` - Stream processing patterns
+//! - Review test files for more configuration examples
+
 use ferrisstreams::{KafkaProducer, ProducerBuilder, JsonSerializer, Headers};
 use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};

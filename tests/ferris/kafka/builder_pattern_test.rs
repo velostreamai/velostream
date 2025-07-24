@@ -1,17 +1,4 @@
-use ferrisstreams::ferris::kafka::{
-    KafkaProducer, KafkaConsumer, ProducerBuilder, ConsumerBuilder, JsonSerializer, Headers
-};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use serde::{Serialize, Deserialize};
-use std::time::Duration;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-struct TestMessage {
-    id: u32,
-    content: String,
-}
+use crate::ferris::kafka::common::*;
 
 #[tokio::test]
 async fn test_producer_builder_basic() {
@@ -26,10 +13,7 @@ async fn test_producer_builder_basic() {
     match producer_result {
         Ok(producer) => {
             // Verify we can use the producer
-            let test_message = TestMessage {
-                id: 1,
-                content: "builder test".to_string(),
-            };
+            let test_message = TestMessage::basic(1, "builder test");
 
             let headers = Headers::new().insert("source", "builder-test");
             
@@ -64,10 +48,13 @@ async fn test_producer_builder_with_configuration() {
     .batching(32768, Duration::from_millis(10))
     .idempotence(true)
     .retries(5, Duration::from_millis(100))
-    .custom_property("test.property", "test.value")
+    .custom_property("security.protocol", "PLAINTEXT")
     .build();
 
-    assert!(producer_result.is_ok(), "Producer builder with configuration should succeed");
+    match producer_result {
+        Ok(_) => {}, // Success case
+        Err(e) => panic!("Producer builder with configuration failed: {:?}", e),
+    }
 }
 
 #[tokio::test]
@@ -107,7 +94,10 @@ async fn test_producer_builder_with_presets() {
     .max_durability()
     .build();
 
-    assert!(max_durability_result.is_ok(), "Max durability producer should build successfully");
+    match max_durability_result {
+        Ok(_) => {}, // Success case
+        Err(e) => panic!("Max durability producer failed: {:?}", e),
+    }
 
     let development_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -119,7 +109,10 @@ async fn test_producer_builder_with_presets() {
     .development()
     .build();
 
-    assert!(development_result.is_ok(), "Development producer should build successfully");
+    match development_result {
+        Ok(_) => {}, // Success case
+        Err(e) => panic!("Development producer failed: {:?}", e),
+    }
 }
 
 #[tokio::test]
@@ -129,6 +122,7 @@ async fn test_producer_builder_with_config_object() {
         .client_id("config-obj-producer")
         .compression(CompressionType::Gzip)
         .acks(AckMode::Leader)
+        .idempotence(false) // Disable idempotence to allow Leader acks
         .custom_property("security.protocol", "PLAINTEXT");
 
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::with_config(
@@ -137,7 +131,10 @@ async fn test_producer_builder_with_config_object() {
         JsonSerializer,
     ).build();
 
-    assert!(producer_result.is_ok(), "Producer builder with config object should succeed");
+    match producer_result {
+        Ok(_) => {}, // Success case
+        Err(e) => panic!("Producer builder with config object failed: {:?}", e),
+    }
 }
 
 #[tokio::test]
@@ -239,11 +236,15 @@ async fn test_producer_builder_method_chaining() {
     )
     .client_id("chain-test-2")
     .acks(AckMode::Leader)
+    .idempotence(false) // Disable idempotence to allow Leader acks
     .compression(CompressionType::Lz4)
     .build();
 
     assert!(producer1_result.is_ok(), "First chained producer should build");
-    assert!(producer2_result.is_ok(), "Second chained producer should build");
+    match producer2_result {
+        Ok(_) => {}, // Success case
+        Err(e) => panic!("Second chained producer failed: {:?}", e),
+    }
 }
 
 #[tokio::test]
@@ -364,10 +365,7 @@ async fn test_end_to_end_builder_workflow() {
         // Subscribe consumer
         if let Ok(_) = consumer.subscribe(&["e2e-builder-topic"]) {
             // Send a test message
-            let test_message = TestMessage {
-                id: 42,
-                content: "end-to-end builder test".to_string(),
-            };
+            let test_message = TestMessage::basic(42, "end-to-end builder test");
 
             let headers = Headers::new()
                 .insert("test-type", "e2e-builder")
