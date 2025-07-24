@@ -34,6 +34,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
+use futures::StreamExt; // Add this import for stream extension traits
 
 // Performance test configuration
 const MESSAGE_COUNT: u64 = 10_000;
@@ -227,46 +228,46 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
     // Start consumer task
     let consumer_metrics = metrics.clone();
     let consumer_task = tokio::spawn(async move {
-        let mut received_count = 0u64;
-        let timeout = tokio::time::sleep(CONSUMER_TIMEOUT);
-        tokio::pin!(timeout);
+        let timeout_future = tokio::time::sleep(CONSUMER_TIMEOUT);
+        tokio::pin!(timeout_future);
 
-        loop {
-            tokio::select! {
-                _ = &mut timeout => {
-                    println!("⚠️  Consumer timeout reached");
-                    break;
-                }
-                message_result = consumer.poll(Duration::from_millis(1000)) => {
+        // Use stream instead of polling
+        let stream_future = consumer.stream()
+            .take(MESSAGE_COUNT as usize) // Limit to expected message count
+            .for_each(|message_result| {
+                let metrics = consumer_metrics.clone();
+                async move {
                     match message_result {
                         Ok(message) => {
                             let message_size = estimate_message_size(&message);
-                            consumer_metrics.record_receive(message_size);
-                            received_count += 1;
-                            
-                            if received_count >= MESSAGE_COUNT {
-                                println!("✅ Received all {} messages", MESSAGE_COUNT);
-                                break;
-                            }
-                            
+                            metrics.record_receive(message_size);
+
                             // Log progress every 1000 messages
-                            if received_count % 1000 == 0 {
-                                let stats = consumer_metrics.get_throughput_stats();
-                                println!("📈 Progress: {}/{} msgs ({:.1} msg/s)", 
-                                    received_count, MESSAGE_COUNT, stats.messages_per_second_received);
+                            let count = metrics.messages_received.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            if count % 1000 == 0 {
+                                let stats = metrics.get_throughput_stats();
+                                println!("📈 Progress: {}/{} msgs ({:.1} msg/s)",
+                                    count, MESSAGE_COUNT, stats.messages_per_second_received);
                             }
                         }
                         Err(e) => {
                             println!("❌ Consumer error: {}", e);
-                            // Continue polling unless it's a fatal error
-                            if e.to_string().contains("fatal") {
-                                break;
-                            }
                         }
                     }
                 }
+            });
+
+        // Race between the timeout and stream completion
+        tokio::select! {
+            _ = timeout_future => {
+                println!("⚠️ Consumer timeout reached");
+            }
+            _ = stream_future => {
+                println!("✅ Received all expected messages");
             }
         }
+
+        println!("✅ Received {} messages", consumer_metrics.messages_received.load(std::sync::atomic::Ordering::Relaxed));
     });
 
     // Start producer tasks
