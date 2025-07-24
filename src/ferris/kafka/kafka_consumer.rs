@@ -1,174 +1,16 @@
-use crate::ferris::kafka::serialization::{Serializer, SerializationError};
+use crate::ferris::kafka::serialization::Serializer;
+use crate::ferris::kafka::headers::Headers;
+use crate::ferris::kafka::message::Message;
+use crate::ferris::kafka::consumer_config::ConsumerConfig;
+use crate::ferris::kafka::kafka_error::ConsumerError;
+use crate::ferris::kafka::client_config_builder::ClientConfigBuilder;
 use futures::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, ConsumerContext, DefaultConsumerContext, MessageStream, StreamConsumer};
 use rdkafka::error::KafkaError;
-use rdkafka::message::{Message as KafkaMessage, Headers as KafkaHeaders};
-use std::collections::HashMap;
+use rdkafka::message::{Message as KafkaMessage};
 use std::marker::PhantomData;
 use std::time::Duration;
-
-/// Custom headers type that provides a clean API for Kafka message headers
-/// 
-/// `Headers` wraps a `HashMap<String, Option<String>>` to provide an ergonomic interface
-/// for working with Kafka message headers. It supports both valued headers and null headers,
-/// and provides builder-pattern methods for easy construction.
-/// 
-/// # Examples
-/// 
-/// ## Creating Headers
-/// ```rust
-/// # use ferrisstreams::ferris::kafka::Headers;
-/// let headers = Headers::new()
-///     .insert("source", "web-api")
-///     .insert("version", "1.2.3")
-///     .insert("trace-id", "abc-123-def")
-///     .insert_null("optional-field");
-/// ```
-/// 
-/// ## Querying Headers
-/// ```rust
-/// # use ferrisstreams::ferris::kafka::Headers;
-/// # let headers = Headers::new().insert("source", "web-api");
-/// // Get a header value
-/// if let Some(source) = headers.get("source") {
-///     println!("Source: {}", source);
-/// }
-/// 
-/// // Check if header exists
-/// if headers.contains_key("source") {
-///     println!("Has source header");
-/// }
-/// 
-/// // Iterate over all headers
-/// for (key, value) in headers.iter() {
-///     match value {
-///         Some(v) => println!("{}: {}", key, v),
-///         None => println!("{}: <null>", key),
-///     }
-/// }
-/// ```
-/// 
-/// ## Integration with Messages
-/// ```rust,no_run
-/// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-/// # use std::time::Duration;
-/// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-/// let message = consumer.poll_message(Duration::from_secs(5)).await?;
-/// 
-/// // Access message headers
-/// let headers = message.headers();
-/// if let Some(event_type) = headers.get("event-type") {
-///     match event_type {
-///         "user-created" => handle_user_created(message.value()),
-///         "user-updated" => handle_user_updated(message.value()),
-///         _ => println!("Unknown event type: {}", event_type),
-///     }
-/// }
-/// # fn handle_user_created(_: &String) {}
-/// # fn handle_user_updated(_: &String) {}
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-#[derive(Debug, Clone, PartialEq)]
-pub struct Headers {
-    inner: HashMap<String, Option<String>>,
-}
-
-impl Headers {
-    /// Creates a new empty headers collection
-    pub fn new() -> Self {
-        Self {
-            inner: HashMap::new(),
-        }
-    }
-
-    /// Creates a new headers collection with specified capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            inner: HashMap::with_capacity(capacity),
-        }
-    }
-
-    /// Inserts a header with a value
-    pub fn insert(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.inner.insert(key.into(), Some(value.into()));
-        self
-    }
-
-    /// Inserts a header with no value (null header)
-    pub fn insert_null(mut self, key: impl Into<String>) -> Self {
-        self.inner.insert(key.into(), None);
-        self
-    }
-
-    /// Gets a header value by key
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.inner.get(key).and_then(|v| v.as_deref())
-    }
-
-    /// Gets a header value by key, including null values
-    pub fn get_optional(&self, key: &str) -> Option<&Option<String>> {
-        self.inner.get(key)
-    }
-
-    /// Checks if a header exists (regardless of value)
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.inner.contains_key(key)
-    }
-
-    /// Returns the number of headers
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Returns true if there are no headers
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Iterates over all headers
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Option<String>)> {
-        self.inner.iter()
-    }
-
-    /// Converts to rdkafka OwnedHeaders for internal use
-    pub(crate) fn to_rdkafka_headers(&self) -> rdkafka::message::OwnedHeaders {
-        let mut headers = rdkafka::message::OwnedHeaders::new_with_capacity(self.inner.len());
-        
-        for (key, value) in &self.inner {
-            let header = rdkafka::message::Header {
-                key,
-                value: value.as_deref(),
-            };
-            headers = headers.insert(header);
-        }
-        
-        headers
-    }
-
-    /// Creates Headers from rdkafka headers
-    pub(crate) fn from_rdkafka_headers<H: KafkaHeaders>(kafka_headers: &H) -> Self {
-        let mut headers = HashMap::with_capacity(kafka_headers.count());
-        
-        for i in 0..kafka_headers.count() {
-            let header = kafka_headers.get(i);
-            let key = header.key.to_string();
-            let value = header.value.map(|v| {
-                // Convert bytes to string, using lossy conversion if needed
-                String::from_utf8_lossy(v).into_owned()
-            });
-            headers.insert(key, value);
-        }
-        
-        Self { inner: headers }
-    }
-}
-
-impl Default for Headers {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// A Kafka consumer that handles deserialization automatically for keys, values, and headers
 /// 
@@ -235,130 +77,45 @@ where
     _phantom_value: PhantomData<V>,
 }
 
-/// Error type for consumer operations
-#[derive(Debug)]
-pub enum ConsumerError {
-    KafkaError(KafkaError),
-    SerializationError(SerializationError),
-    Timeout,
-    NoMessage,
-}
-
-impl std::fmt::Display for ConsumerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConsumerError::KafkaError(e) => write!(f, "Kafka error: {}", e),
-            ConsumerError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-            ConsumerError::Timeout => write!(f, "Timeout waiting for message"),
-            ConsumerError::NoMessage => write!(f, "No message available"),
-        }
-    }
-}
-
-impl std::error::Error for ConsumerError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ConsumerError::KafkaError(e) => Some(e),
-            ConsumerError::SerializationError(e) => Some(e),
-            ConsumerError::Timeout | ConsumerError::NoMessage => None,
-        }
-    }
-}
-
-impl From<KafkaError> for ConsumerError {
-    fn from(err: KafkaError) -> Self {
-        ConsumerError::KafkaError(err)
-    }
-}
-
-impl From<SerializationError> for ConsumerError {
-    fn from(err: SerializationError) -> Self {
-        ConsumerError::SerializationError(err)
-    }
-}
-
-/// A message containing deserialized key, value, and headers
-/// 
-/// This struct represents a complete Kafka message with type-safe access to all components:
-/// - **Key**: Optional deserialized key of type `K`
-/// - **Value**: Deserialized message payload of type `V`
-/// - **Headers**: Message metadata as a `Headers` collection
-/// 
-/// # Examples
-/// 
-/// ```rust,no_run
-/// # use ferrisstreams::ferris::kafka::{Message, Headers};
-/// # let message = Message::new(Some("key".to_string()), "value".to_string(), Headers::new());
-/// // Access by reference (borrowing)
-/// println!("Key: {:?}", message.key());
-/// println!("Value: {}", message.value());
-/// println!("Headers: {:?}", message.headers());
-/// 
-/// // Check for specific headers
-/// if let Some(source) = message.headers().get("source") {
-///     println!("Message originated from: {}", source);
-/// }
-/// 
-/// // Consume the message (take ownership)
-/// let (key, value, headers) = message.into_parts();
-/// // Now you own the key, value, and headers
-/// ```
-/// 
-/// See the [consumer with headers example](https://github.com/your-repo/examples/consumer_with_headers.rs) 
-/// for a comprehensive demonstration.
-#[derive(Debug)]
-pub struct Message<K, V> {
-    pub key: Option<K>,
-    pub value: V,
-    pub headers: Headers,
-}
-
-impl<K, V> Message<K, V> {
-    pub fn new(key: Option<K>, value: V, headers: Headers) -> Self {
-        Self { key, value, headers }
-    }
-
-    pub fn key(&self) -> Option<&K> {
-        self.key.as_ref()
-    }
-
-    pub fn value(&self) -> &V {
-        &self.value
-    }
-
-    pub fn headers(&self) -> &Headers {
-        &self.headers
-    }
-
-    pub fn into_key(self) -> Option<K> {
-        self.key
-    }
-
-    pub fn into_value(self) -> V {
-        self.value
-    }
-
-    pub fn into_headers(self) -> Headers {
-        self.headers
-    }
-
-    pub fn into_parts(self) -> (Option<K>, V, Headers) {
-        (self.key, self.value, self.headers)
-    }
-}
+// ConsumerError is now a type alias defined in kafka_error.rs
 
 impl<K, V, KS, VS> KafkaConsumer<K, V, KS, VS, DefaultConsumerContext>
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
 {
-    /// Creates a new KafkaConsumer with default context
+    /// Creates a new KafkaConsumer with default context and simple configuration
     pub fn new(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS) -> Result<Self, KafkaError> {
-        let consumer: StreamConsumer = ClientConfig::new()
-            .set("bootstrap.servers", brokers)
-            .set("group.id", group_id)
-            .set("auto.offset.reset", "earliest")
-            .create()?;
+        let config = ConsumerConfig::new(brokers, group_id);
+        Self::with_config(config, key_serializer, value_serializer)
+    }
+
+    /// Creates a new KafkaConsumer with custom configuration
+    pub fn with_config(
+        config: ConsumerConfig,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Result<Self, KafkaError> {
+        let mut client_config = ClientConfigBuilder::new()
+            .bootstrap_servers(&config.common.brokers)
+            .client_id(config.common.client_id.as_deref())
+            .request_timeout(config.common.request_timeout)
+            .retry_backoff(config.common.retry_backoff)
+            .custom_properties(&config.common.custom_config)
+            .build();
+        
+        // Set consumer-specific configuration
+        client_config
+            .set("group.id", &config.group_id)
+            .set("auto.offset.reset", config.auto_offset_reset.as_str())
+            .set("enable.auto.commit", &config.enable_auto_commit.to_string())
+            .set("auto.commit.interval.ms", &config.auto_commit_interval.as_millis().to_string())
+            .set("session.timeout.ms", &config.session_timeout.as_millis().to_string())
+            .set("heartbeat.interval.ms", &config.heartbeat_interval.as_millis().to_string())
+            .set("fetch.min.bytes", &config.fetch_min_bytes.to_string())
+            .set("fetch.message.max.bytes", &config.max_partition_fetch_bytes.to_string());
+
+        let consumer: StreamConsumer = client_config.create()?;
 
         Ok(KafkaConsumer {
             consumer,
@@ -487,8 +244,8 @@ where
     ///         }
     ///     })
     ///     .await;
-    /// # fn handle_user_created(_: ferrisstreams::ferris::kafka::Message<String, String>) {}
-    /// # fn handle_user_updated(_: ferrisstreams::ferris::kafka::Message<String, String>) {}
+    /// # fn handle_user_created(_: ferrisstreams::Message<String, String>) {}
+    /// # fn handle_user_updated(_: ferrisstreams::Message<String, String>) {}
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     /// 
@@ -541,7 +298,6 @@ where
             }
         })
     }
-
 
     /// Commit the current consumer state
     pub fn commit(&self) -> Result<(), KafkaError> {
@@ -630,7 +386,6 @@ where
             _phantom_value: PhantomData,
         }
     }
-
 }
 
 /// Convenience trait for types that can be consumed from Kafka with specific key and value serializers

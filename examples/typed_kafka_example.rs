@@ -1,3 +1,34 @@
+//! # Basic Producer/Consumer Example
+//!
+//! This example demonstrates the core functionality of ferrisstreams:
+//! - Creating type-safe producers and consumers with JSON serialization
+//! - Sending and receiving structured messages
+//! - Basic message processing with polling pattern
+//! - Working with keys, values, and headers
+//! - Proper error handling and offset management
+//!
+//! ## What You'll Learn
+//! - How to create producers and consumers with direct constructors
+//! - Sending messages with automatic JSON serialization
+//! - Consuming messages with automatic deserialization
+//! - Processing different order statuses
+//! - Committing offsets after processing
+//!
+//! ## Prerequisites
+//! - Kafka running on localhost:9092
+//! - Run with: `cargo run --example typed_kafka_example`
+//!
+//! ## Key Concepts
+//! - **Type Safety**: Messages are strongly typed (OrderEvent)
+//! - **Automatic Serialization**: JSON serialization happens transparently
+//! - **Polling Pattern**: Traditional message-by-message consumption
+//! - **Error Handling**: Proper handling of timeouts and errors
+//!
+//! ## Next Steps
+//! After this example, try:
+//! - `headers_example.rs` - Working with message headers
+//! - `fluent_api_example.rs` - Stream-based processing (recommended for production)
+
 use ferrisstreams::{
     KafkaProducer, KafkaConsumer, JsonSerializer
 };

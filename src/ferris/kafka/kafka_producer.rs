@@ -1,7 +1,10 @@
 use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
-use crate::ferris::kafka::serialization::{Serializer, SerializationError};
-use crate::ferris::kafka::kafka_consumer::Headers; // Import Headers from consumer module
-use rdkafka::config::ClientConfig;
+use crate::ferris::kafka::serialization::Serializer;
+use crate::ferris::kafka::headers::Headers;
+use crate::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
+use crate::ferris::kafka::kafka_error::ProducerError;
+use crate::ferris::kafka::client_config_builder::ClientConfigBuilder;
+use crate::ferris::kafka::performance_presets::PerformancePresets;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
 use rdkafka::util::Timeout;
@@ -72,42 +75,7 @@ where
     _phantom_value: PhantomData<V>,
 }
 
-/// Error type for producer operations
-#[derive(Debug)]
-pub enum ProducerError {
-    KafkaError(KafkaError),
-    SerializationError(SerializationError),
-}
-
-impl std::fmt::Display for ProducerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ProducerError::KafkaError(e) => write!(f, "Kafka error: {}", e),
-            ProducerError::SerializationError(e) => write!(f, "Serialization error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for ProducerError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ProducerError::KafkaError(e) => Some(e),
-            ProducerError::SerializationError(e) => Some(e),
-        }
-    }
-}
-
-impl From<KafkaError> for ProducerError {
-    fn from(err: KafkaError) -> Self {
-        ProducerError::KafkaError(err)
-    }
-}
-
-impl From<SerializationError> for ProducerError {
-    fn from(err: SerializationError) -> Self {
-        ProducerError::SerializationError(err)
-    }
-}
+// ProducerError is now a type alias defined in kafka_error.rs
 
 const SEND_WAIT_SECS: u64 = 30;
 
@@ -116,24 +84,52 @@ where
     KS: Serializer<K>,
     VS: Serializer<V>,
 {
-    /// Creates a new KafkaProducer with default context
+    /// Creates a new KafkaProducer with default context and simple configuration
     pub fn new(
         brokers: &str,
         default_topic: &str,
         key_serializer: KS,
         value_serializer: VS,
     ) -> Result<Self, KafkaError> {
-        let producer: FutureProducer<LoggingProducerContext> = ClientConfig::new()
-            .set("bootstrap.servers", brokers)
-            .set("message.timeout.ms", "5000")
-            .set("log_level", "7")
+        let config = ProducerConfig::new(brokers, default_topic);
+        Self::with_config(config, key_serializer, value_serializer)
+    }
+
+    /// Creates a new KafkaProducer with custom configuration
+    pub fn with_config(
+        config: ProducerConfig,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Result<Self, KafkaError> {
+        let mut client_config = ClientConfigBuilder::new()
+            .bootstrap_servers(&config.common.brokers)
+            .client_id(config.common.client_id.as_deref())
+            .request_timeout(config.common.request_timeout)
+            .retry_backoff(config.common.retry_backoff)
+            .custom_properties(&config.common.custom_config)
+            .build();
+        
+        // Set producer-specific configuration
+        client_config
+            .set("message.timeout.ms", &config.message_timeout.as_millis().to_string())
+            .set("delivery.timeout.ms", &config.delivery_timeout.as_millis().to_string())
+            .set("enable.idempotence", &config.enable_idempotence.to_string())
+            .set("max.in.flight.requests.per.connection", &config.max_in_flight_requests.to_string())
+            .set("retries", &config.retries.to_string())
+            .set("batch.size", &config.batch_size.to_string())
+            .set("linger.ms", &config.linger_ms.as_millis().to_string())
+            .set("compression.type", config.compression_type.as_str())
+            .set("acks", config.acks.as_str())
+            .set("queue.buffering.max.messages", &config.buffer_memory.to_string());
+
+        let producer: FutureProducer<LoggingProducerContext> = client_config
             .create_with_context(LoggingProducerContext::default())?;
 
         Ok(KafkaProducer {
             producer,
             key_serializer,
             value_serializer,
-            default_topic: default_topic.to_string(),
+            default_topic: config.default_topic,
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         })
@@ -146,7 +142,7 @@ where
     VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
-    /// Creates a new KafkaProducer with custom context
+    /// Creates a new KafkaProducer with custom context (legacy method)
     pub fn new_with_context(
         brokers: &str,
         default_topic: &str,
@@ -154,17 +150,45 @@ where
         value_serializer: VS,
         context: C,
     ) -> Result<Self, KafkaError> {
-        let producer: FutureProducer<C> = ClientConfig::new()
-            .set("bootstrap.servers", brokers)
-            .set("message.timeout.ms", "5000")
-            .set("log_level", "7")
-            .create_with_context(context)?;
+        let config = ProducerConfig::new(brokers, default_topic);
+        Self::new_with_context_and_config(config, key_serializer, value_serializer, context)
+    }
+
+    /// Creates a new KafkaProducer with custom context and configuration
+    pub fn new_with_context_and_config(
+        config: ProducerConfig,
+        key_serializer: KS,
+        value_serializer: VS,
+        context: C,
+    ) -> Result<Self, KafkaError> {
+        let mut client_config = ClientConfigBuilder::new()
+            .bootstrap_servers(&config.common.brokers)
+            .client_id(config.common.client_id.as_deref())
+            .request_timeout(config.common.request_timeout)
+            .retry_backoff(config.common.retry_backoff)
+            .custom_properties(&config.common.custom_config)
+            .build();
+        
+        // Set producer-specific configuration
+        client_config
+            .set("message.timeout.ms", &config.message_timeout.as_millis().to_string())
+            .set("delivery.timeout.ms", &config.delivery_timeout.as_millis().to_string())
+            .set("enable.idempotence", &config.enable_idempotence.to_string())
+            .set("max.in.flight.requests.per.connection", &config.max_in_flight_requests.to_string())
+            .set("retries", &config.retries.to_string())
+            .set("batch.size", &config.batch_size.to_string())
+            .set("linger.ms", &config.linger_ms.as_millis().to_string())
+            .set("compression.type", config.compression_type.as_str())
+            .set("acks", config.acks.as_str())
+            .set("queue.buffering.max.messages", &config.buffer_memory.to_string());
+
+        let producer: FutureProducer<C> = client_config.create_with_context(context)?;
 
         Ok(KafkaProducer {
             producer,
             key_serializer,
             value_serializer,
-            default_topic: default_topic.to_string(),
+            default_topic: config.default_topic,
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         })
@@ -250,15 +274,55 @@ where
     }
 }
 
-/// Builder for creating KafkaProducer with configuration options
+/// Builder for creating KafkaProducer with comprehensive configuration options
+/// 
+/// This builder provides a fluent API for configuring Kafka producers with
+/// performance presets, custom settings, and fine-grained control over
+/// producer behavior.
+/// 
+/// # Examples
+/// 
+/// ## Basic Usage
+/// ```rust,no_run
+/// # use ferrisstreams::{ProducerBuilder, JsonSerializer};
+/// # use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType};
+/// let producer = ProducerBuilder::<String, String, _, _>::new(
+///     "localhost:9092",
+///     "my-topic", 
+///     JsonSerializer,
+///     JsonSerializer
+/// )
+/// .client_id("my-producer")
+/// .high_throughput()
+/// .build()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+/// 
+/// ## Advanced Configuration
+/// ```rust,no_run
+/// # use ferrisstreams::{ProducerBuilder, JsonSerializer};
+/// # use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
+/// # use std::time::Duration;
+/// let config = ProducerConfig::new("localhost:9092", "my-topic")
+///     .compression(CompressionType::Lz4)
+///     .acks(AckMode::All)
+///     .batching(32768, Duration::from_millis(10))
+///     .custom_property("security.protocol", "SSL");
+/// 
+/// let producer = ProducerBuilder::<String, String, _, _>::with_config(
+///     config,
+///     JsonSerializer,
+///     JsonSerializer
+/// ).build()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct ProducerBuilder<K, V, KS, VS, C = LoggingProducerContext> 
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
     C: ProducerContext + 'static,
 {
-    brokers: String,
-    default_topic: String,
+    config: ProducerConfig,
     key_serializer: KS,
     value_serializer: VS,
     context: Option<C>,
@@ -274,8 +338,7 @@ where
     /// Creates a new builder with required parameters
     pub fn new(brokers: &str, default_topic: &str, key_serializer: KS, value_serializer: VS) -> Self {
         Self {
-            brokers: brokers.to_string(),
-            default_topic: default_topic.to_string(),
+            config: ProducerConfig::new(brokers, default_topic),
             key_serializer,
             value_serializer,
             context: None,
@@ -284,22 +347,100 @@ where
         }
     }
 
+    /// Creates a new builder with custom configuration
+    pub fn with_config(config: ProducerConfig, key_serializer: KS, value_serializer: VS) -> Self {
+        Self {
+            config,
+            key_serializer,
+            value_serializer,
+            context: None,
+            _phantom_key: PhantomData,
+            _phantom_value: PhantomData,
+        }
+    }
+
+    /// Set client ID
+    pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
+        self.config = self.config.client_id(client_id);
+        self
+    }
+
+    /// Set message timeout
+    pub fn message_timeout(mut self, timeout: Duration) -> Self {
+        self.config = self.config.message_timeout(timeout);
+        self
+    }
+
+    /// Set compression type
+    pub fn compression(mut self, compression: CompressionType) -> Self {
+        self.config = self.config.compression(compression);
+        self
+    }
+
+    /// Set acknowledgment mode
+    pub fn acks(mut self, acks: AckMode) -> Self {
+        self.config = self.config.acks(acks);
+        self
+    }
+
+    /// Set batching configuration
+    pub fn batching(mut self, batch_size: u32, linger_ms: Duration) -> Self {
+        self.config = self.config.batching(batch_size, linger_ms);
+        self
+    }
+
+    /// Enable/disable idempotent producer
+    pub fn idempotence(mut self, enable: bool) -> Self {
+        self.config = self.config.idempotence(enable);
+        self
+    }
+
+    /// Set retry configuration
+    pub fn retries(mut self, retries: u32, backoff: Duration) -> Self {
+        self.config = self.config.retries(retries, backoff);
+        self
+    }
+
+    /// Add custom configuration property
+    pub fn custom_property(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.config = self.config.custom_property(key, value);
+        self
+    }
+
+    /// Apply high throughput preset
+    pub fn high_throughput(mut self) -> Self {
+        self.config = self.config.high_throughput();
+        self
+    }
+
+    /// Apply low latency preset
+    pub fn low_latency(mut self) -> Self {
+        self.config = self.config.low_latency();
+        self
+    }
+
+    /// Apply maximum durability preset
+    pub fn max_durability(mut self) -> Self {
+        self.config = self.config.max_durability();
+        self
+    }
+
+    /// Apply development preset
+    pub fn development(mut self) -> Self {
+        self.config = self.config.development();
+        self
+    }
+
     /// Builds the KafkaProducer
     pub fn build(self) -> Result<KafkaProducer<K, V, KS, VS, LoggingProducerContext>, KafkaError> {
-        if let Some(context) = self.context {
-            // This shouldn't happen for default context builders, but just in case
-            KafkaProducer::new_with_context(&self.brokers, &self.default_topic, self.key_serializer, self.value_serializer, context)
-        } else {
-            KafkaProducer::new(&self.brokers, &self.default_topic, self.key_serializer, self.value_serializer)
-        }
+        KafkaProducer::with_config(self.config, self.key_serializer, self.value_serializer)
     }
 }
 
-impl<K, V, KS, VS, C> ProducerBuilder<K, V, KS, VS, C>
+impl<K, V, KS, VS> ProducerBuilder<K, V, KS, VS, LoggingProducerContext>
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
-    C: ProducerContext + 'static,
 {
     /// Sets a custom producer context
     pub fn with_context<NewC>(self, context: NewC) -> ProducerBuilder<K, V, KS, VS, NewC>
@@ -307,8 +448,7 @@ where
         NewC: ProducerContext + 'static,
     {
         ProducerBuilder {
-            brokers: self.brokers,
-            default_topic: self.default_topic,
+            config: self.config,
             key_serializer: self.key_serializer,
             value_serializer: self.value_serializer,
             context: Some(context),
@@ -316,7 +456,6 @@ where
             _phantom_value: PhantomData,
         }
     }
-
 }
 
 #[cfg(test)]

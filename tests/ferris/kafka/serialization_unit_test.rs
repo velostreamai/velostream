@@ -1,24 +1,4 @@
-use ferrisstreams::{JsonSerializer, Serializer};
-use serde::{Serialize, Deserialize};
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct TestUser {
-    id: u64,
-    name: String,
-    email: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct NestedStruct {
-    outer: String,
-    inner: InnerStruct,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct InnerStruct {
-    value: i32,
-    flag: bool,
-}
+use crate::ferris::kafka::common::*;
 
 #[test]
 fn test_json_serializer_basic() {
@@ -85,6 +65,7 @@ fn test_json_serializer_nested_structs() {
             value: 100,
             flag: true,
         },
+        numbers: vec![1, 2, 3, 4, 5],
     };
 
     let serializer = JsonSerializer;

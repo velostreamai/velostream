@@ -91,16 +91,26 @@ for (key, value) in headers.iter() {
 ## 📚 Examples
 
 ### Basic Usage
-- **[Producer Example](examples/typed_kafka_example.rs)** - Basic producer with JSON serialization
-- **[Consumer Example](examples/typed_example.rs)** - Basic consumer with type safety
-
-### Headers and Metadata
+- **[Producer Example](examples/typed_kafka_example.rs)** - Basic producer/consumer with JSON serialization
 - **[Headers Example](examples/headers_example.rs)** - Simple headers usage demonstration
 - **[Consumer with Headers](examples/consumer_with_headers.rs)** - Comprehensive headers, keys, and values demo
 
-### Integration Tests
+### Advanced Usage
+- **[Builder Configuration](examples/builder_configuration.rs)** - Advanced builder pattern and performance presets
+- **[Fluent API Example](examples/fluent_api_example.rs)** - Stream processing with fluent API patterns
+
+### Test Suite Examples
+- **[Builder Pattern Tests](tests/ferris/kafka/builder_pattern_test.rs)** - Comprehensive builder pattern test suite (16 tests)
+- **[Error Handling Tests](tests/ferris/kafka/error_handling_test.rs)** - Error scenarios and edge cases (12 tests)
+- **[Serialization Tests](tests/ferris/kafka/serialization_unit_test.rs)** - JSON serialization validation (7 tests)
 - **[Integration Tests](tests/ferris/kafka/kafka_integration_test.rs)** - Complete test suite including headers functionality
+- **[Performance Tests](tests/ferris/kafka/kafka_performance_test.rs)** - Performance benchmarks and load testing
 - **[Advanced Tests](tests/ferris/kafka/kafka_advanced_test.rs)** - Advanced patterns and edge cases
+
+### Shared Test Infrastructure
+- **[Test Messages](tests/ferris/kafka/test_messages.rs)** - Unified message types for testing
+- **[Test Utils](tests/ferris/kafka/test_utils.rs)** - Shared utilities and helper functions
+- **[Common Imports](tests/ferris/kafka/common.rs)** - Consolidated imports for all tests
 
 ## 🚀 Quick Start
 
@@ -208,11 +218,11 @@ while let Ok(message) = consumer.poll_message(timeout).await {
 
 ### 2. Streaming Pattern
 ```rust
-// Reactive streaming approach
+// Reactive streaming approach - recommended!
 consumer.stream()
-    .map(|result| result.unwrap())
+    .filter_map(|result| async move { result.ok() })
     .for_each(|message| async move {
-        // Process message with implicit deserialization
+        // Message is automatically deserialized!
         println!("Processing: {:?}", message.value());
     })
     .await;
@@ -220,17 +230,17 @@ consumer.stream()
 
 ### 3. Fluent Processing
 ```rust
-// Functional processing pipeline
-let processed: Vec<_> = consumer.stream()
+// Functional processing pipeline - see examples/fluent_api_example.rs
+let high_priority: Vec<_> = consumer.stream()
     .take(100)
     .filter_map(|result| async move { result.ok() })
     .filter(|message| {
         // Filter by headers
         futures::future::ready(
-            message.headers().get("event-type") == Some("order-created")
+            message.headers().get("priority") == Some("high")
         )
     })
-    .map(|message| message.into_value())
+    .map(|message| message.value().clone())
     .collect()
     .await;
 ```
@@ -283,18 +293,43 @@ let processed: Vec<_> = consumer.stream()
 
 ## 🧪 Testing
 
-Run the test suite:
+The project includes a comprehensive test suite with shared infrastructure to eliminate duplication:
+
+### Running Tests
 
 ```bash
-# Unit tests
+# All tests (unit + integration)
+cargo test
+
+# Unit tests only
 cargo test --lib
 
 # Integration tests (requires Kafka running on localhost:9092)
-cargo test --test mod
+cargo test --test builder_pattern_test
+cargo test --test error_handling_test
+cargo test --test serialization_unit_test
 
-# Specific headers test
-cargo test test_headers_functionality
+# Specific test categories
+cargo test test_headers_functionality  # Headers functionality
+cargo test test_builder_pattern        # Builder patterns
+cargo test test_error_handling         # Error scenarios
+cargo test test_performance            # Performance benchmarks
 ```
+
+### Test Structure
+
+The test suite has been consolidated to eliminate duplication:
+- **Shared Messages**: `tests/ferris/kafka/test_messages.rs` - Unified message types
+- **Shared Utilities**: `tests/ferris/kafka/test_utils.rs` - Common test helpers
+- **Common Imports**: `tests/ferris/kafka/common.rs` - Single import module
+- **35+ Tests**: Covering builder patterns, error handling, serialization, and integration scenarios
+
+### Current Test Status ✅
+- Builder Pattern: 16/16 tests passing
+- Error Handling: 12/12 tests passing  
+- Serialization: 7/7 tests passing
+- Integration: All tests passing
+- Performance: Benchmarks available
 
 ## 🤝 Contributing
 
@@ -308,6 +343,42 @@ This project is licensed under either of
  * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
+
+## 📋 TODO
+
+### Planned Features 🔄
+- **Advanced Stream Processing:**
+  - Fan-in (multiple topics → single topic)
+  - Fan-out (single topic → multiple topics)
+  - Stream filtering, mapping, and reducing
+  - Header propagation and transformation
+
+- **State Management:**
+  - KTable-like stateful processing
+  - Local state stores for aggregations
+  - Fault-tolerant state recovery
+
+- **Performance Optimizations:**
+  - Compacting producer for high-throughput scenarios
+  - Batch processing support
+  - Time-based consumption (consume from time 'T')
+
+- **Extended Serialization:**
+  - Avro schema registry integration
+  - Protobuf support
+  - Custom binary formats
+
+### Documentation Improvements 📖
+- [ ] Add more comprehensive examples for complex use cases
+- [ ] Create migration guide from other Kafka clients
+- [ ] Add troubleshooting guide
+- [ ] Performance tuning guide
+
+### Test Coverage Enhancements 🧪
+- [ ] Add stress testing scenarios
+- [ ] Add chaos engineering tests
+- [ ] Expand error injection testing
+- [ ] Add multi-broker failover tests
 
 ## 🙏 Acknowledgments
 
