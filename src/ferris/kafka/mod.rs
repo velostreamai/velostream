@@ -2,8 +2,9 @@
 mod kafka_producer;
 mod kafka_consumer;
 mod kafka_producer_def_context;
-mod serialization;
+pub mod serialization;
 mod utils;
+pub mod admin_client;
 
 // Common types
 pub mod headers;
@@ -24,8 +25,9 @@ pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_consumer::{KafkaConsumer, ConsumerBuilder, KafkaConsumable};
 pub use kafka_error::{KafkaClientError, ProducerError, ConsumerError};
 pub use kafka_producer_def_context::LoggingProducerContext;
-pub use serialization::{Serializer, SerializationError, JsonSerializer};
+pub use serialization::{Serializer, SerializationError, JsonSerializer, BytesSerializer};
 pub use utils::convert_kafka_log_level;
+pub use admin_client::KafkaAdminClient;
 
 // Re-export common types at root level for easier access
 pub use headers::Headers;

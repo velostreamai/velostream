@@ -197,3 +197,36 @@ impl<T: Message + Default> Serializer<T> for ProtoSerializer<T> {
         from_proto(bytes)
     }
 }
+
+// Raw Bytes Serialization (No-op)
+//===================================
+
+/// Raw bytes serializer that performs no serialization/deserialization
+/// This is useful for sending raw byte arrays directly to Kafka
+#[derive(Clone)]
+pub struct BytesSerializer;
+
+impl Serializer<Vec<u8>> for BytesSerializer {
+    fn serialize(&self, value: &Vec<u8>) -> Result<Vec<u8>, SerializationError> {
+        Ok(value.clone())
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<Vec<u8>, SerializationError> {
+        Ok(bytes.to_vec())
+    }
+}
+
+/// String serializer that converts strings to/from UTF-8 bytes
+#[derive(Clone)]
+pub struct StringSerializer;
+
+impl Serializer<String> for StringSerializer {
+    fn serialize(&self, value: &String) -> Result<Vec<u8>, SerializationError> {
+        Ok(value.as_bytes().to_vec())
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<String, SerializationError> {
+        String::from_utf8(bytes.to_vec())
+            .map_err(|e| SerializationError::Schema(format!("Invalid UTF-8: {}", e)))
+    }
+}

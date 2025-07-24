@@ -24,7 +24,7 @@
 //! - MESSAGE_SIZE: Size category (Small/Medium/Large)
 //! - CONCURRENT_PRODUCERS: Number of concurrent producers
 
-use ferrisstreams::{ProducerBuilder, KafkaConsumer, JsonSerializer, Headers, Message};
+use ferrisstreams::{ProducerBuilder, KafkaConsumer, JsonSerializer, Headers, Message, KafkaAdminClient};
 use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
@@ -185,6 +185,15 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
     let topic = format!("perf-test-{}", chrono::Utc::now().timestamp_millis());
     let metrics = Arc::new(PerformanceMetrics::new());
     
+    // Create admin client and topic with 3 partitions
+    println!("🔧 Creating topic '{}' with 3 partitions...", topic);
+    let admin_client = KafkaAdminClient::new("localhost:9092")?;
+    admin_client.create_performance_topic(&topic, 3).await?;
+
+    // Verify topic was created with correct partition count
+    let partition_count = admin_client.get_partition_count(&topic).await?;
+    println!("✅ Topic created with {} partitions", partition_count);
+
     // Create high-throughput producer configuration
     let producer_config = ProducerConfig::new("localhost:9092", &topic)
         .client_id("perf-test-producer")
@@ -192,9 +201,7 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
         .acks(AckMode::Leader)  // Balance between throughput and durability
         .batching(BATCH_SIZE, Duration::from_millis(5))  // Small linger for throughput
         .retries(3, Duration::from_millis(100))
-        .custom_property("message.max.bytes", "67108864")  // 64MB buffer
-        .custom_property("max.in.flight.requests.per.connection", "5")
-        .high_throughput();  // Apply high-throughput preset
+        .high_throughput();  // Apply high-throughput preset with consolidated settings
 
     // Create multiple producers for concurrent sending
     let mut producers = Vec::new();

@@ -72,7 +72,8 @@ pub use ferris::kafka::{
     KafkaConsumer, 
     Message,
     Headers,
-    
+    KafkaAdminClient,
+
     // Builders
     ProducerBuilder,
     ConsumerBuilder,
@@ -87,5 +88,6 @@ pub use ferris::kafka::{
     
     // Serializers
     JsonSerializer,
+    BytesSerializer,
     SerializationError,
 };

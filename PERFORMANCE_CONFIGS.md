@@ -1,13 +1,26 @@
-# JSON Performance Testing Configuration Guide
+# Performance Testing Configuration Guide
 
 ## Overview
-This guide provides configuration recommendations for optimizing JSON throughput in your Kafka streaming application.
+This guide provides configuration recommendations for optimizing throughput in your Kafka streaming application, covering both JSON serialization and raw bytes processing.
 
 ## Performance Test Results
 
-Run the performance test to get baseline metrics:
+### JSON Performance Test (with serialization)
+Run the JSON performance test to get baseline metrics:
 ```bash
 cargo run --example json_performance_test
+```
+
+### Raw Bytes Performance Test (no serialization)
+Run the raw bytes test for maximum throughput:
+```bash  
+cargo run --example raw_bytes_performance_test
+```
+
+### Comparison Test
+Run both tests for direct comparison:
+```bash
+./run_performance_comparison.sh
 ```
 
 ## Optimization Configurations
@@ -57,6 +70,7 @@ let config = ConsumerConfig::new("localhost:9092", "ht-group")
 
 ## Expected Performance
 
+### JSON Performance (with serialization overhead)
 Based on message size:
 
 | Message Size | Expected Throughput | Optimal Use Case |
@@ -64,6 +78,16 @@ Based on message size:
 | ~100B        | 8,000-15,000 msg/s | IoT sensors, logs |
 | ~1KB         | 3,000-8,000 msg/s  | API events, metrics |
 | ~10KB        | 500-2,000 msg/s    | Rich payloads, documents |
+
+### Raw Bytes Performance (no serialization)
+Raw performance without serialization overhead:
+
+| Payload Size | Expected Throughput | Performance Gain |
+|--------------|-------------------|------------------|
+| 64B          | 25,000-50,000 msg/s | 3-4x faster |
+| 512B         | 15,000-30,000 msg/s | 3-5x faster |
+| 4KB          | 8,000-15,000 msg/s  | 4-6x faster |
+| 32KB         | 2,000-5,000 msg/s   | 3-4x faster |
 
 ## Tuning Tips
 
