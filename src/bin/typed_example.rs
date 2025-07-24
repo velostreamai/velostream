@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_messages = 5;
 
     while received_count < max_messages {
-        match consumer.poll_message(Duration::from_secs(2)).await {
+        match consumer.poll(Duration::from_secs(2)).await {
             Ok(message) => {
                 println!("📦 Received user: {:?}", message.value());
                 if let Some(key) = message.key() {

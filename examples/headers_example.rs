@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Consume the message
     println!("\nConsuming message...");
-    match consumer.poll_message(Duration::from_secs(5)).await {
+    match consumer.poll(Duration::from_secs(5)).await {
         Ok(message) => {
             println!("Received message:");
             println!("Key: {:?}", message.key());

@@ -59,6 +59,7 @@ use serde::{Serialize, Deserialize};
 use std::time::Duration;
 use futures::StreamExt;
 use uuid::Uuid;
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {
@@ -351,26 +352,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     consumer5.subscribe(&[&topic])?;
 
-    let mut successful_count = 0;
-    let mut error_count = 0;
+    // Use atomic counters for thread-safe counting across async boundaries
+    let successful_count = Arc::new(AtomicUsize::new(0));
+    let error_count = Arc::new(AtomicUsize::new(0));
+
+    // Clone the counters for the closure
+    let successful_clone = successful_count.clone();
+    let error_clone = error_count.clone();
 
     consumer5.stream()
         .take(6)
-        .for_each(|result| async {
-            match result {
-                Ok(message) => {
-                    successful_count += 1;
-                    println!("  ✅ Successfully processed order {}", message.value().order_id);
-                }
-                Err(e) => {
-                    error_count += 1;
-                    println!("  ❌ Error processing message: {}", e);
+        .for_each(|result| {
+            let successful = successful_clone.clone();
+            let error = error_clone.clone();
+
+            async move {
+                match result {
+                    Ok(message) => {
+                        successful.fetch_add(1, Ordering::Relaxed);
+                        println!("  ✅ Successfully processed order {}", message.value().order_id);
+                    }
+                    Err(e) => {
+                        error.fetch_add(1, Ordering::Relaxed);
+                        println!("  ❌ Error processing message: {}", e);
+                    }
                 }
             }
         })
         .await;
 
-    println!("📈 Processing Summary: {} successful, {} errors\n", successful_count, error_count);
+    println!("📈 Processing Summary: {} successful, {} errors\n",
+             successful_count.load(Ordering::Relaxed),
+             error_count.load(Ordering::Relaxed));
 
     // Example 7: Chain multiple stream operations
     println!("🔗 Example 7: Chained Stream Operations");

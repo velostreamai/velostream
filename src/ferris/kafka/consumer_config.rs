@@ -150,6 +150,42 @@ impl ConsumerConfig {
         self
     }
 
+    /// Set max poll records directly
+    pub fn max_poll_records(mut self, max_records: u32) -> Self {
+        self.max_poll_records = max_records;
+        self
+    }
+
+    /// Set fetch min bytes directly
+    pub fn fetch_min_bytes(mut self, min_bytes: u32) -> Self {
+        self.fetch_min_bytes = min_bytes;
+        self
+    }
+
+    /// Set fetch max bytes directly
+    pub fn fetch_max_bytes(mut self, max_bytes: u32) -> Self {
+        self.fetch_max_bytes = max_bytes;
+        self
+    }
+
+    /// Set fetch max wait time directly
+    pub fn fetch_max_wait(mut self, max_wait: Duration) -> Self {
+        self.fetch_max_wait = max_wait;
+        self
+    }
+
+    /// Set max partition fetch bytes directly
+    pub fn max_partition_fetch_bytes(mut self, max_bytes: u32) -> Self {
+        self.max_partition_fetch_bytes = max_bytes;
+        self
+    }
+
+    /// Set max poll interval directly
+    pub fn max_poll_interval(mut self, interval: Duration) -> Self {
+        self.max_poll_interval = interval;
+        self
+    }
+
     /// Convenience method to access brokers from common config
     pub fn brokers(&self) -> &str {
         &self.common.brokers

@@ -39,7 +39,7 @@ async fn test_multiple_user_workflow() {
     // Receive and verify all users
     let mut received_users = Vec::new();
     for _ in 0..25 {
-        match consumer.poll_message(Duration::from_secs(1)).await {
+        match consumer.poll(Duration::from_secs(1)).await {
             Ok(message) => {
                 received_users.push(message.into_value());
                 if received_users.len() >= users.len() {
@@ -118,19 +118,19 @@ async fn test_cross_topic_messaging() {
     let mut order_received = false;
 
     for _ in 0..15 {
-        if let Ok(message) = user_consumer.poll_message(Duration::from_millis(300)).await {
+        if let Ok(message) = user_consumer.poll(Duration::from_millis(300)).await {
             if message.value().id == 100 {
                 user_received = true;
             }
         }
         
-        if let Ok(message) = product_consumer.poll_message(Duration::from_millis(300)).await {
+        if let Ok(message) = product_consumer.poll(Duration::from_millis(300)).await {
             if message.value().id == "prod-100" {
                 product_received = true;
             }
         }
 
-        if let Ok(message) = order_consumer.poll_message(Duration::from_millis(300)).await {
+        if let Ok(message) = order_consumer.poll(Duration::from_millis(300)).await {
             if message.value().order_id == "order-100" {
                 order_received = true;
             }
@@ -203,7 +203,7 @@ async fn test_high_throughput_scenario() {
     let mut received_count = 0;
     
     for _ in 0..message_count * 2 {
-        match consumer.poll_message(Duration::from_millis(500)).await {
+        match consumer.poll(Duration::from_millis(500)).await {
             Ok(_) => {
                 received_count += 1;
                 if received_count >= message_count {
@@ -268,7 +268,7 @@ async fn test_complex_enum_serialization() {
 
     let mut received_orders = Vec::new();
     for _ in 0..20 {
-        match consumer.poll_message(Duration::from_secs(1)).await {
+        match consumer.poll(Duration::from_secs(1)).await {
             Ok(message) => {
                 received_orders.push(message.into_value());
                 if received_orders.len() >= orders.len() {
@@ -334,7 +334,7 @@ async fn test_concurrent_producers() {
     // Verify both messages received
     let mut received = Vec::new();
     for _ in 0..10 {
-        match consumer.poll_message(Duration::from_secs(1)).await {
+        match consumer.poll(Duration::from_secs(1)).await {
             Ok(message) => {
                 received.push(message.into_value());
                 if received.len() >= 2 {

@@ -213,7 +213,7 @@ async fn test_consumer_deserialization_error() {
     }
 
     // Try to poll a message - this should fail during deserialization
-    let poll_result = consumer.poll_message(Duration::from_secs(2)).await;
+    let poll_result = consumer.poll(Duration::from_secs(2)).await;
 
     match poll_result {
         Err(KafkaClientError::SerializationError(err)) => {
@@ -276,7 +276,7 @@ async fn test_consumer_poll_timeout() {
 
     // Poll with a short timeout
     let start_time = std::time::Instant::now();
-    let result = consumer.poll_message(Duration::from_millis(500)).await;
+    let result = consumer.poll(Duration::from_millis(500)).await;
     let elapsed = start_time.elapsed();
 
     // Should timeout within reasonable bounds (allow more variance for CI environments)

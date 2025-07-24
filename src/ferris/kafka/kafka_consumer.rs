@@ -180,7 +180,7 @@ where
     /// }
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub async fn poll_message(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
+    pub async fn poll(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
         use tokio::time;
         let mut stream = self.consumer.stream();
         

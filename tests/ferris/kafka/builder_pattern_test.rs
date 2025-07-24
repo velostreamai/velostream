@@ -153,7 +153,7 @@ async fn test_consumer_builder_basic() {
             let _ = consumer.subscribe(&["builder-consumer-test-topic"]);
             
             // Try to poll (might timeout if no messages)
-            let _ = consumer.poll_message(Duration::from_millis(100)).await;
+            let _ = consumer.poll(Duration::from_millis(100)).await;
         },
         Err(err) => {
             // Consumer might fail if Kafka is not available - that's acceptable
@@ -386,7 +386,7 @@ async fn test_end_to_end_builder_workflow() {
                 Ok(_) => {
                     // Message sent successfully
                     // Try to consume it (might timeout if Kafka is slow)
-                    let _ = consumer.poll_message(Duration::from_secs(1)).await;
+                    let _ = consumer.poll(Duration::from_secs(1)).await;
                 },
                 Err(err) => {
                     println!("Send failed in e2e test (Kafka might not be available): {:?}", err);
