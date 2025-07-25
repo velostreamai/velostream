@@ -28,9 +28,6 @@ Run both tests for direct comparison:
 ### 1. High-Throughput Producer Configuration
 
 ```rust
-let config = ProducerConfig::new("localhost:9092", "high-throughput-topic")
-    .client_id("ht-producer")
-    .compression(CompressionType::Lz4)  // Fast compression for JSON
     .acks(AckMode::Leader)              // Balance durability vs throughput
     .batching(65536, Duration::from_millis(5))  // 64KB batches, 5ms linger
     .retries(3, Duration::from_millis(100))
@@ -43,43 +40,15 @@ let config = ProducerConfig::new("localhost:9092", "high-throughput-topic")
 ### 2. High-Throughput Consumer Configuration
 
 ```rust
-let config = ConsumerConfig::new("localhost:9092", "ht-group")
-    .client_id("ht-consumer")
-    .auto_offset_reset(OffsetReset::Latest)
     .session_timeout(Duration::from_secs(30))
     .heartbeat_interval(Duration::from_secs(3))
     .max_poll_records(1000)             // Process many messages per poll
+    .session_timeout(Duration::from_secs(30))
+    .heartbeat_interval(Duration::from_secs(3))
     .fetch_min_bytes(1024)              // Wait for reasonable batch
     .fetch_max_wait(Duration::from_millis(500))
     .high_throughput();
-```
-
-## Key Performance Parameters
-
-### Producer Optimization
-- **Batch Size**: 64KB (65536 bytes) for optimal network utilization
-- **Linger Time**: 5ms to allow batching without excessive latency
-- **Compression**: LZ4 for fast compression/decompression of JSON
-- **Buffer Memory**: 64MB to handle bursts
-- **In-Flight Requests**: 5 for pipeline efficiency
-
-### Consumer Optimization  
-- **Max Poll Records**: 1000 messages per poll
-- **Fetch Min Bytes**: 1KB minimum to encourage batching
-- **Fetch Max Wait**: 500ms maximum wait for batches
-
-## Expected Performance
-
-### JSON Performance (with serialization overhead)
-Based on message size:
-
-| Message Size | Expected Throughput | Optimal Use Case |
-|--------------|-------------------|------------------|
-| ~100B        | 8,000-15,000 msg/s | IoT sensors, logs |
-| ~1KB         | 3,000-8,000 msg/s  | API events, metrics |
-| ~10KB        | 500-2,000 msg/s    | Rich payloads, documents |
-
-### Raw Bytes Performance (no serialization)
+    .high_throughput();
 Raw performance without serialization overhead:
 
 | Payload Size | Expected Throughput | Performance Gain |
@@ -121,6 +90,20 @@ kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic perf-test-*
 kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group perf-test-group
 ```
 
+## Additional Performance Tests
+
+### Latency Testing
+For end-to-end latency measurement:
+```bash
+cargo run --example latency_performance_test
+```
+
+### Resource Monitoring
+To monitor system resources during testing:
+```bash
+cargo run --example resource_monitoring_test
+```
+
 ## Troubleshooting
 
 ### Low Throughput
@@ -128,15 +111,24 @@ kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group pe
 - Verify compression is working
 - Monitor consumer lag
 - Check network bandwidth utilization
+- Run resource monitoring to identify bottlenecks
 
 ### High Latency
 - Reduce linger.ms
 - Decrease batch.size
 - Check GC pauses
 - Verify broker configuration
+- Use latency test to measure P95/P99
 
 ### Memory Issues
 - Reduce buffer.memory
 - Implement backpressure handling
-- Monitor heap usage
+- Monitor heap usage with resource monitoring
 - Check for message accumulation
+
+### Performance Regression Detection
+1. Establish baseline with current tests
+2. Run tests regularly in CI/CD
+3. Compare latency percentiles over time
+4. Monitor resource usage trends
+5. Alert on performance degradation

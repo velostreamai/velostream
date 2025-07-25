@@ -200,8 +200,22 @@ where
                 } else {
                     Headers::new()
                 };
-                
-                Ok(Message::new(key, value, headers))
+
+                let partition = msg.partition();
+                let offset = msg.offset();
+                let timestamp = match msg.timestamp() {
+                    rdkafka::Timestamp::NotAvailable => None,
+                    rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
+                };
+
+                Ok(Message::new(
+                    key,
+                    value,
+                    headers,
+                    partition,
+                    offset,
+                    timestamp
+                ))
             }
             Ok(Some(Err(e))) => Err(ConsumerError::KafkaError(e)),
             Ok(None) => Err(ConsumerError::NoMessage),
@@ -289,7 +303,21 @@ where
                             Headers::new()
                         };
                         
-                        Ok(Message::new(key, value, headers))
+                        let partition = borrowed_message.partition();
+                        let offset = borrowed_message.offset();
+                        let timestamp = match borrowed_message.timestamp() {
+                            rdkafka::Timestamp::NotAvailable => None,
+                            rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
+                        };
+
+                        Ok(Message::new(
+                            key,
+                            value,
+                            headers,
+                            partition,
+                            offset,
+                            timestamp
+                        ))
                     } else {
                         Err(ConsumerError::NoMessage)
                     }
@@ -410,8 +438,7 @@ impl<K, V, KS, VS> KafkaConsumable<K, KS, VS> for V
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
-{
-}
+{}
 
 #[cfg(test)]
 mod tests {

@@ -10,6 +10,7 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 
 * **Type-Safe Kafka Operations:** Full support for typed keys, values, and headers with automatic serialization/deserialization
 * **Rich Headers Support:** Custom `Headers` type with clean API for message metadata
+* **Complete Message Metadata:** Access to partition, offset, and timestamp
 * **Asynchronous Processing:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O
 * **Flexible Serialization:** Modular `serde` framework with JSON support and extensible traits for custom formats
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
@@ -66,6 +67,56 @@ consumer.stream()
     .await;
 ```
 
+### Consumer API with Message Metadata
+```rust
+// Create consumer with key and value serializers
+let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
+    "localhost:9092", 
+    "my-group", 
+    JsonSerializer,
+    JsonSerializer
+)?;
+
+// Poll for messages with full metadata access
+let message = consumer.poll_message(Duration::from_secs(5)).await?;
+
+// Access all metadata at once
+println!("{}", message.metadata_string());
+
+// Or access individual fields
+println!("Topic: {}", message.topic());
+println!("Partition: {}", message.partition());
+println!("Offset: {}", message.offset());
+if let Some(ts) = message.timestamp_string() {
+    println!("Timestamp: {}", ts);
+}
+
+// Get topic-partition as a single entity
+let tp = message.topic_partition();
+println!("Processing {}", tp.to_string()); // prints like "my-topic-0"
+
+// Check if it's the first message in partition
+if message.is_first() {
+    println!("First message in partition!");
+}
+
+// Stream processing with metadata
+consumer.stream()
+    .for_each(|result| async move {
+        if let Ok(message) = result {
+            // Group messages by topic-partition
+            let tp = message.topic_partition();
+            println!("Processing message from {}", tp.to_string());
+            
+            // Show progression within partition
+            println!("Offset {} in partition {}", 
+                message.offset(), 
+                message.partition());
+        }
+    })
+    .await;
+```
+
 ### Headers API
 ```rust
 // Create headers
@@ -98,6 +149,8 @@ for (key, value) in headers.iter() {
 ### Advanced Usage
 - **[Builder Configuration](examples/builder_configuration.rs)** - Advanced builder pattern and performance presets
 - **[Fluent API Example](examples/fluent_api_example.rs)** - Stream processing with fluent API patterns
+- **[Message Metadata Example](examples/message_metadata_example.rs)** - Complete demonstration of message metadata features
+- **[Latency Performance Test](examples/latency_performance_test.rs)** - Performance testing with metadata tracking
 
 ### Test Suite Examples
 - **[Builder Pattern Tests](tests/ferris/kafka/builder_pattern_test.rs)** - Comprehensive builder pattern test suite (16 tests)
