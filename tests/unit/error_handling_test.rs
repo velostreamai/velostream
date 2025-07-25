@@ -1,4 +1,4 @@
-use crate::ferris::kafka::common::*;
+use crate::unit::common::*;
 
 /// Custom serializer that always fails for testing error scenarios
 struct FailingSerializer;
