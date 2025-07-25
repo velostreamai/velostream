@@ -142,21 +142,21 @@ mod tests {
     #[test]
     fn test_message_creation() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633072800000));
+        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
 
         assert_eq!(message.key(), Some(&"key".to_string()));
         assert_eq!(message.value(), &"value".to_string());
         assert_eq!(message.headers().get("source"), Some("test"));
         assert_eq!(message.partition(), 0);
         assert_eq!(message.offset(), 42);
-        assert_eq!(message.timestamp(), Some(1633072800000));
+        assert_eq!(message.timestamp(), Some(1633046400000));
         assert_eq!(message.timestamp_string(), Some("2021-10-01 00:00:00.000".to_string()));
     }
 
     #[test]
     fn test_message_consumption() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633072800000));
+        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
 
         let (key, value, headers) = message.into_parts();
         assert_eq!(key, Some("key".to_string()));
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn test_message_selective_consumption() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633072800000));
+        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
 
         let value = message.into_value();
         assert_eq!(value, "value".to_string());
