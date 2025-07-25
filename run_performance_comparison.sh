@@ -37,6 +37,30 @@ echo "=========================================================="
 cargo run --example raw_bytes_performance_test --release
 echo ""
 
+# Brief pause
+sleep 2
+
+# Run latency test
+echo "⚡ Running Latency Performance Test..."
+echo "====================================="
+cargo run --example latency_performance_test --release
+echo ""
+
+# Run advanced optimization tests
+echo "🔧 Running Advanced Optimization Tests..."
+echo "========================================"
+echo "Zero-Copy Memory Optimization:"
+cargo run --example simple_zero_copy_test --release
+echo ""
+
+echo "Async I/O Optimization:"
+cargo run --example simple_async_optimization_test --release
+echo ""
+
+echo "Resource Monitoring:"
+cargo run --example resource_monitoring_test --release
+echo ""
+
 echo "🏁 Performance comparison completed!"
 echo ""
 echo "💡 Key Differences:"

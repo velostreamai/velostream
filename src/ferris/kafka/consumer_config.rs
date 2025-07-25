@@ -168,6 +168,12 @@ impl ConsumerConfig {
         self
     }
 
+    /// Set session timeout duration
+    pub fn session_timeout(mut self, timeout: Duration) -> Self {
+        self.session_timeout = timeout;
+        self
+    }
+
     /// Set max partition fetch bytes directly
     pub fn max_partition_fetch_bytes(mut self, max_bytes: u32) -> Self {
         self.max_partition_fetch_bytes = max_bytes;
@@ -264,7 +270,7 @@ impl PerformancePresets for ConsumerConfig {
         self.max_poll_records = 1000;
         self.enable_auto_commit = true;
         self.auto_commit_interval = Duration::from_secs(1);
-        
+
         // Apply consolidated performance tuning automatically
         self.fetch_max_bytes_extended(104857600) // 100MB
             .max_partition_fetch_bytes_extended(2097152) // 2MB

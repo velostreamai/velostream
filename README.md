@@ -386,7 +386,7 @@ The test suite has been consolidated to eliminate duplication:
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see our [contributing guidelines](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see our documentation for details.
 
 ## 📄 License
 

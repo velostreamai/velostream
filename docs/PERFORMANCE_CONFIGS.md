@@ -98,11 +98,14 @@ For end-to-end latency measurement:
 cargo run --example latency_performance_test
 ```
 
-### Resource Monitoring
-To monitor system resources during testing:
+### Advanced Optimizations
+For zero-copy and async I/O optimizations:
 ```bash
-cargo run --example resource_monitoring_test
+cargo run --example simple_zero_copy_test
+cargo run --example simple_async_optimization_test
 ```
+
+See [ADVANCED_PERFORMANCE_OPTIMIZATIONS.md](./ADVANCED_PERFORMANCE_OPTIMIZATIONS.md) for detailed advanced techniques.
 
 ## Troubleshooting
 

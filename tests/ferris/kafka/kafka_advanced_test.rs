@@ -341,15 +341,13 @@ async fn test_concurrent_producers() {
                     break;
                 }
             }
-            Err(_) => break,
+            Err(_) => continue,
         }
     }
 
-    // Only commit if we received messages
-    if !received.is_empty() {
-        let _ = consumer.commit(); // Make commit optional
-    }
-    
-    assert_eq!(received.len(), 2, "Should receive messages from both producers");
-    assert!(received.contains(&user1) && received.contains(&user2));
+    consumer.commit().expect("Failed to commit consumer");
+
+    assert_eq!(received.len(), 2, "Should receive exactly 2 messages");
+    assert!(received.contains(&user1), "Should receive user1");
+    assert!(received.contains(&user2), "Should receive user2");
 }

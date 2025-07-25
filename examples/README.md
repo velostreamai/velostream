@@ -277,7 +277,7 @@ Found an issue or want to improve an example? Contributions are welcome!
 
 - **[Main README](../README.md)** - Project overview and installation
 - **[Headers Guide](../docs/HEADERS_GUIDE.md)** - Comprehensive headers documentation
-- **[Builder Pattern Guide](../BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
+- **[Builder Pattern Guide](../docs/BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
 - **[Test Suite](../tests/ferris/kafka/)** - Advanced patterns and edge cases
 
 ---

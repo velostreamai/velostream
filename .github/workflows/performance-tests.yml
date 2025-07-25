@@ -1,0 +1,173 @@
+name: Performance Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  performance-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:latest
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "kafka-topics --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      zookeeper:
+        image: confluentinc/cp-zookeeper:latest
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+        ports:
+          - 2181:2181
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Wait for Kafka
+      run: |
+        echo "Waiting for Kafka to be ready..."
+        timeout 60 bash -c 'until nc -z localhost 9092; do sleep 1; done'
+        echo "Kafka is ready!"
+    
+    - name: Run JSON Performance Test
+      run: |
+        echo "Running JSON Performance Test..."
+        cargo run --release --example json_performance_test > json_perf_results.txt 2>&1
+        cat json_perf_results.txt
+    
+    - name: Run Raw Bytes Performance Test
+      run: |
+        echo "Running Raw Bytes Performance Test..."
+        cargo run --release --example raw_bytes_performance_test > raw_perf_results.txt 2>&1
+        cat raw_perf_results.txt
+    
+    - name: Run Latency Performance Test
+      run: |
+        echo "Running Latency Performance Test..."
+        cargo run --release --example latency_performance_test > latency_perf_results.txt 2>&1
+        cat latency_perf_results.txt
+    
+    - name: Run Resource Monitoring Test
+      run: |
+        echo "Running Resource Monitoring Test..."
+        cargo run --release --example resource_monitoring_test > resource_perf_results.txt 2>&1
+        cat resource_perf_results.txt
+    
+    - name: Extract Performance Metrics
+      run: |
+        echo "Extracting performance metrics..."
+        
+        # Extract JSON throughput
+        JSON_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\K\d+\.\d+(?= msg/s)' json_perf_results.txt | head -1 || echo "0")
+        
+        # Extract Raw throughput  
+        RAW_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\K\d+\.\d+(?= msg/s)' raw_perf_results.txt | head -1 || echo "0")
+        
+        # Extract P95 latency
+        P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?= ms)' latency_perf_results.txt | head -1 || echo "999")
+        
+        echo "JSON_THROUGHPUT=$JSON_THROUGHPUT" >> $GITHUB_ENV
+        echo "RAW_THROUGHPUT=$RAW_THROUGHPUT" >> $GITHUB_ENV  
+        echo "P95_LATENCY=$P95_LATENCY" >> $GITHUB_ENV
+        
+        echo "Performance Metrics:"
+        echo "JSON Throughput: $JSON_THROUGHPUT msg/s"
+        echo "Raw Throughput: $RAW_THROUGHPUT msg/s"
+        echo "P95 Latency: $P95_LATENCY ms"
+    
+    - name: Performance Regression Check
+      run: |
+        echo "Checking for performance regressions..."
+        
+        # Define minimum acceptable performance thresholds
+        MIN_JSON_THROUGHPUT=1000
+        MIN_RAW_THROUGHPUT=5000
+        MAX_P95_LATENCY=100
+        
+        # Check JSON throughput
+        if (( $(echo "$JSON_THROUGHPUT < $MIN_JSON_THROUGHPUT" | bc -l) )); then
+          echo "❌ JSON throughput regression: $JSON_THROUGHPUT < $MIN_JSON_THROUGHPUT msg/s"
+          exit 1
+        fi
+        
+        # Check Raw throughput
+        if (( $(echo "$RAW_THROUGHPUT < $MIN_RAW_THROUGHPUT" | bc -l) )); then
+          echo "❌ Raw throughput regression: $RAW_THROUGHPUT < $MIN_RAW_THROUGHPUT msg/s"
+          exit 1
+        fi
+        
+        # Check P95 latency
+        if (( $(echo "$P95_LATENCY > $MAX_P95_LATENCY" | bc -l) )); then
+          echo "❌ Latency regression: $P95_LATENCY > $MAX_P95_LATENCY ms"
+          exit 1
+        fi
+        
+        echo "✅ All performance checks passed!"
+    
+    - name: Upload Performance Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          json_perf_results.txt
+          raw_perf_results.txt
+          latency_perf_results.txt
+          resource_perf_results.txt
+    
+    - name: Comment Performance Results (PR only)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const jsonThroughput = process.env.JSON_THROUGHPUT;
+          const rawThroughput = process.env.RAW_THROUGHPUT;
+          const p95Latency = process.env.P95_LATENCY;
+          
+          const comment = `## 📊 Performance Test Results
+          
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | JSON Throughput | ${jsonThroughput} msg/s | ${jsonThroughput > 1000 ? '✅' : '❌'} |
+          | Raw Throughput | ${rawThroughput} msg/s | ${rawThroughput > 5000 ? '✅' : '❌'} |
+          | P95 Latency | ${p95Latency} ms | ${p95Latency < 100 ? '✅' : '❌'} |
+          
+          Performance tests completed automatically. Check the [workflow run](${context.payload.pull_request.html_url}/checks) for detailed results.`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
