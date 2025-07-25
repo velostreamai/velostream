@@ -209,7 +209,7 @@ impl ConsumerConfig {
     }
 
     /// Configure performance-related fetch and buffer settings
-    pub fn performance_tuning(mut self, fetch_max_mb: u32, partition_fetch_mb: u32, socket_buffer_kb: u32) -> Self {
+    pub fn performance_tuning(self, fetch_max_mb: u32, partition_fetch_mb: u32, socket_buffer_kb: u32) -> Self {
         self.fetch_max_bytes_extended(fetch_max_mb * 1024 * 1024)
             .max_partition_fetch_bytes_extended(partition_fetch_mb * 1024 * 1024)
             .socket_buffers(socket_buffer_kb * 1024, socket_buffer_kb * 1024)

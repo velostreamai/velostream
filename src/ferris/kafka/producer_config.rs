@@ -192,7 +192,7 @@ impl ProducerConfig {
     }
 
     /// Configure performance-related memory and network settings
-    pub fn performance_tuning(mut self, message_max_mb: u32, socket_buffer_kb: u32) -> Self {
+    pub fn performance_tuning(self, message_max_mb: u32, socket_buffer_kb: u32) -> Self {
         self.message_max_bytes((message_max_mb * 1024 * 1024) as u64)
             .socket_buffers(socket_buffer_kb * 1024, socket_buffer_kb * 1024)
     }
