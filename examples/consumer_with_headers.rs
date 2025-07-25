@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_messages = messages.len();
     
     while received_count < max_messages {
-        match consumer.poll_message(Duration::from_secs(5)).await {
+        match consumer.poll(Duration::from_secs(5)).await {
             Ok(message) => {
                 received_count += 1;
                 

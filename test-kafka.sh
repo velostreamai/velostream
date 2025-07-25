@@ -27,7 +27,7 @@ docker-compose ps
 
 # Create a test topic
 echo -e "\nCreating test topic..."
-docker exec -it kafka kafka-topics --create --topic test-topic --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+docker exec -it kafka kafka-topics --create --topic test-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
 
 # List topics
 echo -e "\nListing topics:"

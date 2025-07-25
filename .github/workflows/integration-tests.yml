@@ -1,0 +1,115 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run integration tests daily at 1 AM UTC
+    - cron: '0 1 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:latest
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "kafka-topics --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      zookeeper:
+        image: confluentinc/cp-zookeeper:latest
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+        ports:
+          - 2181:2181
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Wait for Kafka
+      run: |
+        echo "Waiting for Kafka to be ready..."
+        timeout 60 bash -c 'until nc -z localhost 9092; do sleep 1; done'
+        echo "Kafka is ready!"
+    
+    - name: Create test topics
+      run: |
+        # Install Kafka tools
+        wget -qO- https://archive.apache.org/dist/kafka/2.8.0/kafka_2.13-2.8.0.tgz | tar xz
+        export PATH="$PWD/kafka_2.13-2.8.0/bin:$PATH"
+        
+        # Create test topics
+        kafka-topics.sh --create --bootstrap-server localhost:9092 --topic test-topic --partitions 3 --replication-factor 1 || true
+        kafka-topics.sh --create --bootstrap-server localhost:9092 --topic integration-test --partitions 1 --replication-factor 1 || true
+        
+        # List topics to verify
+        kafka-topics.sh --list --bootstrap-server localhost:9092
+    
+    - name: Run integration tests
+      run: |
+        # Run tests that require Kafka
+        cargo test --test mod -- --nocapture
+        cargo test integration -- --nocapture
+        cargo test kafka -- --nocapture
+      env:
+        KAFKA_BROKERS: localhost:9092
+        RUST_LOG: debug
+    
+    - name: Build and test examples
+      run: |
+        echo "Testing examples that don't require long-running processes..."
+        
+        # Build all examples to ensure they compile
+        cargo build --example builder_configuration
+        cargo build --example consumer_with_headers  
+        cargo build --example fluent_api_example
+        cargo build --example headers_example
+        cargo build --example message_metadata_example
+        cargo build --example typed_kafka_example
+        
+        echo "All examples built successfully!"
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results
+        path: |
+          target/debug/deps/*/test-results.xml
+          target/debug/deps/*/coverage.xml
+        retention-days: 7

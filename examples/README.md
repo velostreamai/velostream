@@ -139,6 +139,63 @@ cargo run --example fluent_api_example
 
 ---
 
+### Performance Testing
+
+#### 6. [json_performance_test.rs](json_performance_test.rs)
+**JSON Performance Testing**
+- High-throughput JSON message processing with performance monitoring
+- Configurable message sizes and batch configurations
+- Real-time throughput measurement and comprehensive metrics
+- Multiple concurrent producers for stress testing
+
+```bash
+cargo run --example json_performance_test
+```
+
+**What you'll learn:**
+- Performance optimization for JSON serialization
+- Concurrent producer patterns for maximum throughput
+- Real-time metrics collection and reporting
+- Batch configuration and compression effects
+- Memory-efficient message processing
+
+**Performance scenarios tested:**
+- Small Messages (~100B) - High volume scenarios
+- Medium Messages (~1KB) - Typical application data
+- Large Messages (~10KB) - Document or payload processing
+
+---
+
+#### 7. [raw_bytes_performance_test.rs](raw_bytes_performance_test.rs)
+**Raw Bytes Performance Testing** 
+- Maximum throughput using raw bytes without serialization overhead
+- Direct Kafka message access for ultimate performance
+- Multiple payload sizes for comprehensive testing
+- Raw network throughput measurement
+
+```bash
+cargo run --example raw_bytes_performance_test
+```
+
+**What you'll learn:**
+- Bypassing serialization for maximum performance
+- Raw bytes handling with StringSerializer and BytesSerializer
+- Network-level throughput optimization
+- Performance comparison baseline (no JSON overhead)
+
+**Performance scenarios tested:**
+- Tiny Payloads (64B) - Network latency testing
+- Small Payloads (512B) - Typical small messages
+- Medium Payloads (4KB) - Standard message sizes
+- Large Payloads (32KB) - Bulk data transfer
+
+**Performance comparison:**
+- Raw bytes typically achieve 2-5x higher throughput than JSON
+- Lower CPU usage due to no serialization/deserialization
+- Better memory efficiency for large message volumes
+
+---
+
 ## 🎯 Recommended Learning Path
 
 1. **Start here**: `typed_kafka_example.rs` - Learn the basics
@@ -220,7 +277,7 @@ Found an issue or want to improve an example? Contributions are welcome!
 
 - **[Main README](../README.md)** - Project overview and installation
 - **[Headers Guide](../docs/HEADERS_GUIDE.md)** - Comprehensive headers documentation
-- **[Builder Pattern Guide](../BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
+- **[Builder Pattern Guide](../docs/BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
 - **[Test Suite](../tests/ferris/kafka/)** - Advanced patterns and edge cases
 
 ---

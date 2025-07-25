@@ -144,6 +144,77 @@ impl ConsumerConfig {
         self
     }
 
+    /// Set max poll records directly
+    pub fn max_poll_records(mut self, max_records: u32) -> Self {
+        self.max_poll_records = max_records;
+        self
+    }
+
+    /// Set fetch min bytes directly
+    pub fn fetch_min_bytes(mut self, min_bytes: u32) -> Self {
+        self.fetch_min_bytes = min_bytes;
+        self
+    }
+
+    /// Set fetch max bytes directly
+    pub fn fetch_max_bytes(mut self, max_bytes: u32) -> Self {
+        self.fetch_max_bytes = max_bytes;
+        self
+    }
+
+    /// Set fetch max wait time directly
+    pub fn fetch_max_wait(mut self, max_wait: Duration) -> Self {
+        self.fetch_max_wait = max_wait;
+        self
+    }
+
+    /// Set session timeout duration
+    pub fn session_timeout(mut self, timeout: Duration) -> Self {
+        self.session_timeout = timeout;
+        self
+    }
+
+    /// Set max partition fetch bytes directly
+    pub fn max_partition_fetch_bytes(mut self, max_bytes: u32) -> Self {
+        self.max_partition_fetch_bytes = max_bytes;
+        self
+    }
+
+    /// Set max poll interval directly
+    pub fn max_poll_interval(mut self, interval: Duration) -> Self {
+        self.max_poll_interval = interval;
+        self
+    }
+
+    /// Set fetch max bytes with custom property consolidation
+    pub fn fetch_max_bytes_extended(mut self, max_bytes: u32) -> Self {
+        self.fetch_max_bytes = max_bytes;
+        self.common = self.common.custom_property("fetch.max.bytes", max_bytes.to_string());
+        self
+    }
+
+    /// Set max partition fetch bytes with custom property consolidation
+    pub fn max_partition_fetch_bytes_extended(mut self, max_bytes: u32) -> Self {
+        self.max_partition_fetch_bytes = max_bytes;
+        self.common = self.common.custom_property("max.partition.fetch.bytes", max_bytes.to_string());
+        self
+    }
+
+    /// Set socket buffer sizes (consolidates custom properties)
+    pub fn socket_buffers(mut self, send_buffer: u32, receive_buffer: u32) -> Self {
+        self.common = self.common
+            .custom_property("socket.send.buffer.bytes", send_buffer.to_string())
+            .custom_property("socket.receive.buffer.bytes", receive_buffer.to_string());
+        self
+    }
+
+    /// Configure performance-related fetch and buffer settings
+    pub fn performance_tuning(self, fetch_max_mb: u32, partition_fetch_mb: u32, socket_buffer_kb: u32) -> Self {
+        self.fetch_max_bytes_extended(fetch_max_mb * 1024 * 1024)
+            .max_partition_fetch_bytes_extended(partition_fetch_mb * 1024 * 1024)
+            .socket_buffers(socket_buffer_kb * 1024, socket_buffer_kb * 1024)
+    }
+
     /// Add custom configuration property
     pub fn custom_property(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.common = self.common.custom_property(key, value);
@@ -199,7 +270,11 @@ impl PerformancePresets for ConsumerConfig {
         self.max_poll_records = 1000;
         self.enable_auto_commit = true;
         self.auto_commit_interval = Duration::from_secs(1);
-        self
+
+        // Apply consolidated performance tuning automatically
+        self.fetch_max_bytes_extended(104857600) // 100MB
+            .max_partition_fetch_bytes_extended(2097152) // 2MB
+            .socket_buffers(131072, 131072) // 128KB buffers
     }
 
     /// Performance preset for low latency

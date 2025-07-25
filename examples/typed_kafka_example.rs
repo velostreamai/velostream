@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_messages = 5;
     
     for _i in 0..max_messages {
-        match consumer.poll_message(Duration::from_secs(2)).await {
+        match consumer.poll(Duration::from_secs(2)).await {
             Ok(message) => {
                 let order_event = message.value();
                 let key = message.key();

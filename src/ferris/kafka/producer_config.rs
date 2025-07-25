@@ -170,6 +170,33 @@ impl ProducerConfig {
         self
     }
 
+    /// Set message max bytes (consolidates custom property)
+    pub fn message_max_bytes(mut self, max_bytes: u64) -> Self {
+        self.common = self.common.custom_property("message.max.bytes", max_bytes.to_string());
+        self
+    }
+
+    /// Set socket buffer sizes (consolidates custom properties)
+    pub fn socket_buffers(mut self, send_buffer: u32, receive_buffer: u32) -> Self {
+        self.common = self.common
+            .custom_property("socket.send.buffer.bytes", send_buffer.to_string())
+            .custom_property("socket.receive.buffer.bytes", receive_buffer.to_string());
+        self
+    }
+
+    /// Set max in-flight requests per connection (consolidates custom property)
+    pub fn max_in_flight_requests_per_connection(mut self, max_requests: u32) -> Self {
+        self.max_in_flight_requests = max_requests;
+        self.common = self.common.custom_property("max.in.flight.requests.per.connection", max_requests.to_string());
+        self
+    }
+
+    /// Configure performance-related memory and network settings
+    pub fn performance_tuning(self, message_max_mb: u32, socket_buffer_kb: u32) -> Self {
+        self.message_max_bytes((message_max_mb * 1024 * 1024) as u64)
+            .socket_buffers(socket_buffer_kb * 1024, socket_buffer_kb * 1024)
+    }
+
     /// Add custom configuration property
     pub fn custom_property(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.common = self.common.custom_property(key, value);
@@ -224,7 +251,11 @@ impl PerformancePresets for ProducerConfig {
         self.enable_idempotence = false; // Disable idempotence for speed
         self.acks = AckMode::Leader; // Trade consistency for speed
         self.buffer_memory = 67108864; // 64MB
-        self
+        
+        // Apply consolidated performance tuning automatically
+        self.message_max_bytes(67108864) // 64MB
+            .max_in_flight_requests_per_connection(5)
+            .socket_buffers(131072, 131072) // 128KB buffers
     }
 
     /// Performance preset for low latency

@@ -34,7 +34,7 @@ async fn test_basic_producer_consumer() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Test consumer
-    match consumer.poll_message(Duration::from_secs(3)).await {
+    match consumer.poll(Duration::from_secs(3)).await {
         Ok(message) => {
             assert_eq!(*message.value(), test_message);
             assert_eq!(message.key(), Some(&"test-key".to_string()));
@@ -149,13 +149,13 @@ async fn test_different_message_types() {
     let mut simple_received = false;
 
     for _ in 0..10 {
-        if let Ok(message) = test_consumer.poll_message(Duration::from_millis(500)).await {
+        if let Ok(message) = test_consumer.poll(Duration::from_millis(500)).await {
             if message.value().id == 100 {
                 test_received = true;
             }
         }
         
-        if let Ok(message) = simple_consumer.poll_message(Duration::from_millis(500)).await {
+        if let Ok(message) = simple_consumer.poll(Duration::from_millis(500)).await {
             if message.value().content == "Simple type test" {
                 simple_received = true;
             }
@@ -199,7 +199,7 @@ async fn test_builder_pattern() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    match consumer.poll_message(Duration::from_secs(3)).await {
+    match consumer.poll(Duration::from_secs(3)).await {
         Ok(message) => {
             assert_eq!(*message.value(), test_message);
         }
@@ -277,11 +277,11 @@ async fn test_error_handling() {
     let empty_topic = format!("empty-topic-{}", Uuid::new_v4());
     empty_consumer.subscribe(&[&empty_topic]).expect("Failed to subscribe to empty topic");
 
-    let result = empty_consumer.poll_message(Duration::from_millis(100)).await;
+    let result = empty_consumer.poll(Duration::from_millis(100)).await;
     assert!(result.is_err(), "Should timeout on empty topic");
 
     // Try to consume the message we sent to get an offset for committing
-    if let Ok(_message) = consumer.poll_message(Duration::from_secs(2)).await {
+    if let Ok(_message) = consumer.poll(Duration::from_secs(2)).await {
         // Only commit if we successfully consumed a message
         let _ = consumer.commit(); // Make commit optional since we may not have consumed anything
     }
@@ -313,7 +313,7 @@ async fn test_message_with_timestamp() {
     producer.flush(5000).expect("Failed to flush");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    match consumer.poll_message(Duration::from_secs(3)).await {
+    match consumer.poll(Duration::from_secs(3)).await {
         Ok(message) => {
             assert_eq!(*message.value(), test_message);
             // Message should contain the timestamp in the content
@@ -663,7 +663,7 @@ async fn test_headers_functionality() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Consume and verify headers
-    match consumer.poll_message(Duration::from_secs(3)).await {
+    match consumer.poll(Duration::from_secs(3)).await {
         Ok(message) => {
             // Verify key and value
             assert_eq!(*message.value(), test_message);

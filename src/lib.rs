@@ -18,13 +18,13 @@
 //! use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
 //! use serde::{Serialize, Deserialize};
 //! use std::time::Duration;
-//! 
+//!
 //! #[derive(Serialize, Deserialize)]
 //! struct MyMessage {
 //!     id: u64,
 //!     content: String,
 //! }
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Producer with headers
@@ -34,14 +34,14 @@
 //!         JsonSerializer,
 //!         JsonSerializer,
 //!     )?;
-//! 
+//!
 //!     let headers = Headers::new()
 //!         .insert("source", "web-api")
 //!         .insert("version", "1.0.0");
-//! 
+//!
 //!     let message = MyMessage { id: 1, content: "Hello".to_string() };
 //!     producer.send(Some(&"key-1".to_string()), &message, headers, None).await?;
-//! 
+//!
 //!     // Consumer with headers
 //!     let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
 //!         "localhost:9092",
@@ -49,15 +49,15 @@
 //!         JsonSerializer,
 //!         JsonSerializer,
 //!     )?;
-//! 
+//!
 //!     consumer.subscribe(&["my-topic"])?;
-//! 
-//!     if let Ok(message) = consumer.poll_message(Duration::from_secs(5)).await {
+//!
+//!     if let Ok(message) = consumer.poll(Duration::from_secs(5)).await {
 //!         println!("Key: {:?}", message.key());
 //!         println!("Value: {:?}", message.value());
 //!         println!("Headers: {:?}", message.headers());
 //!     }
-//! 
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -72,7 +72,8 @@ pub use ferris::kafka::{
     KafkaConsumer, 
     Message,
     Headers,
-    
+    KafkaAdminClient,
+
     // Builders
     ProducerBuilder,
     ConsumerBuilder,
@@ -87,5 +88,6 @@ pub use ferris::kafka::{
     
     // Serializers
     JsonSerializer,
+    BytesSerializer,
     SerializationError,
 };
