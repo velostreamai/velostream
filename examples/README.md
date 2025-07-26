@@ -139,9 +139,68 @@ cargo run --example fluent_api_example
 
 ---
 
+### State Management & Stream Processing
+
+#### 6. [simple_ktable_example.rs](simple_ktable_example.rs)
+**Basic KTable Usage**
+- Materialized views from Kafka topics
+- Real-time state queries and transformations
+- Thread-safe state management
+- Background consumption patterns
+
+```bash
+cargo run --example simple_ktable_example
+```
+
+**What you'll learn:**
+- Creating KTables from compacted topics
+- Background consumption with lifecycle management
+- State queries: `get()`, `contains_key()`, `keys()`, `snapshot()`
+- Basic transformations: `map_values()`, `filter()`
+- Table statistics and monitoring
+
+---
+
+#### 7. [ktable_example.rs](ktable_example.rs) ⭐
+**Advanced Stream-Table Joins** (Production Pattern)
+- Real-world order enrichment scenario
+- Stream-table joins for data enrichment
+- Sample data generation and processing
+- Complete end-to-end pipeline
+
+```bash
+# Run with sample data generation
+cargo run --example ktable_example -- --populate
+
+# Or monitor existing data
+cargo run --example ktable_example
+```
+
+**What you'll learn:**
+- **Stream-table joins** for order enrichment with user profiles
+- **Real-time enrichment** of streaming data
+- **Sample data generation** for testing and demos
+- **Background processing** with multiple concurrent tasks
+- **Production patterns** for state management
+- **Error handling** for missing lookup data
+
+**Complete Pipeline:**
+1. User profiles stored in KTable (`user-profiles` topic)
+2. Orders stream processed in real-time (`orders` topic)
+3. Orders enriched with user data (discount eligibility, subscription tier)
+4. Enriched orders published to output topic (`enriched-orders`)
+
+**Use Cases Demonstrated:**
+- E-commerce order processing with customer data
+- Real-time personalization and pricing
+- Reference data lookups in stream processing
+- Multi-topic coordination patterns
+
+---
+
 ### Performance Testing
 
-#### 6. [json_performance_test.rs](json_performance_test.rs)
+#### 8. [json_performance_test.rs](json_performance_test.rs)
 **JSON Performance Testing**
 - High-throughput JSON message processing with performance monitoring
 - Configurable message sizes and batch configurations
@@ -166,7 +225,7 @@ cargo run --example json_performance_test
 
 ---
 
-#### 7. [raw_bytes_performance_test.rs](raw_bytes_performance_test.rs)
+#### 9. [raw_bytes_performance_test.rs](raw_bytes_performance_test.rs)
 **Raw Bytes Performance Testing** 
 - Maximum throughput using raw bytes without serialization overhead
 - Direct Kafka message access for ultimate performance
@@ -202,7 +261,9 @@ cargo run --example raw_bytes_performance_test
 2. **Add metadata**: `headers_example.rs` - Understanding headers
 3. **Go deeper**: `consumer_with_headers.rs` - Advanced header usage
 4. **Configure**: `builder_configuration.rs` - Performance optimization
-5. **Production-ready**: `fluent_api_example.rs` - Stream processing (recommended pattern)
+5. **Stream processing**: `fluent_api_example.rs` - Stream processing patterns
+6. **State management**: `simple_ktable_example.rs` - KTable basics
+7. **Production patterns**: `ktable_example.rs` - Stream-table joins (recommended for stateful apps)
 
 ## 🔧 Prerequisites
 
@@ -234,6 +295,12 @@ All examples require:
 - Efficient async message processing
 - Complex filtering and transformation pipelines
 
+### State Management
+- Materialized views with KTables
+- Real-time state queries and updates
+- Stream-table joins for data enrichment
+- Thread-safe concurrent state access
+
 ### Production Patterns
 - Error handling strategies
 - Offset management
@@ -246,11 +313,14 @@ Each example is designed to be self-contained and can be run independently. They
 
 ```bash
 # Run all examples in sequence
-for example in typed_kafka_example headers_example consumer_with_headers builder_configuration fluent_api_example; do
+for example in typed_kafka_example headers_example consumer_with_headers builder_configuration fluent_api_example simple_ktable_example ktable_example; do
     echo "Running $example..."
     cargo run --example $example
     echo "---"
 done
+
+# Run KTable example with sample data
+cargo run --example ktable_example -- --populate
 ```
 
 ## 🚀 Next Steps
