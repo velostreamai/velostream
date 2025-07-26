@@ -30,6 +30,10 @@ pub struct ProducerConfig {
     pub acks: AckMode,
     /// Buffer memory in bytes
     pub buffer_memory: u64,
+    /// Transaction ID for exactly-once semantics
+    pub transactional_id: Option<String>,
+    /// Transaction timeout
+    pub transaction_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +92,8 @@ impl Default for ProducerConfig {
             compression_type: CompressionType::Lz4,
             acks: AckMode::All,
             buffer_memory: 33554432, // 32MB
+            transactional_id: None,
+            transaction_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -200,6 +206,20 @@ impl ProducerConfig {
     /// Add custom configuration property
     pub fn custom_property(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.common = self.common.custom_property(key, value);
+        self
+    }
+
+    /// Enable transactional producer with transaction ID
+    pub fn transactional(mut self, transaction_id: impl Into<String>) -> Self {
+        self.transactional_id = Some(transaction_id.into());
+        self.enable_idempotence = true; // Required for transactions
+        self.acks = AckMode::All; // Required for transactions
+        self
+    }
+
+    /// Set transaction timeout
+    pub fn transaction_timeout(mut self, timeout: Duration) -> Self {
+        self.transaction_timeout = timeout;
         self
     }
 

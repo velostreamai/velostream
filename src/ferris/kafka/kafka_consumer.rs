@@ -73,6 +73,7 @@ where
     consumer: StreamConsumer<C>,
     key_serializer: KS,
     value_serializer: VS,
+    group_id: String,
     _phantom_key: PhantomData<K>,
     _phantom_value: PhantomData<V>,
 }
@@ -113,7 +114,8 @@ where
             .set("session.timeout.ms", &config.session_timeout.as_millis().to_string())
             .set("heartbeat.interval.ms", &config.heartbeat_interval.as_millis().to_string())
             .set("fetch.min.bytes", &config.fetch_min_bytes.to_string())
-            .set("fetch.message.max.bytes", &config.max_partition_fetch_bytes.to_string());
+            .set("fetch.message.max.bytes", &config.max_partition_fetch_bytes.to_string())
+            .set("isolation.level", config.isolation_level.as_str());
 
         let consumer: StreamConsumer = client_config.create()?;
 
@@ -121,6 +123,7 @@ where
             consumer,
             key_serializer,
             value_serializer,
+            group_id: config.group_id.clone(),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         })
@@ -145,6 +148,7 @@ where
             consumer,
             key_serializer,
             value_serializer,
+            group_id: group_id.to_string(),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         })
@@ -341,6 +345,17 @@ where
     /// Access the value serializer
     pub fn value_serializer(&self) -> &VS {
         &self.value_serializer
+    }
+
+    /// Get current consumer offsets for transaction coordination
+    pub fn current_offsets(&self) -> Result<rdkafka::TopicPartitionList, KafkaError> {
+        use rdkafka::consumer::Consumer;
+        self.consumer.assignment()
+    }
+
+    /// Get consumer group ID for transaction coordination
+    pub fn group_id(&self) -> &str {
+        &self.group_id
     }
 }
 

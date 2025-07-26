@@ -32,6 +32,25 @@ pub struct ConsumerConfig {
     pub fetch_max_wait: Duration,
     /// Max partition fetch bytes
     pub max_partition_fetch_bytes: u32,
+    /// Isolation level for reading transactions
+    pub isolation_level: IsolationLevel,
+}
+
+#[derive(Debug, Clone)]
+pub enum IsolationLevel {
+    /// Read all messages including uncommitted transactions
+    ReadUncommitted,
+    /// Only read committed transactions (required for exactly-once)
+    ReadCommitted,
+}
+
+impl IsolationLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IsolationLevel::ReadUncommitted => "read_uncommitted",
+            IsolationLevel::ReadCommitted => "read_committed",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +89,7 @@ impl Default for ConsumerConfig {
             fetch_max_bytes: 52428800, // 50MB
             fetch_max_wait: Duration::from_millis(500),
             max_partition_fetch_bytes: 1048576, // 1MB
+            isolation_level: IsolationLevel::ReadUncommitted,
         }
     }
 }
@@ -100,6 +120,12 @@ impl ConsumerConfig {
     pub fn auto_commit(mut self, enable: bool, interval: Duration) -> Self {
         self.enable_auto_commit = enable;
         self.auto_commit_interval = interval;
+        self
+    }
+
+    /// Set isolation level (read_committed required for exactly-once)
+    pub fn isolation_level(mut self, level: IsolationLevel) -> Self {
+        self.isolation_level = level;
         self
     }
 

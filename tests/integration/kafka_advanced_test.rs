@@ -1,4 +1,4 @@
-use crate::ferris::kafka::common::*;
+use crate::unit::common::*;
 
 #[tokio::test]
 #[serial]

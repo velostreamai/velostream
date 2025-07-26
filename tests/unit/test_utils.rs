@@ -3,7 +3,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
 use ferrisstreams::ferris::kafka::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
-use crate::ferris::kafka::test_messages::*;
+use crate::unit::test_messages::*;
 
 /// Helper functions
 pub(crate) fn is_kafka_running() -> bool {
