@@ -248,6 +248,82 @@ loop {
 
 **Note:** The test examples demonstrate the API design and structure for exactly-once processing, but the actual offset coordination is not yet functional due to the placeholder implementation.
 
+## State Management with KTables
+
+For applications requiring materialized views of Kafka topics, use KTables for efficient state management:
+
+**See:** [`tests/integration/ktable_test.rs`](../tests/integration/ktable_test.rs) - Complete KTable test suite
+
+### Basic KTable Usage
+
+```rust
+use ferrisstreams::ferris::kafka::*;
+use ferrisstreams::ferris::kafka::consumer_config::{OffsetReset, IsolationLevel};
+
+// Create a KTable from a compacted topic
+let config = ConsumerConfig::new("localhost:9092", "user-table-group")
+    .auto_offset_reset(OffsetReset::Earliest)
+    .isolation_level(IsolationLevel::ReadCommitted);
+
+let user_table = KTable::new(
+    config,
+    "users".to_string(),
+    JsonSerializer,
+    JsonSerializer,
+).await?;
+
+// Start consuming and building state in background
+let table_clone = user_table.clone();
+tokio::spawn(async move {
+    table_clone.start().await
+});
+
+// Query current state
+let user = user_table.get(&"user-123".to_string());
+let all_users = user_table.snapshot();
+```
+
+### KTable Features
+
+- **Materialized Views**: Automatic state rebuilding from compacted topics
+- **Real-time Queries**: Fast key-based lookups with O(1) complexity
+- **State Transformations**: Built-in `map_values()` and `filter()` operations
+- **Lifecycle Management**: Start/stop consumption with `start()` and `stop()`
+- **Statistics**: Monitor table size and last update times
+- **Thread Safety**: Share tables across threads with `Clone`
+
+### Stream-Table Joins
+
+Combine KTables with stream processing for enrichment:
+
+```rust
+// User profile table
+let user_table = KTable::new(config, "users".to_string(), serializer, serializer).await?;
+
+// Process order stream with user enrichment
+let mut order_stream = order_consumer.stream();
+while let Some(order_result) = order_stream.next().await {
+    if let Ok(order) = order_result {
+        // Enrich order with user profile
+        if let Some(user) = user_table.get(order.value().user_id) {
+            let enriched_order = EnrichedOrder {
+                order: order.value().clone(),
+                user_profile: user,
+            };
+            // Process enriched order
+        }
+    }
+}
+```
+
+### KTable Best Practices
+
+1. **Use Compacted Topics**: Configure source topics with `cleanup.policy=compact`
+2. **Read Committed**: Use `IsolationLevel::ReadCommitted` for transactional consistency
+3. **Background Processing**: Run table updates in dedicated background tasks
+4. **Memory Management**: Monitor table size for large datasets
+5. **Error Handling**: Implement retry logic for table startup failures
+
 ## Testing Strategies
 
 ### Integration Testing

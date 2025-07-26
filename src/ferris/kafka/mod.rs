@@ -5,6 +5,7 @@ mod kafka_producer_def_context;
 pub mod serialization;
 mod utils;
 pub mod admin_client;
+pub mod ktable;
 
 // Common types
 pub mod headers;
@@ -28,6 +29,7 @@ pub use kafka_producer_def_context::LoggingProducerContext;
 pub use serialization::{Serializer, SerializationError, JsonSerializer, BytesSerializer};
 pub use utils::convert_kafka_log_level;
 pub use admin_client::KafkaAdminClient;
+pub use ktable::{KTable, KTableStats, ChangeEvent};
 
 // Re-export common types at root level for easier access
 pub use headers::Headers;
