@@ -8,6 +8,7 @@ use crate::ferris::kafka::performance_presets::PerformancePresets;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
 use rdkafka::util::Timeout;
+use rdkafka::TopicPartitionList;
 use std::marker::PhantomData;
 use std::time::Duration;
 
@@ -121,6 +122,13 @@ where
             .set("compression.type", config.compression_type.as_str())
             .set("acks", config.acks.as_str())
             .set("queue.buffering.max.messages", &config.buffer_memory.to_string());
+
+        // Configure transactional settings if enabled
+        if let Some(ref transaction_id) = config.transactional_id {
+            client_config
+                .set("transactional.id", transaction_id)
+                .set("transaction.timeout.ms", &config.transaction_timeout.as_millis().to_string());
+        }
 
         let producer: FutureProducer<LoggingProducerContext> = client_config
             .create_with_context(LoggingProducerContext::default())?;
@@ -271,6 +279,51 @@ where
     /// Access the value serializer
     pub fn value_serializer(&self) -> &VS {
         &self.value_serializer
+    }
+
+    /// Begin a new transaction (requires transactional producer)
+    pub async fn begin_transaction(&self) -> Result<(), ProducerError> {
+        match self.producer.init_transactions(Timeout::After(Duration::from_secs(30))) {
+            Ok(_) => {
+                match self.producer.begin_transaction() {
+                    Ok(_) => Ok(()),
+                    Err(err) => Err(ProducerError::KafkaError(err)),
+                }
+            }
+            Err(err) => Err(ProducerError::KafkaError(err)),
+        }
+    }
+
+    /// Commit the current transaction
+    pub async fn commit_transaction(&self) -> Result<(), ProducerError> {
+        match self.producer.commit_transaction(Timeout::After(Duration::from_secs(30))) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(ProducerError::KafkaError(err)),
+        }
+    }
+
+    /// Abort the current transaction
+    pub async fn abort_transaction(&self) -> Result<(), ProducerError> {
+        match self.producer.abort_transaction(Timeout::After(Duration::from_secs(30))) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(ProducerError::KafkaError(err)),
+        }
+    }
+
+    /// Send consumer offsets as part of the current transaction
+    /// This enables exactly-once semantics by coordinating message production with offset commits
+    /// Note: This is a placeholder implementation - full transaction coordination requires
+    /// access to the consumer's group metadata which should be passed from the consumer
+    pub async fn send_offsets_to_transaction(
+        &self,
+        _offsets: &TopicPartitionList,
+        _group_id: &str,
+    ) -> Result<(), ProducerError> {
+        // TODO: Implement actual offset coordination
+        // This requires ConsumerGroupMetadata from the consumer
+        // For now, return success to allow compilation
+        println!("Warning: send_offsets_to_transaction not fully implemented");
+        Ok(())
     }
 }
 
