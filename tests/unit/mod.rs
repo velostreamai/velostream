@@ -12,4 +12,5 @@ pub mod test_utils;
 pub mod common;
 mod builder_pattern_test;
 mod error_handling_test;
+mod error_context_test;
 
