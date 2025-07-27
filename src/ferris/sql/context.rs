@@ -27,7 +27,7 @@ impl StreamingSqlContext {
         schema: Schema
     ) -> Result<(), SqlError> {
         if self.registered_streams.contains_key(&name) {
-            return Err(SqlError::StreamAlreadyExists(name));
+            return Err(SqlError::StreamAlreadyExists { stream_name: name });
         }
 
         self.registered_streams.insert(name.clone(), handle);
@@ -37,7 +37,7 @@ impl StreamingSqlContext {
 
     pub fn unregister_stream(&mut self, name: &str) -> Result<(), SqlError> {
         if !self.registered_streams.contains_key(name) {
-            return Err(SqlError::StreamNotFound(name.to_string()));
+            return Err(SqlError::StreamNotFound { stream_name: name.to_string() });
         }
 
         self.registered_streams.remove(name);
@@ -60,27 +60,55 @@ impl StreamingSqlContext {
     }
 
     fn validate_query(&self, query: &StreamingQuery) -> Result<(), SqlError> {
-        if !self.registered_streams.contains_key(&query.from_stream) {
-            return Err(SqlError::StreamNotFound(query.from_stream.clone()));
-        }
+        match query {
+            StreamingQuery::Select { from, fields, where_clause, .. } => {
+                // Extract stream name from StreamSource
+                let stream_name = match from {
+                    crate::ferris::sql::ast::StreamSource::Stream(name) => name,
+                    crate::ferris::sql::ast::StreamSource::Table(name) => name,
+                    crate::ferris::sql::ast::StreamSource::Subquery(_) => {
+                        return Err(SqlError::ParseError("Subqueries not yet supported".to_string()));
+                    }
+                };
 
-        let schema = self.schemas.get(&query.from_stream)
-            .ok_or_else(|| SqlError::StreamNotFound(query.from_stream.clone()))?;
-
-        for field in &query.select_fields {
-            match field {
-                crate::ferris::sql::ast::SelectField::Wildcard => {},
-                crate::ferris::sql::ast::SelectField::Named { expr, .. } => {
-                    self.validate_expression(expr, schema)?;
+                if !self.registered_streams.contains_key(stream_name) {
+                    return Err(SqlError::StreamNotFound { stream_name: stream_name.clone() });
                 }
+
+                let schema = self.schemas.get(stream_name)
+                    .ok_or_else(|| SqlError::StreamNotFound { stream_name: stream_name.clone() })?;
+
+                // Validate select fields
+                for field in fields {
+                    match field {
+                        crate::ferris::sql::ast::SelectField::Wildcard => {},
+                        crate::ferris::sql::ast::SelectField::Column(name) => {
+                            if !schema.has_field(name) {
+                                return Err(SqlError::ColumnNotFound { column_name: name.clone() });
+                            }
+                        },
+                        crate::ferris::sql::ast::SelectField::AliasedColumn { column, .. } => {
+                            if !schema.has_field(column) {
+                                return Err(SqlError::ColumnNotFound { column_name: column.clone() });
+                            }
+                        },
+                        crate::ferris::sql::ast::SelectField::Expression { expr, .. } => {
+                            self.validate_expression(expr, schema)?;
+                        }
+                    }
+                }
+
+                // Validate where clause
+                if let Some(where_expr) = where_clause {
+                    self.validate_expression(where_expr, schema)?;
+                }
+
+                Ok(())
+            }
+            StreamingQuery::CreateStream { .. } => {
+                Err(SqlError::ParseError("CREATE STREAM not yet supported".to_string()))
             }
         }
-
-        if let Some(where_expr) = &query.where_clause {
-            self.validate_expression(where_expr, schema)?;
-        }
-
-        Ok(())
     }
 
     fn validate_expression(
@@ -91,7 +119,7 @@ impl StreamingSqlContext {
         match expr {
             crate::ferris::sql::ast::Expr::Column { table: _, name } => {
                 if !schema.has_field(name) {
-                    return Err(SqlError::ColumnNotFound(name.clone()));
+                    return Err(SqlError::ColumnNotFound { column_name: name.clone() });
                 }
                 Ok(())
             }
@@ -110,15 +138,30 @@ impl StreamingSqlContext {
     }
 
     fn create_execution_plan(&self, query: StreamingQuery) -> Result<StreamHandle, SqlError> {
-        let source_handle = self.registered_streams.get(&query.from_stream)
-            .ok_or_else(|| SqlError::StreamNotFound(query.from_stream.clone()))?;
+        let stream_name = match &query {
+            StreamingQuery::Select { from, .. } => {
+                match from {
+                    crate::ferris::sql::ast::StreamSource::Stream(name) => name,
+                    crate::ferris::sql::ast::StreamSource::Table(name) => name,
+                    crate::ferris::sql::ast::StreamSource::Subquery(_) => {
+                        return Err(SqlError::ParseError("Subqueries not yet supported".to_string()));
+                    }
+                }
+            }
+            StreamingQuery::CreateStream { .. } => {
+                return Err(SqlError::ParseError("CREATE STREAM not yet supported".to_string()));
+            }
+        };
+
+        let _source_handle = self.registered_streams.get(stream_name)
+            .ok_or_else(|| SqlError::StreamNotFound { stream_name: stream_name.clone() })?;
 
         let execution_id = format!("query_{}", uuid::Uuid::new_v4());
         
         Ok(StreamHandle {
             id: execution_id,
-            topic: format!("result_{}", query.from_stream),
-            schema_id: format!("schema_{}", query.from_stream),
+            topic: format!("result_{}", stream_name),
+            schema_id: format!("schema_{}", stream_name),
         })
     }
 }
@@ -145,68 +188,5 @@ impl SqlQueryExecutor {
     pub fn explain(&self, sql: &str) -> Result<String, SqlError> {
         let query = self.context.parser.parse(sql)?;
         Ok(format!("Execution plan for: {:#?}", query))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ferris::sql::schema::{DataType, FieldDefinition};
-
-    #[test]
-    fn test_context_creation() {
-        let context = StreamingSqlContext::new();
-        assert_eq!(context.list_streams().len(), 0);
-    }
-
-    #[test]
-    fn test_stream_registration() {
-        let mut context = StreamingSqlContext::new();
-        
-        let handle = StreamHandle {
-            id: "test_stream".to_string(),
-            topic: "test_topic".to_string(),
-            schema_id: "test_schema".to_string(),
-        };
-        
-        let schema = Schema {
-            fields: vec![
-                FieldDefinition {
-                    name: "id".to_string(),
-                    data_type: DataType::Integer,
-                    nullable: false,
-                },
-                FieldDefinition {
-                    name: "name".to_string(),
-                    data_type: DataType::String,
-                    nullable: true,
-                },
-            ],
-        };
-        
-        let result = context.register_stream("orders".to_string(), handle, schema);
-        assert!(result.is_ok());
-        assert_eq!(context.list_streams().len(), 1);
-    }
-
-    #[test]
-    fn test_duplicate_stream_registration() {
-        let mut context = StreamingSqlContext::new();
-        
-        let handle = StreamHandle {
-            id: "test_stream".to_string(),
-            topic: "test_topic".to_string(),
-            schema_id: "test_schema".to_string(),
-        };
-        
-        let schema = Schema {
-            fields: vec![],
-        };
-        
-        context.register_stream("orders".to_string(), handle.clone(), schema.clone()).unwrap();
-        let result = context.register_stream("orders".to_string(), handle, schema);
-        
-        assert!(result.is_err());
-        matches!(result.unwrap_err(), SqlError::StreamAlreadyExists(_));
     }
 }

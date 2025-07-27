@@ -8,12 +8,14 @@ pub mod execution;
 pub mod schema;
 pub mod error;
 
+
 // Re-export main API
 pub use context::StreamingSqlContext;
-pub use ast::{StreamingQuery, SelectField, WindowSpec, Expr};
+pub use ast::{StreamingQuery, SelectField, WindowSpec, Expr, DataType};
 pub use parser::StreamingSqlParser;
-pub use schema::{Schema, DataType, StreamHandle};
+pub use schema::{Schema, StreamHandle, FieldDefinition};
 pub use error::SqlError;
+pub use execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 
 // Version and feature info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

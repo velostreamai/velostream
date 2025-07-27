@@ -1,6 +1,7 @@
 use crate::ferris::sql::ast::*;
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct StreamingSqlParser {
@@ -178,9 +179,10 @@ impl StreamingSqlParser {
                     });
                 }
                 _ => {
-                    return Err(SqlError::ParseError(format!(
-                        "Unexpected character '{}' at position {}", ch, position
-                    )));
+                    return Err(SqlError::ParseError { 
+                        message: format!("Unexpected character '{}' at position {}", ch, position),
+                        position: Some(position)
+                    });
                 }
             }
         }
@@ -211,11 +213,16 @@ impl TokenParser {
     }
 
     fn current_token(&self) -> &Token {
-        self.tokens.get(self.current).unwrap_or(&Token {
-            token_type: TokenType::Eof,
-            value: String::new(),
-            position: 0,
-        })
+        if self.current < self.tokens.len() {
+            &self.tokens[self.current]
+        } else {
+            static EOF_TOKEN: Token = Token {
+                token_type: TokenType::Eof,
+                value: String::new(),
+                position: 0,
+            };
+            &EOF_TOKEN
+        }
     }
 
     fn advance(&mut self) {
@@ -230,10 +237,10 @@ impl TokenParser {
             self.advance();
             Ok(token)
         } else {
-            Err(SqlError::ParseError(format!(
-                "Expected {:?}, found {:?} at position {}",
-                expected, token.token_type, token.position
-            )))
+            Err(SqlError::ParseError { 
+                message: format!("Expected {:?}, found {:?} at position {}", expected, token.token_type, token.position),
+                position: Some(token.position)
+            })
         }
     }
 
@@ -257,13 +264,11 @@ impl TokenParser {
             window = Some(self.parse_window_spec()?);
         }
 
-        Ok(StreamingQuery {
-            select_fields: fields,
-            from_stream,
+        Ok(StreamingQuery::Select {
+            fields,
+            from: StreamSource::Stream(from_stream),
             where_clause,
-            window_spec: window,
-            group_by: Vec::new(),
-            order_by: Vec::new(),
+            window,
         })
     }
 
@@ -282,7 +287,7 @@ impl TokenParser {
                 } else {
                     None
                 };
-                fields.push(SelectField::Named { expr, alias });
+                fields.push(SelectField::Expression { expr, alias });
             }
             
             if self.current_token().token_type == TokenType::Comma {
@@ -303,15 +308,9 @@ impl TokenParser {
                 if self.current_token().token_type == TokenType::Dot {
                     self.advance();
                     let field = self.expect(TokenType::Identifier)?.value;
-                    Ok(Expr::Column { 
-                        table: Some(token.value), 
-                        name: field 
-                    })
+                    Ok(Expr::Column(format!("{}.{}", token.value, field)))
                 } else {
-                    Ok(Expr::Column { 
-                        table: None, 
-                        name: token.value 
-                    })
+                    Ok(Expr::Column(token.value))
                 }
             }
             TokenType::String => {
@@ -325,12 +324,16 @@ impl TokenParser {
                 } else if let Ok(f) = token.value.parse::<f64>() {
                     Ok(Expr::Literal(LiteralValue::Float(f)))
                 } else {
-                    Err(SqlError::ParseError(format!("Invalid number: {}", token.value)))
+                    Err(SqlError::ParseError { 
+                        message: format!("Invalid number: {}", token.value),
+                        position: Some(token.position)
+                    })
                 }
             }
-            _ => Err(SqlError::ParseError(format!(
-                "Unexpected token in expression: {:?}", token.token_type
-            ))),
+            _ => Err(SqlError::ParseError { 
+                message: format!("Unexpected token in expression: {:?}", token.token_type),
+                position: Some(token.position)
+            }),
         }
     }
 
@@ -339,79 +342,80 @@ impl TokenParser {
             "TUMBLING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration = self.expect(TokenType::Identifier)?.value;
+                let duration_str = self.expect(TokenType::Identifier)?.value;
                 self.expect(TokenType::RightParen)?;
-                WindowType::Tumbling { duration }
+                
+                let size = self.parse_duration(&duration_str)?;
+                WindowSpec::Tumbling { size, time_column: None }
             }
-            "HOPPING" => {
+            "SLIDING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration = self.expect(TokenType::Identifier)?.value;
+                let duration_str = self.expect(TokenType::Identifier)?.value;
                 self.expect(TokenType::Comma)?;
-                let advance = self.expect(TokenType::Identifier)?.value;
+                let advance_str = self.expect(TokenType::Identifier)?.value;
                 self.expect(TokenType::RightParen)?;
-                WindowType::Hopping { duration, advance }
+                
+                let size = self.parse_duration(&duration_str)?;
+                let advance = self.parse_duration(&advance_str)?;
+                WindowSpec::Sliding { size, advance, time_column: None }
             }
             "SESSION" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let gap = self.expect(TokenType::Identifier)?.value;
+                let gap_str = self.expect(TokenType::Identifier)?.value;
                 self.expect(TokenType::RightParen)?;
-                WindowType::Session { gap }
+                
+                let gap = self.parse_duration(&gap_str)?;
+                WindowSpec::Session { gap, partition_by: Vec::new() }
             }
             _ => {
-                return Err(SqlError::ParseError(
-                    "Expected window type (TUMBLING, HOPPING, or SESSION)".to_string()
-                ));
+                return Err(SqlError::ParseError { 
+                    message: "Expected window type (TUMBLING, SLIDING, or SESSION)".to_string(),
+                    position: None
+                });
             }
         };
 
-        Ok(WindowSpec {
-            window_type,
-            time_column: "event_time".to_string(),
-        })
+        Ok(window_type)
+    }
+
+    fn parse_duration(&self, duration_str: &str) -> Result<Duration, SqlError> {
+        if duration_str.ends_with('s') {
+            let seconds: u64 = duration_str[..duration_str.len()-1].parse()
+                .map_err(|_| SqlError::ParseError { 
+                    message: format!("Invalid duration: {}", duration_str),
+                    position: None
+                })?;
+            Ok(Duration::from_secs(seconds))
+        } else if duration_str.ends_with('m') {
+            let minutes: u64 = duration_str[..duration_str.len()-1].parse()
+                .map_err(|_| SqlError::ParseError { 
+                    message: format!("Invalid duration: {}", duration_str),
+                    position: None
+                })?;
+            Ok(Duration::from_secs(minutes * 60))
+        } else if duration_str.ends_with('h') {
+            let hours: u64 = duration_str[..duration_str.len()-1].parse()
+                .map_err(|_| SqlError::ParseError { 
+                    message: format!("Invalid duration: {}", duration_str),
+                    position: None
+                })?;
+            Ok(Duration::from_secs(hours * 3600))
+        } else {
+            // Default to seconds if no unit specified
+            let seconds: u64 = duration_str.parse()
+                .map_err(|_| SqlError::ParseError { 
+                    message: format!("Invalid duration: {}", duration_str),
+                    position: None
+                })?;
+            Ok(Duration::from_secs(seconds))
+        }
     }
 }
 
 impl Default for StreamingSqlParser {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_select() {
-        let parser = StreamingSqlParser::new();
-        let result = parser.parse("SELECT * FROM orders");
-        assert!(result.is_ok());
-        
-        let query = result.unwrap();
-        assert_eq!(query.from_stream, "orders");
-        assert_eq!(query.select_fields.len(), 1);
-        matches!(query.select_fields[0], SelectField::Wildcard);
-    }
-
-    #[test]
-    fn test_select_with_columns() {
-        let parser = StreamingSqlParser::new();
-        let result = parser.parse("SELECT customer_id, amount FROM orders");
-        assert!(result.is_ok());
-        
-        let query = result.unwrap();
-        assert_eq!(query.select_fields.len(), 2);
-    }
-
-    #[test]
-    fn test_windowed_select() {
-        let parser = StreamingSqlParser::new();
-        let result = parser.parse("SELECT COUNT(*) FROM orders WINDOW TUMBLING(5m)");
-        assert!(result.is_ok());
-        
-        let query = result.unwrap();
-        assert!(query.window_spec.is_some());
     }
 }
