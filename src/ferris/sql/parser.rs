@@ -30,6 +30,16 @@ enum TokenType {
     Comma,
     Asterisk,
     Dot,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
     Eof,
 }
 
@@ -103,6 +113,8 @@ impl StreamingSqlParser {
                     position += 1;
                 }
                 '*' => {
+                    // We need to determine context - for now, always treat as asterisk
+                    // The parser will handle multiplication vs wildcard contexts
                     tokens.push(Token {
                         token_type: TokenType::Asterisk,
                         value: "*".to_string(),
@@ -119,6 +131,98 @@ impl StreamingSqlParser {
                     });
                     chars.next();
                     position += 1;
+                }
+                '+' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Plus,
+                        value: "+".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
+                '-' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Minus,
+                        value: "-".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
+                '/' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Divide,
+                        value: "/".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
+                '=' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Equal,
+                        value: "=".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
+                '<' => {
+                    chars.next();
+                    position += 1;
+                    if let Some(&'=') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::LessThanOrEqual,
+                            value: "<=".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else {
+                        tokens.push(Token {
+                            token_type: TokenType::LessThan,
+                            value: "<".to_string(),
+                            position: position - 1,
+                        });
+                    }
+                }
+                '>' => {
+                    chars.next();
+                    position += 1;
+                    if let Some(&'=') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::GreaterThanOrEqual,
+                            value: ">=".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else {
+                        tokens.push(Token {
+                            token_type: TokenType::GreaterThan,
+                            value: ">".to_string(),
+                            position: position - 1,
+                        });
+                    }
+                }
+                '!' => {
+                    chars.next();
+                    position += 1;
+                    if let Some(&'=') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::NotEqual,
+                            value: "!=".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else {
+                        return Err(SqlError::ParseError { 
+                            message: "Unexpected character '!' - did you mean '!='?".to_string(),
+                            position: Some(position - 1)
+                        });
+                    }
                 }
                 '\'' | '"' => {
                     let quote = ch;
@@ -315,6 +419,89 @@ impl TokenParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr, SqlError> {
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_additive()?;
+        
+        while matches!(self.current_token().token_type, 
+            TokenType::Equal | TokenType::NotEqual | TokenType::LessThan | 
+            TokenType::GreaterThan | TokenType::LessThanOrEqual | TokenType::GreaterThanOrEqual) {
+            
+            let op_token = self.current_token().clone();
+            self.advance();
+            let right = self.parse_additive()?;
+            
+            let op = match op_token.token_type {
+                TokenType::Equal => BinaryOperator::Equal,
+                TokenType::NotEqual => BinaryOperator::NotEqual,
+                TokenType::LessThan => BinaryOperator::LessThan,
+                TokenType::GreaterThan => BinaryOperator::GreaterThan,
+                TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
+                TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(left)
+    }
+
+    fn parse_additive(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_multiplicative()?;
+        
+        while matches!(self.current_token().token_type, TokenType::Plus | TokenType::Minus) {
+            let op_token = self.current_token().clone();
+            self.advance();
+            let right = self.parse_multiplicative()?;
+            
+            let op = match op_token.token_type {
+                TokenType::Plus => BinaryOperator::Add,
+                TokenType::Minus => BinaryOperator::Subtract,
+                _ => unreachable!(),
+            };
+            
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(left)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_primary()?;
+        
+        while matches!(self.current_token().token_type, TokenType::Asterisk | TokenType::Divide) {
+            let op_token = self.current_token().clone();
+            self.advance();
+            let right = self.parse_primary()?;
+            
+            let op = match op_token.token_type {
+                TokenType::Asterisk => BinaryOperator::Multiply,
+                TokenType::Divide => BinaryOperator::Divide,
+                _ => unreachable!(),
+            };
+            
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(left)
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, SqlError> {
         let token = self.current_token().clone();
         match token.token_type {
             TokenType::Identifier => {
@@ -371,6 +558,12 @@ impl TokenParser {
                         position: Some(token.position)
                     })
                 }
+            }
+            TokenType::LeftParen => {
+                self.advance();
+                let expr = self.parse_expression()?;
+                self.expect(TokenType::RightParen)?;
+                Ok(expr)
             }
             _ => Err(SqlError::ParseError { 
                 message: format!("Unexpected token in expression: {:?}", token.token_type),

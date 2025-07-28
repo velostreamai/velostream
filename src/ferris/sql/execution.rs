@@ -26,6 +26,8 @@ pub struct StreamRecord {
     pub fields: HashMap<String, FieldValue>,
     pub timestamp: i64,
     pub offset: i64,
+    pub partition: i32,
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +93,8 @@ impl StreamExecutionEngine {
             }).collect(),
             timestamp: chrono::Utc::now().timestamp(),
             offset: 0,
+            partition: 0,
+            headers: HashMap::new(), // Default empty headers for testing
         };
 
         // Apply query and process record
@@ -255,13 +259,29 @@ impl StreamExecutionEngine {
                             result_fields.extend(record.fields.clone());
                         }
                         SelectField::Column(name) => {
-                            if let Some(value) = record.fields.get(name) {
-                                result_fields.insert(name.clone(), value.clone());
+                            // Check for system columns first (case insensitive)
+                            let field_value = match name.to_uppercase().as_str() {
+                                "_TIMESTAMP" => Some(FieldValue::Integer(record.timestamp)),
+                                "_OFFSET" => Some(FieldValue::Integer(record.offset)),
+                                "_PARTITION" => Some(FieldValue::Integer(record.partition as i64)),
+                                _ => record.fields.get(name).cloned()
+                            };
+                            
+                            if let Some(value) = field_value {
+                                result_fields.insert(name.clone(), value);
                             }
                         }
                         SelectField::AliasedColumn { column, alias } => {
-                            if let Some(value) = record.fields.get(column) {
-                                result_fields.insert(alias.clone(), value.clone());
+                            // Check for system columns first (case insensitive)
+                            let field_value = match column.to_uppercase().as_str() {
+                                "_TIMESTAMP" => Some(FieldValue::Integer(record.timestamp)),
+                                "_OFFSET" => Some(FieldValue::Integer(record.offset)),
+                                "_PARTITION" => Some(FieldValue::Integer(record.partition as i64)),
+                                _ => record.fields.get(column).cloned()
+                            };
+                            
+                            if let Some(value) = field_value {
+                                result_fields.insert(alias.clone(), value);
                             }
                         }
                         SelectField::Expression { expr, alias } => {
@@ -278,6 +298,7 @@ impl StreamExecutionEngine {
                     fields: result_fields,
                     timestamp: record.timestamp,
                     offset: record.offset,
+                    partition: record.partition,
                 }))
             }
             StreamingQuery::CreateStream { name, as_select, .. } => {
@@ -328,16 +349,28 @@ impl StreamExecutionEngine {
     fn evaluate_expression(&self, expr: &Expr, record: &StreamRecord) -> Result<bool, SqlError> {
         match expr {
             Expr::Column(name) => {
-                match record.fields.get(name) {
-                    Some(FieldValue::Boolean(b)) => Ok(*b),
-                    Some(_) => Err(SqlError::TypeError { 
+                // Check for system columns first (case insensitive)
+                let field_value = match name.to_uppercase().as_str() {
+                    "_TIMESTAMP" => FieldValue::Integer(record.timestamp),
+                    "_OFFSET" => FieldValue::Integer(record.offset),
+                    "_PARTITION" => FieldValue::Integer(record.partition as i64),
+                    _ => {
+                        // Regular field lookup
+                        record.fields.get(name)
+                            .cloned()
+                            .ok_or_else(|| SqlError::SchemaError {
+                                message: "Column not found".to_string(),
+                                column: Some(name.clone())
+                            })?
+                    }
+                };
+
+                match field_value {
+                    FieldValue::Boolean(b) => Ok(b),
+                    _ => Err(SqlError::TypeError { 
                         expected: "boolean".to_string(),
                         actual: "other".to_string(),
                         value: None
-                    }),
-                    None => Err(SqlError::SchemaError {
-                        message: "Column not found".to_string(),
-                        column: Some(name.clone())
                     }),
                 }
             }
@@ -433,12 +466,21 @@ impl StreamExecutionEngine {
     fn evaluate_expression_value(&self, expr: &Expr, record: &StreamRecord) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Column(name) => {
-                record.fields.get(name)
-                    .cloned()
-                    .ok_or_else(|| SqlError::SchemaError {
-                        message: "Column not found".to_string(),
-                        column: Some(name.clone())
-                    })
+                // Check for system columns first (case insensitive)
+                match name.to_uppercase().as_str() {
+                    "_TIMESTAMP" => Ok(FieldValue::Integer(record.timestamp)),
+                    "_OFFSET" => Ok(FieldValue::Integer(record.offset)),
+                    "_PARTITION" => Ok(FieldValue::Integer(record.partition as i64)),
+                    _ => {
+                        // Regular field lookup
+                        record.fields.get(name)
+                            .cloned()
+                            .ok_or_else(|| SqlError::SchemaError {
+                                message: "Column not found".to_string(),
+                                column: Some(name.clone())
+                            })
+                    }
+                }
             }
             Expr::Literal(lit) => match lit {
                 LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
