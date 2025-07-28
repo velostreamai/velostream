@@ -79,7 +79,7 @@ mod tests {
         match query {
             StreamingQuery::CreateStream { as_select, .. } => {
                 match *as_select {
-                    StreamingQuery::Select { window, limit: None, .. } => {
+                    StreamingQuery::Select { window, group_by: None, having: None, order_by: None, limit: None, .. } => {
                         assert!(window.is_some());
                         if let Some(WindowSpec::Tumbling { size, .. }) = window {
                             assert_eq!(size.as_secs(), 300); // 5 minutes
@@ -364,7 +364,7 @@ mod tests {
         match query {
             StreamingQuery::CreateStream { as_select, .. } => {
                 match *as_select {
-                    StreamingQuery::Select { window, limit: None, fields, .. } => {
+                    StreamingQuery::Select { window, group_by: None, having: None, order_by: None, limit: None, fields, .. } => {
                         assert!(window.is_some());
                         assert_eq!(fields.len(), 2);
                     }

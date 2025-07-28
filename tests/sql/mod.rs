@@ -8,3 +8,5 @@ pub mod csas_ctas_tests;
 pub mod system_column_tests;
 pub mod header_tests;
 pub mod limit_tests;
+pub mod group_by_tests;
+pub mod show_tests;

@@ -1,28 +1,174 @@
+/*! 
+# Streaming SQL Abstract Syntax Tree (AST)
+
+This module defines the Abstract Syntax Tree for streaming SQL queries designed specifically
+for continuous data processing over Kafka streams. The AST supports streaming-native features
+including windowing, real-time aggregations, and CREATE STREAM AS SELECT (CSAS) statements.
+
+## Key Features
+
+- **Streaming-First Design**: Built for continuous queries over unbounded data streams
+- **Window Operations**: Support for tumbling, sliding, and session windows
+- **Real-time Aggregations**: GROUP BY with streaming semantics
+- **Stream Creation**: CSAS and CREATE TABLE AS SELECT (CTAS) for stream transformations
+- **Kafka Integration**: System columns for metadata access (_timestamp, _offset, _partition)
+- **Header Support**: Access to Kafka message headers via SQL functions
+
+## Example Queries
+
+```sql
+-- Simple stream selection with filtering
+SELECT customer_id, amount FROM orders WHERE amount > 100 LIMIT 10
+
+-- Windowed aggregation
+SELECT customer_id, COUNT(*), AVG(amount) 
+FROM orders 
+WHERE amount > 50
+GROUP BY customer_id 
+WINDOW TUMBLING(INTERVAL 5 MINUTES)
+
+-- Stream creation with transformation
+CREATE STREAM high_value_orders AS 
+SELECT customer_id, amount, HEADER('source') AS source
+FROM orders 
+WHERE amount > 1000
+
+-- System column access
+SELECT customer_id, amount, _timestamp, _partition 
+FROM orders 
+ORDER BY _timestamp DESC 
+LIMIT 100
+```
+
+## Architecture
+
+The AST is designed to be:
+- **Immutable**: All nodes are immutable for thread safety
+- **Composable**: Complex queries built from simple expressions
+- **Extensible**: Easy to add new streaming operations
+- **Type-Safe**: Full Rust type checking throughout
+*/
+
 use std::time::Duration;
 use std::collections::HashMap;
 
-/// Streaming SQL AST designed for continuous queries
+/// Root AST node representing different types of streaming SQL queries.
+/// 
+/// This enum encompasses all supported query types in the streaming SQL engine,
+/// from simple SELECT statements to complex stream creation operations.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use ferrisstreams::ferris::sql::ast::*;
+/// 
+/// // SELECT query
+/// let select_query = StreamingQuery::Select {
+///     fields: vec![SelectField::Wildcard],
+///     from: StreamSource::Stream("orders".to_string()),
+///     where_clause: None,
+///     group_by: None,
+///     having: None,
+///     window: None,
+///     order_by: None,
+///     limit: Some(100),
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamingQuery {
+    /// Standard SELECT query for streaming data processing.
+    /// 
+    /// Supports all standard SQL SELECT features adapted for streaming:
+    /// - Field selection (wildcards, expressions, aliases)
+    /// - WHERE clause filtering
+    /// - GROUP BY aggregations with streaming semantics
+    /// - HAVING post-aggregation filtering
+    /// - Window operations (tumbling, sliding, session)
+    /// - ORDER BY sorting (with memory considerations)
+    /// - LIMIT for result set size control
     Select {
+        /// Fields to select (columns, expressions, aggregates)
         fields: Vec<SelectField>,
+        /// Source stream or table
         from: StreamSource,
+        /// Optional WHERE clause for filtering
         where_clause: Option<Expr>,
+        /// Optional GROUP BY expressions for aggregation
+        group_by: Option<Vec<Expr>>,
+        /// Optional HAVING clause for post-aggregation filtering
+        having: Option<Expr>,
+        /// Optional window specification for time-based operations
         window: Option<WindowSpec>,
+        /// Optional ORDER BY for result sorting
+        order_by: Option<Vec<OrderByExpr>>,
+        /// Optional LIMIT for result set size control
         limit: Option<u64>,
     },
+    /// CREATE STREAM AS SELECT statement for stream transformations.
+    /// 
+    /// Creates a new Kafka stream (topic) populated by continuous execution
+    /// of the nested SELECT query. The stream persists indefinitely and
+    /// processes new records as they arrive in the source stream.
     CreateStream {
+        /// Name of the new stream to create
         name: String,
+        /// Optional column definitions with types
         columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the stream transformation
         as_select: Box<StreamingQuery>,
+        /// Stream properties (replication factor, partitions, etc.)
         properties: HashMap<String, String>,
     },
+    /// CREATE TABLE AS SELECT statement for materialized views.
+    /// 
+    /// Creates a materialized table (KTable) that maintains the current
+    /// state based on the continuous execution of the SELECT query.
+    /// Supports aggregations and maintains consistent state.
     CreateTable {
+        /// Name of the new table to create
         name: String,
+        /// Optional column definitions with types
         columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the table population
         as_select: Box<StreamingQuery>,
+        /// Table properties (retention, compaction, etc.)
         properties: HashMap<String, String>,
     },
+    /// SHOW/LIST commands for discovering available resources.
+    /// 
+    /// Provides metadata about streams, tables, topics, and other resources
+    /// available in the streaming SQL context. Essential for data discovery
+    /// and debugging.
+    Show {
+        /// Type of resource to show
+        resource_type: ShowResourceType,
+        /// Optional pattern for filtering results
+        pattern: Option<String>,
+    },
+}
+
+/// Types of resources that can be shown with SHOW/LIST commands.
+/// 
+/// Each resource type provides different metadata about the streaming
+/// SQL environment, helping users discover and understand available data sources.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShowResourceType {
+    /// Show all registered streams (Kafka topics exposed as streams)
+    Streams,
+    /// Show all registered tables (KTables and materialized views)
+    Tables,
+    /// Show all available Kafka topics (whether registered or not)
+    Topics,
+    /// Show all registered functions (built-in and user-defined)
+    Functions,
+    /// Show schema information for a specific stream or table
+    Schema { name: String },
+    /// Show properties for a specific resource
+    Properties { resource_type: String, name: String },
+    /// Show active queries currently running
+    Queries,
+    /// Show partitions for a specific topic/stream
+    Partitions { name: String },
 }
 
 /// Field selection in SELECT clause
@@ -68,6 +214,20 @@ pub enum WindowSpec {
         gap: Duration,
         partition_by: Vec<String>,
     },
+}
+
+/// ORDER BY expression with direction
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrderByExpr {
+    pub expr: Expr,
+    pub direction: OrderDirection,
+}
+
+/// Sort direction for ORDER BY
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderDirection {
+    Asc,
+    Desc,
 }
 
 /// SQL expressions for WHERE clauses and computations
@@ -200,6 +360,7 @@ impl StreamingQuery {
             StreamingQuery::Select { window, .. } => window.is_some(),
             StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
+            StreamingQuery::Show { .. } => false, // SHOW commands don't use windows
         }
     }
     
@@ -225,6 +386,7 @@ impl StreamingQuery {
             }
             StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::Show { .. } => Vec::new(), // SHOW commands don't reference columns
         }
     }
 }

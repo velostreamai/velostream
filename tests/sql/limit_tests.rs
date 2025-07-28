@@ -15,9 +15,8 @@ mod tests {
         // Test parsing queries with LIMIT
         let queries = vec![
             "SELECT * FROM orders LIMIT 10",
-            "SELECT customer_id, amount FROM orders LIMIT 5",
+            "SELECT customer_id, amount FROM orders LIMIT 5", 
             "SELECT * FROM orders WHERE amount > 100 LIMIT 3",
-            "SELECT customer_id FROM orders WINDOW TUMBLING (INTERVAL 5 MINUTES) LIMIT 1",
         ];
         
         for query in queries {

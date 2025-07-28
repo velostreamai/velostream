@@ -1,6 +1,85 @@
+/*!
+# Streaming SQL Execution Engine
+
+This module implements the execution engine for streaming SQL queries. It processes
+SQL AST nodes and executes them against streaming data records, supporting real-time
+query evaluation with expression processing, filtering, and basic aggregations.
+
+## Key Features
+
+- **Real-time Processing**: Processes streaming records one at a time as they arrive
+- **Expression Evaluation**: Full support for arithmetic, comparison, and logical expressions
+- **System Columns**: Access to Kafka metadata (_timestamp, _offset, _partition)
+- **Header Functions**: Built-in functions for Kafka message header access
+- **Aggregation Support**: Basic aggregation functions (COUNT, SUM, AVG)
+- **Query Lifecycle**: Complete query management from start to stop
+- **Error Handling**: Comprehensive error reporting with context information
+
+## Architecture
+
+The execution engine follows an event-driven architecture:
+
+1. **Query Registration**: Queries are registered and maintained in active state
+2. **Record Processing**: Incoming records trigger query evaluation
+3. **Expression Evaluation**: SQL expressions are evaluated against record data
+4. **Result Generation**: Query results are sent to output channels
+5. **State Management**: Query state and window buffers are maintained
+
+## Supported Operations
+
+### SELECT Queries
+- Field selection (wildcards, specific columns, expressions)
+- WHERE clause filtering with complex expressions
+- System column access (_timestamp, _offset, _partition)
+- LIMIT clause for result set control
+- Expression aliases and computed fields
+
+### CREATE STREAM/TABLE
+- Stream creation with SELECT query definitions
+- Table creation for materialized views
+- Property-based configuration
+
+### Built-in Functions
+- `COUNT(*)`: Record counting
+- `SUM(column)`: Numeric summation
+- `AVG(column)`: Average calculation
+- `HEADER(key)`: Kafka header value access
+- `HEADER_KEYS()`: List all header keys
+- `HAS_HEADER(key)`: Check header existence
+
+## Examples
+
+```rust
+use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use std::collections::HashMap;
+use tokio::sync::mpsc;
+
+// Create execution engine
+let (tx, rx) = mpsc::unbounded_channel();
+let mut engine = StreamExecutionEngine::new(tx);
+
+// Execute a simple SELECT query
+let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
+let record = create_test_record();
+engine.execute(&query, record).await?;
+
+// Process results from output channel
+while let Some(result) = rx.recv().await {
+    println!("Query result: {:?}", result);
+}
+```
+
+## Performance Characteristics
+
+- **Memory Efficient**: Minimal memory allocation per record
+- **Low Latency**: Direct expression evaluation without intermediate representations
+- **Streaming Native**: No buffering or batching unless required by windows
+- **Type Safe**: Runtime type checking with detailed error messages
+*/
+
 use crate::ferris::sql::ast::{
     BinaryOperator, Expr, LiteralValue, StreamingQuery,
-    SelectField, StreamSource, WindowSpec, UnaryOperator
+    SelectField, StreamSource, WindowSpec, UnaryOperator, ShowResourceType
 };
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
@@ -248,6 +327,7 @@ impl StreamExecutionEngine {
             }
             StreamingQuery::CreateStream { as_select, .. } => self.query_matches_stream(as_select, stream_name),
             StreamingQuery::CreateTable { as_select, .. } => self.query_matches_stream(as_select, stream_name),
+            StreamingQuery::Show { .. } => false, // SHOW commands don't match streams
         }
     }
 
@@ -343,6 +423,27 @@ impl StreamExecutionEngine {
                 // 3. Register the table in the SQL context
                 log::info!("Executing CREATE TABLE: {}", name);
                 self.apply_query(as_select, record)
+            }
+            StreamingQuery::Show { resource_type, pattern } => {
+                // SHOW commands return metadata, not transformed records
+                // In a full implementation, this would query the SQL context for metadata
+                log::info!("Executing SHOW {:?} with pattern {:?}", resource_type, pattern);
+                
+                // For now, return a simple result indicating the SHOW command was processed
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("show_type".to_string(), FieldValue::String(format!("{:?}", resource_type)));
+                        if let Some(p) = pattern {
+                            fields.insert("pattern".to_string(), FieldValue::String(p.clone()));
+                        }
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
             }
         }
     }

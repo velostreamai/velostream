@@ -134,6 +134,10 @@ impl StreamingSqlContext {
                 // Validate the underlying SELECT query
                 self.validate_query(as_select)
             }
+            StreamingQuery::Show { .. } => {
+                // SHOW commands don't need schema validation
+                Ok(())
+            }
         }
     }
 
@@ -186,11 +190,15 @@ impl StreamingSqlContext {
             }
             StreamingQuery::CreateStream { name, .. } => name,
             StreamingQuery::CreateTable { name, .. } => name,
+            StreamingQuery::Show { .. } => {
+                // SHOW commands don't have a primary stream name
+                "system"
+            }
         };
 
         let _source_handle = self.registered_streams.get(stream_name)
             .ok_or_else(|| SqlError::StreamError {
-                stream_name: stream_name.clone(),
+                stream_name: stream_name.to_string(),
                 message: "Stream not found".to_string()
             })?;
 

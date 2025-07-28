@@ -1,64 +1,244 @@
+/*!
+# Streaming SQL Parser
+
+This module implements a recursive descent parser for streaming SQL queries, designed specifically
+for continuous data processing over Kafka streams. The parser converts SQL text into an Abstract
+Syntax Tree (AST) that can be executed by the streaming engine.
+
+## Key Features
+
+- **Complete SQL Grammar**: Supports SELECT, CREATE STREAM, CREATE TABLE with all standard clauses
+- **Streaming Extensions**: Native support for windowing operations (TUMBLING, SLIDING, SESSION)
+- **Expression Parsing**: Full arithmetic, logical, and comparison expressions with proper precedence
+- **Function Support**: Built-in aggregation functions (COUNT, SUM, AVG, MIN, MAX)
+- **Error Recovery**: Detailed error messages with position information for debugging
+- **Case Insensitive**: SQL keywords are case-insensitive as per SQL standard
+- **Robust Tokenization**: Handles strings, numbers, identifiers, operators, and special characters
+
+## Grammar Overview
+
+The parser supports the following SQL grammar (simplified):
+
+```sql
+-- SELECT statements
+SELECT field_list FROM stream_name 
+[WHERE condition] 
+[GROUP BY expression_list] 
+[HAVING condition]
+[WINDOW window_spec] 
+[ORDER BY order_list] 
+[LIMIT number]
+
+-- Stream creation
+CREATE STREAM stream_name [(column_definitions)] AS select_statement [WITH (properties)]
+CREATE TABLE table_name [(column_definitions)] AS select_statement [WITH (properties)]
+
+-- Window specifications
+WINDOW TUMBLING(duration)
+WINDOW SLIDING(size, advance)  
+WINDOW SESSION(gap)
+```
+
+## Examples
+
+```rust
+use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+
+let parser = StreamingSqlParser::new();
+
+// Simple SELECT query
+let query = parser.parse("SELECT * FROM orders WHERE amount > 100").unwrap();
+
+// Windowed aggregation
+let query = parser.parse(
+    "SELECT customer_id, COUNT(*), AVG(amount) 
+     FROM orders 
+     GROUP BY customer_id 
+     WINDOW TUMBLING(5m)"
+).unwrap();
+
+// Stream creation
+let query = parser.parse(
+    "CREATE STREAM high_value_orders AS 
+     SELECT * FROM orders WHERE amount > 1000"
+).unwrap();
+```
+
+## Architecture
+
+The parser is implemented as a two-phase process:
+
+1. **Tokenization**: Converts SQL text into a stream of tokens with position information
+2. **Parsing**: Uses recursive descent to build the AST from tokens
+
+### Token Types
+- Keywords (SELECT, FROM, WHERE, etc.)
+- Identifiers (table names, column names)
+- Literals (strings, numbers)
+- Operators (+, -, *, /, =, !=, <, >, etc.)
+- Punctuation (parentheses, commas, dots)
+
+### Expression Precedence
+The parser respects SQL operator precedence:
+1. Parentheses (highest)
+2. Multiplication, Division
+3. Addition, Subtraction
+4. Comparison operators
+5. Logical operators (lowest)
+
+## Error Handling
+
+The parser provides detailed error messages with position information:
+- Syntax errors with expected vs. actual tokens
+- Invalid number formats
+- Unclosed string literals  
+- Unknown keywords or operators
+- Missing required clauses
+
+All errors implement the `SqlError` type for consistent error handling throughout the system.
+*/
+
 use crate::ferris::sql::ast::*;
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Main parser for streaming SQL queries.
+/// 
+/// The `StreamingSqlParser` handles the complete parsing pipeline from SQL text to AST.
+/// It maintains a keyword lookup table for efficient token classification and provides
+/// a simple interface for parsing various types of SQL statements.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+/// 
+/// let parser = StreamingSqlParser::new();
+/// 
+/// // Parse a simple SELECT query
+/// let query = parser.parse("SELECT customer_id, amount FROM orders")?;
+/// 
+/// // Parse a complex windowed aggregation
+/// let query = parser.parse(
+///     "SELECT customer_id, COUNT(*), SUM(amount)
+///      FROM orders 
+///      WHERE amount > 100
+///      GROUP BY customer_id
+///      WINDOW TUMBLING(INTERVAL 5 MINUTES)
+///      ORDER BY customer_id
+///      LIMIT 100"
+/// )?;
+/// ```
 #[derive(Debug, Clone)]
 pub struct StreamingSqlParser {
+    /// Lookup table mapping SQL keywords to token types for fast classification
     keywords: HashMap<String, TokenType>,
 }
 
+/// Token types recognized by the SQL lexer.
+/// 
+/// Each token type represents a different category of SQL syntax element,
+/// from keywords and operators to literals and punctuation.
 #[derive(Debug, Clone, PartialEq)]
 enum TokenType {
-    Select,
-    From,
-    Where,
-    GroupBy,
-    OrderBy,
-    Window,
-    Limit,
-    Stream,
-    Table,
-    Create,
-    Into,
-    As,
-    With,
-    Identifier,
-    String,
-    Number,
-    LeftParen,
-    RightParen,
-    Comma,
-    Asterisk,
-    Dot,
-    Plus,
-    Minus,
-    Multiply,
-    Divide,
-    Equal,
-    NotEqual,
-    LessThan,
-    GreaterThan,
-    LessThanOrEqual,
-    GreaterThanOrEqual,
-    Eof,
+    // SQL Keywords
+    Select,      // SELECT
+    From,        // FROM  
+    Where,       // WHERE
+    GroupBy,     // GROUP (parsed as GROUP BY)
+    Having,      // HAVING
+    OrderBy,     // ORDER (parsed as ORDER BY)
+    Asc,         // ASC
+    Desc,        // DESC
+    Window,      // WINDOW
+    Limit,       // LIMIT
+    Stream,      // STREAM
+    Table,       // TABLE
+    Create,      // CREATE
+    Into,        // INTO
+    As,          // AS
+    With,        // WITH
+    Show,        // SHOW
+    List,        // LIST (alias for SHOW)
+    Streams,     // STREAMS
+    Tables,      // TABLES
+    Topics,      // TOPICS
+    Functions,   // FUNCTIONS
+    Schema,      // SCHEMA
+    Properties,  // PROPERTIES
+    Queries,     // QUERIES
+    Partitions,  // PARTITIONS
+    
+    // Literals and Identifiers
+    Identifier,  // Column names, table names, function names
+    String,      // String literals ('hello', "world")
+    Number,      // Numeric literals (42, 3.14)
+    
+    // Punctuation
+    LeftParen,   // (
+    RightParen,  // )
+    Comma,       // ,
+    Asterisk,    // * (wildcard or multiplication)
+    Dot,         // . (qualified names)
+    
+    // Arithmetic Operators
+    Plus,        // +
+    Minus,       // -
+    Multiply,    // * (when used as operator)
+    Divide,      // /
+    
+    // Comparison Operators
+    Equal,       // =
+    NotEqual,    // !=
+    LessThan,    // <
+    GreaterThan, // >
+    LessThanOrEqual,    // <=
+    GreaterThanOrEqual, // >=
+    
+    // Special
+    Eof,         // End of input
 }
 
+/// A token with its type, value, and position information.
+/// 
+/// Tokens are the atomic units of SQL syntax, produced by the lexer
+/// and consumed by the parser. Position information enables detailed
+/// error reporting.
 #[derive(Debug, Clone)]
 struct Token {
+    /// The type of this token (keyword, operator, literal, etc.)
     token_type: TokenType,
+    /// The original text value of the token
     value: String,
+    /// Character position in the original SQL string (for error reporting)
     position: usize,
 }
 
 impl StreamingSqlParser {
+    /// Creates a new SQL parser with all supported keywords initialized.
+    /// 
+    /// The parser is ready to use immediately after construction and can
+    /// parse any supported SQL statement type.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+    /// 
+    /// let parser = StreamingSqlParser::new();
+    /// let result = parser.parse("SELECT * FROM orders");
+    /// ```
     pub fn new() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("SELECT".to_string(), TokenType::Select);
         keywords.insert("FROM".to_string(), TokenType::From);
         keywords.insert("WHERE".to_string(), TokenType::Where);
         keywords.insert("GROUP".to_string(), TokenType::GroupBy);
+        keywords.insert("HAVING".to_string(), TokenType::Having);
         keywords.insert("ORDER".to_string(), TokenType::OrderBy);
+        keywords.insert("ASC".to_string(), TokenType::Asc);
+        keywords.insert("DESC".to_string(), TokenType::Desc);
         keywords.insert("WINDOW".to_string(), TokenType::Window);
         keywords.insert("LIMIT".to_string(), TokenType::Limit);
         keywords.insert("STREAM".to_string(), TokenType::Stream);
@@ -67,10 +247,67 @@ impl StreamingSqlParser {
         keywords.insert("INTO".to_string(), TokenType::Into);
         keywords.insert("AS".to_string(), TokenType::As);
         keywords.insert("WITH".to_string(), TokenType::With);
+        keywords.insert("SHOW".to_string(), TokenType::Show);
+        keywords.insert("LIST".to_string(), TokenType::List);
+        keywords.insert("STREAMS".to_string(), TokenType::Streams);
+        keywords.insert("TABLES".to_string(), TokenType::Tables);
+        keywords.insert("TOPICS".to_string(), TokenType::Topics);
+        keywords.insert("FUNCTIONS".to_string(), TokenType::Functions);
+        keywords.insert("SCHEMA".to_string(), TokenType::Schema);
+        keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
+        keywords.insert("QUERIES".to_string(), TokenType::Queries);
+        keywords.insert("PARTITIONS".to_string(), TokenType::Partitions);
 
         Self { keywords }
     }
 
+    /// Parses a SQL string into a StreamingQuery AST.
+    /// 
+    /// This is the main entry point for the parser. It handles the complete
+    /// parsing pipeline from tokenization to AST construction.
+    /// 
+    /// # Arguments
+    /// * `sql` - The SQL statement to parse
+    /// 
+    /// # Returns
+    /// * `Ok(StreamingQuery)` - Successfully parsed query
+    /// * `Err(SqlError)` - Parse error with position and message
+    /// 
+    /// # Supported Statements
+    /// - SELECT queries with all standard clauses
+    /// - CREATE STREAM AS SELECT
+    /// - CREATE TABLE AS SELECT  
+    /// - Window specifications (TUMBLING, SLIDING, SESSION)
+    /// - Aggregation functions and expressions
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+    /// 
+    /// let parser = StreamingSqlParser::new();
+    /// 
+    /// // Simple query
+    /// let query = parser.parse("SELECT * FROM orders")?;
+    /// 
+    /// // Complex windowed aggregation
+    /// let query = parser.parse(
+    ///     "SELECT customer_id, COUNT(*), AVG(amount)
+    ///      FROM orders 
+    ///      WHERE status = 'active'
+    ///      GROUP BY customer_id
+    ///      HAVING COUNT(*) > 5
+    ///      WINDOW TUMBLING(5m)
+    ///      ORDER BY customer_id DESC
+    ///      LIMIT 100"
+    /// )?;
+    /// 
+    /// // Stream creation
+    /// let query = parser.parse(
+    ///     "CREATE STREAM high_value_orders AS
+    ///      SELECT * FROM orders WHERE amount > 1000"
+    /// )?;
+    /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         let tokens = self.tokenize(sql)?;
         self.parse_tokens(tokens)
@@ -314,8 +551,9 @@ impl StreamingSqlParser {
         match parser.current_token().token_type {
             TokenType::Select => parser.parse_select(),
             TokenType::Create => parser.parse_create(),
+            TokenType::Show | TokenType::List => parser.parse_show(),
             _ => Err(SqlError::ParseError {
-                message: "Expected SELECT or CREATE statement".to_string(),
+                message: "Expected SELECT, CREATE, SHOW, or LIST statement".to_string(),
                 position: Some(parser.current_token().position)
             })
         }
@@ -377,11 +615,31 @@ impl TokenParser {
             self.advance();
             where_clause = Some(self.parse_expression()?);
         }
+
+        let mut group_by = None;
+        if self.current_token().token_type == TokenType::GroupBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            group_by = Some(self.parse_group_by_list()?);
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
+        }
         
         let mut window = None;
         if self.current_token().token_type == TokenType::Window {
             self.advance();
             window = Some(self.parse_window_spec()?);
+        }
+
+        let mut order_by = None;
+        if self.current_token().token_type == TokenType::OrderBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            order_by = Some(self.parse_order_by_list()?);
         }
 
         let mut limit = None;
@@ -398,7 +656,10 @@ impl TokenParser {
             fields,
             from: StreamSource::Stream(from_stream),
             where_clause,
+            group_by,
+            having,
             window,
+            order_by,
             limit,
         })
     }
@@ -855,6 +1116,151 @@ impl TokenParser {
         } else {
             false
         }
+    }
+
+    fn expect_keyword(&mut self, keyword: &str) -> Result<(), SqlError> {
+        let token = self.current_token();
+        if token.value.to_uppercase() == keyword.to_uppercase() {
+            self.advance();
+            Ok(())
+        } else {
+            Err(SqlError::ParseError {
+                message: format!("Expected keyword '{}', found '{}'", keyword, token.value),
+                position: Some(token.position)
+            })
+        }
+    }
+
+    fn parse_group_by_list(&mut self) -> Result<Vec<Expr>, SqlError> {
+        let mut expressions = Vec::new();
+        
+        loop {
+            let expr = self.parse_expression()?;
+            expressions.push(expr);
+            
+            if self.current_token().token_type == TokenType::Comma {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        Ok(expressions)
+    }
+
+    fn parse_order_by_list(&mut self) -> Result<Vec<OrderByExpr>, SqlError> {
+        let mut expressions = Vec::new();
+        
+        loop {
+            let expr = self.parse_expression()?;
+            let direction = if self.current_token().token_type == TokenType::Asc {
+                self.advance();
+                OrderDirection::Asc
+            } else if self.current_token().token_type == TokenType::Desc {
+                self.advance();
+                OrderDirection::Desc
+            } else {
+                OrderDirection::Asc // Default to ASC
+            };
+            
+            expressions.push(OrderByExpr { expr, direction });
+            
+            if self.current_token().token_type == TokenType::Comma {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        Ok(expressions)
+    }
+
+    fn parse_show(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume SHOW or LIST token
+        self.advance();
+        
+        let resource_type = match self.current_token().token_type {
+            TokenType::Streams => {
+                self.advance();
+                ShowResourceType::Streams
+            }
+            TokenType::Tables => {
+                self.advance();
+                ShowResourceType::Tables
+            }
+            TokenType::Topics => {
+                self.advance();
+                ShowResourceType::Topics
+            }
+            TokenType::Functions => {
+                self.advance();
+                ShowResourceType::Functions
+            }
+            TokenType::Queries => {
+                self.advance();
+                ShowResourceType::Queries
+            }
+            TokenType::Schema => {
+                self.advance();
+                // Expect resource name after SCHEMA
+                let name = self.expect(TokenType::Identifier)?.value;
+                ShowResourceType::Schema { name }
+            }
+            TokenType::Properties => {
+                self.advance();
+                // Expect resource type and name: SHOW PROPERTIES STREAM stream_name
+                // Handle both identifier and keyword tokens for resource type
+                let resource_type_token = match self.current_token().token_type {
+                    TokenType::Identifier => self.expect(TokenType::Identifier)?.value,
+                    TokenType::Stream => {
+                        let token = self.current_token().clone();
+                        self.advance();
+                        token.value
+                    }
+                    TokenType::Table => {
+                        let token = self.current_token().clone();
+                        self.advance();
+                        token.value
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: "Expected resource type (STREAM, TABLE, etc.) after PROPERTIES".to_string(),
+                            position: Some(self.current_token().position)
+                        });
+                    }
+                };
+                let name = self.expect(TokenType::Identifier)?.value;
+                ShowResourceType::Properties { 
+                    resource_type: resource_type_token, 
+                    name 
+                }
+            }
+            TokenType::Partitions => {
+                self.advance();
+                // Expect resource name after PARTITIONS
+                let name = self.expect(TokenType::Identifier)?.value;
+                ShowResourceType::Partitions { name }
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected STREAMS, TABLES, TOPICS, FUNCTIONS, SCHEMA, PROPERTIES, QUERIES, or PARTITIONS after SHOW/LIST".to_string(),
+                    position: Some(self.current_token().position)
+                });
+            }
+        };
+
+        // Optional LIKE pattern for filtering
+        let pattern = if self.current_token().value.to_uppercase() == "LIKE" {
+            self.advance(); // consume LIKE
+            Some(self.expect(TokenType::String)?.value)
+        } else {
+            None
+        };
+
+        Ok(StreamingQuery::Show {
+            resource_type,
+            pattern,
+        })
     }
 }
 
