@@ -4,3 +4,4 @@ pub mod parser_tests;
 pub mod context_tests; 
 pub mod execution_tests;
 pub mod integration_tests;
+pub mod csas_ctas_tests;

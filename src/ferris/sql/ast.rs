@@ -12,8 +12,15 @@ pub enum StreamingQuery {
     },
     CreateStream {
         name: String,
-        from: KafkaSource,
-        schema: Option<Vec<ColumnDef>>,
+        columns: Option<Vec<ColumnDef>>,
+        as_select: Box<StreamingQuery>,
+        properties: HashMap<String, String>,
+    },
+    CreateTable {
+        name: String,
+        columns: Option<Vec<ColumnDef>>,
+        as_select: Box<StreamingQuery>,
+        properties: HashMap<String, String>,
     },
 }
 
@@ -190,7 +197,8 @@ impl StreamingQuery {
     pub fn has_window(&self) -> bool {
         match self {
             StreamingQuery::Select { window, .. } => window.is_some(),
-            _ => false,
+            StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
         }
     }
     
@@ -214,7 +222,8 @@ impl StreamingQuery {
                 columns.dedup();
                 columns
             }
-            StreamingQuery::CreateStream { .. } => Vec::new(),
+            StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
         }
     }
 }

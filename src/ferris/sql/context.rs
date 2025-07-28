@@ -126,11 +126,13 @@ impl StreamingSqlContext {
 
                 Ok(())
             }
-            StreamingQuery::CreateStream { .. } => {
-                Err(SqlError::ParseError {
-                    message: "CREATE STREAM not yet supported".to_string(),
-                    position: None
-                })
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // Validate the underlying SELECT query
+                self.validate_query(as_select)
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                // Validate the underlying SELECT query
+                self.validate_query(as_select)
             }
         }
     }
@@ -182,12 +184,8 @@ impl StreamingSqlContext {
                     }
                 }
             }
-            StreamingQuery::CreateStream { .. } => {
-                return Err(SqlError::ParseError {
-                    message: "CREATE STREAM not yet supported".to_string(),
-                    position: None
-                });
-            }
+            StreamingQuery::CreateStream { name, .. } => name,
+            StreamingQuery::CreateTable { name, .. } => name,
         };
 
         let _source_handle = self.registered_streams.get(stream_name)

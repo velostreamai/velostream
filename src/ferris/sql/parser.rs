@@ -17,8 +17,11 @@ enum TokenType {
     OrderBy,
     Window,
     Stream,
+    Table,
+    Create,
     Into,
     As,
+    With,
     Identifier,
     String,
     Number,
@@ -47,8 +50,11 @@ impl StreamingSqlParser {
         keywords.insert("ORDER".to_string(), TokenType::OrderBy);
         keywords.insert("WINDOW".to_string(), TokenType::Window);
         keywords.insert("STREAM".to_string(), TokenType::Stream);
+        keywords.insert("TABLE".to_string(), TokenType::Table);
+        keywords.insert("CREATE".to_string(), TokenType::Create);
         keywords.insert("INTO".to_string(), TokenType::Into);
         keywords.insert("AS".to_string(), TokenType::As);
+        keywords.insert("WITH".to_string(), TokenType::With);
 
         Self { keywords }
     }
@@ -198,7 +204,15 @@ impl StreamingSqlParser {
 
     fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
         let mut parser = TokenParser::new(tokens);
-        parser.parse_select()
+        
+        match parser.current_token().token_type {
+            TokenType::Select => parser.parse_select(),
+            TokenType::Create => parser.parse_create(),
+            _ => Err(SqlError::ParseError {
+                message: "Expected SELECT or CREATE statement".to_string(),
+                position: Some(parser.current_token().position)
+            })
+        }
     }
 }
 
@@ -465,6 +479,175 @@ impl TokenParser {
                     position: None
                 })?;
             Ok(Duration::from_secs(seconds))
+        }
+    }
+
+    fn parse_create(&mut self) -> Result<StreamingQuery, SqlError> {
+        self.expect(TokenType::Create)?;
+        
+        match self.current_token().token_type {
+            TokenType::Stream => self.parse_create_stream(),
+            TokenType::Table => self.parse_create_table(),
+            _ => Err(SqlError::ParseError {
+                message: "Expected STREAM or TABLE after CREATE".to_string(),
+                position: Some(self.current_token().position)
+            })
+        }
+    }
+
+    fn parse_create_stream(&mut self) -> Result<StreamingQuery, SqlError> {
+        self.expect(TokenType::Stream)?;
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Optional column definitions
+        let columns = if self.current_token().token_type == TokenType::LeftParen {
+            Some(self.parse_column_definitions()?)
+        } else {
+            None
+        };
+        
+        self.expect(TokenType::As)?;
+        let as_select = Box::new(self.parse_select()?);
+        
+        // Optional WITH properties
+        let properties = if self.current_token().token_type == TokenType::With {
+            self.parse_with_properties()?
+        } else {
+            HashMap::new()
+        };
+        
+        Ok(StreamingQuery::CreateStream {
+            name,
+            columns,
+            as_select,
+            properties,
+        })
+    }
+
+    fn parse_create_table(&mut self) -> Result<StreamingQuery, SqlError> {
+        self.expect(TokenType::Table)?;
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Optional column definitions
+        let columns = if self.current_token().token_type == TokenType::LeftParen {
+            Some(self.parse_column_definitions()?)
+        } else {
+            None
+        };
+        
+        self.expect(TokenType::As)?;
+        let as_select = Box::new(self.parse_select()?);
+        
+        // Optional WITH properties
+        let properties = if self.current_token().token_type == TokenType::With {
+            self.parse_with_properties()?
+        } else {
+            HashMap::new()
+        };
+        
+        Ok(StreamingQuery::CreateTable {
+            name,
+            columns,
+            as_select,
+            properties,
+        })
+    }
+
+    fn parse_column_definitions(&mut self) -> Result<Vec<ColumnDef>, SqlError> {
+        self.expect(TokenType::LeftParen)?;
+        let mut columns = Vec::new();
+        
+        loop {
+            let name = self.expect(TokenType::Identifier)?.value;
+            let data_type = self.parse_data_type()?;
+            let nullable = !self.consume_if_matches("NOT");
+            
+            columns.push(ColumnDef {
+                name,
+                data_type,
+                nullable,
+                properties: HashMap::new(),
+            });
+            
+            if self.current_token().token_type == TokenType::Comma {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        self.expect(TokenType::RightParen)?;
+        Ok(columns)
+    }
+
+    fn parse_data_type(&mut self) -> Result<DataType, SqlError> {
+        let type_name = self.expect(TokenType::Identifier)?.value.to_uppercase();
+        
+        match type_name.as_str() {
+            "INT" | "INTEGER" => Ok(DataType::Integer),
+            "FLOAT" | "DOUBLE" | "REAL" => Ok(DataType::Float),
+            "STRING" | "VARCHAR" | "TEXT" => Ok(DataType::String),
+            "BOOLEAN" | "BOOL" => Ok(DataType::Boolean),
+            "TIMESTAMP" => Ok(DataType::Timestamp),
+            "ARRAY" => {
+                self.expect(TokenType::LeftParen)?;
+                let inner_type = self.parse_data_type()?;
+                self.expect(TokenType::RightParen)?;
+                Ok(DataType::Array(Box::new(inner_type)))
+            },
+            "MAP" => {
+                self.expect(TokenType::LeftParen)?;
+                let key_type = self.parse_data_type()?;
+                self.expect(TokenType::Comma)?;
+                let value_type = self.parse_data_type()?;
+                self.expect(TokenType::RightParen)?;
+                Ok(DataType::Map(Box::new(key_type), Box::new(value_type)))
+            },
+            _ => Err(SqlError::ParseError {
+                message: format!("Unknown data type: {}", type_name),
+                position: None
+            })
+        }
+    }
+
+    fn parse_with_properties(&mut self) -> Result<HashMap<String, String>, SqlError> {
+        self.expect(TokenType::With)?;
+        self.expect(TokenType::LeftParen)?;
+        
+        let mut properties = HashMap::new();
+        
+        loop {
+            let key = self.expect(TokenType::String)?.value;
+            // Expect = sign (we don't have it as a token, so look for identifier)
+            let equals_token = self.current_token().clone();
+            if equals_token.value != "=" {
+                return Err(SqlError::ParseError {
+                    message: "Expected '=' in property definition".to_string(),
+                    position: Some(equals_token.position)
+                });
+            }
+            self.advance();
+            
+            let value = self.expect(TokenType::String)?.value;
+            properties.insert(key, value);
+            
+            if self.current_token().token_type == TokenType::Comma {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        
+        self.expect(TokenType::RightParen)?;
+        Ok(properties)
+    }
+
+    fn consume_if_matches(&mut self, expected: &str) -> bool {
+        if self.current_token().value.to_uppercase() == expected.to_uppercase() {
+            self.advance();
+            true
+        } else {
+            false
         }
     }
 }

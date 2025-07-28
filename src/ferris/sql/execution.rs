@@ -227,7 +227,8 @@ impl StreamExecutionEngine {
                     StreamSource::Subquery(_) => false,
                 }
             }
-            StreamingQuery::CreateStream { .. } => false,
+            StreamingQuery::CreateStream { as_select, .. } => self.query_matches_stream(as_select, stream_name),
+            StreamingQuery::CreateTable { as_select, .. } => self.query_matches_stream(as_select, stream_name),
         }
     }
 
@@ -279,11 +280,23 @@ impl StreamExecutionEngine {
                     offset: record.offset,
                 }))
             }
-            StreamingQuery::CreateStream { .. } => {
-                Err(SqlError::ExecutionError { 
-                    message: "CREATE STREAM execution not supported".to_string(),
-                    query: None 
-                })
+            StreamingQuery::CreateStream { name, as_select, .. } => {
+                // Execute the underlying SELECT query and return its result
+                // In a full implementation, this would also:
+                // 1. Create a new Kafka topic
+                // 2. Register the stream in the SQL context  
+                // 3. Set up continuous query execution
+                log::info!("Executing CREATE STREAM: {}", name);
+                self.apply_query(as_select, record)
+            }
+            StreamingQuery::CreateTable { name, as_select, .. } => {
+                // Execute the underlying SELECT query for materialized table
+                // In a full implementation, this would also:
+                // 1. Create a KTable/materialized view
+                // 2. Set up aggregation state
+                // 3. Register the table in the SQL context
+                log::info!("Executing CREATE TABLE: {}", name);
+                self.apply_query(as_select, record)
             }
         }
     }
