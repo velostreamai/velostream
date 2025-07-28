@@ -1,10 +1,13 @@
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
-use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::schema::{Schema, DataType, FieldDefinition, StreamHandle};
-use ferrisstreams::ferris::sql::ast::*;
+use ferrisstreams::ferris::sql::ast::{
+    StreamingQuery, SelectField, StreamSource, WindowSpec, Expr,
+    LiteralValue, BinaryOperator, DataType
+};
+use ferrisstreams::ferris::sql::schema::{Schema, FieldDefinition};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use serde_json::Value;
+use std::time::Duration;
 
 #[cfg(test)]
 mod tests {
@@ -250,7 +253,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "SUM".to_string(),
                         args: vec![Expr::Column("amount".to_string())],
                     },
@@ -260,7 +263,8 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: Some(WindowSpec::Tumbling {
-                size: std::time::Duration::from_secs(300), // 5 minutes
+                size: Duration::from_secs(300), // 5 minutes
+                time_column: Some("timestamp".to_string()),
             }),
         };
         
@@ -269,7 +273,6 @@ mod tests {
         let result = engine.execute(&query, record).await;
         assert!(result.is_ok());
         
-        // For windowed queries, the engine should accumulate values
         let output = rx.try_recv();
         assert!(output.is_ok());
     }
@@ -282,7 +285,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "AVG".to_string(),
                         args: vec![Expr::Column("amount".to_string())],
                     },
@@ -292,8 +295,9 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: Some(WindowSpec::Sliding {
-                size: std::time::Duration::from_secs(600), // 10 minutes
-                advance: std::time::Duration::from_secs(300), // 5 minutes
+                size: Duration::from_secs(600), // 10 minutes
+                advance: Duration::from_secs(300), // 5 minutes
+                time_column: Some("timestamp".to_string()),
             }),
         };
         
@@ -314,7 +318,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "COUNT".to_string(),
                         args: vec![Expr::Column("id".to_string())],
                     },
@@ -324,7 +328,8 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: Some(WindowSpec::Session {
-                gap: std::time::Duration::from_secs(30), // 30 seconds
+                gap: Duration::from_secs(30), // 30 seconds
+                partition_by: vec!["customer_id".to_string()],
             }),
         };
         
@@ -345,21 +350,21 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "COUNT".to_string(),
                         args: vec![Expr::Literal(LiteralValue::Integer(1))],
                     },
                     alias: Some("count".to_string()),
                 },
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "MAX".to_string(),
                         args: vec![Expr::Column("amount".to_string())],
                     },
                     alias: Some("max_amount".to_string()),
                 },
                 SelectField::Expression {
-                    expr: Expr::FunctionCall {
+                    expr: Expr::Function {
                         name: "MIN".to_string(),
                         args: vec![Expr::Column("amount".to_string())],
                     },
@@ -369,7 +374,8 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: Some(WindowSpec::Tumbling {
-                size: std::time::Duration::from_secs(60),
+                size: Duration::from_secs(60),
+                time_column: Some("timestamp".to_string()),
             }),
         };
         

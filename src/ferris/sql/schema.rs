@@ -61,7 +61,7 @@ impl Schema {
             if !field.nullable && !record.contains_key(&field.name) {
                 return false;
             }
-            
+
             if let Some(value) = record.get(&field.name) {
                 if !self.value_matches_type(value, &field.data_type) {
                     return false;

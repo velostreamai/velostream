@@ -1,5 +1,6 @@
+use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::schema::{Schema, DataType, FieldDefinition, StreamHandle};
+use ferrisstreams::ferris::sql::schema::{Schema, FieldDefinition, StreamHandle};
 
 #[cfg(test)]
 mod tests {

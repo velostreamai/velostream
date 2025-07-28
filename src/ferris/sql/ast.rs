@@ -176,14 +176,11 @@ pub struct ColumnDef {
 /// Data types supported in streaming SQL
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
-    String,
     Integer,
-    Long,
     Float,
-    Double,
+    String,
     Boolean,
     Timestamp,
-    Bytes,
     Array(Box<DataType>),
     Map(Box<DataType>, Box<DataType>),
 }

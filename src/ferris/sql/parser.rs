@@ -305,7 +305,35 @@ impl TokenParser {
         match token.token_type {
             TokenType::Identifier => {
                 self.advance();
-                if self.current_token().token_type == TokenType::Dot {
+                if self.current_token().token_type == TokenType::LeftParen {
+                    // Function call
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+                    
+                    if self.current_token().token_type != TokenType::RightParen {
+                        loop {
+                            if self.current_token().token_type == TokenType::Asterisk {
+                                // Handle COUNT(*) special case
+                                self.advance();
+                                args.push(Expr::Literal(LiteralValue::Integer(1)));
+                            } else {
+                                args.push(self.parse_expression()?);
+                            }
+                            
+                            if self.current_token().token_type == TokenType::Comma {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    self.expect(TokenType::RightParen)?;
+                    Ok(Expr::Function {
+                        name: token.value,
+                        args,
+                    })
+                } else if self.current_token().token_type == TokenType::Dot {
                     self.advance();
                     let field = self.expect(TokenType::Identifier)?.value;
                     Ok(Expr::Column(format!("{}.{}", token.value, field)))
@@ -342,7 +370,7 @@ impl TokenParser {
             "TUMBLING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration_str = self.expect(TokenType::Identifier)?.value;
+                let duration_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
                 
                 let size = self.parse_duration(&duration_str)?;
@@ -351,9 +379,9 @@ impl TokenParser {
             "SLIDING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration_str = self.expect(TokenType::Identifier)?.value;
+                let duration_str = self.parse_duration_token()?;
                 self.expect(TokenType::Comma)?;
-                let advance_str = self.expect(TokenType::Identifier)?.value;
+                let advance_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
                 
                 let size = self.parse_duration(&duration_str)?;
@@ -363,7 +391,7 @@ impl TokenParser {
             "SESSION" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let gap_str = self.expect(TokenType::Identifier)?.value;
+                let gap_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
                 
                 let gap = self.parse_duration(&gap_str)?;
@@ -378,6 +406,33 @@ impl TokenParser {
         };
 
         Ok(window_type)
+    }
+
+    fn parse_duration_token(&mut self) -> Result<String, SqlError> {
+        // Handle cases where duration might be tokenized as number + identifier
+        let token = self.current_token().clone();
+        match token.token_type {
+            TokenType::Identifier => {
+                self.advance();
+                Ok(token.value)
+            }
+            TokenType::Number => {
+                self.advance();
+                // Check if next token is an identifier (like 's', 'm', 'h')
+                if matches!(self.current_token().token_type, TokenType::Identifier) {
+                    let unit = self.current_token().value.clone();
+                    self.advance();
+                    Ok(format!("{}{}", token.value, unit))
+                } else {
+                    // Just a number, assume seconds
+                    Ok(format!("{}s", token.value))
+                }
+            }
+            _ => Err(SqlError::ParseError { 
+                message: format!("Expected duration, found {:?}", token.token_type),
+                position: Some(token.position)
+            })
+        }
     }
 
     fn parse_duration(&self, duration_str: &str) -> Result<Duration, SqlError> {

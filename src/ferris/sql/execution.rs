@@ -1,13 +1,16 @@
-use crate::ferris::sql::ast::*;
+use crate::ferris::sql::ast::{
+    BinaryOperator, Expr, LiteralValue, StreamingQuery,
+    SelectField, StreamSource, WindowSpec, UnaryOperator
+};
 use crate::ferris::sql::error::SqlError;
-use crate::ferris::sql::schema::StreamHandle;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
+    output_sender: UnboundedSender<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug)]
@@ -56,14 +59,71 @@ struct WindowState {
 }
 
 impl StreamExecutionEngine {
-    pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel(1000);
-        
+    pub fn new(output_sender: UnboundedSender<HashMap<String, serde_json::Value>>) -> Self {
+        let (message_sender, receiver) = mpsc::channel(1000);
         Self {
             active_queries: HashMap::new(),
-            message_sender: sender,
+            message_sender,
             message_receiver: Some(receiver),
+            output_sender,
         }
+    }
+
+    pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, serde_json::Value>) -> Result<(), SqlError> {
+        // Convert input record to StreamRecord
+        let stream_record = StreamRecord {
+            fields: record.into_iter().map(|(k, v)| {
+                let field_value = match v {
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            FieldValue::Integer(i)
+                        } else if let Some(f) = n.as_f64() {
+                            FieldValue::Float(f)
+                        } else {
+                            FieldValue::Null
+                        }
+                    },
+                    serde_json::Value::String(s) => FieldValue::String(s),
+                    serde_json::Value::Bool(b) => FieldValue::Boolean(b),
+                    _ => FieldValue::Null,
+                };
+                (k, field_value)
+            }).collect(),
+            timestamp: chrono::Utc::now().timestamp(),
+            offset: 0,
+        };
+
+        // Apply query and process record
+        if let Some(result) = self.apply_query(query, &stream_record)? {
+            // Convert result back to JSON format
+            let json_result: HashMap<String, serde_json::Value> = result.fields.into_iter().map(|(k, v)| {
+                let json_value = match v {
+                    FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
+                    FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(0.into())),
+                    FieldValue::String(s) => serde_json::Value::String(s),
+                    FieldValue::Boolean(b) => serde_json::Value::Bool(b),
+                    FieldValue::Null => serde_json::Value::Null,
+                };
+                (k, json_value)
+            }).collect();
+
+            // Send result through both channels
+            self.message_sender.send(ExecutionMessage::QueryResult {
+                query_id: "default".to_string(),
+                result: stream_record,
+            }).await.map_err(|_| SqlError::ExecutionError {
+                message: "Failed to send result".to_string(),
+                query: None,
+            })?;
+
+            // Send result to output channel
+            self.output_sender.send(json_result).map_err(|_| SqlError::ExecutionError {
+                message: "Failed to send result to output channel".to_string(),
+                query: None,
+            })?;
+        }
+
+        Ok(())
     }
 
     pub async fn start(&mut self) -> Result<(), SqlError> {
@@ -228,6 +288,30 @@ impl StreamExecutionEngine {
         }
     }
 
+    fn evaluate_comparison(
+        &self,
+        left: &Expr,
+        right: &Expr,
+        record: &StreamRecord,
+        op: &BinaryOperator,
+    ) -> Result<bool, SqlError> {
+        let left_val = self.evaluate_expression_value(left, record)?;
+        let right_val = self.evaluate_expression_value(right, record)?;
+
+        match op {
+            BinaryOperator::Equal => Ok(self.values_equal(&left_val, &right_val)),
+            BinaryOperator::NotEqual => Ok(!self.values_equal(&left_val, &right_val)),
+            BinaryOperator::GreaterThan => self.compare_values(&left_val, &right_val, |a, b| a > b),
+            BinaryOperator::LessThan => self.compare_values(&left_val, &right_val, |a, b| a < b),
+            BinaryOperator::GreaterThanOrEqual => self.compare_values(&left_val, &right_val, |a, b| a >= b),
+            BinaryOperator::LessThanOrEqual => self.compare_values(&left_val, &right_val, |a, b| a <= b),
+            _ => Err(SqlError::ExecutionError {
+                message: "Invalid comparison operator".to_string(),
+                query: None
+            }),
+        }
+    }
+
     fn evaluate_expression(&self, expr: &Expr, record: &StreamRecord) -> Result<bool, SqlError> {
         match expr {
             Expr::Column(name) => {
@@ -238,31 +322,98 @@ impl StreamExecutionEngine {
                         actual: "other".to_string(),
                         value: None
                     }),
-                    None => Err(SqlError::ColumnNotFound { column_name: name.clone() }),
-                }
-            }
-            Expr::Literal(LiteralValue::Boolean(b)) => Ok(*b),
-            Expr::BinaryOp { left, op, right } => {
-                let left_val = self.evaluate_expression_value(left, record)?;
-                let right_val = self.evaluate_expression_value(right, record)?;
-                
-                match op {
-                    BinaryOperator::Equal => Ok(self.values_equal(&left_val, &right_val)),
-                    BinaryOperator::NotEqual => Ok(!self.values_equal(&left_val, &right_val)),
-                    BinaryOperator::GreaterThan => self.compare_values(&left_val, &right_val, |a, b| a > b),
-                    BinaryOperator::LessThan => self.compare_values(&left_val, &right_val, |a, b| a < b),
-                    BinaryOperator::GreaterThanOrEqual => self.compare_values(&left_val, &right_val, |a, b| a >= b),
-                    BinaryOperator::LessThanOrEqual => self.compare_values(&left_val, &right_val, |a, b| a <= b),
-                    _ => Err(SqlError::ExecutionError { 
-                        message: "Unsupported boolean operator".to_string(),
-                        query: None 
+                    None => Err(SqlError::SchemaError {
+                        message: "Column not found".to_string(),
+                        column: Some(name.clone())
                     }),
                 }
             }
-            _ => Err(SqlError::ExecutionError { 
-                message: "Invalid boolean expression".to_string(),
-                query: None 
-            }),
+            Expr::Literal(lit) => match lit {
+                LiteralValue::Boolean(b) => Ok(*b),
+                LiteralValue::Integer(_) |
+                LiteralValue::Float(_) |
+                LiteralValue::String(_) |
+                LiteralValue::Null |
+                LiteralValue::Interval { .. } => {
+                    Err(SqlError::TypeError {
+                        expected: "boolean".to_string(),
+                        actual: "non-boolean".to_string(),
+                        value: None
+                    })
+                }
+            },
+            Expr::BinaryOp { left, op, right } => {
+                match op {
+                    BinaryOperator::Equal |
+                    BinaryOperator::NotEqual |
+                    BinaryOperator::GreaterThan |
+                    BinaryOperator::LessThan |
+                    BinaryOperator::GreaterThanOrEqual |
+                    BinaryOperator::LessThanOrEqual => {
+                        self.evaluate_comparison(left, right, record, op)
+                    }
+                    BinaryOperator::And | BinaryOperator::Or => {
+                        Err(SqlError::ExecutionError {
+                            message: "Logical operators should be handled at parse time".to_string(),
+                            query: None
+                        })
+                    }
+                    BinaryOperator::Like | BinaryOperator::NotLike => {
+                        Err(SqlError::ExecutionError {
+                            message: "String comparison operators not yet implemented".to_string(),
+                            query: None
+                        })
+                    }
+                    BinaryOperator::In | BinaryOperator::NotIn => {
+                        Err(SqlError::ExecutionError {
+                            message: "Set operators not yet implemented".to_string(),
+                            query: None
+                        })
+                    }
+                    BinaryOperator::Add |
+                    BinaryOperator::Subtract |
+                    BinaryOperator::Multiply |
+                    BinaryOperator::Divide |
+                    BinaryOperator::Modulo => {
+                        Err(SqlError::ExecutionError {
+                            message: "Arithmetic operator not valid in boolean context".to_string(),
+                            query: None
+                        })
+                    }
+                }
+            }
+            Expr::UnaryOp { op, expr } => {
+                match op {
+                    UnaryOperator::Not => {
+                        let val = self.evaluate_expression(expr, record)?;
+                        Ok(!val)
+                    },
+                    _ => Err(SqlError::ExecutionError {
+                        message: "Unsupported unary operator for boolean expression".to_string(),
+                        query: None
+                    }),
+                }
+            }
+            Expr::Case { when_clauses, else_clause } => {
+                for (condition, result) in when_clauses {
+                    if self.evaluate_expression(condition, record)? {
+                        return self.evaluate_expression(result, record);
+                    }
+                }
+                if let Some(else_result) = else_clause {
+                    self.evaluate_expression(else_result, record)
+                } else {
+                    Ok(false)
+                }
+            }
+            Expr::Function { name: _, args: _ } => {
+                // For now, treat function results as non-boolean
+                Err(SqlError::TypeError {
+                    expected: "boolean".to_string(),
+                    actual: "function result".to_string(),
+                    value: None
+                })
+            }
         }
     }
 
@@ -271,15 +422,23 @@ impl StreamExecutionEngine {
             Expr::Column(name) => {
                 record.fields.get(name)
                     .cloned()
-                    .ok_or_else(|| SqlError::ColumnNotFound { column_name: name.clone() })
+                    .ok_or_else(|| SqlError::SchemaError {
+                        message: "Column not found".to_string(),
+                        column: Some(name.clone())
+                    })
             }
-            Expr::Literal(lit) => Ok(match lit {
-                LiteralValue::Integer(i) => FieldValue::Integer(*i),
-                LiteralValue::Float(f) => FieldValue::Float(*f),
-                LiteralValue::String(s) => FieldValue::String(s.clone()),
-                LiteralValue::Boolean(b) => FieldValue::Boolean(*b),
-                LiteralValue::Null => FieldValue::Null,
-            }),
+            Expr::Literal(lit) => match lit {
+                LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                LiteralValue::Null => Ok(FieldValue::Null),
+                LiteralValue::Interval { .. } => Err(SqlError::TypeError {
+                    expected: "basic type".to_string(),
+                    actual: "interval".to_string(),
+                    value: None
+                }),
+            },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = self.evaluate_expression_value(left, record)?;
                 let right_val = self.evaluate_expression_value(right, record)?;
@@ -289,15 +448,41 @@ impl StreamExecutionEngine {
                     BinaryOperator::Subtract => self.subtract_values(&left_val, &right_val),
                     BinaryOperator::Multiply => self.multiply_values(&left_val, &right_val),
                     BinaryOperator::Divide => self.divide_values(&left_val, &right_val),
-                    _ => Err(SqlError::ExecutionError { 
-                        message: "Unsupported arithmetic operator".to_string(),
-                        query: None 
+                    BinaryOperator::Modulo => self.divide_values(&left_val, &right_val),
+                    BinaryOperator::Equal |
+                    BinaryOperator::NotEqual |
+                    BinaryOperator::GreaterThan |
+                    BinaryOperator::LessThan |
+                    BinaryOperator::GreaterThanOrEqual |
+                    BinaryOperator::LessThanOrEqual |
+                    BinaryOperator::Like |
+                    BinaryOperator::NotLike |
+                    BinaryOperator::In |
+                    BinaryOperator::NotIn |
+                    BinaryOperator::And |
+                    BinaryOperator::Or => Err(SqlError::ExecutionError {
+                        message: "Operator not supported in value context".to_string(),
+                        query: None
                     }),
                 }
             }
-            Expr::Function { name, args } => {
-                self.evaluate_function(name, args, record)
+            Expr::UnaryOp { op: _, expr: _ } => Err(SqlError::ExecutionError {
+                message: "Unary operations not supported for value expressions".to_string(),
+                query: None
+            }),
+            Expr::Case { when_clauses, else_clause } => {
+                for (condition, result) in when_clauses {
+                    if self.evaluate_expression(condition, record)? {
+                        return self.evaluate_expression_value(result, record);
+                    }
+                }
+                if let Some(else_result) = else_clause {
+                    self.evaluate_expression_value(else_result, record)
+                } else {
+                    Ok(FieldValue::Null)
+                }
             }
+            Expr::Function { name, args } => self.evaluate_function(name, args, record),
         }
     }
 
@@ -455,19 +640,13 @@ impl StreamExecutionEngine {
                 self.evaluate_expression_value(&args[0], record)
             }
             _ => Err(SqlError::ExecutionError { 
-                message: format!("Unknown function: {}", name),
-                query: None 
+                message: format!("Unknown function {}", name),
+                query: None
             }),
         }
     }
 
     pub fn get_sender(&self) -> mpsc::Sender<ExecutionMessage> {
         self.message_sender.clone()
-    }
-}
-
-impl Default for StreamExecutionEngine {
-    fn default() -> Self {
-        Self::new()
     }
 }
