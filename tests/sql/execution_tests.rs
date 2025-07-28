@@ -54,6 +54,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -85,6 +86,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -118,6 +120,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -149,6 +152,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 100.0, Some("pending"));
@@ -184,6 +188,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -210,6 +215,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -237,6 +243,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -266,6 +273,7 @@ mod tests {
                 size: Duration::from_secs(300), // 5 minutes
                 time_column: Some("timestamp".to_string()),
             }),
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -299,6 +307,7 @@ mod tests {
                 advance: Duration::from_secs(300), // 5 minutes
                 time_column: Some("timestamp".to_string()),
             }),
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -331,6 +340,7 @@ mod tests {
                 gap: Duration::from_secs(30), // 30 seconds
                 partition_by: vec!["customer_id".to_string()],
             }),
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -377,6 +387,7 @@ mod tests {
                 size: Duration::from_secs(60),
                 time_column: Some("timestamp".to_string()),
             }),
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -400,6 +411,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         // Process multiple records
@@ -444,6 +456,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 100.0, Some("pending"));
@@ -475,6 +488,7 @@ mod tests {
             from: StreamSource::Stream("orders".to_string()),
             where_clause: None,
             window: None,
+            limit: None,
         };
         
         let record = create_test_record(1, 100, 299.99, None); // No status (null)

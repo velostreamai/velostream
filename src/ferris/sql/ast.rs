@@ -9,6 +9,7 @@ pub enum StreamingQuery {
         from: StreamSource,
         where_clause: Option<Expr>,
         window: Option<WindowSpec>,
+        limit: Option<u64>,
     },
     CreateStream {
         name: String,

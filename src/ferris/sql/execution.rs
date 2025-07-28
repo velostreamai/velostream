@@ -11,6 +11,7 @@ pub struct StreamExecutionEngine {
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
     output_sender: UnboundedSender<HashMap<String, serde_json::Value>>,
+    record_count: u64,
 }
 
 #[derive(Debug)]
@@ -68,10 +69,15 @@ impl StreamExecutionEngine {
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
+            record_count: 0,
         }
     }
 
     pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, serde_json::Value>) -> Result<(), SqlError> {
+        self.execute_with_headers(query, record, HashMap::new()).await
+    }
+
+    pub async fn execute_with_headers(&mut self, query: &StreamingQuery, record: HashMap<String, serde_json::Value>, headers: HashMap<String, String>) -> Result<(), SqlError> {
         // Convert input record to StreamRecord
         let stream_record = StreamRecord {
             fields: record.into_iter().map(|(k, v)| {
@@ -94,7 +100,7 @@ impl StreamExecutionEngine {
             timestamp: chrono::Utc::now().timestamp(),
             offset: 0,
             partition: 0,
-            headers: HashMap::new(), // Default empty headers for testing
+            headers,
         };
 
         // Apply query and process record
@@ -199,17 +205,26 @@ impl StreamExecutionEngine {
         stream_name: &str, 
         record: StreamRecord
     ) -> Result<(), SqlError> {
-        let mut results = Vec::new();
-        for (query_id, execution) in &self.active_queries {
-            if self.query_matches_stream(&execution.query, stream_name) {
-                match &execution.state {
-                    ExecutionState::Running => {
-                        if let Some(result) = self.apply_query(&execution.query, &record)? {
-                            results.push((query_id.clone(), result));
-                        }
+        // Collect matching queries first
+        let matching_queries: Vec<(String, StreamingQuery)> = self.active_queries
+            .iter()
+            .filter_map(|(query_id, execution)| {
+                if self.query_matches_stream(&execution.query, stream_name) {
+                    match &execution.state {
+                        ExecutionState::Running => Some((query_id.clone(), execution.query.clone())),
+                        _ => None,
                     }
-                    _ => continue,
+                } else {
+                    None
                 }
+            })
+            .collect();
+        
+        // Process each query
+        let mut results = Vec::new();
+        for (query_id, query) in matching_queries {
+            if let Some(result) = self.apply_query(&query, &record)? {
+                results.push((query_id, result));
             }
         }
         
@@ -237,12 +252,18 @@ impl StreamExecutionEngine {
     }
 
     fn apply_query(
-        &self, 
+        &mut self, 
         query: &StreamingQuery, 
         record: &StreamRecord
     ) -> Result<Option<StreamRecord>, SqlError> {
         match query {
-            StreamingQuery::Select { fields, where_clause, .. } => {
+            StreamingQuery::Select { fields, where_clause, limit, .. } => {
+                // Check limit first
+                if let Some(limit_value) = limit {
+                    if self.record_count >= *limit_value {
+                        return Ok(None);
+                    }
+                }
                 // Apply WHERE clause
                 if let Some(where_expr) = where_clause {
                     if !self.evaluate_expression(where_expr, record)? {
@@ -294,11 +315,15 @@ impl StreamExecutionEngine {
                     }
                 }
 
+                // Increment record count for successful processing
+                self.record_count += 1;
+
                 Ok(Some(StreamRecord {
                     fields: result_fields,
                     timestamp: record.timestamp,
                     offset: record.offset,
                     partition: record.partition,
+                    headers: record.headers.clone(),
                 }))
             }
             StreamingQuery::CreateStream { name, as_select, .. } => {
@@ -693,6 +718,63 @@ impl StreamExecutionEngine {
                     });
                 }
                 self.evaluate_expression_value(&args[0], record)
+            }
+            "HEADER" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "HEADER requires exactly one argument (header key)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                // Evaluate the argument to get the header key
+                let key_value = self.evaluate_expression_value(&args[0], record)?;
+                let header_key = match key_value {
+                    FieldValue::String(key) => key,
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "HEADER key must be a string".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                // Look up the header value
+                match record.headers.get(&header_key) {
+                    Some(value) => Ok(FieldValue::String(value.clone())),
+                    None => Ok(FieldValue::Null),
+                }
+            }
+            "HEADER_KEYS" => {
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError { 
+                        message: "HEADER_KEYS takes no arguments".to_string(),
+                        query: None 
+                    });
+                }
+                
+                // Return comma-separated list of header keys
+                let keys: Vec<String> = record.headers.keys().cloned().collect();
+                Ok(FieldValue::String(keys.join(",")))
+            }
+            "HAS_HEADER" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "HAS_HEADER requires exactly one argument (header key)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                // Evaluate the argument to get the header key
+                let key_value = self.evaluate_expression_value(&args[0], record)?;
+                let header_key = match key_value {
+                    FieldValue::String(key) => key,
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "HAS_HEADER key must be a string".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                // Check if header exists
+                Ok(FieldValue::Boolean(record.headers.contains_key(&header_key)))
             }
             _ => Err(SqlError::ExecutionError { 
                 message: format!("Unknown function {}", name),

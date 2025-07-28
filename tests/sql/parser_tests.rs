@@ -14,7 +14,7 @@ mod tests {
         let query = result.unwrap();
         
         match query {
-            StreamingQuery::Select { fields, from, where_clause, window } => {
+            StreamingQuery::Select { fields, from, where_clause, window, limit } => {
                 assert_eq!(fields.len(), 1);
                 assert!(matches!(fields[0], SelectField::Wildcard));
                 assert!(matches!(from, StreamSource::Stream(_)));
@@ -79,7 +79,7 @@ mod tests {
         let query = result.unwrap();
         
         match query {
-            StreamingQuery::Select { window, .. } => {
+            StreamingQuery::Select { window, limit: None, .. } => {
                 assert!(window.is_some());
                 let window_spec = window.unwrap();
                 
@@ -101,7 +101,7 @@ mod tests {
         let query = result.unwrap();
         
         match query {
-            StreamingQuery::Select { window, .. } => {
+            StreamingQuery::Select { window, limit: None, .. } => {
                 assert!(window.is_some());
                 let window_spec = window.unwrap();
                 
@@ -124,7 +124,7 @@ mod tests {
         let query = result.unwrap();
         
         match query {
-            StreamingQuery::Select { window, .. } => {
+            StreamingQuery::Select { window, limit: None, .. } => {
                 assert!(window.is_some());
                 let window_spec = window.unwrap();
                 

@@ -16,6 +16,7 @@ enum TokenType {
     GroupBy,
     OrderBy,
     Window,
+    Limit,
     Stream,
     Table,
     Create,
@@ -59,6 +60,7 @@ impl StreamingSqlParser {
         keywords.insert("GROUP".to_string(), TokenType::GroupBy);
         keywords.insert("ORDER".to_string(), TokenType::OrderBy);
         keywords.insert("WINDOW".to_string(), TokenType::Window);
+        keywords.insert("LIMIT".to_string(), TokenType::Limit);
         keywords.insert("STREAM".to_string(), TokenType::Stream);
         keywords.insert("TABLE".to_string(), TokenType::Table);
         keywords.insert("CREATE".to_string(), TokenType::Create);
@@ -382,11 +384,22 @@ impl TokenParser {
             window = Some(self.parse_window_spec()?);
         }
 
+        let mut limit = None;
+        if self.current_token().token_type == TokenType::Limit {
+            self.advance();
+            let limit_token = self.expect(TokenType::Number)?;
+            limit = Some(limit_token.value.parse::<u64>().map_err(|_| SqlError::ParseError {
+                message: "Invalid LIMIT value".to_string(),
+                position: Some(limit_token.position),
+            })?);
+        }
+
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
             where_clause,
             window,
+            limit,
         })
     }
 

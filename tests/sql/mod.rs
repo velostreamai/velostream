@@ -6,3 +6,5 @@ pub mod execution_tests;
 pub mod integration_tests;
 pub mod csas_ctas_tests;
 pub mod system_column_tests;
+pub mod header_tests;
+pub mod limit_tests;
