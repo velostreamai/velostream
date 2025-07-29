@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::sql::{
     StreamingSqlParser, StreamExecutionEngine,
-    FieldValue, SqlError
+    FieldValue, SqlError, SqlApplicationParser, SqlApplication
 };
 use ferrisstreams::ferris::kafka::{KafkaConsumer, JsonSerializer};
 use serde_json::Value;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock, Mutex};
 use clap::{Parser, Subcommand};
 use std::time::Duration;
+use std::fs;
 use log::{info, error, warn};
 use tokio::task::JoinHandle;
 
@@ -40,6 +41,24 @@ enum Commands {
         /// Maximum concurrent jobs
         #[arg(long, default_value = "10")]
         max_jobs: usize,
+    },
+    /// Deploy a SQL application from a .sql file
+    DeployApp {
+        /// Path to the .sql application file
+        #[arg(long)]
+        file: String,
+        
+        /// Kafka broker addresses
+        #[arg(long, default_value = "localhost:9092")]
+        brokers: String,
+        
+        /// Base consumer group ID
+        #[arg(long, default_value = "ferris-sql-app")]
+        group_id: String,
+        
+        /// Default topic for statements without explicit topics
+        #[arg(long)]
+        default_topic: Option<String>,
     },
 }
 
@@ -353,6 +372,58 @@ impl MultiJobSqlServer {
             metrics: job.metrics.clone(),
         })
     }
+    
+    /// Deploy multiple jobs from a SQL application
+    pub async fn deploy_sql_application(&self, app: SqlApplication, default_topic: Option<String>) -> Result<Vec<String>, SqlError> {
+        info!("Deploying SQL application '{}' version '{}'", app.metadata.name, app.metadata.version);
+        
+        let mut deployed_jobs = Vec::new();
+        
+        // Deploy statements in order
+        for stmt in &app.statements {
+            match stmt.statement_type {
+                ferrisstreams::ferris::sql::app_parser::StatementType::StartJob | 
+                ferrisstreams::ferris::sql::app_parser::StatementType::DeployJob => {
+                    // Extract job name from the SQL statement
+                    let job_name = if let Some(name) = &stmt.name {
+                        name.clone()
+                    } else {
+                        format!("{}_stmt_{}", app.metadata.name, stmt.order)
+                    };
+                    
+                    // Determine topic from statement dependencies or use default
+                    let topic = if !stmt.dependencies.is_empty() {
+                        stmt.dependencies[0].clone()
+                    } else if let Some(ref default) = default_topic {
+                        default.clone()
+                    } else {
+                        return Err(SqlError::ExecutionError {
+                            message: format!("No topic specified for job '{}' and no default topic provided", job_name),
+                            query: None,
+                        });
+                    };
+                    
+                    // Deploy the job
+                    match self.deploy_job(job_name.clone(), app.metadata.version.clone(), stmt.sql.clone(), topic).await {
+                        Ok(()) => {
+                            info!("Successfully deployed job '{}' from application", job_name);
+                            deployed_jobs.push(job_name);
+                        }
+                        Err(e) => {
+                            warn!("Failed to deploy job '{}' from application: {:?}", job_name, e);
+                            // Continue with other jobs - don't fail the entire application
+                        }
+                    }
+                }
+                _ => {
+                    info!("Skipping non-job statement: {:?}", stmt.statement_type);
+                }
+            }
+        }
+        
+        info!("Successfully deployed {} jobs from SQL application '{}'", deployed_jobs.len(), app.metadata.name);
+        Ok(deployed_jobs)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -433,6 +504,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Server { brokers, port, group_id, max_jobs } => {
             start_multi_job_server(brokers, port, group_id, max_jobs).await?;
+        }
+        Commands::DeployApp { file, brokers, group_id, default_topic } => {
+            deploy_sql_application_from_file(file, brokers, group_id, default_topic).await?;
+        }
+    }
+    
+    Ok(())
+}
+
+async fn deploy_sql_application_from_file(
+    file_path: String,
+    brokers: String,
+    group_id: String,
+    default_topic: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Deploying SQL application from file: {}", file_path);
+    
+    // Read the SQL application file
+    let content = fs::read_to_string(&file_path)?;
+    
+    // Parse the SQL application
+    let app_parser = SqlApplicationParser::new();
+    let app = app_parser.parse_application(&content)?;
+    
+    info!("Parsed SQL application '{}' version '{}' with {} statements", 
+          app.metadata.name, app.metadata.version, app.statements.len());
+    
+    // Create a temporary server instance for deployment
+    let server = MultiJobSqlServer::new(brokers, group_id, 100); // High limit for app deployment
+    
+    // Deploy the application
+    let deployed_jobs = server.deploy_sql_application(app.clone(), default_topic).await?;
+    
+    info!("SQL application deployment completed!");
+    info!("Application: {} v{}", app.metadata.name, app.metadata.version);
+    info!("Deployed {} jobs: {:?}", deployed_jobs.len(), deployed_jobs);
+    
+    if let Some(description) = &app.metadata.description {
+        info!("Description: {}", description);
+    }
+    
+    if let Some(author) = &app.metadata.author {
+        info!("Author: {}", author);
+    }
+    
+    // Keep the jobs running
+    info!("Jobs are now running. Use Ctrl+C to stop.");
+    
+    // Status monitoring loop for the deployed application
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        
+        let jobs = server.list_jobs().await;
+        info!("Application '{}' - Active jobs: {}", app.metadata.name, jobs.len());
+        
+        for job in &jobs {
+            info!("  Job '{}' ({}): {:?} - {} records processed", 
+                job.name, job.topic, job.status, job.metrics.records_processed);
+        }
+        
+        if jobs.is_empty() {
+            info!("No active jobs remaining for application '{}'", app.metadata.name);
+            break;
         }
     }
     
