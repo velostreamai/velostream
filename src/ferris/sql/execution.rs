@@ -1175,10 +1175,174 @@ impl StreamExecutionEngine {
                 
                 Ok(FieldValue::String(parts.join(&delimiter)))
             }
+            "SUBSTRING" => {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "SUBSTRING requires 2 or 3 arguments: SUBSTRING(string, start[, length])".to_string(),
+                        query: None 
+                    });
+                }
+                
+                let string_val = self.evaluate_expression_value(&args[0], record)?;
+                let start_val = self.evaluate_expression_value(&args[1], record)?;
+                
+                let (string, start) = match (string_val, start_val) {
+                    (FieldValue::String(s), FieldValue::Integer(start)) => (s, start as usize),
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "SUBSTRING requires string and integer arguments".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                // Handle optional length argument
+                let result = if args.len() == 3 {
+                    let length_val = self.evaluate_expression_value(&args[2], record)?;
+                    match length_val {
+                        FieldValue::Integer(length) => {
+                            string.chars().skip(start.saturating_sub(1)).take(length as usize).collect()
+                        }
+                        _ => return Err(SqlError::ExecutionError { 
+                            message: "SUBSTRING length must be an integer".to_string(),
+                            query: None 
+                        }),
+                    }
+                } else {
+                    // No length specified, take from start to end
+                    string.chars().skip(start.saturating_sub(1)).collect()
+                };
+                
+                Ok(FieldValue::String(result))
+            }
+            "JSON_EXTRACT" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "JSON_EXTRACT requires exactly two arguments: JSON_EXTRACT(json_string, path)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                let json_val = self.evaluate_expression_value(&args[0], record)?;
+                let path_val = self.evaluate_expression_value(&args[1], record)?;
+                
+                let (json_string, path) = match (json_val, path_val) {
+                    (FieldValue::String(j), FieldValue::String(p)) => (j, p),
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "JSON_EXTRACT requires string arguments".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                self.extract_json_value(&json_string, &path)
+            }
+            "JSON_VALUE" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "JSON_VALUE requires exactly two arguments: JSON_VALUE(json_string, path)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                let json_val = self.evaluate_expression_value(&args[0], record)?;
+                let path_val = self.evaluate_expression_value(&args[1], record)?;
+                
+                let (json_string, path) = match (json_val, path_val) {
+                    (FieldValue::String(j), FieldValue::String(p)) => (j, p),
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "JSON_VALUE requires string arguments".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                // JSON_VALUE returns scalar values as strings, JSON_EXTRACT can return objects/arrays
+                match self.extract_json_value(&json_string, &path)? {
+                    FieldValue::String(s) => Ok(FieldValue::String(s)),
+                    FieldValue::Integer(i) => Ok(FieldValue::String(i.to_string())),
+                    FieldValue::Float(f) => Ok(FieldValue::String(f.to_string())),
+                    FieldValue::Boolean(b) => Ok(FieldValue::String(b.to_string())),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                }
+            }
             _ => Err(SqlError::ExecutionError { 
                 message: format!("Unknown function {}", name),
                 query: None
             }),
+        }
+    }
+
+    fn extract_json_value(&self, json_string: &str, path: &str) -> Result<FieldValue, SqlError> {
+        // Parse the JSON string
+        let json_value: serde_json::Value = serde_json::from_str(json_string)
+            .map_err(|_| SqlError::ExecutionError {
+                message: "Invalid JSON string".to_string(),
+                query: None
+            })?;
+        
+        // Simple path extraction - supports dot notation like "user.name" or "data.items[0]"
+        let mut current = &json_value;
+        
+        // Split path by dots, but handle array indices
+        let path_parts: Vec<&str> = if path.starts_with('$') {
+            // JSONPath style - remove the $ prefix
+            path[1..].split('.').collect()
+        } else {
+            path.split('.').collect()
+        };
+        
+        for part in path_parts {
+            if part.is_empty() {
+                continue;
+            }
+            
+            // Handle array access like "items[0]"
+            if let Some(bracket_pos) = part.find('[') {
+                let field_name = &part[..bracket_pos];
+                let index_part = &part[bracket_pos+1..part.len()-1]; // Remove [ and ]
+                
+                // First navigate to the field
+                if !field_name.is_empty() {
+                    current = current.get(field_name).ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("JSON path not found: {}", field_name),
+                        query: None
+                    })?;
+                }
+                
+                // Then handle array index
+                let index: usize = index_part.parse().map_err(|_| SqlError::ExecutionError {
+                    message: format!("Invalid array index: {}", index_part),
+                    query: None
+                })?;
+                
+                current = current.get(index).ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Array index out of bounds: {}", index),
+                    query: None
+                })?;
+            } else {
+                // Regular field access
+                current = current.get(part).ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("JSON path not found: {}", part),
+                    query: None
+                })?;
+            }
+        }
+        
+        // Convert JSON value to FieldValue
+        match current {
+            serde_json::Value::String(s) => Ok(FieldValue::String(s.clone())),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Ok(FieldValue::Integer(i))
+                } else if let Some(f) = n.as_f64() {
+                    Ok(FieldValue::Float(f))
+                } else {
+                    Ok(FieldValue::String(n.to_string()))
+                }
+            }
+            serde_json::Value::Bool(b) => Ok(FieldValue::Boolean(*b)),
+            serde_json::Value::Null => Ok(FieldValue::Null),
+            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                // For complex types, return as JSON string
+                Ok(FieldValue::String(current.to_string()))
+            }
         }
     }
 

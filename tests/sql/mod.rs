@@ -13,3 +13,4 @@ pub mod show_tests;
 pub mod job_management_tests;
 pub mod advanced_job_lifecycle_tests;
 pub mod advanced_functions_tests;
+pub mod string_json_functions_tests;
