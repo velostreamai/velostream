@@ -64,3 +64,8 @@ path = "examples/performance/resource_monitoring_test.rs"
 [[bin]]
 name = "ferris-sql"
 path = "src/bin/sql_server.rs"
+
+# Multi-Job SQL Server Binary
+[[bin]]
+name = "ferris-sql-multi"
+path = "src/bin/multi_job_sql_server.rs"
