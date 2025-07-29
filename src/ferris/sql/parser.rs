@@ -167,8 +167,26 @@ enum TokenType {
     Functions,   // FUNCTIONS
     Schema,      // SCHEMA
     Properties,  // PROPERTIES
-    Queries,     // QUERIES
+    Jobs,        // JOBS (renamed from Queries)
     Partitions,  // PARTITIONS
+    Start,       // START
+    Stop,        // STOP  
+    Job,         // JOB (renamed from Query)
+    Force,       // FORCE
+    Pause,       // PAUSE
+    Resume,      // RESUME
+    Deploy,      // DEPLOY
+    Rollback,    // ROLLBACK
+    Version,     // VERSION
+    Strategy,    // STRATEGY
+    BlueGreen,   // BLUE_GREEN
+    Canary,      // CANARY
+    Rolling,     // ROLLING
+    Replace,     // REPLACE
+    Status,      // STATUS
+    Versions,    // VERSIONS
+    Metrics,     // METRICS
+    Describe,    // DESCRIBE
     
     // Literals and Identifiers
     Identifier,  // Column names, table names, function names
@@ -255,8 +273,26 @@ impl StreamingSqlParser {
         keywords.insert("FUNCTIONS".to_string(), TokenType::Functions);
         keywords.insert("SCHEMA".to_string(), TokenType::Schema);
         keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
-        keywords.insert("QUERIES".to_string(), TokenType::Queries);
+        keywords.insert("JOBS".to_string(), TokenType::Jobs);
         keywords.insert("PARTITIONS".to_string(), TokenType::Partitions);
+        keywords.insert("START".to_string(), TokenType::Start);
+        keywords.insert("STOP".to_string(), TokenType::Stop);
+        keywords.insert("JOB".to_string(), TokenType::Job);
+        keywords.insert("FORCE".to_string(), TokenType::Force);
+        keywords.insert("PAUSE".to_string(), TokenType::Pause);
+        keywords.insert("RESUME".to_string(), TokenType::Resume);
+        keywords.insert("DEPLOY".to_string(), TokenType::Deploy);
+        keywords.insert("ROLLBACK".to_string(), TokenType::Rollback);
+        keywords.insert("VERSION".to_string(), TokenType::Version);
+        keywords.insert("STRATEGY".to_string(), TokenType::Strategy);
+        keywords.insert("BLUE_GREEN".to_string(), TokenType::BlueGreen);
+        keywords.insert("CANARY".to_string(), TokenType::Canary);
+        keywords.insert("ROLLING".to_string(), TokenType::Rolling);
+        keywords.insert("REPLACE".to_string(), TokenType::Replace);
+        keywords.insert("STATUS".to_string(), TokenType::Status);
+        keywords.insert("VERSIONS".to_string(), TokenType::Versions);
+        keywords.insert("METRICS".to_string(), TokenType::Metrics);
+        keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
 
         Self { keywords }
     }
@@ -552,8 +588,15 @@ impl StreamingSqlParser {
             TokenType::Select => parser.parse_select(),
             TokenType::Create => parser.parse_create(),
             TokenType::Show | TokenType::List => parser.parse_show(),
+            TokenType::Start => parser.parse_start_job(),
+            TokenType::Stop => parser.parse_stop_job(),
+            TokenType::Pause => parser.parse_pause_job(),
+            TokenType::Resume => parser.parse_resume_job(),
+            TokenType::Deploy => parser.parse_deploy_job(),
+            TokenType::Rollback => parser.parse_rollback_job(),
+            TokenType::Describe => parser.parse_describe(),
             _ => Err(SqlError::ParseError {
-                message: "Expected SELECT, CREATE, SHOW, or LIST statement".to_string(),
+                message: "Expected SELECT, CREATE, SHOW, LIST, START, STOP, PAUSE, RESUME, DEPLOY, ROLLBACK, or DESCRIBE statement".to_string(),
                 position: Some(parser.current_token().position)
             })
         }
@@ -1196,9 +1239,35 @@ impl TokenParser {
                 self.advance();
                 ShowResourceType::Functions
             }
-            TokenType::Queries => {
+            TokenType::Jobs => {
                 self.advance();
-                ShowResourceType::Queries
+                ShowResourceType::Jobs
+            }
+            TokenType::Status => {
+                self.advance();
+                // Optional specific query name
+                let name = if self.current_token().token_type == TokenType::Identifier {
+                    Some(self.expect(TokenType::Identifier)?.value)
+                } else {
+                    None
+                };
+                ShowResourceType::JobStatus { name }
+            }
+            TokenType::Versions => {
+                self.advance();
+                // Expect job name after VERSIONS
+                let name = self.expect(TokenType::Identifier)?.value;
+                ShowResourceType::JobVersions { name }
+            }
+            TokenType::Metrics => {
+                self.advance();
+                // Optional specific job name
+                let name = if self.current_token().token_type == TokenType::Identifier {
+                    Some(self.expect(TokenType::Identifier)?.value)
+                } else {
+                    None
+                };
+                ShowResourceType::JobMetrics { name }
             }
             TokenType::Schema => {
                 self.advance();
@@ -1243,7 +1312,7 @@ impl TokenParser {
             }
             _ => {
                 return Err(SqlError::ParseError {
-                    message: "Expected STREAMS, TABLES, TOPICS, FUNCTIONS, SCHEMA, PROPERTIES, QUERIES, or PARTITIONS after SHOW/LIST".to_string(),
+                    message: "Expected STREAMS, TABLES, TOPICS, FUNCTIONS, SCHEMA, PROPERTIES, JOBS, STATUS, VERSIONS, METRICS, or PARTITIONS after SHOW/LIST".to_string(),
                     position: Some(self.current_token().position)
                 });
             }
@@ -1261,6 +1330,213 @@ impl TokenParser {
             resource_type,
             pattern,
         })
+    }
+
+    fn parse_start_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume START token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get job name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Expect AS keyword
+        self.expect(TokenType::As)?;
+        
+        // Parse the underlying query
+        let query = Box::new(self.parse_tokens_inner()?);
+        
+        // Optional WITH properties
+        let properties = if self.current_token().token_type == TokenType::With {
+            self.parse_with_properties()?
+        } else {
+            HashMap::new()
+        };
+        
+        Ok(StreamingQuery::StartJob {
+            name,
+            query,
+            properties,
+        })
+    }
+
+    fn parse_stop_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume STOP token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get job name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Optional FORCE keyword
+        let force = if self.current_token().token_type == TokenType::Force {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        
+        Ok(StreamingQuery::StopJob {
+            name,
+            force,
+        })
+    }
+
+    fn parse_pause_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume PAUSE token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get job name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        Ok(StreamingQuery::PauseJob { name })
+    }
+
+    fn parse_resume_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume RESUME token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get job name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        Ok(StreamingQuery::ResumeJob { name })
+    }
+
+    fn parse_deploy_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        use crate::ferris::sql::ast::DeploymentStrategy;
+        
+        // Consume DEPLOY token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get query name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Expect VERSION keyword
+        self.expect(TokenType::Version)?;
+        
+        // Get version string
+        let version = self.expect(TokenType::String)?.value;
+        
+        // Expect AS keyword
+        self.expect(TokenType::As)?;
+        
+        // Parse the underlying query
+        let query = Box::new(self.parse_tokens_inner()?);
+        
+        // Optional WITH properties clause
+        let mut properties = HashMap::new();
+        if self.current_token().token_type == TokenType::With {
+            properties = self.parse_with_properties()?;
+        }
+        
+        // Optional STRATEGY clause
+        let strategy = if self.current_token().token_type == TokenType::Strategy {
+            self.advance(); // consume STRATEGY
+            
+            match self.current_token().token_type {
+                TokenType::BlueGreen => {
+                    self.advance();
+                    DeploymentStrategy::BlueGreen
+                }
+                TokenType::Canary => {
+                    self.advance();
+                    // Expect percentage in parentheses
+                    self.expect(TokenType::LeftParen)?;
+                    let percentage_token = self.expect(TokenType::Number)?;
+                    let percentage: u8 = percentage_token.value.parse()
+                        .map_err(|_| SqlError::ParseError {
+                            message: "Invalid percentage for canary deployment".to_string(),
+                            position: Some(percentage_token.position)
+                        })?;
+                    self.expect(TokenType::RightParen)?;
+                    DeploymentStrategy::Canary { percentage }
+                }
+                TokenType::Rolling => {
+                    self.advance();
+                    DeploymentStrategy::Rolling
+                }
+                TokenType::Replace => {
+                    self.advance();
+                    DeploymentStrategy::Replace
+                }
+                _ => return Err(SqlError::ParseError {
+                    message: "Expected BLUE_GREEN, CANARY, ROLLING, or REPLACE strategy".to_string(),
+                    position: Some(self.current_token().position)
+                })
+            }
+        } else {
+            DeploymentStrategy::BlueGreen // Default strategy
+        };
+        
+        Ok(StreamingQuery::DeployJob {
+            name,
+            version,
+            query,
+            properties,
+            strategy,
+        })
+    }
+
+    fn parse_rollback_job(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume ROLLBACK token
+        self.advance();
+        
+        // Expect JOB keyword
+        self.expect(TokenType::Job)?;
+        
+        // Get job name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        // Optional target version
+        let target_version = if self.current_token().token_type == TokenType::Version {
+            self.advance(); // consume VERSION
+            Some(self.expect(TokenType::String)?.value)
+        } else {
+            None
+        };
+        
+        Ok(StreamingQuery::RollbackJob {
+            name,
+            target_version,
+        })
+    }
+
+    fn parse_describe(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Consume DESCRIBE token
+        self.advance();
+        
+        // Get resource name
+        let name = self.expect(TokenType::Identifier)?.value;
+        
+        Ok(StreamingQuery::Show {
+            resource_type: ShowResourceType::Describe { name },
+            pattern: None,
+        })
+    }
+
+    fn parse_tokens_inner(&mut self) -> Result<StreamingQuery, SqlError> {
+        // This is similar to the main parse_tokens but works on the current parser state
+        match self.current_token().token_type {
+            TokenType::Select => self.parse_select(),
+            TokenType::Create => self.parse_create(),
+            _ => Err(SqlError::ParseError {
+                message: "Expected SELECT or CREATE statement in START QUERY".to_string(),
+                position: Some(self.current_token().position)
+            })
+        }
     }
 }
 

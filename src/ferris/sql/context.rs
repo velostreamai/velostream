@@ -138,6 +138,30 @@ impl StreamingSqlContext {
                 // SHOW commands don't need schema validation
                 Ok(())
             }
+            StreamingQuery::StartJob { query, .. } => {
+                // Validate the underlying query
+                self.validate_query(query)
+            }
+            StreamingQuery::StopJob { .. } => {
+                // STOP commands don't need schema validation
+                Ok(())
+            }
+            StreamingQuery::PauseJob { .. } => {
+                // PAUSE commands don't need schema validation
+                Ok(())
+            }
+            StreamingQuery::ResumeJob { .. } => {
+                // RESUME commands don't need schema validation
+                Ok(())
+            }
+            StreamingQuery::DeployJob { query, .. } => {
+                // Validate the underlying query
+                self.validate_query(query)
+            }
+            StreamingQuery::RollbackJob { .. } => {
+                // ROLLBACK commands don't need schema validation
+                Ok(())
+            }
         }
     }
 
@@ -193,6 +217,30 @@ impl StreamingSqlContext {
             StreamingQuery::Show { .. } => {
                 // SHOW commands don't have a primary stream name
                 "system"
+            }
+            StreamingQuery::StartJob { name, .. } => {
+                // Use the job name as the stream identifier
+                name
+            }
+            StreamingQuery::StopJob { name, .. } => {
+                // Use the job name as the stream identifier
+                name
+            }
+            StreamingQuery::PauseJob { name } => {
+                // Use the job name as the stream identifier
+                name
+            }
+            StreamingQuery::ResumeJob { name } => {
+                // Use the job name as the stream identifier
+                name
+            }
+            StreamingQuery::DeployJob { name, .. } => {
+                // Use the job name as the stream identifier
+                name
+            }
+            StreamingQuery::RollbackJob { name, .. } => {
+                // Use the job name as the stream identifier
+                name
             }
         };
 

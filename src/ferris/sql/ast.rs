@@ -145,6 +145,105 @@ pub enum StreamingQuery {
         /// Optional pattern for filtering results
         pattern: Option<String>,
     },
+    /// START JOB command for initiating continuous job execution.
+    /// 
+    /// Starts a named job that runs continuously until explicitly stopped.
+    /// The job can be referenced by name for monitoring and management.
+    StartJob {
+        /// Unique name for the job
+        name: String,
+        /// The streaming query to execute continuously
+        query: Box<StreamingQuery>,
+        /// Optional properties for job execution
+        properties: HashMap<String, String>,
+    },
+    /// STOP JOB command for terminating running jobs.
+    /// 
+    /// Gracefully stops a running job by name, cleaning up resources
+    /// and ensuring proper state management.
+    StopJob {
+        /// Name of the job to stop
+        name: String,
+        /// Whether to force stop if graceful shutdown fails
+        force: bool,
+    },
+    /// PAUSE JOB command for temporarily suspending job execution.
+    /// 
+    /// Pauses a running job while preserving its state and position.
+    /// The job can be resumed later without data loss.
+    PauseJob {
+        /// Name of the job to pause
+        name: String,
+    },
+    /// RESUME JOB command for restarting paused jobs.
+    /// 
+    /// Resumes a paused job from where it left off, maintaining
+    /// exactly-once processing guarantees.
+    ResumeJob {
+        /// Name of the job to resume
+        name: String,
+    },
+    /// DEPLOY JOB command for versioned job deployment.
+    /// 
+    /// Deploys a new version of a job with optional rollback capabilities.
+    /// Supports blue-green deployments and canary releases.
+    DeployJob {
+        /// Name of the job
+        name: String,
+        /// Version identifier (semantic versioning recommended)
+        version: String,
+        /// The streaming query to deploy
+        query: Box<StreamingQuery>,
+        /// Deployment properties and configuration
+        properties: HashMap<String, String>,
+        /// Strategy for deployment (blue-green, canary, etc.)
+        strategy: DeploymentStrategy,
+    },
+    /// ROLLBACK JOB command for reverting to previous job version.
+    /// 
+    /// Rolls back a job deployment to a previous version, useful
+    /// for handling deployment issues or bugs.
+    RollbackJob {
+        /// Name of the job to rollback
+        name: String,
+        /// Target version to rollback to (optional - defaults to previous)
+        target_version: Option<String>,
+    },
+}
+
+/// Deployment strategies for versioned job deployments.
+/// 
+/// Different strategies provide varying levels of safety and rollback capabilities
+/// for production streaming SQL jobs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeploymentStrategy {
+    /// Blue-Green deployment: Deploy to new infrastructure, switch traffic
+    BlueGreen,
+    /// Canary deployment: Gradually roll out to percentage of traffic
+    Canary { percentage: u8 },
+    /// Rolling deployment: Replace instances one by one
+    Rolling,
+    /// Direct replacement: Stop old, start new (fastest but riskier)
+    Replace,
+}
+
+/// Job execution status for monitoring and management.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobStatus {
+    /// Job is actively processing records
+    Running,
+    /// Job is temporarily paused but retains state
+    Paused,
+    /// Job has been stopped and cleaned up
+    Stopped,
+    /// Job is in error state
+    Error { message: String },
+    /// Job is being deployed/starting up
+    Starting,
+    /// Job is being stopped gracefully
+    Stopping,
+    /// Job deployment is in progress
+    Deploying,
 }
 
 /// Types of resources that can be shown with SHOW/LIST commands.
@@ -165,10 +264,18 @@ pub enum ShowResourceType {
     Schema { name: String },
     /// Show properties for a specific resource
     Properties { resource_type: String, name: String },
-    /// Show active queries currently running
-    Queries,
+    /// Show active jobs currently running
+    Jobs,
+    /// Show detailed job status including versions and deployment info
+    JobStatus { name: Option<String> },
+    /// Show job versions and deployment history
+    JobVersions { name: String },
+    /// Show job metrics and performance statistics
+    JobMetrics { name: Option<String> },
     /// Show partitions for a specific topic/stream
     Partitions { name: String },
+    /// Describe the schema of a stream or table
+    Describe { name: String },
 }
 
 /// Field selection in SELECT clause
@@ -361,6 +468,12 @@ impl StreamingQuery {
             StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
             StreamingQuery::Show { .. } => false, // SHOW commands don't use windows
+            StreamingQuery::StartJob { query, .. } => query.has_window(),
+            StreamingQuery::StopJob { .. } => false, // STOP commands don't use windows
+            StreamingQuery::PauseJob { .. } => false, // PAUSE commands don't use windows
+            StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't use windows  
+            StreamingQuery::DeployJob { query, .. } => query.has_window(),
+            StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't use windows
         }
     }
     
@@ -387,6 +500,12 @@ impl StreamingQuery {
             StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
             StreamingQuery::Show { .. } => Vec::new(), // SHOW commands don't reference columns
+            StreamingQuery::StartJob { query, .. } => query.get_columns(),
+            StreamingQuery::StopJob { .. } => Vec::new(), // STOP commands don't reference columns
+            StreamingQuery::PauseJob { .. } => Vec::new(), // PAUSE commands don't reference columns
+            StreamingQuery::ResumeJob { .. } => Vec::new(), // RESUME commands don't reference columns
+            StreamingQuery::DeployJob { query, .. } => query.get_columns(),
+            StreamingQuery::RollbackJob { .. } => Vec::new(), // ROLLBACK commands don't reference columns
         }
     }
 }

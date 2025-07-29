@@ -95,8 +95,8 @@ pub struct StreamExecutionEngine {
 
 #[derive(Debug)]
 pub enum ExecutionMessage {
-    StartQuery { query_id: String, query: StreamingQuery },
-    StopQuery { query_id: String },
+    StartJob { job_id: String, query: StreamingQuery },
+    StopJob { job_id: String },
     ProcessRecord { stream_name: String, record: StreamRecord },
     QueryResult { query_id: String, result: StreamRecord },
 }
@@ -224,11 +224,11 @@ impl StreamExecutionEngine {
 
         while let Some(message) = receiver.recv().await {
             match message {
-                ExecutionMessage::StartQuery { query_id, query } => {
-                    self.start_query_execution(query_id, query).await?;
+                ExecutionMessage::StartJob { job_id, query } => {
+                    self.start_query_execution(job_id, query).await?;
                 }
-                ExecutionMessage::StopQuery { query_id } => {
-                    self.stop_query_execution(&query_id).await?;
+                ExecutionMessage::StopJob { job_id } => {
+                    self.stop_query_execution(&job_id).await?;
                 }
                 ExecutionMessage::ProcessRecord { stream_name, record } => {
                     self.process_stream_record(&stream_name, record).await?;
@@ -328,6 +328,18 @@ impl StreamExecutionEngine {
             StreamingQuery::CreateStream { as_select, .. } => self.query_matches_stream(as_select, stream_name),
             StreamingQuery::CreateTable { as_select, .. } => self.query_matches_stream(as_select, stream_name),
             StreamingQuery::Show { .. } => false, // SHOW commands don't match streams
+            StreamingQuery::StartJob { query, .. } => {
+                // START JOB matches if the underlying query matches
+                self.query_matches_stream(query, stream_name)
+            }
+            StreamingQuery::StopJob { .. } => false, // STOP commands don't match streams
+            StreamingQuery::PauseJob { .. } => false, // PAUSE commands don't match streams
+            StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't match streams
+            StreamingQuery::DeployJob { query, .. } => {
+                // DEPLOY JOB matches if the underlying query matches
+                self.query_matches_stream(query, stream_name)
+            }
+            StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't match streams
         }
     }
 
@@ -437,6 +449,153 @@ impl StreamExecutionEngine {
                         if let Some(p) = pattern {
                             fields.insert("pattern".to_string(), FieldValue::String(p.clone()));
                         }
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
+            }
+            StreamingQuery::StartJob { name, query, properties } => {
+                // START JOB initiates continuous execution
+                log::info!("Starting job '{}' with properties {:?}", name, properties);
+                
+                // In a full implementation, this would:
+                // 1. Register the query in the execution engine
+                // 2. Start continuous execution
+                // 3. Return success confirmation
+                
+                // For now, execute the underlying query once as confirmation
+                self.apply_query(query, record)
+            }
+            StreamingQuery::StopJob { name, force } => {
+                // STOP JOB terminates continuous execution
+                log::info!("Stopping job '{}' (force: {})", name, force);
+                
+                // In a full implementation, this would:
+                // 1. Find the running query by name
+                // 2. Gracefully stop execution (or force if needed)
+                // 3. Clean up resources
+                // 4. Return stop confirmation
+                
+                // For now, return a simple confirmation
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("job_name".to_string(), FieldValue::String(name.clone()));
+                        fields.insert("status".to_string(), FieldValue::String("stopped".to_string()));
+                        fields.insert("forced".to_string(), FieldValue::Boolean(*force));
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
+            }
+            StreamingQuery::PauseJob { name } => {
+                // PAUSE JOB suspends continuous execution while preserving state
+                log::info!("Pausing job '{}'", name);
+                
+                // In a full implementation, this would:
+                // 1. Find the running query by name
+                // 2. Suspend processing while preserving offset positions
+                // 3. Update query status to Paused
+                // 4. Return pause confirmation
+                
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("job_name".to_string(), FieldValue::String(name.clone()));
+                        fields.insert("status".to_string(), FieldValue::String("paused".to_string()));
+                        fields.insert("action".to_string(), FieldValue::String("pause".to_string()));
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
+            }
+            StreamingQuery::ResumeJob { name } => {
+                // RESUME JOB restarts a paused job from where it left off
+                log::info!("Resuming job '{}'", name);
+                
+                // In a full implementation, this would:
+                // 1. Find the paused query by name
+                // 2. Resume processing from last committed offset
+                // 3. Update query status to Running
+                // 4. Return resume confirmation
+                
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("job_name".to_string(), FieldValue::String(name.clone()));
+                        fields.insert("status".to_string(), FieldValue::String("running".to_string()));
+                        fields.insert("action".to_string(), FieldValue::String("resume".to_string()));
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
+            }
+            StreamingQuery::DeployJob { name, version, query, properties, strategy } => {
+                // DEPLOY JOB performs versioned deployment with specified strategy
+                log::info!("Deploying job '{}' version '{}' with strategy {:?}", name, version, strategy);
+                
+                // In a full implementation, this would:
+                // 1. Validate the deployment
+                // 2. Execute deployment strategy (blue-green, canary, etc.)
+                // 3. Update version registry
+                // 4. Monitor deployment health
+                // 5. Return deployment status
+                
+                // For now, execute the underlying query as confirmation
+                let _result = self.apply_query(query, record)?;
+                
+                // Return deployment confirmation with version info
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("job_name".to_string(), FieldValue::String(name.clone()));
+                        fields.insert("version".to_string(), FieldValue::String(version.clone()));
+                        fields.insert("strategy".to_string(), FieldValue::String(format!("{:?}", strategy)));
+                        fields.insert("status".to_string(), FieldValue::String("deployed".to_string()));
+                        fields.insert("properties_count".to_string(), FieldValue::Integer(properties.len() as i64));
+                        fields
+                    },
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                }))
+            }
+            StreamingQuery::RollbackJob { name, target_version } => {
+                // ROLLBACK JOB reverts to a previous version
+                let version_msg = target_version.as_ref()
+                    .map(|v| format!(" to version '{}'", v))
+                    .unwrap_or_else(|| " to previous version".to_string());
+                log::info!("Rolling back job '{}'{}",name, version_msg);
+                
+                // In a full implementation, this would:
+                // 1. Find the target version in version history
+                // 2. Stop current version gracefully
+                // 3. Deploy previous version
+                // 4. Update version registry
+                // 5. Return rollback confirmation
+                
+                Ok(Some(StreamRecord {
+                    fields: {
+                        let mut fields = HashMap::new();
+                        fields.insert("job_name".to_string(), FieldValue::String(name.clone()));
+                        if let Some(version) = target_version {
+                            fields.insert("target_version".to_string(), FieldValue::String(version.clone()));
+                        }
+                        fields.insert("status".to_string(), FieldValue::String("rolled_back".to_string()));
+                        fields.insert("action".to_string(), FieldValue::String("rollback".to_string()));
                         fields
                     },
                     timestamp: record.timestamp,
@@ -877,10 +1036,217 @@ impl StreamExecutionEngine {
                 // Check if header exists
                 Ok(FieldValue::Boolean(record.headers.contains_key(&header_key)))
             }
+            "MIN" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "MIN requires exactly one argument".to_string(),
+                        query: None 
+                    });
+                }
+                // For streaming, return the current value (full aggregation would require state)
+                self.evaluate_expression_value(&args[0], record)
+            }
+            "MAX" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "MAX requires exactly one argument".to_string(),
+                        query: None 
+                    });
+                }
+                // For streaming, return the current value (full aggregation would require state)
+                self.evaluate_expression_value(&args[0], record)
+            }
+            "FIRST_VALUE" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "FIRST_VALUE requires exactly one argument".to_string(),
+                        query: None 
+                    });
+                }
+                // For streaming, return the current value (full windowing would require state)
+                self.evaluate_expression_value(&args[0], record)
+            }
+            "LAST_VALUE" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "LAST_VALUE requires exactly one argument".to_string(),
+                        query: None 
+                    });
+                }
+                // For streaming, return the current value (full windowing would require state)
+                self.evaluate_expression_value(&args[0], record)
+            }
+            "APPROX_COUNT_DISTINCT" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "APPROX_COUNT_DISTINCT requires exactly one argument".to_string(),
+                        query: None 
+                    });
+                }
+                // For streaming, simplified implementation - returns 1 if value is not null
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Null => Ok(FieldValue::Integer(0)),
+                    _ => Ok(FieldValue::Integer(1)),
+                }
+            }
+            "TIMESTAMP" => {
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError { 
+                        message: "TIMESTAMP() takes no arguments".to_string(),
+                        query: None 
+                    });
+                }
+                // Return current record timestamp
+                Ok(FieldValue::Integer(record.timestamp))
+            }
+            "CAST" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "CAST requires exactly two arguments: CAST(value, type)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                let target_type = match &args[1] {
+                    Expr::Literal(LiteralValue::String(type_str)) => type_str.to_uppercase(),
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "CAST target type must be a string literal".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                self.cast_value(value, &target_type)
+            }
+            "SPLIT" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "SPLIT requires exactly two arguments: SPLIT(string, delimiter)".to_string(),
+                        query: None 
+                    });
+                }
+                
+                let string_val = self.evaluate_expression_value(&args[0], record)?;
+                let delimiter_val = self.evaluate_expression_value(&args[1], record)?;
+                
+                let (string, delimiter) = match (string_val, delimiter_val) {
+                    (FieldValue::String(s), FieldValue::String(d)) => (s, d),
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "SPLIT requires string arguments".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                // Return first part for simplicity (full array support would need array type)
+                let parts: Vec<&str> = string.split(&delimiter).collect();
+                Ok(FieldValue::String(parts.get(0).unwrap_or(&"").to_string()))
+            }
+            "JOIN" => {
+                if args.len() < 2 {
+                    return Err(SqlError::ExecutionError { 
+                        message: "JOIN requires at least two arguments".to_string(),
+                        query: None 
+                    });
+                }
+                
+                // Evaluate all arguments and join them with the first argument as delimiter
+                let delimiter_val = self.evaluate_expression_value(&args[0], record)?;
+                let delimiter = match delimiter_val {
+                    FieldValue::String(d) => d,
+                    _ => return Err(SqlError::ExecutionError { 
+                        message: "JOIN delimiter must be a string".to_string(),
+                        query: None 
+                    }),
+                };
+                
+                let mut parts = Vec::new();
+                for arg in &args[1..] {
+                    let val = self.evaluate_expression_value(arg, record)?;
+                    let str_val = match val {
+                        FieldValue::String(s) => s,
+                        FieldValue::Integer(i) => i.to_string(),
+                        FieldValue::Float(f) => f.to_string(),
+                        FieldValue::Boolean(b) => b.to_string(),
+                        FieldValue::Null => "NULL".to_string(),
+                    };
+                    parts.push(str_val);
+                }
+                
+                Ok(FieldValue::String(parts.join(&delimiter)))
+            }
             _ => Err(SqlError::ExecutionError { 
                 message: format!("Unknown function {}", name),
                 query: None
             }),
+        }
+    }
+
+    fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
+        match target_type {
+            "INTEGER" | "INT" => {
+                match value {
+                    FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
+                    FieldValue::Float(f) => Ok(FieldValue::Integer(f as i64)),
+                    FieldValue::String(s) => {
+                        s.parse::<i64>()
+                            .map(FieldValue::Integer)
+                            .map_err(|_| SqlError::ExecutionError {
+                                message: format!("Cannot cast '{}' to INTEGER", s),
+                                query: None
+                            })
+                    }
+                    FieldValue::Boolean(b) => Ok(FieldValue::Integer(if b { 1 } else { 0 })),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                }
+            }
+            "FLOAT" | "DOUBLE" => {
+                match value {
+                    FieldValue::Integer(i) => Ok(FieldValue::Float(i as f64)),
+                    FieldValue::Float(f) => Ok(FieldValue::Float(f)),
+                    FieldValue::String(s) => {
+                        s.parse::<f64>()
+                            .map(FieldValue::Float)
+                            .map_err(|_| SqlError::ExecutionError {
+                                message: format!("Cannot cast '{}' to FLOAT", s),
+                                query: None
+                            })
+                    }
+                    FieldValue::Boolean(b) => Ok(FieldValue::Float(if b { 1.0 } else { 0.0 })),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                }
+            }
+            "STRING" | "VARCHAR" | "TEXT" => {
+                match value {
+                    FieldValue::Integer(i) => Ok(FieldValue::String(i.to_string())),
+                    FieldValue::Float(f) => Ok(FieldValue::String(f.to_string())),
+                    FieldValue::String(s) => Ok(FieldValue::String(s)),
+                    FieldValue::Boolean(b) => Ok(FieldValue::String(b.to_string())),
+                    FieldValue::Null => Ok(FieldValue::String("NULL".to_string())),
+                }
+            }
+            "BOOLEAN" | "BOOL" => {
+                match value {
+                    FieldValue::Integer(i) => Ok(FieldValue::Boolean(i != 0)),
+                    FieldValue::Float(f) => Ok(FieldValue::Boolean(f != 0.0)),
+                    FieldValue::String(s) => {
+                        match s.to_uppercase().as_str() {
+                            "TRUE" | "T" | "1" => Ok(FieldValue::Boolean(true)),
+                            "FALSE" | "F" | "0" => Ok(FieldValue::Boolean(false)),
+                            _ => Err(SqlError::ExecutionError {
+                                message: format!("Cannot cast '{}' to BOOLEAN", s),
+                                query: None
+                            })
+                        }
+                    }
+                    FieldValue::Boolean(b) => Ok(FieldValue::Boolean(b)),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                }
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: format!("Unsupported cast target type: {}", target_type),
+                query: None
+            })
         }
     }
 

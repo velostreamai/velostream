@@ -10,3 +10,6 @@ pub mod header_tests;
 pub mod limit_tests;
 pub mod group_by_tests;
 pub mod show_tests;
+pub mod job_management_tests;
+pub mod advanced_job_lifecycle_tests;
+pub mod advanced_functions_tests;
