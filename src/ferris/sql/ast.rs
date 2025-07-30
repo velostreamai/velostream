@@ -1,0 +1,587 @@
+/*! 
+# Streaming SQL Abstract Syntax Tree (AST)
+
+This module defines the Abstract Syntax Tree for streaming SQL queries designed specifically
+for continuous data processing over Kafka streams. The AST supports streaming-native features
+including windowing, real-time aggregations, and CREATE STREAM AS SELECT (CSAS) statements.
+
+## Key Features
+
+- **Streaming-First Design**: Built for continuous queries over unbounded data streams
+- **Window Operations**: Support for tumbling, sliding, and session windows
+- **Real-time Aggregations**: GROUP BY with streaming semantics
+- **Stream Creation**: CSAS and CREATE TABLE AS SELECT (CTAS) for stream transformations
+- **Kafka Integration**: System columns for metadata access (_timestamp, _offset, _partition)
+- **Header Support**: Access to Kafka message headers via SQL functions
+
+## Example Queries
+
+```sql
+-- Simple stream selection with filtering
+SELECT customer_id, amount FROM orders WHERE amount > 100 LIMIT 10
+
+-- Windowed aggregation
+SELECT customer_id, COUNT(*), AVG(amount) 
+FROM orders 
+WHERE amount > 50
+GROUP BY customer_id 
+WINDOW TUMBLING(INTERVAL 5 MINUTES)
+
+-- Stream creation with transformation
+CREATE STREAM high_value_orders AS 
+SELECT customer_id, amount, HEADER('source') AS source
+FROM orders 
+WHERE amount > 1000
+
+-- System column access
+SELECT customer_id, amount, _timestamp, _partition 
+FROM orders 
+ORDER BY _timestamp DESC 
+LIMIT 100
+```
+
+## Architecture
+
+The AST is designed to be:
+- **Immutable**: All nodes are immutable for thread safety
+- **Composable**: Complex queries built from simple expressions
+- **Extensible**: Easy to add new streaming operations
+- **Type-Safe**: Full Rust type checking throughout
+*/
+
+use std::time::Duration;
+use std::collections::HashMap;
+
+/// Root AST node representing different types of streaming SQL queries.
+/// 
+/// This enum encompasses all supported query types in the streaming SQL engine,
+/// from simple SELECT statements to complex stream creation operations.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use ferrisstreams::ferris::sql::ast::*;
+/// 
+/// // SELECT query
+/// let select_query = StreamingQuery::Select {
+///     fields: vec![SelectField::Wildcard],
+///     from: StreamSource::Stream("orders".to_string()),
+///     where_clause: None,
+///     group_by: None,
+///     having: None,
+///     window: None,
+///     order_by: None,
+///     limit: Some(100),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamingQuery {
+    /// Standard SELECT query for streaming data processing.
+    /// 
+    /// Supports all standard SQL SELECT features adapted for streaming:
+    /// - Field selection (wildcards, expressions, aliases)
+    /// - WHERE clause filtering
+    /// - GROUP BY aggregations with streaming semantics
+    /// - HAVING post-aggregation filtering
+    /// - Window operations (tumbling, sliding, session)
+    /// - ORDER BY sorting (with memory considerations)
+    /// - LIMIT for result set size control
+    Select {
+        /// Fields to select (columns, expressions, aggregates)
+        fields: Vec<SelectField>,
+        /// Source stream or table
+        from: StreamSource,
+        /// Optional WHERE clause for filtering
+        where_clause: Option<Expr>,
+        /// Optional GROUP BY expressions for aggregation
+        group_by: Option<Vec<Expr>>,
+        /// Optional HAVING clause for post-aggregation filtering
+        having: Option<Expr>,
+        /// Optional window specification for time-based operations
+        window: Option<WindowSpec>,
+        /// Optional ORDER BY for result sorting
+        order_by: Option<Vec<OrderByExpr>>,
+        /// Optional LIMIT for result set size control
+        limit: Option<u64>,
+    },
+    /// CREATE STREAM AS SELECT statement for stream transformations.
+    /// 
+    /// Creates a new Kafka stream (topic) populated by continuous execution
+    /// of the nested SELECT query. The stream persists indefinitely and
+    /// processes new records as they arrive in the source stream.
+    CreateStream {
+        /// Name of the new stream to create
+        name: String,
+        /// Optional column definitions with types
+        columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the stream transformation
+        as_select: Box<StreamingQuery>,
+        /// Stream properties (replication factor, partitions, etc.)
+        properties: HashMap<String, String>,
+    },
+    /// CREATE TABLE AS SELECT statement for materialized views.
+    /// 
+    /// Creates a materialized table (KTable) that maintains the current
+    /// state based on the continuous execution of the SELECT query.
+    /// Supports aggregations and maintains consistent state.
+    CreateTable {
+        /// Name of the new table to create
+        name: String,
+        /// Optional column definitions with types
+        columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the table population
+        as_select: Box<StreamingQuery>,
+        /// Table properties (retention, compaction, etc.)
+        properties: HashMap<String, String>,
+    },
+    /// SHOW/LIST commands for discovering available resources.
+    /// 
+    /// Provides metadata about streams, tables, topics, and other resources
+    /// available in the streaming SQL context. Essential for data discovery
+    /// and debugging.
+    Show {
+        /// Type of resource to show
+        resource_type: ShowResourceType,
+        /// Optional pattern for filtering results
+        pattern: Option<String>,
+    },
+    /// START JOB command for initiating continuous job execution.
+    /// 
+    /// Starts a named job that runs continuously until explicitly stopped.
+    /// The job can be referenced by name for monitoring and management.
+    StartJob {
+        /// Unique name for the job
+        name: String,
+        /// The streaming query to execute continuously
+        query: Box<StreamingQuery>,
+        /// Optional properties for job execution
+        properties: HashMap<String, String>,
+    },
+    /// STOP JOB command for terminating running jobs.
+    /// 
+    /// Gracefully stops a running job by name, cleaning up resources
+    /// and ensuring proper state management.
+    StopJob {
+        /// Name of the job to stop
+        name: String,
+        /// Whether to force stop if graceful shutdown fails
+        force: bool,
+    },
+    /// PAUSE JOB command for temporarily suspending job execution.
+    /// 
+    /// Pauses a running job while preserving its state and position.
+    /// The job can be resumed later without data loss.
+    PauseJob {
+        /// Name of the job to pause
+        name: String,
+    },
+    /// RESUME JOB command for restarting paused jobs.
+    /// 
+    /// Resumes a paused job from where it left off, maintaining
+    /// exactly-once processing guarantees.
+    ResumeJob {
+        /// Name of the job to resume
+        name: String,
+    },
+    /// DEPLOY JOB command for versioned job deployment.
+    /// 
+    /// Deploys a new version of a job with optional rollback capabilities.
+    /// Supports blue-green deployments and canary releases.
+    DeployJob {
+        /// Name of the job
+        name: String,
+        /// Version identifier (semantic versioning recommended)
+        version: String,
+        /// The streaming query to deploy
+        query: Box<StreamingQuery>,
+        /// Deployment properties and configuration
+        properties: HashMap<String, String>,
+        /// Strategy for deployment (blue-green, canary, etc.)
+        strategy: DeploymentStrategy,
+    },
+    /// ROLLBACK JOB command for reverting to previous job version.
+    /// 
+    /// Rolls back a job deployment to a previous version, useful
+    /// for handling deployment issues or bugs.
+    RollbackJob {
+        /// Name of the job to rollback
+        name: String,
+        /// Target version to rollback to (optional - defaults to previous)
+        target_version: Option<String>,
+    },
+}
+
+/// Deployment strategies for versioned job deployments.
+/// 
+/// Different strategies provide varying levels of safety and rollback capabilities
+/// for production streaming SQL jobs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeploymentStrategy {
+    /// Blue-Green deployment: Deploy to new infrastructure, switch traffic
+    BlueGreen,
+    /// Canary deployment: Gradually roll out to percentage of traffic
+    Canary { percentage: u8 },
+    /// Rolling deployment: Replace instances one by one
+    Rolling,
+    /// Direct replacement: Stop old, start new (fastest but riskier)
+    Replace,
+}
+
+/// Job execution status for monitoring and management.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobStatus {
+    /// Job is actively processing records
+    Running,
+    /// Job is temporarily paused but retains state
+    Paused,
+    /// Job has been stopped and cleaned up
+    Stopped,
+    /// Job is in error state
+    Error { message: String },
+    /// Job is being deployed/starting up
+    Starting,
+    /// Job is being stopped gracefully
+    Stopping,
+    /// Job deployment is in progress
+    Deploying,
+}
+
+/// Types of resources that can be shown with SHOW/LIST commands.
+/// 
+/// Each resource type provides different metadata about the streaming
+/// SQL environment, helping users discover and understand available data sources.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShowResourceType {
+    /// Show all registered streams (Kafka topics exposed as streams)
+    Streams,
+    /// Show all registered tables (KTables and materialized views)
+    Tables,
+    /// Show all available Kafka topics (whether registered or not)
+    Topics,
+    /// Show all registered functions (built-in and user-defined)
+    Functions,
+    /// Show schema information for a specific stream or table
+    Schema { name: String },
+    /// Show properties for a specific resource
+    Properties { resource_type: String, name: String },
+    /// Show active jobs currently running
+    Jobs,
+    /// Show detailed job status including versions and deployment info
+    JobStatus { name: Option<String> },
+    /// Show job versions and deployment history
+    JobVersions { name: String },
+    /// Show job metrics and performance statistics
+    JobMetrics { name: Option<String> },
+    /// Show partitions for a specific topic/stream
+    Partitions { name: String },
+    /// Describe the schema of a stream or table
+    Describe { name: String },
+}
+
+/// Field selection in SELECT clause
+#[derive(Debug, Clone, PartialEq)]
+pub enum SelectField {
+    /// Simple column reference: column_name
+    Column(String),
+    /// Aliased column: column_name AS alias
+    AliasedColumn { column: String, alias: String },
+    /// Expression with optional alias: expr [AS alias]
+    Expression { expr: Expr, alias: Option<String> },
+    /// Wildcard selection: *
+    Wildcard,
+}
+
+/// Stream source for FROM clause
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamSource {
+    /// Named stream reference
+    Stream(String),
+    /// Table reference (KTable)
+    Table(String),
+    /// Subquery (for future implementation)
+    Subquery(Box<StreamingQuery>),
+}
+
+/// Window specifications for streaming
+#[derive(Debug, Clone, PartialEq)]
+pub enum WindowSpec {
+    /// Fixed-size tumbling window
+    Tumbling { 
+        size: Duration,
+        time_column: Option<String>,
+    },
+    /// Sliding window with advance interval
+    Sliding { 
+        size: Duration, 
+        advance: Duration,
+        time_column: Option<String>,
+    },
+    /// Session window with inactivity gap
+    Session { 
+        gap: Duration,
+        partition_by: Vec<String>,
+    },
+}
+
+/// ORDER BY expression with direction
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrderByExpr {
+    pub expr: Expr,
+    pub direction: OrderDirection,
+}
+
+/// Sort direction for ORDER BY
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderDirection {
+    Asc,
+    Desc,
+}
+
+/// SQL expressions for WHERE clauses and computations
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    /// Column reference
+    Column(String),
+    /// Literal values
+    Literal(LiteralValue),
+    /// Binary operations: expr op expr
+    BinaryOp {
+        left: Box<Expr>,
+        op: BinaryOperator,
+        right: Box<Expr>,
+    },
+    /// Unary operations: op expr
+    UnaryOp {
+        op: UnaryOperator,
+        expr: Box<Expr>,
+    },
+    /// Function calls: func_name(args...)
+    Function {
+        name: String,
+        args: Vec<Expr>,
+    },
+    /// CASE expressions for conditional logic
+    Case {
+        when_clauses: Vec<(Expr, Expr)>, // (condition, result)
+        else_clause: Option<Box<Expr>>,
+    },
+}
+
+/// Literal values in SQL
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiteralValue {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    Null,
+    /// Time intervals: INTERVAL '5' MINUTE
+    Interval { value: i64, unit: TimeUnit },
+}
+
+/// Time units for intervals
+#[derive(Debug, Clone, PartialEq)]
+pub enum TimeUnit {
+    Millisecond,
+    Second,
+    Minute,
+    Hour,
+    Day,
+}
+
+/// Binary operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOperator {
+    // Arithmetic
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    
+    // Comparison
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+    
+    // Logical
+    And,
+    Or,
+    
+    // String operations
+    Like,
+    NotLike,
+    
+    // Set operations
+    In,
+    NotIn,
+}
+
+/// Unary operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOperator {
+    Not,
+    Minus,
+    Plus,
+    IsNull,
+    IsNotNull,
+}
+
+/// Kafka source configuration
+#[derive(Debug, Clone, PartialEq)]
+pub struct KafkaSource {
+    pub topic: String,
+    pub brokers: String,
+    pub group_id: String,
+    pub properties: HashMap<String, String>,
+}
+
+/// Column definition for CREATE STREAM
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnDef {
+    pub name: String,
+    pub data_type: DataType,
+    pub nullable: bool,
+    pub properties: HashMap<String, String>,
+}
+
+/// Data types supported in streaming SQL
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataType {
+    Integer,
+    Float,
+    String,
+    Boolean,
+    Timestamp,
+    Array(Box<DataType>),
+    Map(Box<DataType>, Box<DataType>),
+}
+
+impl StreamingQuery {
+    /// Check if this query requires windowing
+    pub fn has_window(&self) -> bool {
+        match self {
+            StreamingQuery::Select { window, .. } => window.is_some(),
+            StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
+            StreamingQuery::Show { .. } => false, // SHOW commands don't use windows
+            StreamingQuery::StartJob { query, .. } => query.has_window(),
+            StreamingQuery::StopJob { .. } => false, // STOP commands don't use windows
+            StreamingQuery::PauseJob { .. } => false, // PAUSE commands don't use windows
+            StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't use windows  
+            StreamingQuery::DeployJob { query, .. } => query.has_window(),
+            StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't use windows
+        }
+    }
+    
+    /// Get all column references in the query
+    pub fn get_columns(&self) -> Vec<String> {
+        match self {
+            StreamingQuery::Select { fields, where_clause, .. } => {
+                let mut columns = Vec::new();
+                
+                // Extract from SELECT fields
+                for field in fields {
+                    columns.extend(field.get_columns());
+                }
+                
+                // Extract from WHERE clause
+                if let Some(where_expr) = where_clause {
+                    columns.extend(where_expr.get_columns());
+                }
+                
+                columns.sort();
+                columns.dedup();
+                columns
+            }
+            StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::Show { .. } => Vec::new(), // SHOW commands don't reference columns
+            StreamingQuery::StartJob { query, .. } => query.get_columns(),
+            StreamingQuery::StopJob { .. } => Vec::new(), // STOP commands don't reference columns
+            StreamingQuery::PauseJob { .. } => Vec::new(), // PAUSE commands don't reference columns
+            StreamingQuery::ResumeJob { .. } => Vec::new(), // RESUME commands don't reference columns
+            StreamingQuery::DeployJob { query, .. } => query.get_columns(),
+            StreamingQuery::RollbackJob { .. } => Vec::new(), // ROLLBACK commands don't reference columns
+        }
+    }
+}
+
+impl SelectField {
+    /// Get column references from this field
+    pub fn get_columns(&self) -> Vec<String> {
+        match self {
+            SelectField::Column(name) => vec![name.clone()],
+            SelectField::AliasedColumn { column, .. } => vec![column.clone()],
+            SelectField::Expression { expr, .. } => expr.get_columns(),
+            SelectField::Wildcard => Vec::new(),
+        }
+    }
+}
+
+impl Expr {
+    /// Extract all column references from this expression
+    pub fn get_columns(&self) -> Vec<String> {
+        match self {
+            Expr::Column(name) => vec![name.clone()],
+            Expr::Literal(_) => Vec::new(),
+            Expr::BinaryOp { left, right, .. } => {
+                let mut columns = left.get_columns();
+                columns.extend(right.get_columns());
+                columns
+            }
+            Expr::UnaryOp { expr, .. } => expr.get_columns(),
+            Expr::Function { args, .. } => {
+                let mut columns = Vec::new();
+                for arg in args {
+                    columns.extend(arg.get_columns());
+                }
+                columns
+            }
+            Expr::Case { when_clauses, else_clause } => {
+                let mut columns = Vec::new();
+                for (condition, result) in when_clauses {
+                    columns.extend(condition.get_columns());
+                    columns.extend(result.get_columns());
+                }
+                if let Some(else_expr) = else_clause {
+                    columns.extend(else_expr.get_columns());
+                }
+                columns
+            }
+        }
+    }
+}
+
+impl WindowSpec {
+    /// Get the time column used for windowing
+    pub fn time_column(&self) -> Option<&str> {
+        match self {
+            WindowSpec::Tumbling { time_column, .. } => time_column.as_deref(),
+            WindowSpec::Sliding { time_column, .. } => time_column.as_deref(),
+            WindowSpec::Session { .. } => None, // Session windows use event time implicitly
+        }
+    }
+    
+    /// Check if this window needs to maintain state
+    pub fn is_stateful(&self) -> bool {
+        // All window types require state management
+        true
+    }
+}
+
+impl TimeUnit {
+    /// Convert to Duration
+    pub fn to_duration(&self, value: i64) -> Duration {
+        match self {
+            TimeUnit::Millisecond => Duration::from_millis(value as u64),
+            TimeUnit::Second => Duration::from_secs(value as u64),
+            TimeUnit::Minute => Duration::from_secs(value as u64 * 60),
+            TimeUnit::Hour => Duration::from_secs(value as u64 * 3600),
+            TimeUnit::Day => Duration::from_secs(value as u64 * 86400),
+        }
+    }
+}

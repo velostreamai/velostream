@@ -1,0 +1,53 @@
+# FerrisStreams SQL Configuration
+
+# Kafka Settings
+kafka:
+  brokers: "localhost:9092"
+  security_protocol: "PLAINTEXT"  # or SASL_SSL, SASL_PLAINTEXT
+  group_id: "ferris-sql-default"
+  client_id: "ferris-sql"
+  
+  # Authentication (uncomment if needed)
+  # sasl_mechanism: "PLAIN"
+  # sasl_username: "username"
+  # sasl_password: "password"
+
+# Server Settings
+server:
+  port: 8080
+  host: "0.0.0.0"
+  max_connections: 100
+  request_timeout_ms: 30000
+
+# SQL Engine Settings
+sql:
+  max_memory_mb: 1024
+  worker_threads: 4
+  query_timeout_ms: 60000
+  max_result_rows: 10000
+
+# Logging
+logging:
+  level: "info"  # trace, debug, info, warn, error
+  format: "json"  # json or text
+  file: "sql-server.log"
+
+# Monitoring
+monitoring:
+  enable_metrics: true
+  metrics_port: 9090
+  health_check_interval_ms: 5000
+
+# Job Management
+jobs:
+  max_concurrent_jobs: 10
+  job_timeout_ms: 300000
+  enable_job_persistence: false
+  job_storage_path: "/tmp/ferris-sql-jobs"
+
+# Performance Tuning
+performance:
+  buffer_size: 1000
+  batch_size: 100
+  flush_interval_ms: 1000
+  enable_compression: true
