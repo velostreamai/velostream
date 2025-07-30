@@ -9,13 +9,15 @@ log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
 tokio = { version = "1.46.1", features = ["full"] }
-chrono = "0.4.41"
+chrono = { version = "0.4.41", features = ["serde"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 logtest = "2.0.0"
 futures = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0.69"
+nom = "7.1.3"
+clap = { version = "4.0", features = ["derive"] }
 
 # Optional dependencies for additional serialization formats
 apache-avro = { version = "0.16.0", optional = true }
@@ -57,3 +59,13 @@ path = "examples/performance/simple_async_optimization_test.rs"
 [[example]]
 name = "resource_monitoring_test"
 path = "examples/performance/resource_monitoring_test.rs"
+
+# SQL Server Binary
+[[bin]]
+name = "ferris-sql"
+path = "src/bin/sql_server.rs"
+
+# Multi-Job SQL Server Binary
+[[bin]]
+name = "ferris-sql-multi"
+path = "src/bin/multi_job_sql_server.rs"

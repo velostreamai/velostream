@@ -10,6 +10,10 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[Simplified Kafka API](SIMPLIFIED_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](HEADERS_GUIDE.md)** - Working with Kafka message headers
 
+### SQL Streaming (New!)
+- **[SQL Reference Guide](SQL_REFERENCE_GUIDE.md)** - Complete SQL syntax and function reference
+- **[SQL Feature Request](SQL_FEATURE_REQUEST.md)** - Comprehensive SQL implementation roadmap and current status
+
 ### Performance & Optimization
 - **[Performance Configs](PERFORMANCE_CONFIGS.md)** - Configuration guide for optimizing throughput
 - **[Advanced Performance Optimizations](ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)** - Advanced techniques for maximum performance
@@ -27,7 +31,39 @@ New to FerrisStreams? Start with:
 1. [Main README](../README.md) - Project overview and installation
 2. [Quick Reference](QUICK_REFERENCE.md) - Common patterns
 3. [Builder Pattern Guide](BUILDER_PATTERN_GUIDE.md) - Core API patterns
-4. [Examples](../examples/README.md) - Working code examples
+4. [SQL Reference Guide](SQL_REFERENCE_GUIDE.md) - **NEW!** SQL streaming capabilities
+5. [Examples](../examples/README.md) - Working code examples
+
+## 🔥 New Features: SQL Streaming
+
+FerrisStreams now includes a comprehensive SQL interface for stream processing:
+
+### Key Capabilities
+- **Enterprise Job Management**: Complete lifecycle with versioning, deployment strategies (Blue-Green, Canary, Rolling)
+- **JSON Processing**: Native JSON parsing with JSONPath support for complex Kafka payloads  
+- **Advanced Functions**: 15+ SQL functions including aggregations, string manipulation, and analytics
+- **Real-Time Processing**: Event-at-a-time processing with bounded memory and backpressure handling
+- **Type Safety**: Full Rust type safety throughout the SQL execution pipeline
+
+### Quick Examples
+```sql
+-- Deploy a real-time analytics job with JSON processing
+DEPLOY JOB user_analytics VERSION '1.0.0' AS
+SELECT 
+    JSON_VALUE(payload, '$.user.id') as user_id,
+    CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT') as amount,
+    SUBSTRING(JSON_VALUE(payload, '$.description'), 1, 50) as short_desc
+FROM kafka_events 
+WHERE JSON_VALUE(payload, '$.type') = 'purchase'
+STRATEGY CANARY(25);
+
+-- Job lifecycle management
+PAUSE JOB user_analytics;
+SHOW STATUS user_analytics;
+ROLLBACK JOB user_analytics VERSION '0.9.0';
+```
+
+**Get Started**: See the [SQL Reference Guide](SQL_REFERENCE_GUIDE.md) for complete syntax and examples.
 
 ## 🔧 Performance Tuning
 

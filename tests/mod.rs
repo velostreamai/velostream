@@ -12,3 +12,6 @@ pub mod performance;
 
 // Property-based tests - Future implementation
 pub mod property;
+
+// SQL tests - Streaming SQL parser and execution tests
+pub mod sql;
