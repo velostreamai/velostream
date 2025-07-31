@@ -214,6 +214,16 @@ enum TokenType {
     LessThanOrEqual,    // <=
     GreaterThanOrEqual, // >=
     
+    // JOIN Keywords
+    Join,        // JOIN
+    Inner,       // INNER
+    Left,        // LEFT
+    Right,       // RIGHT
+    Full,        // FULL
+    Outer,       // OUTER
+    On,          // ON
+    Within,      // WITHIN
+    
     // Special
     Eof,         // End of input
 }
@@ -293,6 +303,14 @@ impl StreamingSqlParser {
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
+        keywords.insert("JOIN".to_string(), TokenType::Join);
+        keywords.insert("INNER".to_string(), TokenType::Inner);
+        keywords.insert("LEFT".to_string(), TokenType::Left);
+        keywords.insert("RIGHT".to_string(), TokenType::Right);
+        keywords.insert("FULL".to_string(), TokenType::Full);
+        keywords.insert("OUTER".to_string(), TokenType::Outer);
+        keywords.insert("ON".to_string(), TokenType::On);
+        keywords.insert("WITHIN".to_string(), TokenType::Within);
 
         Self { keywords }
     }
@@ -653,6 +671,9 @@ impl TokenParser {
         self.expect(TokenType::From)?;
         let from_stream = self.expect(TokenType::Identifier)?.value;
         
+        // Parse JOIN clauses
+        let joins = self.parse_join_clauses()?;
+        
         let mut where_clause = None;
         if self.current_token().token_type == TokenType::Where {
             self.advance();
@@ -698,7 +719,7 @@ impl TokenParser {
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
-            joins: None, // TODO: Parse JOIN clauses
+            joins,
             where_clause,
             group_by,
             having,
@@ -734,6 +755,145 @@ impl TokenParser {
         }
         
         Ok(fields)
+    }
+
+    fn parse_join_clauses(&mut self) -> Result<Option<Vec<JoinClause>>, SqlError> {
+        let mut joins = Vec::new();
+        
+        while matches!(self.current_token().token_type, TokenType::Join | TokenType::Inner | TokenType::Left | TokenType::Right | TokenType::Full) {
+            let join_clause = self.parse_join_clause()?;
+            joins.push(join_clause);
+        }
+        
+        if joins.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(joins))
+        }
+    }
+
+    fn parse_join_clause(&mut self) -> Result<JoinClause, SqlError> {
+        // Parse JOIN type
+        let join_type = match self.current_token().token_type {
+            TokenType::Join => {
+                self.advance();
+                JoinType::Inner
+            }
+            TokenType::Inner => {
+                self.advance();
+                self.expect(TokenType::Join)?;
+                JoinType::Inner
+            }
+            TokenType::Left => {
+                self.advance();
+                // Optional OUTER keyword
+                if self.current_token().token_type == TokenType::Outer {
+                    self.advance();
+                }
+                self.expect(TokenType::Join)?;
+                JoinType::Left
+            }
+            TokenType::Right => {
+                self.advance();
+                // Optional OUTER keyword
+                if self.current_token().token_type == TokenType::Outer {
+                    self.advance();
+                }
+                self.expect(TokenType::Join)?;
+                JoinType::Right
+            }
+            TokenType::Full => {
+                self.advance();
+                // Optional OUTER keyword
+                if self.current_token().token_type == TokenType::Outer {
+                    self.advance();
+                }
+                self.expect(TokenType::Join)?;
+                JoinType::FullOuter
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected JOIN keyword".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        };
+        
+        // Parse the right side stream/table
+        let right_source = self.expect(TokenType::Identifier)?.value;
+        
+        // Optional alias for the right source
+        let right_alias = if self.current_token().token_type == TokenType::Identifier {
+            Some(self.current_token().value.clone())
+        } else if self.current_token().token_type == TokenType::As {
+            self.advance();
+            Some(self.expect(TokenType::Identifier)?.value)
+        } else {
+            None
+        };
+        
+        if right_alias.is_some() {
+            self.advance();
+        }
+        
+        // Parse ON condition
+        self.expect(TokenType::On)?;
+        let condition = self.parse_expression()?;
+        
+        // Parse optional WITHIN clause for windowed joins
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Within {
+            self.advance();
+            self.expect_keyword("INTERVAL")?;
+            let duration_str = self.parse_duration_token()?;
+            let time_unit = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let unit = self.current_token().value.to_uppercase();
+                    self.advance();
+                    match unit.as_str() {
+                        "MINUTES" | "MINUTE" => TimeUnit::Minute,
+                        "SECONDS" | "SECOND" => TimeUnit::Second,
+                        "HOURS" | "HOUR" => TimeUnit::Hour,
+                        _ => return Err(SqlError::ParseError {
+                            message: format!("Unsupported time unit: {}", unit),
+                            position: Some(self.current_token().position),
+                        })
+                    }
+                }
+                _ => TimeUnit::Second, // Default
+            };
+            
+            // Parse the duration value and convert to Duration
+            let duration_value = duration_str.chars()
+                .take_while(|c| c.is_numeric())
+                .collect::<String>()
+                .parse::<u64>()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid duration value: {}", duration_str),
+                    position: None,
+                })?;
+            
+            // Convert to Duration based on time unit
+            let time_window = match time_unit {
+                TimeUnit::Second => Duration::from_secs(duration_value),
+                TimeUnit::Minute => Duration::from_secs(duration_value * 60),
+                TimeUnit::Hour => Duration::from_secs(duration_value * 3600),
+                _ => Duration::from_secs(duration_value), // Default to seconds
+            };
+            
+            window = Some(JoinWindow {
+                time_window,
+                grace_period: Some(Duration::from_secs(0)), // Default grace period
+            });
+        }
+        
+        Ok(JoinClause {
+            join_type,
+            right_source: StreamSource::Stream(right_source),
+            right_alias,
+            condition,
+            window,
+        })
     }
 
     fn parse_expression(&mut self) -> Result<Expr, SqlError> {

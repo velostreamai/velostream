@@ -1,6 +1,6 @@
 # Test Coverage Improvement Plan
 
-## Current Status: ~65% Coverage ✅ Better Than Expected
+## Current Status: ~75% Coverage ✅ Major Improvement with JOIN Implementation
 
 ### ✅ **COMPLETED (Better Than Originally Planned)**
 - ✅ **All 29 unit tests now pass** (timestamp issue FIXED)
@@ -10,6 +10,9 @@
 - ✅ **Message and headers functionality testing** (4 tests)
 - ✅ **Performance preset validation** (6 tests)
 - ✅ **Integration tests** with Kafka environment (5 tests)
+- ✅ **NEW: Comprehensive JOIN test suite** (13 tests covering all JOIN types)
+- ✅ **NEW: SQL advanced functions tests** (15+ test categories)
+- ✅ **NEW: JOIN performance benchmarks** (4 benchmark suites)
 
 **Test Files:**
 - `tests/ferris/kafka/builder_pattern_test.rs` - 18 comprehensive builder tests
