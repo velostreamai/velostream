@@ -1,5 +1,5 @@
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
 use ferrisstreams::ferris::kafka::Headers;
+use ferrisstreams::{JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -92,12 +92,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(key) = message.key() {
                     println!("   🔑 Key: {}", key);
                 }
-                
+
                 // Demonstrate type safety - we get a User struct directly!
                 let user = message.value();
-                println!("   📧 Email domain: {}", 
-                    user.email.split('@').nth(1).unwrap_or("unknown"));
-                
+                println!(
+                    "   📧 Email domain: {}",
+                    user.email.split('@').nth(1).unwrap_or("unknown")
+                );
+
                 received_count += 1;
             }
             Err(e) => {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Common configuration fields shared between producer and consumer
-/// 
+///
 /// This struct contains all the configuration fields that are identical
 /// between KafkaProducer and KafkaConsumer configurations, eliminating
 /// duplication and ensuring consistency.
@@ -105,10 +105,10 @@ impl CommonKafkaConfig {
 pub trait HasCommonConfig {
     /// Get a reference to the common configuration
     fn common_config(&self) -> &CommonKafkaConfig;
-    
+
     /// Get a mutable reference to the common configuration
     fn common_config_mut(&mut self) -> &mut CommonKafkaConfig;
-    
+
     /// Apply common configuration from another config
     fn apply_common_config(&mut self, common: CommonKafkaConfig) {
         *self.common_config_mut() = common;
@@ -143,13 +143,16 @@ mod tests {
         assert_eq!(config.request_timeout, Duration::from_secs(45));
         assert_eq!(config.retry_backoff, Duration::from_millis(200));
         assert_eq!(config.custom_config.len(), 2);
-        assert_eq!(config.custom_config.get("security.protocol"), Some(&"SSL".to_string()));
+        assert_eq!(
+            config.custom_config.get("security.protocol"),
+            Some(&"SSL".to_string())
+        );
     }
 
     #[test]
     fn test_presets() {
         let mut config = CommonKafkaConfig::default();
-        
+
         config.apply_development_preset();
         assert_eq!(config.request_timeout, Duration::from_secs(10));
         assert_eq!(config.retry_backoff, Duration::from_millis(50));

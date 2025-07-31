@@ -5,7 +5,6 @@
 // Note: Run these with `cargo test --example performance_test_name`
 // Or use the performance test scripts in scripts/
 
-
 #[test]
 fn test_json_performance() {
     // Placeholder - actual test is in examples/performance/json_perf_test

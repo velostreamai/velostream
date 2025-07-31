@@ -52,7 +52,10 @@ impl Schema {
     }
 
     pub fn field_names(&self) -> Vec<&str> {
-        self.fields.iter().map(|field| field.name.as_str()).collect()
+        self.fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect()
     }
 
     pub fn validate_record(&self, record: &HashMap<String, serde_json::Value>) -> bool {

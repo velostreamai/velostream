@@ -23,17 +23,17 @@ can be defined in .sql files with multiple statements and metadata.
 -- Dependencies: kafka-orders, kafka-users, kafka-products
 
 -- Create base streams
-CREATE STREAM raw_orders AS 
+CREATE STREAM raw_orders AS
 SELECT * FROM orders_topic;
 
 CREATE STREAM raw_users AS
 SELECT * FROM users_topic;
 
--- Create enriched data streams  
+-- Create enriched data streams
 CREATE STREAM enriched_orders AS
-SELECT 
+SELECT
     o.order_id,
-    o.customer_id, 
+    o.customer_id,
     o.amount,
     u.user_name,
     u.user_tier
@@ -45,8 +45,8 @@ START JOB high_value_orders AS
 SELECT * FROM enriched_orders WHERE amount > 1000
 WITH ('replicas' = '3');
 
-START JOB user_analytics AS  
-SELECT 
+START JOB user_analytics AS
+SELECT
     customer_id,
     COUNT(*) as order_count,
     SUM(amount) as total_spent
@@ -56,10 +56,10 @@ WINDOW TUMBLING(1h);
 ```
 */
 
-use crate::ferris::sql::{StreamingSqlParser, StreamingQuery, SqlError};
-use std::collections::HashMap;
+use crate::ferris::sql::{SqlError, StreamingQuery, StreamingSqlParser};
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Represents a complete SQL application with metadata and multiple statements
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +97,7 @@ pub struct SqlStatement {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum StatementType {
     CreateStream,
-    CreateTable, 
+    CreateTable,
     StartJob,
     DeployJob,
     Select,
@@ -136,25 +136,25 @@ impl SqlApplicationParser {
             sql_parser: StreamingSqlParser::new(),
         }
     }
-    
+
     /// Parse a SQL application from file content
     pub fn parse_application(&self, content: &str) -> Result<SqlApplication, SqlError> {
         let mut metadata = self.extract_metadata(content)?;
         let statements = self.parse_statements(content)?;
         let resources = self.extract_resources(&statements);
-        
+
         // Set created timestamp if not specified
         if metadata.created_at == DateTime::<Utc>::MIN_UTC {
             metadata.created_at = Utc::now();
         }
-        
+
         Ok(SqlApplication {
             metadata,
             statements,
             resources,
         })
     }
-    
+
     /// Extract metadata from SQL comments
     fn extract_metadata(&self, content: &str) -> Result<ApplicationMetadata, SqlError> {
         let mut name = String::new();
@@ -163,7 +163,7 @@ impl SqlApplicationParser {
         let mut author = None;
         let mut dependencies = Vec::new();
         let mut tags = HashMap::new();
-        
+
         for line in content.lines() {
             let line = line.trim();
             if line.starts_with("-- SQL Application:") {
@@ -177,7 +177,8 @@ impl SqlApplicationParser {
             } else if line.starts_with("-- Dependencies:") {
                 let deps_str = line.replace("-- Dependencies:", "");
                 let deps_str = deps_str.trim();
-                dependencies = deps_str.split(',')
+                dependencies = deps_str
+                    .split(',')
                     .map(|d| d.trim().to_string())
                     .filter(|d| !d.is_empty())
                     .collect();
@@ -189,18 +190,19 @@ impl SqlApplicationParser {
                 }
             }
         }
-        
+
         if name.is_empty() {
             return Err(SqlError::ParseError {
-                message: "SQL Application must have a name (-- SQL Application: <name>)".to_string(),
+                message: "SQL Application must have a name (-- SQL Application: <name>)"
+                    .to_string(),
                 position: None,
             });
         }
-        
+
         if version.is_empty() {
             version = "1.0.0".to_string();
         }
-        
+
         Ok(ApplicationMetadata {
             name,
             version,
@@ -211,7 +213,7 @@ impl SqlApplicationParser {
             tags,
         })
     }
-    
+
     /// Parse individual SQL statements
     fn parse_statements(&self, content: &str) -> Result<Vec<SqlStatement>, SqlError> {
         let mut statements = Vec::new();
@@ -219,26 +221,27 @@ impl SqlApplicationParser {
         let mut statement_counter = 0;
         let mut current_name = None;
         let mut current_properties = HashMap::new();
-        
+
         for line in content.lines() {
             let trimmed = line.trim();
-            
+
             // Skip metadata comments
-            if trimmed.starts_with("-- SQL Application:") ||
-               trimmed.starts_with("-- Version:") ||
-               trimmed.starts_with("-- Description:") ||
-               trimmed.starts_with("-- Author:") ||
-               trimmed.starts_with("-- Dependencies:") ||
-               trimmed.starts_with("-- Tag:") {
+            if trimmed.starts_with("-- SQL Application:")
+                || trimmed.starts_with("-- Version:")
+                || trimmed.starts_with("-- Description:")
+                || trimmed.starts_with("-- Author:")
+                || trimmed.starts_with("-- Dependencies:")
+                || trimmed.starts_with("-- Tag:")
+            {
                 continue;
             }
-            
+
             // Extract statement name from comments
             if trimmed.starts_with("-- Name:") {
                 current_name = Some(trimmed.replace("-- Name:", "").trim().to_string());
                 continue;
             }
-            
+
             // Extract statement properties
             if trimmed.starts_with("-- Property:") {
                 let prop_str = trimmed.replace("-- Property:", "");
@@ -248,29 +251,33 @@ impl SqlApplicationParser {
                 }
                 continue;
             }
-            
+
             // Skip empty lines and regular comments
-            if trimmed.is_empty() || (trimmed.starts_with("--") && !trimmed.starts_with("-- Name:") && !trimmed.starts_with("-- Property:")) {
+            if trimmed.is_empty()
+                || (trimmed.starts_with("--")
+                    && !trimmed.starts_with("-- Name:")
+                    && !trimmed.starts_with("-- Property:"))
+            {
                 if !current_statement.trim().is_empty() {
                     current_statement.push('\n');
                 }
                 continue;
             }
-            
+
             current_statement.push_str(line);
             current_statement.push('\n');
-            
+
             // Check if statement is complete (ends with semicolon)
             if trimmed.ends_with(';') {
                 let sql = current_statement.trim().trim_end_matches(';').to_string();
-                
+
                 if !sql.is_empty() {
                     // Parse the SQL statement for type determination
                     let parsed_query = self.sql_parser.parse(&sql).ok();
-                    
+
                     let statement_type = self.determine_statement_type(&sql, &parsed_query);
                     let dependencies = self.extract_dependencies(&sql);
-                    
+
                     statements.push(SqlStatement {
                         id: format!("stmt_{}", statement_counter),
                         name: current_name.take(),
@@ -280,22 +287,22 @@ impl SqlApplicationParser {
                         order: statement_counter,
                         properties: current_properties.clone(),
                     });
-                    
+
                     statement_counter += 1;
                     current_properties.clear();
                 }
-                
+
                 current_statement.clear();
             }
         }
-        
+
         // Handle any remaining statement without semicolon
         if !current_statement.trim().is_empty() {
             let sql = current_statement.trim().to_string();
             let parsed_query = self.sql_parser.parse(&sql).ok();
             let statement_type = self.determine_statement_type(&sql, &parsed_query);
             let dependencies = self.extract_dependencies(&sql);
-            
+
             statements.push(SqlStatement {
                 id: format!("stmt_{}", statement_counter),
                 name: current_name,
@@ -306,12 +313,16 @@ impl SqlApplicationParser {
                 properties: current_properties,
             });
         }
-        
+
         Ok(statements)
     }
-    
+
     /// Determine the type of SQL statement
-    fn determine_statement_type(&self, sql: &str, parsed_query: &Option<StreamingQuery>) -> StatementType {
+    fn determine_statement_type(
+        &self,
+        sql: &str,
+        parsed_query: &Option<StreamingQuery>,
+    ) -> StatementType {
         if let Some(query) = parsed_query {
             match query {
                 StreamingQuery::CreateStream { .. } => StatementType::CreateStream,
@@ -342,43 +353,43 @@ impl SqlApplicationParser {
             }
         }
     }
-    
+
     /// Extract dependencies from SQL statement
     fn extract_dependencies(&self, sql: &str) -> Vec<String> {
         let mut dependencies = Vec::new();
-        
+
         // Basic dependency extraction from SQL text
         // This is a simplified implementation - could be enhanced with proper AST analysis
         let words: Vec<&str> = sql.split_whitespace().collect();
         let mut i = 0;
-        
+
         while i < words.len() {
             let word = words[i].to_uppercase();
-            
+
             // Look for FROM clauses
             if word == "FROM" && i + 1 < words.len() {
                 let table_name = words[i + 1].trim_end_matches(',').trim_end_matches(';');
                 dependencies.push(table_name.to_string());
             }
-            
+
             // Look for JOIN clauses
             if word == "JOIN" && i + 1 < words.len() {
                 let table_name = words[i + 1].trim_end_matches(',').trim_end_matches(';');
                 dependencies.push(table_name.to_string());
             }
-            
+
             i += 1;
         }
-        
+
         dependencies.sort();
         dependencies.dedup();
         dependencies
     }
-    
+
     /// Extract resources created by the application
     fn extract_resources(&self, statements: &[SqlStatement]) -> ApplicationResources {
         let mut resources = ApplicationResources::default();
-        
+
         for stmt in statements {
             match stmt.statement_type {
                 StatementType::CreateStream => {
@@ -399,10 +410,10 @@ impl SqlApplicationParser {
                 _ => {}
             }
         }
-        
+
         resources
     }
-    
+
     /// Extract name from CREATE statements
     fn extract_create_name(&self, sql: &str, create_type: &str) -> Option<String> {
         let pattern = format!("CREATE {} ", create_type);
@@ -415,11 +426,11 @@ impl SqlApplicationParser {
         }
         None
     }
-    
+
     /// Extract job name from START JOB or DEPLOY JOB statements
     fn extract_job_name(&self, sql: &str) -> Option<String> {
         let upper_sql = sql.to_uppercase();
-        
+
         if let Some(start) = upper_sql.find("START JOB ") {
             let after_start = &sql[start + 10..];
             let words: Vec<&str> = after_start.split_whitespace().collect();
@@ -427,7 +438,7 @@ impl SqlApplicationParser {
                 return Some(words[0].to_string());
             }
         }
-        
+
         if let Some(start) = upper_sql.find("DEPLOY JOB ") {
             let after_deploy = &sql[start + 11..];
             let words: Vec<&str> = after_deploy.split_whitespace().collect();
@@ -435,7 +446,7 @@ impl SqlApplicationParser {
                 return Some(words[0].to_string());
             }
         }
-        
+
         None
     }
 }

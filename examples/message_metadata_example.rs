@@ -1,4 +1,4 @@
-use ferrisstreams::{KafkaConsumer, JsonSerializer};
+use ferrisstreams::{JsonSerializer, KafkaConsumer};
 use futures::StreamExt; // Add this import
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -53,14 +53,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .for_each(|result| async move {
             match result {
                 Ok(message) => {
-                    println!("\nProcessing message from partition {}", message.partition());
-                    println!("Offset {} in partition {}", message.offset(), message.partition());
+                    println!(
+                        "\nProcessing message from partition {}",
+                        message.partition()
+                    );
+                    println!(
+                        "Offset {} in partition {}",
+                        message.offset(),
+                        message.partition()
+                    );
 
                     if let Some(ts) = message.timestamp() {
-                        println!("Message from timestamp: {}",
+                        println!(
+                            "Message from timestamp: {}",
                             chrono::DateTime::from_timestamp_millis(ts)
                                 .unwrap()
-                                .format("%Y-%m-%d %H:%M:%S"));
+                                .format("%Y-%m-%d %H:%M:%S")
+                        );
                     }
                 }
                 Err(e) => eprintln!("Error: {}", e),

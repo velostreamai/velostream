@@ -1,14 +1,14 @@
 use crate::ferris::kafka::headers::Headers;
 
 /// A message containing deserialized key, value, and headers
-/// 
+///
 /// This struct represents a complete Kafka message with type-safe access to all components:
 /// - **Key**: Optional deserialized key of type `K`
 /// - **Value**: Deserialized message payload of type `V`
 /// - **Headers**: Message metadata as a `Headers` collection
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```rust,no_run
 /// # use ferrisstreams::{Message, Headers};
 /// # let message = Message::new(Some("key".to_string()), "value".to_string(), Headers::new());
@@ -16,18 +16,18 @@ use crate::ferris::kafka::headers::Headers;
 /// println!("Key: {:?}", message.key());
 /// println!("Value: {}", message.value());
 /// println!("Headers: {:?}", message.headers());
-/// 
+///
 /// // Check for specific headers
 /// if let Some(source) = message.headers().get("source") {
 ///     println!("Message originated from: {}", source);
 /// }
-/// 
+///
 /// // Consume the message (take ownership)
 /// let (key, value, headers) = message.into_parts();
 /// // Now you own the key, value, and headers
 /// ```
-/// 
-/// See the [consumer with headers example](https://github.com/your-repo/examples/consumer_with_headers.rs) 
+///
+/// See the [consumer with headers example](https://github.com/your-repo/examples/consumer_with_headers.rs)
 /// for a comprehensive demonstration.
 #[derive(Debug)]
 pub struct Message<K, V> {
@@ -41,11 +41,18 @@ pub struct Message<K, V> {
 
 impl<K, V> Message<K, V> {
     /// Creates a new message with the given key, value, headers and partition
-    pub fn new(key: Option<K>, value: V, headers: Headers, partition: i32, offset: i64, timestamp: Option<i64>) -> Self {
-        Self { 
-            key, 
-            value, 
-            headers, 
+    pub fn new(
+        key: Option<K>,
+        value: V,
+        headers: Headers,
+        partition: i32,
+        offset: i64,
+        timestamp: Option<i64>,
+    ) -> Self {
+        Self {
+            key,
+            value,
+            headers,
             partition,
             offset,
             timestamp,
@@ -142,7 +149,14 @@ mod tests {
     #[test]
     fn test_message_creation() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
+        let message = Message::new(
+            Some("key".to_string()),
+            "value".to_string(),
+            headers,
+            0,
+            42,
+            Some(1633046400000),
+        );
 
         assert_eq!(message.key(), Some(&"key".to_string()));
         assert_eq!(message.value(), &"value".to_string());
@@ -150,13 +164,23 @@ mod tests {
         assert_eq!(message.partition(), 0);
         assert_eq!(message.offset(), 42);
         assert_eq!(message.timestamp(), Some(1633046400000));
-        assert_eq!(message.timestamp_string(), Some("2021-10-01 00:00:00.000".to_string()));
+        assert_eq!(
+            message.timestamp_string(),
+            Some("2021-10-01 00:00:00.000".to_string())
+        );
     }
 
     #[test]
     fn test_message_consumption() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
+        let message = Message::new(
+            Some("key".to_string()),
+            "value".to_string(),
+            headers,
+            0,
+            42,
+            Some(1633046400000),
+        );
 
         let (key, value, headers) = message.into_parts();
         assert_eq!(key, Some("key".to_string()));
@@ -167,7 +191,14 @@ mod tests {
     #[test]
     fn test_message_selective_consumption() {
         let headers = Headers::new().insert("source", "test");
-        let message = Message::new(Some("key".to_string()), "value".to_string(), headers, 0, 42, Some(1633046400000));
+        let message = Message::new(
+            Some("key".to_string()),
+            "value".to_string(),
+            headers,
+            0,
+            42,
+            Some(1633046400000),
+        );
 
         let value = message.into_value();
         assert_eq!(value, "value".to_string());

@@ -24,21 +24,21 @@
 //! - PAYLOAD_SIZE: Size of raw byte payload
 //! - CONCURRENT_PRODUCERS: Number of concurrent producers
 
-use ferrisstreams::{ProducerBuilder, KafkaConsumer, Headers, KafkaAdminClient};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
+use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
+use ferrisstreams::{Headers, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 
 use futures::StreamExt;
-use std::time::{Duration, Instant};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
 
 // Performance test configuration
-const MESSAGE_COUNT: u64 = 50_000;  // Higher count for raw performance
+const MESSAGE_COUNT: u64 = 50_000; // Higher count for raw performance
 const BATCH_SIZE: u32 = 131072; // 128KB batches for maximum throughput
 const CONCURRENT_PRODUCERS: usize = 4;
 const CONSUMER_TIMEOUT: Duration = Duration::from_secs(60);
@@ -46,10 +46,10 @@ const CONSUMER_TIMEOUT: Duration = Duration::from_secs(60);
 // Message size variants for testing different scenarios
 #[derive(Debug, Clone, Copy)]
 enum PayloadSize {
-    Tiny,    // 64 bytes
-    Small,   // 512 bytes
-    Medium,  // 4KB  
-    Large,   // 32KB
+    Tiny,   // 64 bytes
+    Small,  // 512 bytes
+    Medium, // 4KB
+    Large,  // 32KB
 }
 
 impl PayloadSize {
@@ -96,12 +96,14 @@ impl RawPerformanceMetrics {
 
     fn record_send(&self, message_size: usize) {
         self.messages_sent.fetch_add(1, Ordering::Relaxed);
-        self.bytes_sent.fetch_add(message_size as u64, Ordering::Relaxed);
+        self.bytes_sent
+            .fetch_add(message_size as u64, Ordering::Relaxed);
     }
 
     fn record_receive(&self, message_size: usize) {
         self.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.bytes_received.fetch_add(message_size as u64, Ordering::Relaxed);
+        self.bytes_received
+            .fetch_add(message_size as u64, Ordering::Relaxed);
     }
 
     fn record_error(&self) {
@@ -144,7 +146,7 @@ struct RawThroughputStats {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     println!("🔥 Raw Bytes Performance Testing Suite");
     println!("=====================================");
     println!("Messages: {}", MESSAGE_COUNT);
@@ -169,7 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(stats) => print_raw_performance_results(&stats, scenario_name),
             Err(e) => println!("❌ Test failed: {}", e),
         }
-        
+
         println!();
         // Brief pause between tests
         sleep(Duration::from_secs(2)).await;
@@ -179,10 +181,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroughputStats, Box<dyn std::error::Error>> {
+async fn run_raw_performance_test(
+    payload_size: PayloadSize,
+) -> Result<RawThroughputStats, Box<dyn std::error::Error>> {
     let topic = format!("raw-perf-test-{}", chrono::Utc::now().timestamp_millis());
     let metrics = Arc::new(RawPerformanceMetrics::new());
-    
+
     // Create admin client and topic with 3 partitions
     println!("🔧 Creating raw topic '{}' with 3 partitions...", topic);
     let admin_client = KafkaAdminClient::new("localhost:9092")?;
@@ -195,11 +199,11 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
     // Create high-throughput producer configuration using FerrisStreams
     let producer_config = ProducerConfig::new("localhost:9092", &topic)
         .client_id("raw-perf-producer")
-        .compression(CompressionType::Lz4)  // Fast compression
-        .acks(AckMode::Leader)  // Balance between throughput and durability
-        .batching(BATCH_SIZE, Duration::from_millis(5))  // Small linger for throughput
+        .compression(CompressionType::Lz4) // Fast compression
+        .acks(AckMode::Leader) // Balance between throughput and durability
+        .batching(BATCH_SIZE, Duration::from_millis(5)) // Small linger for throughput
         .retries(3, Duration::from_millis(100))
-        .high_throughput();  // Apply high-throughput preset with consolidated settings
+        .high_throughput(); // Apply high-throughput preset with consolidated settings
 
     let key_serializer = StringSerializer;
     let value_serializer = BytesSerializer;
@@ -207,16 +211,17 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
         producer_config,
         key_serializer.clone(),
         value_serializer.clone(),
-    ).build()?;
+    )
+    .build()?;
 
     // Create high-throughput consumer
     let consumer_config = ConsumerConfig::new("localhost:9092", "raw-perf-group")
         .client_id("raw-perf-consumer")
         .auto_offset_reset(OffsetReset::Earliest)
-        .max_poll_records(1000)  // Process many messages per poll
-        .fetch_min_bytes(50000)   // Wait for reasonable batch size
+        .max_poll_records(1000) // Process many messages per poll
+        .fetch_min_bytes(50000) // Wait for reasonable batch size
         .fetch_max_wait(Duration::from_millis(100))
-        .high_throughput();  // Apply high-throughput preset with consolidated settings
+        .high_throughput(); // Apply high-throughput preset with consolidated settings
 
     let consumer = KafkaConsumer::<String, Vec<u8>, _, _>::with_config(
         consumer_config,
@@ -234,7 +239,8 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
         tokio::pin!(timeout_future);
 
         // Use stream instead of polling for better performance
-        let stream_future = consumer.stream()
+        let stream_future = consumer
+            .stream()
             .take(MESSAGE_COUNT as usize) // Limit to expected message count
             .for_each(|message_result| {
                 let metrics = consumer_metrics.clone();
@@ -247,13 +253,17 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
                             metrics.record_receive(payload_size);
 
                             // Log progress every 5000 messages
-                            let count = metrics.messages_received.fetch_add(1, Ordering::Relaxed) + 1;
+                            let count =
+                                metrics.messages_received.fetch_add(1, Ordering::Relaxed) + 1;
                             if count % 5000 == 0 {
                                 let stats = metrics.get_throughput_stats();
-                                println!("🔥 Raw Progress: {}/{} msgs ({:.1} msg/s, {:.1} MB/s)",
-                                    count, MESSAGE_COUNT,
+                                println!(
+                                    "🔥 Raw Progress: {}/{} msgs ({:.1} msg/s, {:.1} MB/s)",
+                                    count,
+                                    MESSAGE_COUNT,
                                     stats.messages_per_second_received,
-                                    stats.mbps_received);
+                                    stats.mbps_received
+                                );
                             }
                         }
                         Err(e) => {
@@ -273,8 +283,10 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
             }
         }
 
-        println!("🔥 Raw consumer processed {} messages", 
-            consumer_metrics.messages_received.load(Ordering::Relaxed));
+        println!(
+            "🔥 Raw consumer processed {} messages",
+            consumer_metrics.messages_received.load(Ordering::Relaxed)
+        );
     });
 
     // Start producer tasks
@@ -298,11 +310,11 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
 
         let task = tokio::spawn(async move {
             let _permit = sem.acquire().await.unwrap();
-            
+
             for i in 0..messages_per_producer {
                 let message_id = (producer_id as u64 * messages_per_producer) + i;
                 let key = format!("raw-key-{}", message_id);
-                
+
                 // Create headers using FerrisStreams Headers
                 let headers = Headers::new()
                     .insert("test-type", "raw-performance")
@@ -311,7 +323,10 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
                     .insert("payload-size", &payload_size_bytes.to_string());
 
                 // Send raw bytes directly using FerrisStreams producer
-                match producer_clone.send(Some(&key), &payload_clone, headers, None).await {
+                match producer_clone
+                    .send(Some(&key), &payload_clone, headers, None)
+                    .await
+                {
                     Ok(_) => {
                         producer_metrics.record_send(payload_size_bytes);
                     }
@@ -326,11 +341,13 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
                     tokio::task::yield_now().await;
                 }
             }
-            
-            println!("🔥 Raw producer {} completed sending {} messages", 
-                producer_id, messages_per_producer);
+
+            println!(
+                "🔥 Raw producer {} completed sending {} messages",
+                producer_id, messages_per_producer
+            );
         });
-        
+
         producer_tasks.push(task);
     }
 
@@ -349,18 +366,27 @@ async fn run_raw_performance_test(payload_size: PayloadSize) -> Result<RawThroug
 
 fn print_raw_performance_results(stats: &RawThroughputStats, scenario: &str) {
     println!("🔥 {} Raw Results:", scenario);
-    println!("   Messages Sent:     {:8} ({:.1} msg/s)", stats.total_sent, stats.messages_per_second_sent);
-    println!("   Messages Received: {:8} ({:.1} msg/s)", stats.total_received, stats.messages_per_second_received);
+    println!(
+        "   Messages Sent:     {:8} ({:.1} msg/s)",
+        stats.total_sent, stats.messages_per_second_sent
+    );
+    println!(
+        "   Messages Received: {:8} ({:.1} msg/s)",
+        stats.total_received, stats.messages_per_second_received
+    );
     println!("   Throughput (Send): {:8.2} MB/s", stats.mbps_sent);
     println!("   Throughput (Recv): {:8.2} MB/s", stats.mbps_received);
     println!("   Errors:            {:8}", stats.total_errors);
-    println!("   Duration:          {:8.1} seconds", stats.elapsed_seconds);
-    
+    println!(
+        "   Duration:          {:8.1} seconds",
+        stats.elapsed_seconds
+    );
+
     if stats.total_received > 0 {
         let success_rate = (stats.total_received as f64 / stats.total_sent as f64) * 100.0;
         println!("   Success Rate:      {:8.1}%", success_rate);
     }
-    
+
     // Performance rating for raw bytes (higher expectations)
     let rating = if stats.messages_per_second_sent > 20000.0 {
         "🚀 Blazing Fast"
@@ -374,8 +400,11 @@ fn print_raw_performance_results(stats: &RawThroughputStats, scenario: &str) {
         "🐌 Needs Optimization"
     };
     println!("   Raw Performance:   {}", rating);
-    
+
     // Bandwidth utilization estimate
     let estimated_bandwidth_mbps = stats.mbps_sent + stats.mbps_received;
-    println!("   Est. Bandwidth:    {:8.1} MB/s total", estimated_bandwidth_mbps);
+    println!(
+        "   Est. Bandwidth:    {:8.1} MB/s total",
+        estimated_bandwidth_mbps
+    );
 }

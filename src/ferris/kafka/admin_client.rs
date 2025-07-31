@@ -6,8 +6,8 @@
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Admin client for managing Kafka topics
 pub struct KafkaAdminClient {
@@ -87,7 +87,8 @@ impl KafkaAdminClient {
         config.insert("max.message.bytes".to_string(), "67108864".to_string()); // 64MB
         config.insert("min.insync.replicas".to_string(), "1".to_string());
 
-        self.create_topic(topic_name, partitions, Some(1), Some(config)).await
+        self.create_topic(topic_name, partitions, Some(1), Some(config))
+            .await
     }
 
     /// Delete a topic (useful for cleanup)
@@ -118,16 +119,24 @@ impl KafkaAdminClient {
 
     /// Check if a topic exists
     pub async fn topic_exists(&self, topic_name: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let metadata = self.admin
+        let metadata = self
+            .admin
             .inner()
             .fetch_metadata(Some(topic_name), Duration::from_secs(10))?;
 
-        Ok(metadata.topics().iter().any(|topic| topic.name() == topic_name))
+        Ok(metadata
+            .topics()
+            .iter()
+            .any(|topic| topic.name() == topic_name))
     }
 
     /// Get topic partition count
-    pub async fn get_partition_count(&self, topic_name: &str) -> Result<i32, Box<dyn std::error::Error>> {
-        let metadata = self.admin
+    pub async fn get_partition_count(
+        &self,
+        topic_name: &str,
+    ) -> Result<i32, Box<dyn std::error::Error>> {
+        let metadata = self
+            .admin
             .inner()
             .fetch_metadata(Some(topic_name), Duration::from_secs(10))?;
 

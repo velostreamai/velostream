@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
 #[cfg(feature = "protobuf")]
@@ -6,11 +6,8 @@ use prost::Message;
 
 #[cfg(feature = "avro")]
 use apache_avro::{
+    Error as AvroError, Schema as AvroSchema, from_avro_datum, to_avro_datum,
     types::Value as AvroValue,
-    Schema as AvroSchema,
-    from_avro_datum,
-    to_avro_datum,
-    Error as AvroError
 };
 
 /// Trait for objects that can be serialized to bytes for Kafka messages
@@ -29,7 +26,7 @@ pub trait KafkaDeserialize<T> {
 pub trait Serializer<T> {
     /// Serialize an object to bytes
     fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
-    
+
     /// Deserialize bytes to an object
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
 }
@@ -42,14 +39,14 @@ pub enum SerializationError {
 
     #[error("Protocol Buffers error: {0}")]
     ProtoBuf(String),
-    
+
     #[cfg(feature = "avro")]
     #[error("Avro serialization error: {0}")]
     Avro(#[from] AvroError),
 
     #[error("Schema error: {0}")]
     Schema(String),
-    
+
     #[error("Feature not enabled: {0}")]
     FeatureNotEnabled(String),
 }
@@ -77,14 +74,14 @@ impl<T: Serialize> KafkaSerialize for T {
 /// JSON serializer implementation
 pub struct JsonSerializer;
 
-impl<T> Serializer<T> for JsonSerializer 
-where 
-    T: Serialize + for<'de> Deserialize<'de>
+impl<T> Serializer<T> for JsonSerializer
+where
+    T: Serialize + for<'de> Deserialize<'de>,
 {
     fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError> {
         to_json(value)
     }
-    
+
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError> {
         from_json(bytes)
     }
@@ -121,7 +118,7 @@ pub fn from_avro(_bytes: &[u8], _schema: &()) -> Result<(), SerializationError> 
 #[cfg(feature = "avro")]
 /// Avro serializer implementation
 pub struct AvroSerializer {
-    schema: AvroSchema
+    schema: AvroSchema,
 }
 
 #[cfg(feature = "avro")]
@@ -136,7 +133,7 @@ impl Serializer<AvroValue> for AvroSerializer {
     fn serialize(&self, value: &AvroValue) -> Result<Vec<u8>, SerializationError> {
         to_avro(value, &self.schema)
     }
-    
+
     fn deserialize(&self, bytes: &[u8]) -> Result<AvroValue, SerializationError> {
         from_avro(bytes, &self.schema)
     }
@@ -167,13 +164,17 @@ pub fn from_proto<T: Message + Default>(bytes: &[u8]) -> Result<T, Serialization
 #[cfg(not(feature = "protobuf"))]
 /// Placeholder when Protocol Buffers feature is not enabled
 pub fn to_proto<T>(_message: &T) -> Result<Vec<u8>, SerializationError> {
-    Err(SerializationError::FeatureNotEnabled("protobuf".to_string()))
+    Err(SerializationError::FeatureNotEnabled(
+        "protobuf".to_string(),
+    ))
 }
 
 #[cfg(not(feature = "protobuf"))]
 /// Placeholder when Protocol Buffers feature is not enabled
 pub fn from_proto<T>(_bytes: &[u8]) -> Result<T, SerializationError> {
-    Err(SerializationError::FeatureNotEnabled("protobuf".to_string()))
+    Err(SerializationError::FeatureNotEnabled(
+        "protobuf".to_string(),
+    ))
 }
 
 #[cfg(feature = "protobuf")]
@@ -192,7 +193,7 @@ impl<T: Message + Default> Serializer<T> for ProtoSerializer<T> {
     fn serialize(&self, message: &T) -> Result<Vec<u8>, SerializationError> {
         to_proto(message)
     }
-    
+
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError> {
         from_proto(bytes)
     }

@@ -2,13 +2,13 @@ use rdkafka::message::Headers as KafkaHeaders;
 use std::collections::HashMap;
 
 /// Custom headers type that provides a clean API for Kafka message headers
-/// 
+///
 /// `Headers` wraps a `HashMap<String, Option<String>>` to provide an ergonomic interface
 /// for working with Kafka message headers. It supports both valued headers and null headers,
 /// and provides builder-pattern methods for easy construction.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Creating Headers
 /// ```rust
 /// # use ferrisstreams::Headers;
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 ///     .insert("trace-id", "abc-123-def")
 ///     .insert_null("optional-field");
 /// ```
-/// 
+///
 /// ## Querying Headers
 /// ```rust
 /// # use ferrisstreams::Headers;
@@ -27,12 +27,12 @@ use std::collections::HashMap;
 /// if let Some(source) = headers.get("source") {
 ///     println!("Source: {}", source);
 /// }
-/// 
+///
 /// // Check if header exists
 /// if headers.contains_key("source") {
 ///     println!("Has source header");
 /// }
-/// 
+///
 /// // Iterate over all headers
 /// for (key, value) in headers.iter() {
 ///     match value {
@@ -41,14 +41,14 @@ use std::collections::HashMap;
 ///     }
 /// }
 /// ```
-/// 
+///
 /// ## Integration with Messages
 /// ```rust,no_run
 /// # use ferrisstreams::{KafkaConsumer, JsonSerializer, Headers};
 /// # use std::time::Duration;
 /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
 /// let message = consumer.poll_message(Duration::from_secs(5)).await?;
-/// 
+///
 /// // Access message headers
 /// let headers = message.headers();
 /// if let Some(event_type) = headers.get("event-type") {
@@ -127,7 +127,7 @@ impl Headers {
     /// Converts to rdkafka OwnedHeaders for internal use
     pub(crate) fn to_rdkafka_headers(&self) -> rdkafka::message::OwnedHeaders {
         let mut headers = rdkafka::message::OwnedHeaders::new_with_capacity(self.inner.len());
-        
+
         for (key, value) in &self.inner {
             let header = rdkafka::message::Header {
                 key,
@@ -135,14 +135,14 @@ impl Headers {
             };
             headers = headers.insert(header);
         }
-        
+
         headers
     }
 
     /// Creates Headers from rdkafka headers
     pub(crate) fn from_rdkafka_headers<H: KafkaHeaders>(kafka_headers: &H) -> Self {
         let mut headers = HashMap::with_capacity(kafka_headers.count());
-        
+
         for i in 0..kafka_headers.count() {
             let header = kafka_headers.get(i);
             let key = header.key.to_string();
@@ -152,7 +152,7 @@ impl Headers {
             });
             headers.insert(key, value);
         }
-        
+
         Self { inner: headers }
     }
 }
@@ -167,7 +167,7 @@ impl Default for Headers {
 mod tests {
     use super::*;
 
-    #[test] 
+    #[test]
     fn test_headers_creation() {
         let headers = Headers::new()
             .insert("source", "test")

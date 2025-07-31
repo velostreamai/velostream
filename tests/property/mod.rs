@@ -16,7 +16,7 @@ fn placeholder_property_test() {
     // 2. Generate random message data and verify serialization roundtrips
     // 3. Generate random header data and verify preservation
     // 4. Test system behavior under random loads
-    
+
     println!("Property-based tests not yet implemented");
     println!("Future implementation will use quickcheck or proptest");
 }

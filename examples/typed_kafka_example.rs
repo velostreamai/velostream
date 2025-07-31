@@ -29,10 +29,8 @@
 //! - `headers_example.rs` - Working with message headers
 //! - `fluent_api_example.rs` - Stream-based processing (recommended for production)
 
-use ferrisstreams::{
-    KafkaProducer, KafkaConsumer, JsonSerializer
-};
 use ferrisstreams::ferris::kafka::Headers;
+use ferrisstreams::{JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time;
@@ -73,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Type-safe producer with automatic serialization
     println!("=== Type-Safe Producer Example ===");
-    
+
     let producer = KafkaProducer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-events",
@@ -82,15 +80,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let order = OrderEvent::new("order-123", "customer-456", 99.99, OrderStatus::Created);
-    
-    match producer.send(Some(&"order-123".to_string()), &order, Headers::new(), None).await {
+
+    match producer
+        .send(Some(&"order-123".to_string()), &order, Headers::new(), None)
+        .await
+    {
         Ok(_delivery) => println!("✅ Order event sent successfully: {:?}", order),
         Err(e) => println!("❌ Failed to send order event: {}", e),
     }
 
     // Example 2: Type-safe consumer with automatic deserialization
     println!("\n=== Type-Safe Consumer Example ===");
-    
+
     let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-processor-group",
@@ -102,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: Processing messages with automatic deserialization
     println!("\n=== Message Processing Example ===");
-    
+
     // Send a few more messages for demonstration
     for i in 1..=3 {
         let order = OrderEvent::new(
@@ -115,8 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => OrderStatus::Shipped,
             },
         );
-        
-        producer.send(Some(&format!("order-{}", i)), &order, Headers::new(), None).await?;
+
+        producer
+            .send(Some(&format!("order-{}", i)), &order, Headers::new(), None)
+            .await?;
         println!("📤 Sent order: {}", order.order_id);
     }
 
@@ -129,21 +132,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 4: Consuming messages with timeout
     println!("\n=== Consuming Messages ===");
-    
+
     let mut processed_count = 0;
     let max_messages = 5;
-    
+
     for _i in 0..max_messages {
         match consumer.poll(Duration::from_secs(2)).await {
             Ok(message) => {
                 let order_event = message.value();
                 let key = message.key();
-                
-                println!("📥 Received order: key={:?}, order_id={}, amount={}, status={:?}", 
-                    key, order_event.order_id, order_event.amount, order_event.status);
-                
+
+                println!(
+                    "📥 Received order: key={:?}, order_id={}, amount={}, status={:?}",
+                    key, order_event.order_id, order_event.amount, order_event.status
+                );
+
                 processed_count += 1;
-                
+
                 // Simulate processing
                 match &order_event.status {
                     OrderStatus::Created => println!("   🔄 Processing new order..."),
@@ -168,7 +173,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\n=== Example Complete ===");
-    println!("Processed {} messages using type-safe Kafka integration", processed_count);
-    
+    println!(
+        "Processed {} messages using type-safe Kafka integration",
+        processed_count
+    );
+
     Ok(())
 }
