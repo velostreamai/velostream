@@ -80,6 +80,7 @@ pub enum StreamingQuery {
     /// 
     /// Supports all standard SQL SELECT features adapted for streaming:
     /// - Field selection (wildcards, expressions, aliases)
+    /// - FROM clause with optional JOINs
     /// - WHERE clause filtering
     /// - GROUP BY aggregations with streaming semantics
     /// - HAVING post-aggregation filtering
@@ -91,6 +92,8 @@ pub enum StreamingQuery {
         fields: Vec<SelectField>,
         /// Source stream or table
         from: StreamSource,
+        /// Optional JOIN clauses
+        joins: Option<Vec<JoinClause>>,
         /// Optional WHERE clause for filtering
         where_clause: Option<Expr>,
         /// Optional GROUP BY expressions for aggregation
@@ -302,6 +305,43 @@ pub enum StreamSource {
     Subquery(Box<StreamingQuery>),
 }
 
+/// JOIN clause specification for stream-stream and stream-table joins
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinClause {
+    /// Type of join (INNER, LEFT, RIGHT, FULL OUTER)
+    pub join_type: JoinType,
+    /// Right side of the join
+    pub right_source: StreamSource,
+    /// Optional alias for the right source
+    pub right_alias: Option<String>,
+    /// JOIN condition (ON clause)
+    pub condition: Expr,
+    /// Optional window specification for windowed joins
+    pub window: Option<JoinWindow>,
+}
+
+/// Types of JOIN operations supported
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    /// INNER JOIN - only matching records from both sides
+    Inner,
+    /// LEFT JOIN - all records from left, matching from right
+    Left,
+    /// RIGHT JOIN - all records from right, matching from left  
+    Right,
+    /// FULL OUTER JOIN - all records from both sides
+    FullOuter,
+}
+
+/// Window specification for stream joins
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinWindow {
+    /// Time window for join matching
+    pub time_window: Duration,
+    /// Grace period for late arrivals
+    pub grace_period: Option<Duration>,
+}
+
 /// Window specifications for streaming
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowSpec {
@@ -456,8 +496,20 @@ pub enum DataType {
     String,
     Boolean,
     Timestamp,
+    /// Array of elements of a specific type
     Array(Box<DataType>),
+    /// Map with key-value pairs of specific types
     Map(Box<DataType>, Box<DataType>),
+    /// Structured type with named fields
+    Struct(Vec<StructField>),
+}
+
+/// Field definition for STRUCT data types
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub data_type: DataType,
+    pub nullable: bool,
 }
 
 impl StreamingQuery {

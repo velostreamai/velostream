@@ -163,9 +163,99 @@ FROM orders
 GROUP BY customer_id;
 ```
 
+### Math Functions
+
+```sql
+-- Absolute value
+SELECT 
+    order_id,
+    ABS(balance_change) as abs_change
+FROM transactions;
+
+-- Rounding functions
+SELECT 
+    order_id,
+    ROUND(amount) as rounded_amount,
+    ROUND(amount, 2) as rounded_to_cents,
+    CEIL(amount) as ceiling_amount,
+    CEILING(amount) as ceiling_alt,
+    FLOOR(amount) as floor_amount
+FROM orders;
+
+-- Modulo and power functions
+SELECT 
+    order_id,
+    MOD(order_id, 10) as last_digit,
+    POWER(quantity, 2) as quantity_squared,
+    POW(discount_rate, 2) as discount_squared,
+    SQRT(area) as side_length
+FROM products;
+```
+
+### String Functions
+
+```sql
+-- String concatenation and length
+SELECT 
+    customer_id,
+    CONCAT('Customer: ', first_name, ' ', last_name) as full_name,
+    LENGTH(description) as desc_length,
+    LEN(product_code) as code_length
+FROM customers;
+
+-- String trimming and case conversion
+SELECT 
+    product_id,
+    TRIM(description) as clean_description,
+    LTRIM(description) as left_trimmed,
+    RTRIM(description) as right_trimmed,
+    UPPER(product_name) as upper_name,
+    LOWER(category) as lower_category
+FROM products;
+
+-- String manipulation
+SELECT 
+    customer_id,
+    REPLACE(phone_number, '-', '') as clean_phone,
+    LEFT(product_code, 3) as category_code,
+    RIGHT(order_id, 4) as order_suffix
+FROM orders;
+```
+
+### Date/Time Functions
+
+```sql
+-- Current timestamp functions
+SELECT 
+    order_id,
+    NOW() as current_time,
+    CURRENT_TIMESTAMP as current_ts
+FROM orders;
+
+-- Date formatting and extraction
+SELECT 
+    order_id,
+    DATE_FORMAT(_timestamp, '%Y-%m-%d') as order_date,
+    DATE_FORMAT(_timestamp, '%Y-%m-%d %H:%M:%S') as order_datetime,
+    EXTRACT('YEAR', _timestamp) as order_year,
+    EXTRACT('MONTH', _timestamp) as order_month,
+    EXTRACT('DAY', _timestamp) as order_day,
+    EXTRACT('HOUR', _timestamp) as order_hour,
+    EXTRACT('DOW', _timestamp) as day_of_week,
+    EXTRACT('DOY', _timestamp) as day_of_year
+FROM orders;
+```
+
 ### Utility Functions
 
 ```sql
+-- Null handling functions
+SELECT 
+    customer_id,
+    COALESCE(preferred_name, first_name, 'Unknown') as display_name,
+    NULLIF(discount_rate, 0.0) as effective_discount
+FROM customers;
+
 -- Timestamp function
 SELECT 
     order_id,
@@ -180,7 +270,7 @@ SELECT
     CAST(is_active, 'BOOLEAN') as is_active_bool
 FROM orders;
 
--- String operations
+-- String operations (legacy functions)
 SELECT 
     customer_id,
     SPLIT(full_name, ' ') as first_name,
@@ -503,5 +593,67 @@ SELECT
     END as safe_amount
 FROM events;
 ```
+
+## Complete Function Reference
+
+### Math Functions (7 functions)
+- `ABS(number)` - Absolute value
+- `ROUND(number[, precision])` - Round to specified decimal places
+- `CEIL(number)`, `CEILING(number)` - Round up to nearest integer
+- `FLOOR(number)` - Round down to nearest integer
+- `MOD(a, b)` - Modulo operation (remainder)
+- `POWER(base, exponent)`, `POW(base, exponent)` - Exponentiation
+- `SQRT(number)` - Square root
+
+### String Functions (11 functions)
+- `CONCAT(str1, str2, ...)` - Concatenate strings
+- `LENGTH(string)`, `LEN(string)` - String length in characters
+- `TRIM(string)` - Remove leading and trailing whitespace
+- `LTRIM(string)` - Remove leading whitespace
+- `RTRIM(string)` - Remove trailing whitespace
+- `UPPER(string)` - Convert to uppercase
+- `LOWER(string)` - Convert to lowercase
+- `REPLACE(string, search, replace)` - Replace occurrences
+- `LEFT(string, length)` - Get leftmost characters
+- `RIGHT(string, length)` - Get rightmost characters
+- `SUBSTRING(string, start[, length])` - Extract substring
+
+### Date/Time Functions (4 functions)
+- `NOW()` - Current timestamp in milliseconds
+- `CURRENT_TIMESTAMP` - Current timestamp in milliseconds
+- `DATE_FORMAT(timestamp, format)` - Format timestamp as string
+- `EXTRACT(part, timestamp)` - Extract date/time component
+
+### Utility Functions (6 functions)
+- `COALESCE(value1, value2, ...)` - Return first non-null value
+- `NULLIF(value1, value2)` - Return null if values are equal
+- `CAST(value, type)` - Type conversion
+- `TIMESTAMP()` - Current record processing timestamp
+- `SPLIT(string, delimiter)` - Split string (returns first part)
+- `JOIN(delimiter, str1, str2, ...)` - Join strings with delimiter
+
+### Aggregate Functions (6 functions)
+- `COUNT(*)` - Count records
+- `SUM(column)` - Sum numeric values
+- `AVG(column)` - Average of numeric values
+- `MIN(column)` - Minimum value
+- `MAX(column)` - Maximum value
+- `APPROX_COUNT_DISTINCT(column)` - Approximate distinct count
+
+### JSON Functions (2 functions)
+- `JSON_VALUE(json_string, path)` - Extract scalar value from JSON
+- `JSON_EXTRACT(json_string, path)` - Extract value/object from JSON
+
+### Header Functions (3 functions)
+- `HEADER(key)` - Get Kafka message header value
+- `HAS_HEADER(key)` - Check if header exists
+- `HEADER_KEYS()` - Get comma-separated list of header keys
+
+### System Columns (3 columns)
+- `_timestamp` - Kafka message timestamp
+- `_offset` - Kafka message offset
+- `_partition` - Kafka partition number
+
+**Total: 42 functions + 3 system columns**
 
 This reference guide covers all currently implemented SQL features in FerrisStreams. For the latest updates and additional examples, refer to the test suite and feature documentation.

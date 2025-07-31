@@ -80,9 +80,9 @@ jobs:
     - name: Run integration tests
       run: |
         # Run tests that require Kafka
-        cargo test --test mod -- --nocapture
+        cargo test --test kafka_integration_test -- --nocapture
+        cargo test --test kafka_advanced_test -- --nocapture
         cargo test integration -- --nocapture
-        cargo test kafka -- --nocapture
       env:
         KAFKA_BROKERS: localhost:9092
         RUST_LOG: debug

@@ -52,6 +52,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -84,6 +85,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -118,6 +120,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -150,6 +153,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -186,6 +190,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -213,6 +218,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -241,6 +247,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -268,6 +275,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: Some(WindowSpec::Tumbling {
                 size: Duration::from_secs(300), // 5 minutes
@@ -301,6 +309,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: Some(WindowSpec::Sliding {
                 size: Duration::from_secs(600), // 10 minutes
@@ -335,6 +344,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: Some(WindowSpec::Session {
                 gap: Duration::from_secs(30), // 30 seconds
@@ -382,6 +392,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: Some(WindowSpec::Tumbling {
                 size: Duration::from_secs(60),
@@ -409,6 +420,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -454,6 +466,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,
@@ -486,6 +499,7 @@ mod tests {
                 },
             ],
             from: StreamSource::Stream("orders".to_string()),
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None, having: None, order_by: None, limit: None,

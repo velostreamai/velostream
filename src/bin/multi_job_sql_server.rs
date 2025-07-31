@@ -254,6 +254,42 @@ impl MultiJobSqlServer {
                                 FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into())),
                                 FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
                                 FieldValue::Null => serde_json::Value::Null,
+                                FieldValue::Array(arr) => {
+                                    let json_arr: Vec<serde_json::Value> = arr.iter().map(|item| 
+                                        match item {
+                                            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+                                            FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into())),
+                                            FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                                            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+                                            FieldValue::Null => serde_json::Value::Null,
+                                            _ => serde_json::Value::String(format!("{:?}", item)),
+                                        }).collect();
+                                    serde_json::Value::Array(json_arr)
+                                }
+                                FieldValue::Map(map) => {
+                                    let json_obj: serde_json::Map<String, serde_json::Value> = map.iter().map(|(k, v)| 
+                                        (k.clone(), match v {
+                                            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+                                            FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into())),
+                                            FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                                            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+                                            FieldValue::Null => serde_json::Value::Null,
+                                            _ => serde_json::Value::String(format!("{:?}", v)),
+                                        })).collect();
+                                    serde_json::Value::Object(json_obj)
+                                }
+                                FieldValue::Struct(fields) => {
+                                    let json_obj: serde_json::Map<String, serde_json::Value> = fields.iter().map(|(k, v)| 
+                                        (k.clone(), match v {
+                                            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+                                            FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into())),
+                                            FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                                            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+                                            FieldValue::Null => serde_json::Value::Null,
+                                            _ => serde_json::Value::String(format!("{:?}", v)),
+                                        })).collect();
+                                    serde_json::Value::Object(json_obj)
+                                }
                             };
                             record_json.insert(key.clone(), json_value);
                         }

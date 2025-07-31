@@ -698,6 +698,7 @@ impl TokenParser {
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
+            joins: None, // TODO: Parse JOIN clauses
             where_clause,
             group_by,
             having,

@@ -25,5 +25,12 @@ pub const FEATURES: &[&str] = &[
     "streaming_select",
     "windowing", 
     "time_functions",
-    "stream_registration"
+    "stream_registration",
+    "math_functions",      // ABS, ROUND, CEIL, FLOOR, MOD, POWER, SQRT
+    "string_functions",    // CONCAT, LENGTH, TRIM, UPPER, LOWER, REPLACE, LEFT, RIGHT
+    "date_functions",      // NOW, CURRENT_TIMESTAMP, DATE_FORMAT, EXTRACT
+    "utility_functions",   // COALESCE, NULLIF
+    "json_processing",     // JSON_VALUE, JSON_EXTRACT
+    "header_functions",    // HEADER, HAS_HEADER, HEADER_KEYS
+    "system_columns"       // _timestamp, _offset, _partition
 ];
