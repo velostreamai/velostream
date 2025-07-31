@@ -1053,7 +1053,27 @@ impl TokenParser {
                     })
                 } else if self.current_token().token_type == TokenType::Dot {
                     self.advance();
-                    let field = self.expect(TokenType::Identifier)?.value;
+                    // Allow keywords to be used as field names in qualified expressions
+                    let field = match self.current_token().token_type {
+                        TokenType::Identifier => {
+                            let field_name = self.current_token().value.clone();
+                            self.advance();
+                            field_name
+                        }
+                        TokenType::Status | TokenType::Join | TokenType::Left | TokenType::Right | 
+                        TokenType::Inner | TokenType::Full | TokenType::Outer | TokenType::On | 
+                        TokenType::Within | TokenType::Versions | TokenType::Metrics => {
+                            let field_name = self.current_token().value.clone();
+                            self.advance();
+                            field_name
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected field name after dot".to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
                     Ok(Expr::Column(format!("{}.{}", token.value, field)))
                 } else {
                     Ok(Expr::Column(token.value))

@@ -853,13 +853,36 @@ impl StreamExecutionEngine {
                         "_OFFSET" => FieldValue::Integer(record.offset),
                         "_PARTITION" => FieldValue::Integer(record.partition as i64),
                         _ => {
-                            // Regular field lookup
-                            record.fields.get(name).cloned().ok_or_else(|| {
-                                SqlError::SchemaError {
-                                    message: "Column not found".to_string(),
-                                    column: Some(name.clone()),
+                            // Handle qualified column names (table.column)
+                            if name.contains('.') {
+                                // Try to find the field with the qualified name first (for JOIN aliases)
+                                if let Some(value) = record.fields.get(name) {
+                                    value.clone()
+                                } else {
+                                    let column_name = name.split('.').last().unwrap_or(name);
+                                    // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                    let prefixed_name = format!("right_{}", column_name);
+                                    if let Some(value) = record.fields.get(&prefixed_name) {
+                                        value.clone()
+                                    } else {
+                                        // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                        record.fields.get(column_name).cloned().ok_or_else(|| {
+                                            SqlError::SchemaError {
+                                                message: format!("Schema error for column '{}': Column not found", name),
+                                                column: Some(name.clone()),
+                                            }
+                                        })?
+                                    }
                                 }
-                            })?
+                            } else {
+                                // Regular field lookup
+                                record.fields.get(name).cloned().ok_or_else(|| {
+                                    SqlError::SchemaError {
+                                        message: format!("Schema error for column '{}': Column not found", name),
+                                        column: Some(name.clone()),
+                                    }
+                                })?
+                            }
                         }
                     };
 
@@ -963,15 +986,40 @@ impl StreamExecutionEngine {
                     "_OFFSET" => Ok(FieldValue::Integer(record.offset)),
                     "_PARTITION" => Ok(FieldValue::Integer(record.partition as i64)),
                     _ => {
-                        // Regular field lookup
-                        record
-                            .fields
-                            .get(name)
-                            .cloned()
-                            .ok_or_else(|| SqlError::SchemaError {
-                                message: "Column not found".to_string(),
-                                column: Some(name.clone()),
-                            })
+                        // Handle qualified column names (table.column)
+                        if name.contains('.') {
+                            // Try to find the field with the qualified name first (for JOIN aliases)
+                            if let Some(value) = record.fields.get(name) {
+                                Ok(value.clone())
+                            } else {
+                                let column_name = name.split('.').last().unwrap_or(name);
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
+                                    Ok(value.clone())
+                                } else {
+                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                    record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .ok_or_else(|| SqlError::SchemaError {
+                                            message: format!("Schema error for column '{}': Column not found", name),
+                                            column: Some(name.clone()),
+                                        })
+                                }
+                            }
+                        } else {
+                            // Regular field lookup
+                            record
+                                .fields
+                                .get(name)
+                                .cloned()
+                                .ok_or_else(|| SqlError::SchemaError {
+                                    message: format!("Schema error for column '{}': Column not found", name),
+                                    column: Some(name.clone()),
+                                })
+                        }
                     }
                 }
             }
@@ -2727,6 +2775,7 @@ impl StreamExecutionEngine {
                     FieldValue::String(format!("data_from_{}", name)),
                 );
                 fields.insert("right_value".to_string(), FieldValue::Float(42.0));
+                fields.insert("status".to_string(), FieldValue::String("active".to_string()));
 
                 Ok(StreamRecord {
                     fields,
