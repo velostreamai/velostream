@@ -645,6 +645,15 @@ impl TokenParser {
         }
     }
 
+    fn peek_token(&self, offset: usize) -> Option<&Token> {
+        let peek_index = self.current + offset;
+        if peek_index < self.tokens.len() {
+            Some(&self.tokens[peek_index])
+        } else {
+            None
+        }
+    }
+
     fn advance(&mut self) {
         if self.current < self.tokens.len() - 1 {
             self.current += 1;
@@ -1048,6 +1057,47 @@ impl TokenParser {
                     Ok(Expr::Column(format!("{}.{}", token.value, field)))
                 } else {
                     Ok(Expr::Column(token.value))
+                }
+            }
+            // Allow keywords to be used as function names when followed by '('
+            TokenType::Join | TokenType::Left | TokenType::Right | TokenType::Inner | 
+            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within => {
+                if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
+                    // This keyword is being used as a function name
+                    let function_name = token.value;
+                    self.advance(); // consume keyword
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+
+                    if self.current_token().token_type != TokenType::RightParen {
+                        loop {
+                            if self.current_token().token_type == TokenType::Asterisk {
+                                // Handle COUNT(*) special case
+                                self.advance();
+                                args.push(Expr::Literal(LiteralValue::Integer(1)));
+                            } else {
+                                args.push(self.parse_expression()?);
+                            }
+
+                            if self.current_token().token_type == TokenType::Comma {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.expect(TokenType::RightParen)?;
+                    Ok(Expr::Function {
+                        name: function_name,
+                        args,
+                    })
+                } else {
+                    // This keyword is used in its normal context, not as a function
+                    Err(SqlError::ParseError {
+                        message: format!("Unexpected token in expression: {:?}", token.token_type),
+                        position: Some(token.position),
+                    })
                 }
             }
             TokenType::String => {
@@ -1541,8 +1591,16 @@ impl TokenParser {
         // Consume START token
         self.advance();
 
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!("Expected JOB or QUERY after START, found '{}'", current_token),
+                position: Some(self.current_token().position),
+            });
+        }
 
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
@@ -1571,8 +1629,16 @@ impl TokenParser {
         // Consume STOP token
         self.advance();
 
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!("Expected JOB or QUERY after STOP, found '{}'", current_token),
+                position: Some(self.current_token().position),
+            });
+        }
 
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
@@ -1592,8 +1658,16 @@ impl TokenParser {
         // Consume PAUSE token
         self.advance();
 
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!("Expected JOB or QUERY after PAUSE, found '{}'", current_token),
+                position: Some(self.current_token().position),
+            });
+        }
 
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
@@ -1605,8 +1679,16 @@ impl TokenParser {
         // Consume RESUME token
         self.advance();
 
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!("Expected JOB or QUERY after RESUME, found '{}'", current_token),
+                position: Some(self.current_token().position),
+            });
+        }
 
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
