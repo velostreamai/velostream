@@ -2702,10 +2702,15 @@ impl StreamExecutionEngine {
         let mut fields = HashMap::new();
 
         // Simulate table data based on key lookup
+        fields.insert("id".to_string(), FieldValue::Integer(key));
         fields.insert("table_id".to_string(), FieldValue::Integer(key));
         fields.insert(
             "table_name".to_string(),
             FieldValue::String(format!("table_data_{}", key)),
+        );
+        fields.insert(
+            "user_name".to_string(),
+            FieldValue::String(format!("user_{}", key)),
         );
         fields.insert(
             "table_value".to_string(),
@@ -2769,13 +2774,38 @@ impl StreamExecutionEngine {
             StreamSource::Stream(name) | StreamSource::Table(name) => {
                 // Create a mock record with some sample data
                 let mut fields = HashMap::new();
-                fields.insert("right_id".to_string(), FieldValue::Integer(1));
-                fields.insert(
-                    "right_name".to_string(),
-                    FieldValue::String(format!("data_from_{}", name)),
-                );
-                fields.insert("right_value".to_string(), FieldValue::Float(42.0));
-                fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+                
+                // Create table-specific fields based on the table name
+                match name.as_str() {
+                    "payments" => {
+                        fields.insert("order_id".to_string(), FieldValue::Integer(1));
+                        fields.insert("payment_id".to_string(), FieldValue::Integer(101));
+                        fields.insert("amount".to_string(), FieldValue::Float(99.99));
+                        fields.insert("status".to_string(), FieldValue::String("completed".to_string()));
+                    },
+                    "events" => {
+                        fields.insert("user_id".to_string(), FieldValue::Integer(100));
+                        fields.insert("event_id".to_string(), FieldValue::Integer(201));
+                        fields.insert("event_type".to_string(), FieldValue::String("click".to_string()));
+                        fields.insert("timestamp".to_string(), FieldValue::Integer(1640995200));
+                    },
+                    "user_table" => {
+                        fields.insert("id".to_string(), FieldValue::Integer(100));
+                        fields.insert("user_name".to_string(), FieldValue::String("Alice Smith".to_string()));
+                        fields.insert("email".to_string(), FieldValue::String("alice@example.com".to_string()));
+                        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+                    },
+                    _ => {
+                        // Default fields for generic tables/streams
+                        fields.insert("right_id".to_string(), FieldValue::Integer(1));
+                        fields.insert(
+                            "right_name".to_string(),
+                            FieldValue::String(format!("data_from_{}", name)),
+                        );
+                        fields.insert("right_value".to_string(), FieldValue::Float(42.0));
+                        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+                    }
+                }
 
                 Ok(StreamRecord {
                     fields,

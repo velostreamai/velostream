@@ -576,6 +576,7 @@ impl StreamingSqlParser {
                         .cloned()
                         .unwrap_or(TokenType::Identifier);
 
+
                     tokens.push(Token {
                         token_type,
                         value,
@@ -683,6 +684,15 @@ impl TokenParser {
 
         self.expect(TokenType::From)?;
         let from_stream = self.expect(TokenType::Identifier)?.value;
+        
+        // Parse optional alias for FROM clause (e.g., "FROM events s")
+        let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+            let alias = self.current_token().value.clone();
+            self.advance();
+            Some(alias)
+        } else {
+            None
+        };
 
         // Parse JOIN clauses
         let joins = self.parse_join_clauses()?;
@@ -829,10 +839,8 @@ impl TokenParser {
             }
             TokenType::Full => {
                 self.advance();
-                // Optional OUTER keyword
-                if self.current_token().token_type == TokenType::Outer {
-                    self.advance();
-                }
+                // OUTER keyword is required for FULL joins
+                self.expect(TokenType::Outer)?;
                 self.expect(TokenType::Join)?;
                 JoinType::FullOuter
             }
@@ -1222,6 +1230,11 @@ impl TokenParser {
                     // Just a number, assume seconds
                     Ok(format!("{}s", token.value))
                 }
+            }
+            TokenType::String => {
+                // Handle string literals like '5' in INTERVAL '5' MINUTES
+                self.advance();
+                Ok(token.value)
             }
             _ => Err(SqlError::ParseError {
                 message: format!("Expected duration, found {:?}", token.token_type),
