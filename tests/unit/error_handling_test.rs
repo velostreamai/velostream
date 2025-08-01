@@ -278,7 +278,7 @@ async fn test_consumer_poll_timeout() {
     match result {
         Err(KafkaClientError::Timeout) => {
             // Expected timeout - verify timing only in this case
-            assert!(elapsed >= Duration::from_millis(50)); 
+            assert!(elapsed >= Duration::from_millis(50));
             assert!(elapsed <= Duration::from_millis(2000));
         }
         Err(KafkaClientError::NoMessage) => {

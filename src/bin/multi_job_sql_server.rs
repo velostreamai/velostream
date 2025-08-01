@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 #[derive(Parser)]

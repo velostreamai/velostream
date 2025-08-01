@@ -66,14 +66,16 @@ async fn execute_query(
         .collect();
 
     // Use execute_with_metadata to preserve the original timestamp
-    engine.execute_with_metadata(
-        &parsed_query, 
-        json_record, 
-        record.headers.clone(),
-        Some(record.timestamp),
-        Some(record.offset),
-        Some(record.partition)
-    ).await?;
+    engine
+        .execute_with_metadata(
+            &parsed_query,
+            json_record,
+            record.headers.clone(),
+            Some(record.timestamp),
+            Some(record.offset),
+            Some(record.partition),
+        )
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

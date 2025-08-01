@@ -155,7 +155,7 @@ mod protobuf_tests {
 #[cfg(feature = "avro")]
 mod avro_tests {
     use super::*;
-    use apache_avro::{Schema as AvroSchema, types::Value as AvroValue};
+    use apache_avro::{types::Value as AvroValue, Schema as AvroSchema};
     use ferrisstreams::ferris::kafka::AvroSerializer;
 
     #[test]

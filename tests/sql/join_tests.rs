@@ -108,7 +108,8 @@ async fn test_multiple_joins() {
     let query = "SELECT * FROM stream1 s1 INNER JOIN stream2 s2 ON s1.id = s2.id INNER JOIN stream3 s3 ON s2.id = s3.id";
 
     let result = execute_join_query(query).await;
-    assert!(result.is_ok() || result.unwrap_err().to_string().contains("JOIN")); // Now supports multiple JOINs
+    assert!(result.is_ok() || result.unwrap_err().to_string().contains("JOIN"));
+    // Now supports multiple JOINs
 }
 
 #[tokio::test]
@@ -212,7 +213,8 @@ async fn test_join_with_complex_condition() {
 #[tokio::test]
 async fn test_join_with_specific_fields() {
     // Test JOIN with specific field selection - simplified to avoid alias issues for now
-    let query = "SELECT * FROM left_stream INNER JOIN right_stream r ON left_stream.id = r.right_id";
+    let query =
+        "SELECT * FROM left_stream INNER JOIN right_stream r ON left_stream.id = r.right_id";
 
     let result = execute_join_query(query).await;
     match &result {

@@ -110,11 +110,11 @@ jobs:
     - name: Generate code coverage
       run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: lcov.info
-        fail_ci_if_error: true
+    # - name: Upload coverage to Codecov
+    #   uses: codecov/codecov-action@v3
+    #   with:
+    #     file: lcov.info
+    #     fail_ci_if_error: true
 
   docs:
     name: Documentation
@@ -163,8 +163,8 @@ jobs:
     - name: Install minimum supported Rust version
       uses: actions-rs/toolchain@v1
       with:
-        # Set to your MSRV - adjust as needed
-        toolchain: 1.70.0
+        # Set to your MSRV - adjust as needed (1.77.0+ required for lock file version 4)
+        toolchain: 1.77.0
         override: true
 
     - name: Cache dependencies

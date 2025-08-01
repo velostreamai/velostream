@@ -1,8 +1,8 @@
-use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
+use ferrisstreams::ferris::sql::DataType;
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -372,9 +372,12 @@ mod tests {
         let record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine.execute(&query, record).await;
         assert!(result.is_ok());
-        
+
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("nonexistent_column"), Some(&serde_json::Value::Null));
+        assert_eq!(
+            output.get("nonexistent_column"),
+            Some(&serde_json::Value::Null)
+        );
     }
 
     #[tokio::test]

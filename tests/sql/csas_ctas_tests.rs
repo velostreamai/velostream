@@ -1,9 +1,9 @@
-use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
+use ferrisstreams::ferris::sql::DataType;
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;

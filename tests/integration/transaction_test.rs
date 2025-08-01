@@ -2,7 +2,7 @@ use crate::unit::common::*;
 use ferrisstreams::ferris::kafka::consumer_config::IsolationLevel;
 use futures::StreamExt;
 use std::sync::Arc;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 /// Test transactional producer with commit
 #[tokio::test]

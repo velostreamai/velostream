@@ -5,10 +5,10 @@ use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 use crate::ferris::kafka::performance_presets::PerformancePresets;
 use crate::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use crate::ferris::kafka::serialization::Serializer;
-use rdkafka::TopicPartitionList;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
 use rdkafka::util::Timeout;
+use rdkafka::TopicPartitionList;
 use std::marker::PhantomData;
 use std::time::Duration;
 

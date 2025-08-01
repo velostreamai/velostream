@@ -52,8 +52,8 @@ let query = parser.parse("SELECT * FROM orders WHERE amount > 100").unwrap();
 // Windowed aggregation
 let query = parser.parse(
     "SELECT customer_id, COUNT(*), AVG(amount)
-     FROM orders 
-     GROUP BY customer_id 
+     FROM orders
+     GROUP BY customer_id
      WINDOW TUMBLING(5m)"
 ).unwrap();
 
@@ -578,7 +578,6 @@ impl StreamingSqlParser {
                         .cloned()
                         .unwrap_or(TokenType::Identifier);
 
-
                     tokens.push(Token {
                         token_type,
                         value,
@@ -686,7 +685,7 @@ impl TokenParser {
 
         self.expect(TokenType::From)?;
         let from_stream = self.expect(TokenType::Identifier)?.value;
-        
+
         // Parse optional alias for FROM clause (e.g., "FROM events s")
         let _from_alias = if self.current_token().token_type == TokenType::Identifier {
             let alias = self.current_token().value.clone();
@@ -1040,7 +1039,7 @@ impl TokenParser {
                         args: Vec::new(),
                     });
                 }
-                
+
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
@@ -1079,9 +1078,17 @@ impl TokenParser {
                             self.advance();
                             field_name
                         }
-                        TokenType::Status | TokenType::Join | TokenType::Left | TokenType::Right | 
-                        TokenType::Inner | TokenType::Full | TokenType::Outer | TokenType::On | 
-                        TokenType::Within | TokenType::Versions | TokenType::Metrics => {
+                        TokenType::Status
+                        | TokenType::Join
+                        | TokenType::Left
+                        | TokenType::Right
+                        | TokenType::Inner
+                        | TokenType::Full
+                        | TokenType::Outer
+                        | TokenType::On
+                        | TokenType::Within
+                        | TokenType::Versions
+                        | TokenType::Metrics => {
                             let field_name = self.current_token().value.clone();
                             self.advance();
                             field_name
@@ -1099,9 +1106,16 @@ impl TokenParser {
                 }
             }
             // Allow keywords to be used as column names or function names
-            TokenType::Join | TokenType::Left | TokenType::Right | TokenType::Inner | 
-            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within | 
-            TokenType::Replace | TokenType::Status => {
+            TokenType::Join
+            | TokenType::Left
+            | TokenType::Right
+            | TokenType::Inner
+            | TokenType::Full
+            | TokenType::Outer
+            | TokenType::On
+            | TokenType::Within
+            | TokenType::Replace
+            | TokenType::Status => {
                 if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
                     // This keyword is being used as a function name
                     let function_name = token.value;
@@ -1645,7 +1659,10 @@ impl TokenParser {
             self.advance();
         } else {
             return Err(SqlError::ParseError {
-                message: format!("Expected JOB or QUERY after START, found '{}'", current_token),
+                message: format!(
+                    "Expected JOB or QUERY after START, found '{}'",
+                    current_token
+                ),
                 position: Some(self.current_token().position),
             });
         }
@@ -1683,7 +1700,10 @@ impl TokenParser {
             self.advance();
         } else {
             return Err(SqlError::ParseError {
-                message: format!("Expected JOB or QUERY after STOP, found '{}'", current_token),
+                message: format!(
+                    "Expected JOB or QUERY after STOP, found '{}'",
+                    current_token
+                ),
                 position: Some(self.current_token().position),
             });
         }
@@ -1712,7 +1732,10 @@ impl TokenParser {
             self.advance();
         } else {
             return Err(SqlError::ParseError {
-                message: format!("Expected JOB or QUERY after PAUSE, found '{}'", current_token),
+                message: format!(
+                    "Expected JOB or QUERY after PAUSE, found '{}'",
+                    current_token
+                ),
                 position: Some(self.current_token().position),
             });
         }
@@ -1733,7 +1756,10 @@ impl TokenParser {
             self.advance();
         } else {
             return Err(SqlError::ParseError {
-                message: format!("Expected JOB or QUERY after RESUME, found '{}'", current_token),
+                message: format!(
+                    "Expected JOB or QUERY after RESUME, found '{}'",
+                    current_token
+                ),
                 position: Some(self.current_token().position),
             });
         }

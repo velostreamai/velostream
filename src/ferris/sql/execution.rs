@@ -860,44 +860,49 @@ impl StreamExecutionEngine {
         match expr {
             Expr::Column(name) => {
                 // Check for system columns first (case insensitive)
-                let field_value =
-                    match name.to_uppercase().as_str() {
-                        "_TIMESTAMP" => FieldValue::Integer(record.timestamp),
-                        "_OFFSET" => FieldValue::Integer(record.offset),
-                        "_PARTITION" => FieldValue::Integer(record.partition as i64),
-                        _ => {
-                            // Handle qualified column names (table.column)
-                            if name.contains('.') {
-                                // Try to find the field with the qualified name first (for JOIN aliases)
-                                if let Some(value) = record.fields.get(name) {
+                let field_value = match name.to_uppercase().as_str() {
+                    "_TIMESTAMP" => FieldValue::Integer(record.timestamp),
+                    "_OFFSET" => FieldValue::Integer(record.offset),
+                    "_PARTITION" => FieldValue::Integer(record.partition as i64),
+                    _ => {
+                        // Handle qualified column names (table.column)
+                        if name.contains('.') {
+                            // Try to find the field with the qualified name first (for JOIN aliases)
+                            if let Some(value) = record.fields.get(name) {
+                                value.clone()
+                            } else {
+                                let column_name = name.split('.').last().unwrap_or(name);
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
                                     value.clone()
                                 } else {
-                                    let column_name = name.split('.').last().unwrap_or(name);
-                                    // Try to find with the "right_" prefix (for non-aliased JOINs)
-                                    let prefixed_name = format!("right_{}", column_name);
-                                    if let Some(value) = record.fields.get(&prefixed_name) {
-                                        value.clone()
-                                    } else {
-                                        // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                        record.fields.get(column_name).cloned().ok_or_else(|| {
-                                            SqlError::SchemaError {
-                                                message: format!("Schema error for column '{}': Column not found", name),
-                                                column: Some(name.clone()),
-                                            }
-                                        })?
-                                    }
+                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                    record.fields.get(column_name).cloned().ok_or_else(|| {
+                                        SqlError::SchemaError {
+                                            message: format!(
+                                                "Schema error for column '{}': Column not found",
+                                                name
+                                            ),
+                                            column: Some(name.clone()),
+                                        }
+                                    })?
                                 }
-                            } else {
-                                // Regular field lookup
-                                record.fields.get(name).cloned().ok_or_else(|| {
-                                    SqlError::SchemaError {
-                                        message: format!("Schema error for column '{}': Column not found", name),
-                                        column: Some(name.clone()),
-                                    }
-                                })?
                             }
+                        } else {
+                            // Regular field lookup
+                            record.fields.get(name).cloned().ok_or_else(|| {
+                                SqlError::SchemaError {
+                                    message: format!(
+                                        "Schema error for column '{}': Column not found",
+                                        name
+                                    ),
+                                    column: Some(name.clone()),
+                                }
+                            })?
                         }
-                    };
+                    }
+                };
 
                 match field_value {
                     FieldValue::Boolean(b) => Ok(b),
@@ -1021,11 +1026,7 @@ impl StreamExecutionEngine {
                             }
                         } else {
                             // Regular field lookup
-                            Ok(record
-                                .fields
-                                .get(name)
-                                .cloned()
-                                .unwrap_or(FieldValue::Null))
+                            Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                         }
                     }
                 }
@@ -2784,27 +2785,42 @@ impl StreamExecutionEngine {
             StreamSource::Stream(name) | StreamSource::Table(name) => {
                 // Create a mock record with some sample data
                 let mut fields = HashMap::new();
-                
+
                 // Create table-specific fields based on the table name
                 match name.as_str() {
                     "payments" => {
                         fields.insert("order_id".to_string(), FieldValue::Integer(1));
                         fields.insert("payment_id".to_string(), FieldValue::Integer(101));
                         fields.insert("amount".to_string(), FieldValue::Float(99.99));
-                        fields.insert("status".to_string(), FieldValue::String("completed".to_string()));
-                    },
+                        fields.insert(
+                            "status".to_string(),
+                            FieldValue::String("completed".to_string()),
+                        );
+                    }
                     "events" => {
                         fields.insert("user_id".to_string(), FieldValue::Integer(100));
                         fields.insert("event_id".to_string(), FieldValue::Integer(201));
-                        fields.insert("event_type".to_string(), FieldValue::String("click".to_string()));
+                        fields.insert(
+                            "event_type".to_string(),
+                            FieldValue::String("click".to_string()),
+                        );
                         fields.insert("timestamp".to_string(), FieldValue::Integer(1640995200));
-                    },
+                    }
                     "user_table" => {
                         fields.insert("id".to_string(), FieldValue::Integer(100));
-                        fields.insert("user_name".to_string(), FieldValue::String("Alice Smith".to_string()));
-                        fields.insert("email".to_string(), FieldValue::String("alice@example.com".to_string()));
-                        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
-                    },
+                        fields.insert(
+                            "user_name".to_string(),
+                            FieldValue::String("Alice Smith".to_string()),
+                        );
+                        fields.insert(
+                            "email".to_string(),
+                            FieldValue::String("alice@example.com".to_string()),
+                        );
+                        fields.insert(
+                            "status".to_string(),
+                            FieldValue::String("active".to_string()),
+                        );
+                    }
                     _ => {
                         // Default fields for generic tables/streams
                         fields.insert("right_id".to_string(), FieldValue::Integer(1));
@@ -2813,7 +2829,10 @@ impl StreamExecutionEngine {
                             FieldValue::String(format!("data_from_{}", name)),
                         );
                         fields.insert("right_value".to_string(), FieldValue::Float(42.0));
-                        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+                        fields.insert(
+                            "status".to_string(),
+                            FieldValue::String("active".to_string()),
+                        );
                     }
                 }
 

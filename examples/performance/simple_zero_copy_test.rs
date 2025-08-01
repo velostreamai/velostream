@@ -11,8 +11,8 @@ use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, Pr
 use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
 use ferrisstreams::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // Test configuration
