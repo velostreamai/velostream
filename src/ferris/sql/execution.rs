@@ -79,7 +79,7 @@ while let Some(result) = rx.recv().await {
 
 use crate::ferris::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, SelectField,
-    ShowResourceType, StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
+    StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
@@ -1701,26 +1701,26 @@ impl StreamExecutionEngine {
                 }
                 let left = self.evaluate_expression_value(&args[0], record)?;
                 let right = self.evaluate_expression_value(&args[1], record)?;
-                match (left, right) {
-                    (FieldValue::Integer(a), FieldValue::Integer(b)) => {
-                        if b == 0 {
-                            Err(SqlError::ExecutionError {
-                                message: "Division by zero in MOD".to_string(),
-                                query: None,
-                            })
-                        } else {
-                            Ok(FieldValue::Integer(a % b))
-                        }
+
+                // Modern Rust 2024 pattern matching with match ergonomics
+                match (&left, &right) {
+                    (FieldValue::Integer(a), FieldValue::Integer(b)) if *b != 0 => {
+                        Ok(FieldValue::Integer(a % b))
                     }
-                    (FieldValue::Float(a), FieldValue::Float(b)) => {
-                        if b == 0.0 {
-                            Err(SqlError::ExecutionError {
-                                message: "Division by zero in MOD".to_string(),
-                                query: None,
-                            })
-                        } else {
-                            Ok(FieldValue::Float(a % b))
-                        }
+                    (FieldValue::Float(a), FieldValue::Float(b)) if *b != 0.0 => {
+                        Ok(FieldValue::Float(a % b))
+                    }
+                    (FieldValue::Integer(_), FieldValue::Integer(0)) => {
+                        Err(SqlError::ExecutionError {
+                            message: "Division by zero in MOD".to_string(),
+                            query: None,
+                        })
+                    }
+                    (FieldValue::Float(_), FieldValue::Float(b)) if *b == 0.0 => {
+                        Err(SqlError::ExecutionError {
+                            message: "Division by zero in MOD".to_string(),
+                            query: None,
+                        })
                     }
                     _ => Err(SqlError::ExecutionError {
                         message: "MOD requires numeric arguments".to_string(),
@@ -2017,7 +2017,7 @@ impl StreamExecutionEngine {
 
                 match (timestamp_val, format_val) {
                     (FieldValue::Integer(ts), FieldValue::String(format)) => {
-                        use chrono::{DateTime, TimeZone, Utc};
+                        use chrono::{TimeZone, Utc};
                         let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
                             SqlError::ExecutionError {
                                 message: "Invalid timestamp".to_string(),
@@ -2055,7 +2055,7 @@ impl StreamExecutionEngine {
 
                 match (part_val, timestamp_val) {
                     (FieldValue::String(part), FieldValue::Integer(ts)) => {
-                        use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+                        use chrono::{Datelike, TimeZone, Timelike, Utc};
                         let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
                             SqlError::ExecutionError {
                                 message: format!("Invalid timestamp: {}", ts),

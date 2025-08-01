@@ -42,10 +42,10 @@
 //! - `fluent_api_example.rs` - Stream processing patterns
 //! - Review test files for more configuration examples
 
+use ferrisstreams::KafkaConsumer;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::KafkaConsumer;
 use ferrisstreams::{Headers, JsonSerializer, KafkaProducer, ProducerBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

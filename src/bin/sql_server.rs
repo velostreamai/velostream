@@ -1,14 +1,13 @@
 use clap::{Parser, Subcommand};
-use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
-use ferrisstreams::ferris::sql::{
-    FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser,
+use ferrisstreams::ferris::{
+    error::{FerrisError, FerrisResult},
+    kafka::{JsonSerializer, KafkaConsumer},
+    sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},
 };
 use log::{error, info, warn};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::sync::{RwLock, mpsc};
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]
@@ -441,7 +440,7 @@ async fn start_sql_server(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> FerrisResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 

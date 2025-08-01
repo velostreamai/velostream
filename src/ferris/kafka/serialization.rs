@@ -6,8 +6,8 @@ use prost::Message;
 
 #[cfg(feature = "avro")]
 use apache_avro::{
-    from_avro_datum, to_avro_datum, types::Value as AvroValue, Error as AvroError,
-    Schema as AvroSchema,
+    Error as AvroError, Schema as AvroSchema, from_avro_datum, to_avro_datum,
+    types::Value as AvroValue,
 };
 
 /// Trait for objects that can be serialized to bytes for Kafka messages
@@ -29,6 +29,54 @@ pub trait Serializer<T> {
 
     /// Deserialize bytes to an object
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
+}
+
+/// Modern async serialization trait using Rust 2024 edition features
+pub trait AsyncSerializer<T: Send + Sync> {
+    /// Async serialize an object to bytes (useful for large objects or I/O-heavy serialization)
+    fn serialize_async(
+        &self,
+        value: &T,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, SerializationError>> + Send
+    where
+        Self: std::marker::Sync,
+    {
+        async move {
+            // Default implementation falls back to sync version
+            self.serialize_sync(value)
+        }
+    }
+
+    /// Async deserialize bytes to an object (useful for streaming deserialization)
+    fn deserialize_async(
+        &self,
+        bytes: &[u8],
+    ) -> impl std::future::Future<Output = Result<T, SerializationError>> + Send
+    where
+        Self: std::marker::Sync,
+    {
+        async move {
+            // Default implementation falls back to sync version
+            self.deserialize_sync(bytes)
+        }
+    }
+
+    /// Synchronous serialize (provided for compatibility)
+    fn serialize_sync(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
+
+    /// Synchronous deserialize (provided for compatibility)
+    fn deserialize_sync(&self, bytes: &[u8]) -> Result<T, SerializationError>;
+
+    /// Stream serialize large objects chunk by chunk
+    fn serialize_stream(
+        &self,
+        value: &T,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, SerializationError>> + Send
+    where
+        Self: Sync,
+    {
+        self.serialize_async(value)
+    }
 }
 
 /// Enumeration of possible serialization errors
@@ -84,6 +132,50 @@ where
 
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError> {
         from_json(bytes)
+    }
+}
+
+/// Modern async implementation of JsonSerializer using Rust 2024 features
+impl<T> AsyncSerializer<T> for JsonSerializer
+where
+    T: Serialize + for<'de> Deserialize<'de> + Send + Sync,
+{
+    fn serialize_sync(&self, value: &T) -> Result<Vec<u8>, SerializationError> {
+        to_json(value)
+    }
+
+    fn deserialize_sync(&self, bytes: &[u8]) -> Result<T, SerializationError> {
+        from_json(bytes)
+    }
+
+    fn serialize_async(
+        &self,
+        value: &T,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, SerializationError>> + Send
+    where
+        Self: std::marker::Sync,
+    {
+        async move {
+            // For large JSON objects, we could spawn this on a thread pool
+            // For now, just call the sync version
+            tokio::task::yield_now().await; // Yield to allow other tasks to run
+            self.serialize_sync(value)
+        }
+    }
+
+    fn deserialize_async(
+        &self,
+        bytes: &[u8],
+    ) -> impl std::future::Future<Output = Result<T, SerializationError>> + Send
+    where
+        Self: std::marker::Sync,
+    {
+        async move {
+            // For large JSON parsing, we could spawn this on a thread pool
+            // For now, just call the sync version
+            tokio::task::yield_now().await; // Yield to allow other tasks to run
+            self.deserialize_sync(bytes)
+        }
     }
 }
 

@@ -1,16 +1,20 @@
-use crate::ferris::kafka::client_config_builder::ClientConfigBuilder;
-use crate::ferris::kafka::headers::Headers;
-use crate::ferris::kafka::kafka_error::ProducerError;
-use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
-use crate::ferris::kafka::performance_presets::PerformancePresets;
-use crate::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use crate::ferris::kafka::serialization::Serializer;
-use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
-use rdkafka::util::Timeout;
-use rdkafka::TopicPartitionList;
-use std::marker::PhantomData;
-use std::time::Duration;
+// Modern Rust 2024 grouped imports
+use crate::ferris::kafka::{
+    client_config_builder::ClientConfigBuilder,
+    headers::Headers,
+    kafka_error::ProducerError,
+    kafka_producer_def_context::LoggingProducerContext,
+    performance_presets::PerformancePresets,
+    producer_config::{AckMode, CompressionType, ProducerConfig},
+    serialization::Serializer,
+};
+use rdkafka::{
+    TopicPartitionList,
+    error::KafkaError,
+    producer::{FutureProducer, FutureRecord, Producer, ProducerContext},
+    util::Timeout,
+};
+use std::{marker::PhantomData, time::Duration};
 
 /// A Kafka producer that handles serialization automatically for keys, values, and headers
 ///

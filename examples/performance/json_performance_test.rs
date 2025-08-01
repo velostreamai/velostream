@@ -32,8 +32,8 @@ use ferrisstreams::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep; // Add this import for stream extension traits

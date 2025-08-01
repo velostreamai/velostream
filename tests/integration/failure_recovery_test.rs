@@ -1,7 +1,7 @@
 use crate::unit::common::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::time::{sleep, timeout, Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::time::{Duration, sleep, timeout};
 
 /// Test network partition recovery - reconnection after Kafka restart
 #[tokio::test]

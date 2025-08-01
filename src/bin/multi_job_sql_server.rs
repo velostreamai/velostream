@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::task::JoinHandle;
 
 #[derive(Parser)]
@@ -650,7 +650,7 @@ async fn start_multi_job_server(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> ferrisstreams::ferris::error::FerrisResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 

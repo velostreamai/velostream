@@ -58,8 +58,8 @@ use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
 use uuid::Uuid;

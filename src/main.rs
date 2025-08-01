@@ -1,4 +1,7 @@
-use crate::ferris::kafka::{Headers, JsonSerializer, KafkaProducer};
+use crate::ferris::{
+    error::FerrisResult,
+    kafka::{Headers, JsonSerializer, KafkaProducer},
+};
 use serde::{Deserialize, Serialize};
 
 // Import the module structure
@@ -11,7 +14,7 @@ struct TestMessage {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> FerrisResult<()> {
     // Initialize the logger
     pretty_env_logger::init();
 
