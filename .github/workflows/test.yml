@@ -148,10 +148,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Security audit
-      uses: actions-rs/audit@v1
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        toolchain: stable
+        override: true
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Security audit
+      run: cargo audit
 
   minimum-supported-rust-version:
     name: Minimum Supported Rust Version
@@ -163,8 +170,8 @@ jobs:
     - name: Install minimum supported Rust version
       uses: actions-rs/toolchain@v1
       with:
-        # Set to your MSRV - adjust as needed (1.77.0+ required for lock file version 4)
-        toolchain: 1.77.0
+        # Set to your MSRV - adjust as needed (1.78.0+ required for lock file version 4)
+        toolchain: 1.78.0
         override: true
 
     - name: Cache dependencies
