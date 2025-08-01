@@ -240,8 +240,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_missing_column_error() {
-        let (tx, _rx) = mpsc::unbounded_channel();
+    async fn test_missing_column_returns_null() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
         let query = StreamingQuery::Select {
@@ -262,7 +262,11 @@ mod tests {
         let record = create_test_record(1, 100, 299.99, Some("pending"));
 
         let result = engine.execute(&query, record).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        // Missing columns should return NULL
+        assert_eq!(output.get("nonexistent_column"), Some(&Value::Null));
     }
 
     #[tokio::test]
