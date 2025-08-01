@@ -170,8 +170,8 @@ jobs:
     - name: Install minimum supported Rust version
       uses: actions-rs/toolchain@v1
       with:
-        # Set to your MSRV - adjust as needed (1.78.0+ required for lock file version 4)
-        toolchain: 1.78.0
+        # Set to your MSRV - Rust 1.85.0 with 2024 edition
+        toolchain: 1.85.0
         override: true
 
     - name: Cache dependencies
