@@ -234,6 +234,19 @@ impl StreamExecutionEngine {
         record: HashMap<String, serde_json::Value>,
         headers: HashMap<String, String>,
     ) -> Result<(), SqlError> {
+        self.execute_with_metadata(query, record, headers, None, None, None)
+            .await
+    }
+
+    pub async fn execute_with_metadata(
+        &mut self,
+        query: &StreamingQuery,
+        record: HashMap<String, serde_json::Value>,
+        headers: HashMap<String, String>,
+        timestamp: Option<i64>,
+        offset: Option<i64>,
+        partition: Option<i32>,
+    ) -> Result<(), SqlError> {
         // Convert input record to StreamRecord
         let stream_record = StreamRecord {
             fields: record
@@ -256,9 +269,9 @@ impl StreamExecutionEngine {
                     (k, field_value)
                 })
                 .collect(),
-            timestamp: chrono::Utc::now().timestamp(),
-            offset: 0,
-            partition: 0,
+            timestamp: timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            offset: offset.unwrap_or(0),
+            partition: partition.unwrap_or(0),
             headers,
         };
 
@@ -1050,8 +1063,11 @@ impl StreamExecutionEngine {
                     | BinaryOperator::GreaterThan
                     | BinaryOperator::LessThan
                     | BinaryOperator::GreaterThanOrEqual
-                    | BinaryOperator::LessThanOrEqual
-                    | BinaryOperator::Like
+                    | BinaryOperator::LessThanOrEqual => {
+                        let result = self.evaluate_comparison(left, right, record, op)?;
+                        Ok(FieldValue::Boolean(result))
+                    }
+                    BinaryOperator::Like
                     | BinaryOperator::NotLike
                     | BinaryOperator::In
                     | BinaryOperator::NotIn
@@ -2047,7 +2063,7 @@ impl StreamExecutionEngine {
                         use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
                         let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
                             SqlError::ExecutionError {
-                                message: "Invalid timestamp".to_string(),
+                                message: format!("Invalid timestamp: {}", ts),
                                 query: None,
                             }
                         })?;

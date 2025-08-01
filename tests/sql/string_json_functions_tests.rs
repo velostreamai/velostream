@@ -469,6 +469,10 @@ mod tests {
                         column == "_timestamp" || column == "_partition"
                     }
                     SelectField::Column(column) => column == "_timestamp" || column == "_partition",
+                    SelectField::Expression { expr, .. } => match expr {
+                        Expr::Column(column) => column == "_timestamp" || column == "_partition",
+                        _ => false,
+                    },
                     _ => false,
                 });
                 assert!(

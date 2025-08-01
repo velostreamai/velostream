@@ -191,6 +191,7 @@ enum TokenType {
     // Literals and Identifiers
     Identifier, // Column names, table names, function names
     String,     // String literals ('hello', "world")
+    Null,       // NULL literal
     Number,     // Numeric literals (42, 3.14)
 
     // Punctuation
@@ -311,6 +312,7 @@ impl StreamingSqlParser {
         keywords.insert("OUTER".to_string(), TokenType::Outer);
         keywords.insert("ON".to_string(), TokenType::On);
         keywords.insert("WITHIN".to_string(), TokenType::Within);
+        keywords.insert("NULL".to_string(), TokenType::Null);
 
         Self { keywords }
     }
@@ -1030,6 +1032,15 @@ impl TokenParser {
         let token = self.current_token().clone();
         match token.token_type {
             TokenType::Identifier => {
+                // Special handling for CURRENT_TIMESTAMP (no parentheses required)
+                if token.value.to_uppercase() == "CURRENT_TIMESTAMP" {
+                    self.advance();
+                    return Ok(Expr::Function {
+                        name: "CURRENT_TIMESTAMP".to_string(),
+                        args: Vec::new(),
+                    });
+                }
+                
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
@@ -1089,7 +1100,7 @@ impl TokenParser {
             }
             // Allow keywords to be used as function names when followed by '('
             TokenType::Join | TokenType::Left | TokenType::Right | TokenType::Inner | 
-            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within => {
+            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within | TokenType::Replace => {
                 if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
                     // This keyword is being used as a function name
                     let function_name = token.value;
@@ -1144,6 +1155,10 @@ impl TokenParser {
                         position: Some(token.position),
                     })
                 }
+            }
+            TokenType::Null => {
+                self.advance();
+                Ok(Expr::Literal(LiteralValue::Null))
             }
             TokenType::LeftParen => {
                 self.advance();

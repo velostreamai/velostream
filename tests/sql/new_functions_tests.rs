@@ -30,7 +30,7 @@ fn create_test_record() -> StreamRecord {
     StreamRecord {
         fields,
         headers,
-        timestamp: 1734651600000, // 2024-12-20 00:00:00 UTC
+        timestamp: 1734652800000, // 2024-12-20 00:00:00 UTC
         offset: 100,
         partition: 0,
     }
@@ -49,23 +49,31 @@ async fn execute_query(
     // Convert StreamRecord to HashMap<String, serde_json::Value>
     let json_record: HashMap<String, serde_json::Value> = record
         .fields
-        .into_iter()
+        .iter()
         .map(|(k, v)| {
             let json_val = match v {
-                FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
+                FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
                 FieldValue::Float(f) => {
-                    serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(0.into()))
+                    serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into()))
                 }
-                FieldValue::String(s) => serde_json::Value::String(s),
-                FieldValue::Boolean(b) => serde_json::Value::Bool(b),
+                FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
                 FieldValue::Null => serde_json::Value::Null,
                 _ => serde_json::Value::String(format!("{:?}", v)),
             };
-            (k, json_val)
+            (k.clone(), json_val)
         })
         .collect();
 
-    engine.execute(&parsed_query, json_record).await?;
+    // Use execute_with_metadata to preserve the original timestamp
+    engine.execute_with_metadata(
+        &parsed_query, 
+        json_record, 
+        record.headers.clone(),
+        Some(record.timestamp),
+        Some(record.offset),
+        Some(record.partition)
+    ).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -220,14 +228,14 @@ async fn test_date_time_functions() {
         .await
         .unwrap();
     let now_result = results[0]["current_time"].as_i64().unwrap();
-    assert!(now_result > 1734651600000); // Should be after our test timestamp
+    assert!(now_result > 1734652800000); // Should be after our test timestamp
 
     // Test CURRENT_TIMESTAMP function
     let results = execute_query("SELECT CURRENT_TIMESTAMP as current_ts FROM test_stream")
         .await
         .unwrap();
     let ts_result = results[0]["current_ts"].as_i64().unwrap();
-    assert!(ts_result > 1734651600000);
+    assert!(ts_result > 1734652800000);
 
     // Test EXTRACT function with record timestamp
     let results = execute_query("SELECT EXTRACT('YEAR', _timestamp) as year_part FROM test_stream")
