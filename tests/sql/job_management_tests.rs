@@ -344,7 +344,7 @@ mod tests {
         let query =
             "START JOB test AS SELECT customer_id, amount FROM orders WHERE status = 'active'";
         let result = parser.parse(query);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
 
         let parsed_query = result.unwrap();
         let columns = parsed_query.get_columns();

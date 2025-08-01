@@ -359,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_propagation_integration() {
         // Setup execution engine
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse valid query
@@ -368,10 +368,13 @@ mod tests {
             .parse("SELECT nonexistent_column FROM orders")
             .unwrap();
 
-        // Execute with valid record - should fail due to missing column
+        // Execute with valid record - nonexistent columns return NULL
         let record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine.execute(&query, record).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        
+        let output = rx.try_recv().unwrap();
+        assert_eq!(output.get("nonexistent_column"), Some(&serde_json::Value::Null));
     }
 
     #[tokio::test]

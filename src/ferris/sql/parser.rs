@@ -1098,9 +1098,10 @@ impl TokenParser {
                     Ok(Expr::Column(token.value))
                 }
             }
-            // Allow keywords to be used as function names when followed by '('
+            // Allow keywords to be used as column names or function names
             TokenType::Join | TokenType::Left | TokenType::Right | TokenType::Inner | 
-            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within | TokenType::Replace => {
+            TokenType::Full | TokenType::Outer | TokenType::On | TokenType::Within | 
+            TokenType::Replace | TokenType::Status => {
                 if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
                     // This keyword is being used as a function name
                     let function_name = token.value;
@@ -1132,11 +1133,10 @@ impl TokenParser {
                         args,
                     })
                 } else {
-                    // This keyword is used in its normal context, not as a function
-                    Err(SqlError::ParseError {
-                        message: format!("Unexpected token in expression: {:?}", token.token_type),
-                        position: Some(token.position),
-                    })
+                    // This keyword is being used as a column name
+                    let column_name = token.value;
+                    self.advance();
+                    Ok(Expr::Column(column_name))
                 }
             }
             TokenType::String => {
