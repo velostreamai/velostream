@@ -102,12 +102,15 @@ impl<K, V> Message<K, V> {
     pub fn is_first(&self) -> bool {
         self.offset == 0
     }
+}
 
+impl<K: std::fmt::Debug, V> Message<K, V> {
     /// Returns a human-readable string containing all metadata about this message
     pub fn metadata_string(&self) -> String {
         let mut parts = vec![
             format!("Partition: {}", self.partition),
             format!("Offset: {}", self.offset),
+            format!("Key: {:?}", self.key),
         ];
 
         if let Some(ts) = self.timestamp_string() {
@@ -120,7 +123,9 @@ impl<K, V> Message<K, V> {
 
         parts.join(", ")
     }
+}
 
+impl<K, V> Message<K, V> {
     /// Consumes the message and returns the owned key
     pub fn into_key(self) -> Option<K> {
         self.key
