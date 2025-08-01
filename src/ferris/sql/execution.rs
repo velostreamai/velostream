@@ -1012,26 +1012,20 @@ impl StreamExecutionEngine {
                                     Ok(value.clone())
                                 } else {
                                     // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                    record
+                                    Ok(record
                                         .fields
                                         .get(column_name)
                                         .cloned()
-                                        .ok_or_else(|| SqlError::SchemaError {
-                                            message: format!("Schema error for column '{}': Column not found", name),
-                                            column: Some(name.clone()),
-                                        })
+                                        .unwrap_or(FieldValue::Null))
                                 }
                             }
                         } else {
                             // Regular field lookup
-                            record
+                            Ok(record
                                 .fields
                                 .get(name)
                                 .cloned()
-                                .ok_or_else(|| SqlError::SchemaError {
-                                    message: format!("Schema error for column '{}': Column not found", name),
-                                    column: Some(name.clone()),
-                                })
+                                .unwrap_or(FieldValue::Null))
                         }
                     }
                 }
