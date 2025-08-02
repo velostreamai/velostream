@@ -47,7 +47,9 @@ use std::collections::HashMap;
 /// # use ferrisstreams::{KafkaConsumer, JsonSerializer, Headers};
 /// # use std::time::Duration;
 /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-/// let message = consumer.poll_message(Duration::from_secs(5)).await?;
+/// # fn handle_user_created(_value: &String) {}
+/// # fn handle_user_updated(_value: &String) {}
+/// let message = consumer.poll(Duration::from_secs(5)).await?;
 ///
 /// // Access message headers
 /// let headers = message.headers();
@@ -58,8 +60,6 @@ use std::collections::HashMap;
 ///         _ => println!("Unknown event type: {}", event_type),
 ///     }
 /// }
-/// # fn handle_user_created(_: &String) {}
-/// # fn handle_user_updated(_: &String) {}
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]

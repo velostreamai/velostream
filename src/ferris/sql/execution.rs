@@ -49,23 +49,36 @@ The execution engine follows an event-driven architecture:
 
 ## Examples
 
-```rust
+```rust,no_run
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use serde_json::Value;
 
-// Create execution engine
-let (tx, rx) = mpsc::unbounded_channel();
-let mut engine = StreamExecutionEngine::new(tx);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create parser and execution engine
+    let parser = StreamingSqlParser::new();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
 
-// Execute a simple SELECT query
-let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
-let record = create_test_record();
-engine.execute(&query, record).await?;
+    // Execute a simple SELECT query
+    let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
+    
+    // Create test record
+    let mut record = HashMap::new();
+    record.insert("customer_id".to_string(), Value::String("123".to_string()));
+    record.insert("amount".to_string(), Value::Number(serde_json::Number::from(150)));
+    
+    engine.execute(&query, record).await?;
 
-// Process results from output channel
-while let Some(result) = rx.recv().await {
-    println!("Query result: {:?}", result);
+    // Process results from output channel
+    while let Some(result) = rx.recv().await {
+        println!("Query result: {:?}", result);
+        break; // Just show one result for demo
+    }
+    Ok(())
 }
 ```
 

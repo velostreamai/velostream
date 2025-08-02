@@ -80,7 +80,7 @@ use std::fmt;
 ///
 /// // Create different error types
 /// let parse_err = SqlError::parse_error("Unexpected token", Some(15));
-/// let type_err = SqlError::type_error("Number", "String", Some("abc"));
+/// let type_err = SqlError::type_error("Number", "String", Some("abc".to_string()));
 /// let stream_err = SqlError::stream_error("orders", "Stream not registered");
 /// ```
 #[derive(Debug, Clone)]

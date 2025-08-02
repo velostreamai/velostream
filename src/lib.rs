@@ -19,7 +19,7 @@
 //! use serde::{Serialize, Deserialize};
 //! use std::time::Duration;
 //!
-//! #[derive(Serialize, Deserialize)]
+//! #[derive(Serialize, Deserialize, Debug)]
 //! struct MyMessage {
 //!     id: u64,
 //!     content: String,
