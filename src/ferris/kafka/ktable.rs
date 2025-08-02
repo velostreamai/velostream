@@ -23,19 +23,24 @@ use tokio::time::sleep;
 /// ```rust,no_run
 /// use ferrisstreams::ferris::kafka::*;
 ///
-/// // Create a KTable from a compacted topic
-/// let user_table = KTable::new(
-///     ConsumerConfig::new("localhost:9092", "user-table-group")
-///         .auto_offset_reset(OffsetReset::Earliest),
-///     "users",
-///     JsonSerializer,
-///     JsonSerializer,
-/// ).await?;
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // Create a KTable from a compacted topic
+///     let user_table = KTable::new(
+///         ConsumerConfig::new("localhost:9092", "user-table-group")
+///             .auto_offset_reset(OffsetReset::Earliest),
+///         "users",
+///         JsonSerializer,
+///         JsonSerializer,
+///     ).await?;
 ///
-/// // Start consuming and building state
-/// tokio::spawn(async move {
-///     user_table.start().await
-/// });
+///     // Start consuming and building state
+///     tokio::spawn(async move {
+///         let _ = user_table.start().await;
+///     });
+///     
+///     Ok(())
+/// }
 ///
 /// // Query current state
 /// let user = user_table.get(&"user-123".to_string());

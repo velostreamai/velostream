@@ -26,45 +26,66 @@ use std::time::Duration;
 /// ## Basic Usage
 /// ```rust,no_run
 /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+/// use serde::{Serialize, Deserialize};
 /// use std::time::Duration;
 ///
-/// let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
-///     "localhost:9092",
-///     "my-group",
-///     JsonSerializer,
-///     JsonSerializer
-/// )?;
+/// #[derive(Serialize, Deserialize, Debug)]
+/// struct MyMessage {
+///     id: u32,
+///     content: String,
+/// }
 ///
-/// consumer.subscribe(&["my-topic"])?;
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
+///         "localhost:9092",
+///         "my-group",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
 ///
-/// // Poll for messages
-/// let message = consumer.poll_message(Duration::from_secs(5)).await?;
-/// println!("Key: {:?}", message.key());
-/// println!("Value: {:?}", message.value());
-/// println!("Headers: {:?}", message.headers());
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+///     consumer.subscribe(&["my-topic"])?;
+///
+///     // Poll for messages
+///     let message = consumer.poll(Duration::from_secs(5)).await?;
+///     println!("Key: {:?}", message.key());
+///     println!("Value: {:?}", message.value());
+///     println!("Headers: {:?}", message.headers());
+///     Ok(())
+/// }
 /// ```
 ///
 /// ## Stream Processing
 /// ```rust,no_run
-/// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-/// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
+/// use ferrisstreams::{KafkaConsumer, JsonSerializer};
 /// use futures::StreamExt;
 ///
-/// consumer.stream()
-///     .for_each(|result| async move {
-///         if let Ok(message) = result {
-///             // Access headers for routing/filtering
-///             if let Some(source) = message.headers().get("source") {
-///                 println!("Message from: {}", source);
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+///         "localhost:9092",
+///         "group",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///     
+///     consumer.subscribe(&["my-topic"])?;
+///
+///     consumer.stream()
+///         .for_each(|result| async move {
+///             if let Ok(message) = result {
+///                 // Access headers for routing/filtering
+///                 if let Some(source) = message.headers().get("source") {
+///                     println!("Message from: {}", source);
+///                 }
+///                 
+///                 // Process the value
+///                 println!("Processing: {:?}", message.value());
 ///             }
-///             
-///             // Process the value
-///             println!("Processing: {:?}", message.value());
-///         }
-///     })
-///     .await;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+///         })
+///         .await;
+///     Ok(())
+/// }
 /// ```
 pub struct KafkaConsumer<K, V, KS, VS, C = DefaultConsumerContext>
 where
@@ -192,22 +213,33 @@ where
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use std::time::Duration;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// match consumer.poll_message(Duration::from_secs(5)).await {
-    ///     Ok(message) => {
-    ///         println!("Key: {:?}", message.key());
-    ///         println!("Value: {}", message.value());
-    ///         
-    ///         // Process headers
-    ///         if let Some(source) = message.headers().get("source") {
-    ///             println!("Message from: {}", source);
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use std::time::Duration;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     consumer.subscribe(&["my-topic"])?;
+    ///     
+    ///     match consumer.poll(Duration::from_secs(5)).await {
+    ///         Ok(message) => {
+    ///             println!("Key: {:?}", message.key());
+    ///             println!("Value: {}", message.value());
+    ///             
+    ///             // Process headers
+    ///             if let Some(source) = message.headers().get("source") {
+    ///                 println!("Message from: {}", source);
+    ///             }
     ///         }
+    ///         Err(e) => println!("No message received: {}", e),
     ///     }
-    ///     Err(e) => println!("No message received: {}", e),
+    ///     Ok(())
     /// }
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub async fn poll(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
         use tokio::time;

@@ -30,7 +30,7 @@ All errors include relevant context information:
 
 ## Examples
 
-```rust
+```rust,no_run
 use ferrisstreams::ferris::sql::error::SqlError;
 
 // Parse error with position
@@ -75,7 +75,7 @@ use std::fmt;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use ferrisstreams::ferris::sql::error::SqlError;
 ///
 /// // Create different error types

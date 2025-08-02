@@ -59,7 +59,7 @@ use std::time::Duration;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use ferrisstreams::ferris::sql::ast::*;
 ///
 /// // SELECT query

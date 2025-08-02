@@ -27,44 +27,65 @@ use std::{marker::PhantomData, time::Duration};
 ///
 /// ## Basic Usage
 /// ```rust,no_run
-/// use ferrisstreams::{KafkaProducer, JsonSerializer};
-/// use ferrisstreams::ferris::kafka::Headers;
+/// use ferrisstreams::{KafkaProducer, JsonSerializer, Headers};
+/// use serde::{Serialize, Deserialize};
 ///
-/// let producer = KafkaProducer::<String, MyMessage, _, _>::new(
-///     "localhost:9092",
-///     "my-topic",
-///     JsonSerializer,  // Key serializer
-///     JsonSerializer   // Value serializer
-/// )?;
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMessage {
+///     id: u32,
+///     content: String,
+/// }
 ///
-/// let headers = Headers::new()
-///     .insert("source", "web-api")
-///     .insert("version", "1.0.0");
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let producer = KafkaProducer::<String, MyMessage, _, _>::new(
+///         "localhost:9092",
+///         "my-topic",
+///         JsonSerializer,  // Key serializer
+///         JsonSerializer   // Value serializer
+///     )?;
 ///
-/// producer.send(Some(&key), &message, headers, None).await?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+///     let headers = Headers::new()
+///         .insert("source", "web-api")
+///         .insert("version", "1.0.0");
+///
+///     let key = "my-key".to_string();
+///     let message = MyMessage { id: 1, content: "Hello".to_string() };
+///     
+///     producer.send(Some(&key), &message, headers, None).await?;
+///     Ok(())
+/// }
 /// ```
 ///
 /// ## Headers for Message Routing
 /// ```rust,no_run
-/// # use ferrisstreams::{KafkaProducer, JsonSerializer};
-/// # use ferrisstreams::ferris::kafka::Headers;
-/// # let producer = KafkaProducer::<String, String, _, _>::new("localhost:9092", "topic", JsonSerializer, JsonSerializer)?;
-/// // Add routing and tracing headers
-/// let headers = Headers::new()
-///     .insert("event-type", "order-created")
-///     .insert("source-service", "order-api")
-///     .insert("trace-id", "abc-123-def")
-///     .insert("user-id", "user-456");
+/// use ferrisstreams::{KafkaProducer, JsonSerializer, Headers};
 ///
-/// producer.send(
-///     Some(&"order-123".to_string()),
-///     &order_data,
-///     headers,
-///     None
-/// ).await?;
-/// # let order_data = "data";
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let producer = KafkaProducer::<String, String, _, _>::new(
+///         "localhost:9092",
+///         "topic",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///     
+///     // Add routing and tracing headers
+///     let headers = Headers::new()
+///         .insert("event-type", "order-created")
+///         .insert("source-service", "order-api")
+///         .insert("trace-id", "abc-123-def")
+///         .insert("user-id", "user-456");
+///
+///     let order_data = "order data".to_string();
+///     producer.send(
+///         Some(&"order-123".to_string()),
+///         &order_data,
+///         headers,
+///         None
+///     ).await?;
+///     Ok(())
+/// }
 /// ```
 pub struct KafkaProducer<K, V, KS, VS, C = LoggingProducerContext>
 where

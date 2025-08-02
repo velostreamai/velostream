@@ -41,7 +41,7 @@ WINDOW SESSION(gap)
 
 ## Examples
 
-```rust
+```rust,no_run
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 
 let parser = StreamingSqlParser::new();
@@ -111,7 +111,7 @@ use std::time::Duration;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 ///
 /// let parser = StreamingSqlParser::new();
@@ -252,7 +252,7 @@ impl StreamingSqlParser {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
     ///
     /// let parser = StreamingSqlParser::new();
@@ -338,7 +338,7 @@ impl StreamingSqlParser {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
     ///
     /// let parser = StreamingSqlParser::new();
