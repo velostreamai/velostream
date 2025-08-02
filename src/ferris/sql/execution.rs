@@ -65,12 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute a simple SELECT query
     let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
-    
+
     // Create test record
     let mut record = HashMap::new();
     record.insert("customer_id".to_string(), Value::String("123".to_string()));
     record.insert("amount".to_string(), Value::Number(serde_json::Number::from(150)));
-    
+
     engine.execute(&query, record).await?;
 
     // Process results from output channel
