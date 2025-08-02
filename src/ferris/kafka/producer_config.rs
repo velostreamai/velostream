@@ -220,12 +220,12 @@ impl ProducerConfig {
         self.transactional_id = Some(transaction_id.into());
         self.enable_idempotence = true; // Required for transactions
         self.acks = AckMode::All; // Required for transactions
-        
+
         // Ensure message.timeout.ms <= transaction.timeout.ms for transactional producers
         if self.message_timeout > self.transaction_timeout {
             self.message_timeout = self.transaction_timeout;
         }
-        
+
         self
     }
 
