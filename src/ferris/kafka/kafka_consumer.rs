@@ -296,47 +296,68 @@ where
     ///
     /// ## Basic Stream Processing
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use futures::StreamExt;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// consumer.stream()
-    ///     .for_each(|result| async move {
-    ///         match result {
-    ///             Ok(message) => {
-    ///                 println!("Processing: {:?}", message.value());
-    ///                 
-    ///                 // Route based on headers
-    ///                 match message.headers().get("event-type") {
-    ///                     Some("user-created") => handle_user_created(message),
-    ///                     Some("user-updated") => handle_user_updated(message),
-    ///                     _ => println!("Unknown event type"),
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use futures::StreamExt;
+    ///
+    /// fn handle_user_created(_: ferrisstreams::Message<String, String>) {}
+    /// fn handle_user_updated(_: ferrisstreams::Message<String, String>) {}
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     
+    ///     consumer.stream()
+    ///         .for_each(|result| async move {
+    ///             match result {
+    ///                 Ok(message) => {
+    ///                     println!("Processing: {:?}", message.value());
+    ///                     
+    ///                     // Route based on headers
+    ///                     match message.headers().get("event-type") {
+    ///                         Some("user-created") => handle_user_created(message),
+    ///                         Some("user-updated") => handle_user_updated(message),
+    ///                         _ => println!("Unknown event type"),
+    ///                     }
     ///                 }
+    ///                 Err(e) => eprintln!("Error: {}", e),
     ///             }
-    ///             Err(e) => eprintln!("Error: {}", e),
-    ///         }
-    ///     })
-    ///     .await;
-    /// # fn handle_user_created(_: ferrisstreams::Message<String, String>) {}
-    /// # fn handle_user_updated(_: ferrisstreams::Message<String, String>) {}
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    ///         })
+    ///         .await;
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// ## Filtering by Headers
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use futures::StreamExt;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// let important_messages: Vec<_> = consumer.stream()
-    ///     .filter_map(|result| async move { result.ok() })
-    ///     .filter(|message| {
-    ///         futures::future::ready(
-    ///             message.headers().get("priority") == Some("high")
-    ///         )
-    ///     })
-    ///     .take(10)
-    ///     .collect()
-    ///     .await;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use futures::StreamExt;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     
+    ///     let important_messages: Vec<_> = consumer.stream()
+    ///         .filter_map(|result| async move { result.ok() })
+    ///         .filter(|message| {
+    ///             futures::future::ready(
+    ///                 message.headers().get("priority") == Some("high")
+    ///             )
+    ///         })
+    ///         .take(10)
+    ///         .collect()
+    ///         .await;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn stream(&self) -> impl futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
         self.consumer.stream().map(|msg_result| match msg_result {

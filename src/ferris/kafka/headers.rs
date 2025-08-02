@@ -44,23 +44,34 @@ use std::collections::HashMap;
 ///
 /// ## Integration with Messages
 /// ```rust,no_run
-/// # use ferrisstreams::{KafkaConsumer, JsonSerializer, Headers};
-/// # use std::time::Duration;
-/// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-/// # fn handle_user_created(_value: &String) {}
-/// # fn handle_user_updated(_value: &String) {}
-/// let message = consumer.poll(Duration::from_secs(5)).await?;
+/// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+/// use std::time::Duration;
 ///
-/// // Access message headers
-/// let headers = message.headers();
-/// if let Some(event_type) = headers.get("event-type") {
-///     match event_type {
-///         "user-created" => handle_user_created(message.value()),
-///         "user-updated" => handle_user_updated(message.value()),
-///         _ => println!("Unknown event type: {}", event_type),
+/// fn handle_user_created(_value: &String) {}
+/// fn handle_user_updated(_value: &String) {}
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+///         "localhost:9092",
+///         "group",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///     
+///     let message = consumer.poll(Duration::from_secs(5)).await?;
+///
+///     // Access message headers
+///     let headers = message.headers();
+///     if let Some(event_type) = headers.get("event-type") {
+///         match event_type {
+///             "user-created" => handle_user_created(message.value()),
+///             "user-updated" => handle_user_updated(message.value()),
+///             _ => println!("Unknown event type: {}", event_type),
+///         }
 ///     }
+///     Ok(())
 /// }
-/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Headers {

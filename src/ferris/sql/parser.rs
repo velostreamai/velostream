@@ -114,21 +114,24 @@ use std::time::Duration;
 /// ```rust,no_run
 /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 ///
-/// let parser = StreamingSqlParser::new();
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let parser = StreamingSqlParser::new();
 ///
-/// // Parse a simple SELECT query
-/// let query = parser.parse("SELECT customer_id, amount FROM orders")?;
+///     // Parse a simple SELECT query
+///     let query = parser.parse("SELECT customer_id, amount FROM orders")?;
 ///
-/// // Parse a complex windowed aggregation
-/// let query = parser.parse(
-///     "SELECT customer_id, COUNT(*), SUM(amount)
-///      FROM orders
-///      WHERE amount > 100
-///      GROUP BY customer_id
-///      WINDOW TUMBLING(INTERVAL 5 MINUTES)
-///      ORDER BY customer_id
-///      LIMIT 100"
-/// )?;
+///     // Parse a complex windowed aggregation
+///     let query = parser.parse(
+///         "SELECT customer_id, COUNT(*), SUM(amount)
+///          FROM orders
+///          WHERE amount > 100
+///          GROUP BY customer_id
+///          WINDOW TUMBLING(INTERVAL 5 MINUTES)
+///          ORDER BY customer_id
+///          LIMIT 100"
+///     )?;
+///     Ok(())
+/// }
 /// ```
 #[derive(Debug, Clone)]
 pub struct StreamingSqlParser {
@@ -341,28 +344,31 @@ impl StreamingSqlParser {
     /// ```rust,no_run
     /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
     ///
-    /// let parser = StreamingSqlParser::new();
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let parser = StreamingSqlParser::new();
     ///
-    /// // Simple query
-    /// let query = parser.parse("SELECT * FROM orders")?;
+    ///     // Simple query
+    ///     let query = parser.parse("SELECT * FROM orders")?;
     ///
-    /// // Complex windowed aggregation
-    /// let query = parser.parse(
-    ///     "SELECT customer_id, COUNT(*), AVG(amount)
-    ///      FROM orders
-    ///      WHERE status = 'active'
-    ///      GROUP BY customer_id
-    ///      HAVING COUNT(*) > 5
-    ///      WINDOW TUMBLING(5m)
-    ///      ORDER BY customer_id DESC
-    ///      LIMIT 100"
-    /// )?;
-    ///
-    /// // Stream creation
-    /// let query = parser.parse(
-    ///     "CREATE STREAM high_value_orders AS
-    ///      SELECT * FROM orders WHERE amount > 1000"
-    /// )?;
+    ///     // Complex windowed aggregation
+    ///     let query = parser.parse(
+    ///         "SELECT customer_id, COUNT(*), AVG(amount)
+    ///          FROM orders
+    ///          WHERE status = 'active'
+    ///          GROUP BY customer_id
+    ///          HAVING COUNT(*) > 5
+    ///          WINDOW TUMBLING(5m)
+    ///          ORDER BY customer_id DESC
+    ///          LIMIT 100"
+    ///     )?;
+    ///     
+    ///     // Stream creation
+    ///     let query = parser.parse(
+    ///         "CREATE STREAM high_value_orders AS
+    ///          SELECT * FROM orders WHERE amount > 1000"
+    ///     )?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         let tokens = self.tokenize(sql)?;

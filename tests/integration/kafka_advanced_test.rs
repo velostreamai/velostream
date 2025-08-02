@@ -51,36 +51,83 @@ async fn test_multiple_user_workflow() {
     ];
 
     // Send all users
-    for user in &users {
+    println!("Sending {} users to topic: {}", users.len(), topic);
+    for (i, user) in users.iter().enumerate() {
         let key = format!("user-{}", user.id);
-        producer
-            .send(Some(&key), user, Headers::new(), None)
-            .await
-            .expect("Failed to send user");
-    }
-
-    producer.flush(5000).expect("Failed to flush producer");
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    // Receive and verify all users
-    let mut received_users = Vec::new();
-    for _ in 0..25 {
-        match consumer.poll(Duration::from_secs(1)).await {
-            Ok(message) => {
-                received_users.push(message.into_value());
-                if received_users.len() >= users.len() {
-                    break;
-                }
+        match producer.send(Some(&key), user, Headers::new(), None).await {
+            Ok(_) => println!("Successfully sent user {} ({})", i + 1, user.name),
+            Err(e) => {
+                eprintln!("Failed to send user {}: {:?}", user.name, e);
+                panic!("Failed to send user");
             }
-            Err(_) => break,
         }
     }
 
-    consumer.commit().expect("Failed to commit");
-    assert_eq!(received_users.len(), users.len());
+    println!("Flushing producer...");
+    producer.flush(5000).expect("Failed to flush producer");
+    println!("Producer flushed successfully");
+    
+    // Give Kafka more time to process messages and create topic if needed
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
-    for user in users {
-        assert!(received_users.contains(&user));
+    // Receive and verify all users with robust retry logic
+    let mut received_users = Vec::new();
+    let max_attempts = 50; // More attempts for slow environments
+    let mut consecutive_timeouts = 0;
+    
+    println!("Starting to consume messages from topic: {}", topic);
+    
+    for attempt in 0..max_attempts {
+        match consumer.poll(Duration::from_secs(3)).await {
+            Ok(message) => {
+                println!("Received message {} of {}", received_users.len() + 1, users.len());
+                received_users.push(message.into_value());
+                consecutive_timeouts = 0; // Reset timeout counter on success
+                if received_users.len() >= users.len() {
+                    println!("Successfully received all {} messages", users.len());
+                    break;
+                }
+            }
+            Err(e) => {
+                consecutive_timeouts += 1;
+                if attempt % 5 == 0 { // Log every 5th attempt
+                    println!("Attempt {}/{}: Poll timeout or error: {:?}. Received {} of {} messages.", 
+                        attempt + 1, max_attempts, e, received_users.len(), users.len());
+                }
+                
+                // Be more patient - only break if we've had many consecutive timeouts
+                // and either we've received some messages OR we've tried for a long time
+                if consecutive_timeouts >= 8 && (received_users.len() > 0 || attempt > 30) {
+                    println!("Giving up after {} consecutive timeouts", consecutive_timeouts);
+                    break;
+                }
+                
+                // Brief pause between attempts
+                if attempt < max_attempts - 1 {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+            }
+        }
+    }
+
+    // Only commit if we actually received messages
+    if !received_users.is_empty() {
+        consumer.commit().expect("Failed to commit");
+    }
+    
+    // Provide better error messages for debugging
+    if received_users.len() != users.len() {
+        eprintln!("Expected {} users but received {} users", users.len(), received_users.len());
+        eprintln!("Received users: {:?}", received_users);
+        eprintln!("Expected users: {:?}", users);
+    }
+    
+    assert_eq!(received_users.len(), users.len(), 
+        "Expected to receive {} users but got {}. This might indicate Kafka connectivity issues or message delivery delays.", 
+        users.len(), received_users.len());
+
+    for user in &users {
+        assert!(received_users.contains(user), "Missing user: {:?}", user);
     }
 }
 

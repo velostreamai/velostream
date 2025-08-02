@@ -33,17 +33,19 @@ All errors include relevant context information:
 ```rust,no_run
 use ferrisstreams::ferris::sql::error::SqlError;
 
-// Parse error with position
-let error = SqlError::parse_error("Expected FROM clause", Some(42));
-println!("{}", error); // "SQL parse error at position 42: Expected FROM clause"
+fn main() {
+    // Parse error with position
+    let error = SqlError::parse_error("Expected FROM clause", Some(42));
+    println!("{}", error); // "SQL parse error at position 42: Expected FROM clause"
 
-// Type error with context
-let error = SqlError::type_error("Integer", "String", Some("hello"));
-println!("{}", error); // "Type error: expected Integer, got String for value 'hello'"
+    // Type error with context
+    let error = SqlError::type_error("Integer", "String", Some("hello".to_string()));
+    println!("{}", error); // "Type error: expected Integer, got String for value 'hello'"
 
-// Stream error
-let error = SqlError::stream_error("orders", "Stream not found");
-println!("{}", error); // "Stream error for 'orders': Stream not found"
+    // Stream error
+    let error = SqlError::stream_error("orders", "Stream not found");
+    println!("{}", error); // "Stream error for 'orders': Stream not found"
+}
 ```
 
 ## Error Propagation

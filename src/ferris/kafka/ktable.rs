@@ -21,7 +21,8 @@ use tokio::time::sleep;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use ferrisstreams::ferris::kafka::*;
+/// use ferrisstreams::ferris::kafka::{KTable, JsonSerializer};
+/// use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,25 +30,25 @@ use tokio::time::sleep;
 ///     let user_table = KTable::new(
 ///         ConsumerConfig::new("localhost:9092", "user-table-group")
 ///             .auto_offset_reset(OffsetReset::Earliest),
-///         "users",
+///         "users".to_string(),
 ///         JsonSerializer,
 ///         JsonSerializer,
 ///     ).await?;
 ///
 ///     // Start consuming and building state
+///     let user_table_clone = user_table.clone();
 ///     tokio::spawn(async move {
-///         let _ = user_table.start().await;
+///         let _ = user_table_clone.start().await;
 ///     });
+///     
+///     // Query current state  
+///     let user: Option<serde_json::Value> = user_table.get(&"user-123".to_string());
+///
+///     // Get full snapshot
+///     let all_users = user_table.snapshot();
 ///     
 ///     Ok(())
 /// }
-///
-/// // Query current state
-/// let user = user_table.get(&"user-123".to_string());
-///
-/// // Get full snapshot
-/// let all_users = user_table.snapshot();
-/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct KTable<K, V, KS, VS>
 where

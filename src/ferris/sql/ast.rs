@@ -60,19 +60,22 @@ use std::time::Duration;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use ferrisstreams::ferris::sql::ast::*;
+/// use ferrisstreams::ferris::sql::ast::{StreamingQuery, SelectField, StreamSource};
 ///
-/// // SELECT query
-/// let select_query = StreamingQuery::Select {
-///     fields: vec![SelectField::Wildcard],
-///     from: StreamSource::Stream("orders".to_string()),
-///     where_clause: None,
-///     group_by: None,
-///     having: None,
-///     window: None,
-///     order_by: None,
-///     limit: Some(100),
-/// };
+/// fn main() {
+///     // SELECT query
+///     let select_query = StreamingQuery::Select {
+///         fields: vec![SelectField::Wildcard],
+///         from: StreamSource::Stream("orders".to_string()),
+///         joins: None,
+///         where_clause: None,
+///         group_by: None,
+///         having: None,
+///         window: None,
+///         order_by: None,
+///         limit: Some(100),
+///     };
+/// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamingQuery {
