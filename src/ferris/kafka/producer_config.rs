@@ -224,8 +224,18 @@ impl ProducerConfig {
     }
 
     /// Set transaction timeout
+    ///
+    /// If the transaction timeout is less than the current message timeout,
+    /// the message timeout will be automatically adjusted to ensure
+    /// message.timeout.ms <= transaction.timeout.ms (Kafka requirement).
     pub fn transaction_timeout(mut self, timeout: Duration) -> Self {
         self.transaction_timeout = timeout;
+
+        // Ensure message.timeout.ms <= transaction.timeout.ms
+        if self.message_timeout > timeout {
+            self.message_timeout = timeout;
+        }
+
         self
     }
 
