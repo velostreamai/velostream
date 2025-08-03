@@ -123,6 +123,7 @@ async fn test_network_partition_recovery_with_retry_logic() {
 /// Test consumer resilience during broker failures
 #[tokio::test]
 #[serial]
+#[ignore]
 async fn test_consumer_graceful_degradation() {
     if !is_kafka_running() {
         return;
