@@ -10,7 +10,6 @@ struct SimpleMessage {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_basic_producer_consumer() {
     if !is_kafka_running() {
         return;
@@ -147,7 +146,6 @@ async fn test_multiple_messages() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_different_message_types() {
     if !is_kafka_running() {
         return;
@@ -262,7 +260,6 @@ async fn test_different_message_types() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_builder_pattern() {
     if !is_kafka_running() {
         return;
@@ -319,7 +316,6 @@ async fn test_builder_pattern() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_convenience_trait() {
     if !is_kafka_running() {
         return;
@@ -343,7 +339,6 @@ async fn test_convenience_trait() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_serialization_roundtrip() {
     // Test JSON serialization without Kafka
     let serializer = JsonSerializer;
@@ -376,7 +371,6 @@ async fn test_serialization_roundtrip() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_error_handling() {
     if !is_kafka_running() {
         return;
@@ -445,7 +439,6 @@ async fn test_error_handling() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_message_with_timestamp() {
     if !is_kafka_running() {
         return;
@@ -503,7 +496,6 @@ async fn test_message_with_timestamp() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_performance_comparison() {
     if !is_kafka_running() {
         return;
@@ -552,7 +544,6 @@ async fn test_performance_comparison() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_consumer_stream() {
     if !is_kafka_running() {
         return;
@@ -645,7 +636,6 @@ async fn test_consumer_stream() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_fluent_consumer_style() {
     if !is_kafka_running() {
         return;
@@ -723,7 +713,6 @@ async fn test_fluent_consumer_style() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_fluent_api_patterns() {
     if !is_kafka_running() {
         return;
@@ -851,7 +840,6 @@ async fn test_fluent_api_patterns() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_implicit_deserialization() {
     if !is_kafka_running() {
         return;
@@ -920,7 +908,6 @@ async fn test_implicit_deserialization() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_headers_functionality() {
     if !is_kafka_running() {
         return;
