@@ -1,11 +1,11 @@
+use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::sql::schema::{Schema, FieldDefinition, StreamHandle};
-use ferrisstreams::ferris::sql::DataType;
+use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
+use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use serde_json::Value;
 
 #[cfg(test)]
 mod tests {
@@ -30,25 +30,53 @@ mod tests {
         ])
     }
 
-    fn create_order_record(order_id: i64, customer_id: i64, amount: f64, status: Option<&str>) -> HashMap<String, Value> {
+    fn create_order_record(
+        order_id: i64,
+        customer_id: i64,
+        amount: f64,
+        status: Option<&str>,
+    ) -> HashMap<String, Value> {
         let mut record = HashMap::new();
-        record.insert("order_id".to_string(), Value::Number(serde_json::Number::from(order_id)));
-        record.insert("customer_id".to_string(), Value::Number(serde_json::Number::from(customer_id)));
-        record.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap()));
+        record.insert(
+            "order_id".to_string(),
+            Value::Number(serde_json::Number::from(order_id)),
+        );
+        record.insert(
+            "customer_id".to_string(),
+            Value::Number(serde_json::Number::from(customer_id)),
+        );
+        record.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+        );
         if let Some(s) = status {
             record.insert("status".to_string(), Value::String(s.to_string()));
         }
-        record.insert("timestamp".to_string(), Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())));
+        record.insert(
+            "timestamp".to_string(),
+            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
+        );
         record
     }
 
-    fn create_user_record(user_id: i64, name: &str, email: &str, age: Option<i64>) -> HashMap<String, Value> {
+    fn create_user_record(
+        user_id: i64,
+        name: &str,
+        email: &str,
+        age: Option<i64>,
+    ) -> HashMap<String, Value> {
         let mut record = HashMap::new();
-        record.insert("user_id".to_string(), Value::Number(serde_json::Number::from(user_id)));
+        record.insert(
+            "user_id".to_string(),
+            Value::Number(serde_json::Number::from(user_id)),
+        );
         record.insert("name".to_string(), Value::String(name.to_string()));
         record.insert("email".to_string(), Value::String(email.to_string()));
         if let Some(a) = age {
-            record.insert("age".to_string(), Value::Number(serde_json::Number::from(a)));
+            record.insert(
+                "age".to_string(),
+                Value::Number(serde_json::Number::from(a)),
+            );
         }
         record
     }
@@ -63,7 +91,9 @@ mod tests {
             "orders_schema".to_string(),
         );
         let orders_schema = create_orders_schema();
-        context.register_stream("orders".to_string(), orders_handle, orders_schema).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, orders_schema)
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -95,7 +125,9 @@ mod tests {
             "orders_schema".to_string(),
         );
         let orders_schema = create_orders_schema();
-        context.register_stream("orders".to_string(), orders_handle, orders_schema).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, orders_schema)
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -103,7 +135,9 @@ mod tests {
 
         // Parse windowed query
         let parser = StreamingSqlParser::new();
-        let query = parser.parse("SELECT SUM(amount) AS total_amount FROM orders WINDOW TUMBLING(5m)").unwrap();
+        let query = parser
+            .parse("SELECT SUM(amount) AS total_amount FROM orders WINDOW TUMBLING(5m)")
+            .unwrap();
 
         // Execute with multiple records
         let records = vec![
@@ -135,7 +169,9 @@ mod tests {
             "orders_topic".to_string(),
             "orders_schema".to_string(),
         );
-        context.register_stream("orders".to_string(), orders_handle, create_orders_schema()).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, create_orders_schema())
+            .unwrap();
 
         // Register users stream
         let users_handle = StreamHandle::new(
@@ -143,7 +179,9 @@ mod tests {
             "users_topic".to_string(),
             "users_schema".to_string(),
         );
-        context.register_stream("users".to_string(), users_handle, create_users_schema()).unwrap();
+        context
+            .register_stream("users".to_string(), users_handle, create_users_schema())
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -151,7 +189,9 @@ mod tests {
         let parser = StreamingSqlParser::new();
 
         // Test orders query
-        let orders_query = parser.parse("SELECT order_id, customer_id FROM orders").unwrap();
+        let orders_query = parser
+            .parse("SELECT order_id, customer_id FROM orders")
+            .unwrap();
         let order_record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine.execute(&orders_query, order_record).await;
         assert!(result.is_ok());
@@ -181,7 +221,9 @@ mod tests {
             "orders_topic".to_string(),
             "orders_schema".to_string(),
         );
-        context.register_stream("orders".to_string(), orders_handle, create_orders_schema()).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, create_orders_schema())
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -211,7 +253,10 @@ mod tests {
         }
 
         // Check literal value
-        assert_eq!(output.get("new_status"), Some(&Value::String("processed".to_string())));
+        assert_eq!(
+            output.get("new_status"),
+            Some(&Value::String("processed".to_string()))
+        );
     }
 
     #[tokio::test]
@@ -224,7 +269,9 @@ mod tests {
             "orders_schema".to_string(),
         );
         let orders_schema = create_orders_schema();
-        context.register_stream("orders".to_string(), orders_handle, orders_schema).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, orders_schema)
+            .unwrap();
 
         // Test valid query
         let valid_result = context.execute_query("SELECT order_id, amount FROM orders");
@@ -248,7 +295,9 @@ mod tests {
             "orders_topic".to_string(),
             "orders_schema".to_string(),
         );
-        context.register_stream("orders".to_string(), orders_handle, create_orders_schema()).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, create_orders_schema())
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -256,9 +305,9 @@ mod tests {
 
         // Parse sliding window query
         let parser = StreamingSqlParser::new();
-        let query = parser.parse(
-            "SELECT AVG(amount) AS avg_amount FROM orders WINDOW SLIDING(10m, 5m)"
-        ).unwrap();
+        let query = parser
+            .parse("SELECT AVG(amount) AS avg_amount FROM orders WINDOW SLIDING(10m, 5m)")
+            .unwrap();
 
         // Execute with multiple records
         for i in 1..=5 {
@@ -283,7 +332,9 @@ mod tests {
             "orders_topic".to_string(),
             "orders_schema".to_string(),
         );
-        context.register_stream("orders".to_string(), orders_handle, create_orders_schema()).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, create_orders_schema())
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -291,9 +342,9 @@ mod tests {
 
         // Parse session window query
         let parser = StreamingSqlParser::new();
-        let query = parser.parse(
-            "SELECT COUNT(*) AS session_count FROM orders WINDOW SESSION(30s)"
-        ).unwrap();
+        let query = parser
+            .parse("SELECT COUNT(*) AS session_count FROM orders WINDOW SESSION(30s)")
+            .unwrap();
 
         // Execute with records
         let record = create_order_record(1, 100, 299.99, Some("pending"));
@@ -308,17 +359,25 @@ mod tests {
     #[tokio::test]
     async fn test_error_propagation_integration() {
         // Setup execution engine
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse valid query
         let parser = StreamingSqlParser::new();
-        let query = parser.parse("SELECT nonexistent_column FROM orders").unwrap();
+        let query = parser
+            .parse("SELECT nonexistent_column FROM orders")
+            .unwrap();
 
-        // Execute with valid record - should fail due to missing column
+        // Execute with valid record - nonexistent columns return NULL
         let record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine.execute(&query, record).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        assert_eq!(
+            output.get("nonexistent_column"),
+            Some(&serde_json::Value::Null)
+        );
     }
 
     #[tokio::test]
@@ -331,7 +390,9 @@ mod tests {
             "orders_schema".to_string(),
         );
         let orders_schema = create_orders_schema();
-        context.register_stream("orders".to_string(), orders_handle, orders_schema).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, orders_schema)
+            .unwrap();
 
         // Get schema and validate different record types
         let schema = context.get_stream_schema("orders").unwrap();
@@ -342,18 +403,33 @@ mod tests {
 
         // Invalid record - wrong type for amount
         let mut invalid_record = HashMap::new();
-        invalid_record.insert("order_id".to_string(), Value::Number(serde_json::Number::from(1)));
-        invalid_record.insert("customer_id".to_string(), Value::Number(serde_json::Number::from(100)));
-        invalid_record.insert("amount".to_string(), Value::String("not_a_number".to_string())); // Wrong type
-        invalid_record.insert("timestamp".to_string(), Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())));
-        
+        invalid_record.insert(
+            "order_id".to_string(),
+            Value::Number(serde_json::Number::from(1)),
+        );
+        invalid_record.insert(
+            "customer_id".to_string(),
+            Value::Number(serde_json::Number::from(100)),
+        );
+        invalid_record.insert(
+            "amount".to_string(),
+            Value::String("not_a_number".to_string()),
+        ); // Wrong type
+        invalid_record.insert(
+            "timestamp".to_string(),
+            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
+        );
+
         assert!(!schema.validate_record(&invalid_record));
 
         // Missing required field
         let mut missing_field_record = HashMap::new();
-        missing_field_record.insert("order_id".to_string(), Value::Number(serde_json::Number::from(1)));
+        missing_field_record.insert(
+            "order_id".to_string(),
+            Value::Number(serde_json::Number::from(1)),
+        );
         // Missing customer_id and other required fields
-        
+
         assert!(!schema.validate_record(&missing_field_record));
     }
 
@@ -366,7 +442,9 @@ mod tests {
             "orders_topic".to_string(),
             "orders_schema".to_string(),
         );
-        context.register_stream("orders".to_string(), orders_handle, create_orders_schema()).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, create_orders_schema())
+            .unwrap();
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -411,7 +489,9 @@ mod tests {
             "orders_schema".to_string(),
         );
         let orders_schema = create_orders_schema();
-        context.register_stream("orders".to_string(), orders_handle, orders_schema).unwrap();
+        context
+            .register_stream("orders".to_string(), orders_handle, orders_schema)
+            .unwrap();
 
         // Verify stream is registered
         assert_eq!(context.list_streams().len(), 1);

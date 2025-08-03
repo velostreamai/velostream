@@ -24,17 +24,19 @@
 //! - MESSAGE_SIZE: Size category (Small/Medium/Large)
 //! - CONCURRENT_PRODUCERS: Number of concurrent producers
 
-use ferrisstreams::{ProducerBuilder, KafkaConsumer, JsonSerializer, Headers, Message, KafkaAdminClient};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use serde::{Serialize, Deserialize};
-use std::time::{Duration, Instant};
+use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use ferrisstreams::{
+    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, Message, ProducerBuilder,
+};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
-use tokio::time::sleep;
-use futures::StreamExt; // Add this import for stream extension traits
+use tokio::time::sleep; // Add this import for stream extension traits
 
 // Performance test configuration
 const MESSAGE_COUNT: u64 = 10_000;
@@ -45,9 +47,9 @@ const CONSUMER_TIMEOUT: Duration = Duration::from_secs(30);
 // Message size variants for testing different scenarios
 #[derive(Debug, Clone, Copy)]
 enum MessageSize {
-    Small,   // ~100 bytes
-    Medium,  // ~1KB  
-    Large,   // ~10KB
+    Small,  // ~100 bytes
+    Medium, // ~1KB
+    Large,  // ~10KB
 }
 
 impl MessageSize {
@@ -100,12 +102,14 @@ impl PerformanceMetrics {
 
     fn record_send(&self, message_size: usize) {
         self.messages_sent.fetch_add(1, Ordering::Relaxed);
-        self.bytes_sent.fetch_add(message_size as u64, Ordering::Relaxed);
+        self.bytes_sent
+            .fetch_add(message_size as u64, Ordering::Relaxed);
     }
 
     fn record_receive(&self, message_size: usize) {
         self.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.bytes_received.fetch_add(message_size as u64, Ordering::Relaxed);
+        self.bytes_received
+            .fetch_add(message_size as u64, Ordering::Relaxed);
     }
 
     fn record_error(&self) {
@@ -148,7 +152,7 @@ struct ThroughputStats {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     println!("🚀 JSON Performance Testing Suite");
     println!("==================================");
     println!("Messages: {}", MESSAGE_COUNT);
@@ -166,12 +170,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (scenario_name, message_size) in test_scenarios {
         println!("📊 Testing: {}", scenario_name);
         println!("─────────────────────────────────");
-        
+
         match run_performance_test(message_size).await {
             Ok(stats) => print_performance_results(&stats, scenario_name),
             Err(e) => println!("❌ Test failed: {}", e),
         }
-        
+
         println!();
         // Brief pause between tests
         sleep(Duration::from_secs(2)).await;
@@ -181,10 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputStats, Box<dyn std::error::Error>> {
+async fn run_performance_test(
+    message_size: MessageSize,
+) -> Result<ThroughputStats, Box<dyn std::error::Error>> {
     let topic = format!("perf-test-{}", chrono::Utc::now().timestamp_millis());
     let metrics = Arc::new(PerformanceMetrics::new());
-    
+
     // Create admin client and topic with 3 partitions
     println!("🔧 Creating topic '{}' with 3 partitions...", topic);
     let admin_client = KafkaAdminClient::new("localhost:9092")?;
@@ -197,20 +203,23 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
     // Create high-throughput producer configuration
     let producer_config = ProducerConfig::new("localhost:9092", &topic)
         .client_id("perf-test-producer")
-        .compression(CompressionType::Lz4)  // Fast compression
-        .acks(AckMode::Leader)  // Balance between throughput and durability
-        .batching(BATCH_SIZE, Duration::from_millis(5))  // Small linger for throughput
+        .compression(CompressionType::Lz4) // Fast compression
+        .acks(AckMode::Leader) // Balance between throughput and durability
+        .batching(BATCH_SIZE, Duration::from_millis(5)) // Small linger for throughput
         .retries(3, Duration::from_millis(100))
-        .high_throughput();  // Apply high-throughput preset with consolidated settings
+        .high_throughput(); // Apply high-throughput preset with consolidated settings
 
     // Create multiple producers for concurrent sending
     let mut producers = Vec::new();
     for i in 0..CONCURRENT_PRODUCERS {
         let producer = ProducerBuilder::<String, PerformanceTestMessage, _, _>::with_config(
-            producer_config.clone().client_id(&format!("perf-producer-{}", i)),
+            producer_config
+                .clone()
+                .client_id(&format!("perf-producer-{}", i)),
             JsonSerializer,
             JsonSerializer,
-        ).build()?;
+        )
+        .build()?;
         producers.push(producer);
     }
 
@@ -218,10 +227,10 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
     let consumer_config = ConsumerConfig::new("localhost:9092", "perf-test-group")
         .client_id("perf-test-consumer")
         .auto_offset_reset(OffsetReset::Earliest)
-        .max_poll_records(1000)  // Process many messages per poll
-        .fetch_min_bytes(1024)   // Wait for reasonable batch size
+        .max_poll_records(1000) // Process many messages per poll
+        .fetch_min_bytes(1024) // Wait for reasonable batch size
         .fetch_max_wait(Duration::from_millis(500))
-        .high_throughput();  // Apply high-throughput preset
+        .high_throughput(); // Apply high-throughput preset
 
     let consumer = KafkaConsumer::<String, PerformanceTestMessage, _, _>::with_config(
         consumer_config,
@@ -239,7 +248,8 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
         tokio::pin!(timeout_future);
 
         // Use stream instead of polling
-        let stream_future = consumer.stream()
+        let stream_future = consumer
+            .stream()
             .take(MESSAGE_COUNT as usize) // Limit to expected message count
             .for_each(|message_result| {
                 let metrics = consumer_metrics.clone();
@@ -250,11 +260,16 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
                             metrics.record_receive(message_size);
 
                             // Log progress every 1000 messages
-                            let count = metrics.messages_received.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            let count = metrics
+                                .messages_received
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                                + 1;
                             if count % 1000 == 0 {
                                 let stats = metrics.get_throughput_stats();
-                                println!("📈 Progress: {}/{} msgs ({:.1} msg/s)",
-                                    count, MESSAGE_COUNT, stats.messages_per_second_received);
+                                println!(
+                                    "📈 Progress: {}/{} msgs ({:.1} msg/s)",
+                                    count, MESSAGE_COUNT, stats.messages_per_second_received
+                                );
                             }
                         }
                         Err(e) => {
@@ -274,7 +289,12 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
             }
         }
 
-        println!("✅ Received {} messages", consumer_metrics.messages_received.load(std::sync::atomic::Ordering::Relaxed));
+        println!(
+            "✅ Received {} messages",
+            consumer_metrics
+                .messages_received
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
     });
 
     // Start producer tasks
@@ -286,10 +306,10 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
         let producer_metrics = metrics.clone();
         let sem = semaphore.clone();
         let producer_id_str = format!("producer-{}", producer_id);
-        
+
         let task = tokio::spawn(async move {
             let _permit = sem.acquire().await.unwrap();
-            
+
             for i in 0..messages_per_producer {
                 let message = PerformanceTestMessage {
                     id: (producer_id as u64 * messages_per_producer) + i,
@@ -326,10 +346,13 @@ async fn run_performance_test(message_size: MessageSize) -> Result<ThroughputSta
                     tokio::task::yield_now().await;
                 }
             }
-            
-            println!("✅ Producer {} completed sending {} messages", producer_id, messages_per_producer);
+
+            println!(
+                "✅ Producer {} completed sending {} messages",
+                producer_id, messages_per_producer
+            );
         });
-        
+
         producer_tasks.push(task);
     }
 
@@ -369,18 +392,27 @@ fn estimate_json_size(message: &PerformanceTestMessage) -> usize {
 
 fn print_performance_results(stats: &ThroughputStats, scenario: &str) {
     println!("📊 {} Results:", scenario);
-    println!("   Messages Sent:     {:8} ({:.1} msg/s)", stats.total_sent, stats.messages_per_second_sent);
-    println!("   Messages Received: {:8} ({:.1} msg/s)", stats.total_received, stats.messages_per_second_received);
+    println!(
+        "   Messages Sent:     {:8} ({:.1} msg/s)",
+        stats.total_sent, stats.messages_per_second_sent
+    );
+    println!(
+        "   Messages Received: {:8} ({:.1} msg/s)",
+        stats.total_received, stats.messages_per_second_received
+    );
     println!("   Throughput (Send): {:8.2} MB/s", stats.mbps_sent);
     println!("   Throughput (Recv): {:8.2} MB/s", stats.mbps_received);
     println!("   Errors:            {:8}", stats.total_errors);
-    println!("   Duration:          {:8.1} seconds", stats.elapsed_seconds);
-    
+    println!(
+        "   Duration:          {:8.1} seconds",
+        stats.elapsed_seconds
+    );
+
     if stats.total_received > 0 {
         let success_rate = (stats.total_received as f64 / stats.total_sent as f64) * 100.0;
         println!("   Success Rate:      {:8.1}%", success_rate);
     }
-    
+
     // Performance rating
     let rating = if stats.messages_per_second_sent > 5000.0 {
         "🚀 Excellent"

@@ -9,11 +9,13 @@ fn test_json_serializer_basic() {
     };
 
     let serializer = JsonSerializer;
-    
+
     let bytes = serializer.serialize(&user).expect("Failed to serialize");
     assert!(!bytes.is_empty());
 
-    let deserialized: TestUser = serializer.deserialize(&bytes).expect("Failed to deserialize");
+    let deserialized: TestUser = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize");
     assert_eq!(user, deserialized);
 }
 
@@ -26,10 +28,12 @@ fn test_json_serializer_optional_fields() {
     };
 
     let serializer = JsonSerializer;
-    
+
     let bytes = serializer.serialize(&user).expect("Failed to serialize");
-    let deserialized: TestUser = serializer.deserialize(&bytes).expect("Failed to deserialize");
-    
+    let deserialized: TestUser = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize");
+
     assert_eq!(user, deserialized);
     assert_eq!(deserialized.email, None);
 }
@@ -40,20 +44,32 @@ fn test_json_serializer_different_types() {
 
     // String
     let string_data = "test string".to_string();
-    let bytes = serializer.serialize(&string_data).expect("Failed to serialize string");
-    let deserialized: String = serializer.deserialize(&bytes).expect("Failed to deserialize string");
+    let bytes = serializer
+        .serialize(&string_data)
+        .expect("Failed to serialize string");
+    let deserialized: String = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize string");
     assert_eq!(string_data, deserialized);
 
     // Number
     let number_data = 42u32;
-    let bytes = serializer.serialize(&number_data).expect("Failed to serialize number");
-    let deserialized: u32 = serializer.deserialize(&bytes).expect("Failed to deserialize number");
+    let bytes = serializer
+        .serialize(&number_data)
+        .expect("Failed to serialize number");
+    let deserialized: u32 = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize number");
     assert_eq!(number_data, deserialized);
 
     // Vector
     let vec_data = vec![1, 2, 3, 4, 5];
-    let bytes = serializer.serialize(&vec_data).expect("Failed to serialize vec");
-    let deserialized: Vec<i32> = serializer.deserialize(&bytes).expect("Failed to deserialize vec");
+    let bytes = serializer
+        .serialize(&vec_data)
+        .expect("Failed to serialize vec");
+    let deserialized: Vec<i32> = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize vec");
     assert_eq!(vec_data, deserialized);
 }
 
@@ -69,10 +85,14 @@ fn test_json_serializer_nested_structs() {
     };
 
     let serializer = JsonSerializer;
-    
-    let bytes = serializer.serialize(&nested).expect("Failed to serialize nested");
-    let deserialized: NestedStruct = serializer.deserialize(&bytes).expect("Failed to deserialize nested");
-    
+
+    let bytes = serializer
+        .serialize(&nested)
+        .expect("Failed to serialize nested");
+    let deserialized: NestedStruct = serializer
+        .deserialize(&bytes)
+        .expect("Failed to deserialize nested");
+
     assert_eq!(nested, deserialized);
     assert_eq!(deserialized.inner.value, 100);
     assert_eq!(deserialized.inner.flag, true);
@@ -81,7 +101,7 @@ fn test_json_serializer_nested_structs() {
 #[test]
 fn test_json_serializer_error_cases() {
     let serializer = JsonSerializer;
-    
+
     // Invalid JSON
     let invalid_json = b"{ invalid json }";
     let result: Result<TestUser, _> = serializer.deserialize(invalid_json);
@@ -120,10 +140,14 @@ mod protobuf_tests {
         };
 
         let serializer = ProtoSerializer::<TestProtoUser>::new();
-        
-        let bytes = serializer.serialize(&user).expect("Failed to serialize proto");
-        let deserialized: TestProtoUser = serializer.deserialize(&bytes).expect("Failed to deserialize proto");
-        
+
+        let bytes = serializer
+            .serialize(&user)
+            .expect("Failed to serialize proto");
+        let deserialized: TestProtoUser = serializer
+            .deserialize(&bytes)
+            .expect("Failed to deserialize proto");
+
         assert_eq!(user, deserialized);
     }
 }
@@ -131,8 +155,8 @@ mod protobuf_tests {
 #[cfg(feature = "avro")]
 mod avro_tests {
     use super::*;
-    use ferrisstreams::ferris::kafka::AvroSerializer;
     use apache_avro::{Schema as AvroSchema, types::Value as AvroValue};
+    use ferrisstreams::ferris::kafka::AvroSerializer;
 
     #[test]
     fn test_avro_serializer() {
@@ -153,13 +177,26 @@ mod avro_tests {
 
         let user_value = AvroValue::Record(vec![
             ("id".to_string(), AvroValue::Long(999)),
-            ("name".to_string(), AvroValue::String("Dave Wilson".to_string())),
-            ("email".to_string(), AvroValue::Union(1, Box::new(AvroValue::String("dave@example.com".to_string())))),
+            (
+                "name".to_string(),
+                AvroValue::String("Dave Wilson".to_string()),
+            ),
+            (
+                "email".to_string(),
+                AvroValue::Union(
+                    1,
+                    Box::new(AvroValue::String("dave@example.com".to_string())),
+                ),
+            ),
         ]);
 
-        let bytes = serializer.serialize(&user_value).expect("Failed to serialize avro");
-        let deserialized: AvroValue = serializer.deserialize(&bytes).expect("Failed to deserialize avro");
-        
+        let bytes = serializer
+            .serialize(&user_value)
+            .expect("Failed to serialize avro");
+        let deserialized: AvroValue = serializer
+            .deserialize(&bytes)
+            .expect("Failed to deserialize avro");
+
         assert_eq!(user_value, deserialized);
     }
 }

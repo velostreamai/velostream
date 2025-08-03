@@ -1,6 +1,6 @@
 //! # Comprehensive Consumer with Headers Example
 //!
-//! This example provides a comprehensive demonstration of consuming Kafka messages 
+//! This example provides a comprehensive demonstration of consuming Kafka messages
 //! with full access to keys, values, and headers:
 //! - Multiple message types with different header patterns
 //! - Comprehensive header processing and routing
@@ -36,10 +36,8 @@
 //! - `builder_configuration.rs` - Advanced producer/consumer configuration
 //! - `fluent_api_example.rs` - Stream-based processing with header filtering
 
-use ferrisstreams::{
-    KafkaProducer, KafkaConsumer, JsonSerializer, Headers
-};
-use serde::{Serialize, Deserialize};
+use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -61,17 +59,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create producer and consumer with String keys and ProductEvent values
     let producer = KafkaProducer::<String, ProductEvent, _, _>::new(
-        broker, 
-        &topic, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        &topic,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     let consumer = KafkaConsumer::<String, ProductEvent, _, _>::new(
-        broker, 
-        &group_id, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        &group_id,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     consumer.subscribe(&[&topic])?;
@@ -90,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .insert("source", "inventory-service")
                 .insert("event-type", "product-created")
                 .insert("timestamp", "2024-01-15T10:30:00Z")
-                .insert("user-id", "admin-123")
+                .insert("user-id", "admin-123"),
         ),
         (
             "product-002".to_string(),
@@ -104,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .insert("source", "web-api")
                 .insert("event-type", "product-updated")
                 .insert("timestamp", "2024-01-15T11:15:00Z")
-                .insert("session-id", "sess-xyz-789")
+                .insert("session-id", "sess-xyz-789"),
         ),
         (
             "product-003".to_string(),
@@ -119,15 +117,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .insert("event-type", "product-created")
                 .insert("timestamp", "2024-01-15T12:00:00Z")
                 .insert("app-version", "2.1.0")
-                .insert("platform", "iOS")
+                .insert("platform", "iOS"),
         ),
     ];
 
     // Send all messages
-    println!("📤 Sending {} messages with keys, values, and headers...\n", messages.len());
+    println!(
+        "📤 Sending {} messages with keys, values, and headers...\n",
+        messages.len()
+    );
     for (key, product, headers) in &messages {
         println!("Sending product: {} (key: {})", product.name, key);
-        producer.send(Some(key), product, headers.clone(), None).await?;
+        producer
+            .send(Some(key), product, headers.clone(), None)
+            .await?;
     }
 
     producer.flush(5000)?;
@@ -135,20 +138,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Consume messages and demonstrate accessing headers, keys, and values
     println!("📥 Consuming messages and showing headers, keys, and values...\n");
-    
+
     let mut received_count = 0;
     let max_messages = messages.len();
-    
+
     while received_count < max_messages {
         match consumer.poll(Duration::from_secs(5)).await {
             Ok(message) => {
                 received_count += 1;
-                
+
                 println!("📨 Message {} of {}:", received_count, max_messages);
                 println!("   🔑 Key: {:?}", message.key());
                 println!("   📦 Value: {:?}", message.value());
                 println!("   🏷️  Headers:");
-                
+
                 // Access individual headers
                 if let Some(source) = message.headers().get("source") {
                     println!("      source: {}", source);
@@ -159,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(timestamp) = message.headers().get("timestamp") {
                     println!("      timestamp: {}", timestamp);
                 }
-                
+
                 // Show all headers
                 for (header_key, header_value) in message.headers().iter() {
                     match header_value {
@@ -167,21 +170,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         None => println!("      {}: <null>", header_key),
                     }
                 }
-                
+
                 // Demonstrate different ways to extract data
                 println!("   🔄 Extraction methods:");
                 println!("      Key extracted: {:?}", message.key());
                 println!("      Value.name: {}", message.value().name);
                 println!("      Value.price: ${:.2}", message.value().price);
                 println!("      Headers count: {}", message.headers().len());
-                
+
                 // Demonstrate consuming the message (extracting owned values)
                 let (key, value, headers) = message.into_parts();
                 println!("   ✅ Consumed into parts:");
                 println!("      Owned key: {:?}", key);
                 println!("      Owned value.category: {}", value.category);
                 println!("      Owned headers.len(): {}", headers.len());
-                
+
                 println!("   {}", "─".repeat(50));
             }
             Err(e) => {
@@ -197,7 +200,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • Consumed {} messages", received_count);
     println!("   • Each message contained: Key (String), Value (ProductEvent), Headers (metadata)");
     println!("   • Headers included source, event-type, timestamp, and custom fields");
-    println!("   • Demonstrated both reference access (.key(), .value(), .headers()) and owned consumption (.into_parts())");
-    
+    println!(
+        "   • Demonstrated both reference access (.key(), .value(), .headers()) and owned consumption (.into_parts())"
+    );
+
     Ok(())
 }

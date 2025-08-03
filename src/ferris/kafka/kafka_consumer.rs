@@ -1,68 +1,91 @@
-use crate::ferris::kafka::serialization::Serializer;
-use crate::ferris::kafka::headers::Headers;
-use crate::ferris::kafka::message::Message;
-use crate::ferris::kafka::consumer_config::ConsumerConfig;
-use crate::ferris::kafka::kafka_error::ConsumerError;
 use crate::ferris::kafka::client_config_builder::ClientConfigBuilder;
+use crate::ferris::kafka::consumer_config::ConsumerConfig;
+use crate::ferris::kafka::headers::Headers;
+use crate::ferris::kafka::kafka_error::ConsumerError;
+use crate::ferris::kafka::message::Message;
+use crate::ferris::kafka::serialization::Serializer;
 use futures::StreamExt;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, ConsumerContext, DefaultConsumerContext, MessageStream, StreamConsumer};
+use rdkafka::consumer::{
+    Consumer, ConsumerContext, DefaultConsumerContext, MessageStream, StreamConsumer,
+};
 use rdkafka::error::KafkaError;
-use rdkafka::message::{Message as KafkaMessage};
+use rdkafka::message::Message as KafkaMessage;
 use std::marker::PhantomData;
 use std::time::Duration;
 
 /// A Kafka consumer that handles deserialization automatically for keys, values, and headers
-/// 
+///
 /// This consumer returns `Message<K, V>` structs containing:
 /// - `key: Option<K>` - Deserialized message key
 /// - `value: V` - Deserialized message value  
 /// - `headers: Headers` - Message headers with metadata
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Basic Usage
 /// ```rust,no_run
 /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+/// use serde::{Serialize, Deserialize};
 /// use std::time::Duration;
-/// 
-/// let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
-///     "localhost:9092",
-///     "my-group", 
-///     JsonSerializer,
-///     JsonSerializer
-/// )?;
-/// 
-/// consumer.subscribe(&["my-topic"])?;
-/// 
-/// // Poll for messages
-/// let message = consumer.poll_message(Duration::from_secs(5)).await?;
-/// println!("Key: {:?}", message.key());
-/// println!("Value: {:?}", message.value());
-/// println!("Headers: {:?}", message.headers());
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+///
+/// #[derive(Serialize, Deserialize, Debug)]
+/// struct MyMessage {
+///     id: u32,
+///     content: String,
+/// }
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
+///         "localhost:9092",
+///         "my-group",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///
+///     consumer.subscribe(&["my-topic"])?;
+///
+///     // Poll for messages
+///     let message = consumer.poll(Duration::from_secs(5)).await?;
+///     println!("Key: {:?}", message.key());
+///     println!("Value: {:?}", message.value());
+///     println!("Headers: {:?}", message.headers());
+///     Ok(())
+/// }
 /// ```
-/// 
+///
 /// ## Stream Processing
 /// ```rust,no_run
-/// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-/// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
+/// use ferrisstreams::{KafkaConsumer, JsonSerializer};
 /// use futures::StreamExt;
-/// 
-/// consumer.stream()
-///     .for_each(|result| async move {
-///         if let Ok(message) = result {
-///             // Access headers for routing/filtering
-///             if let Some(source) = message.headers().get("source") {
-///                 println!("Message from: {}", source);
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+///         "localhost:9092",
+///         "group",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///     
+///     consumer.subscribe(&["my-topic"])?;
+///
+///     consumer.stream()
+///         .for_each(|result| async move {
+///             if let Ok(message) = result {
+///                 // Access headers for routing/filtering
+///                 if let Some(source) = message.headers().get("source") {
+///                     println!("Message from: {}", source);
+///                 }
+///                 
+///                 // Process the value
+///                 println!("Processing: {:?}", message.value());
 ///             }
-///             
-///             // Process the value
-///             println!("Processing: {:?}", message.value());
-///         }
-///     })
-///     .await;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+///         })
+///         .await;
+///     Ok(())
+/// }
 /// ```
 pub struct KafkaConsumer<K, V, KS, VS, C = DefaultConsumerContext>
 where
@@ -86,7 +109,12 @@ where
     VS: Serializer<V>,
 {
     /// Creates a new KafkaConsumer with default context and simple configuration
-    pub fn new(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS) -> Result<Self, KafkaError> {
+    pub fn new(
+        brokers: &str,
+        group_id: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Result<Self, KafkaError> {
         let config = ConsumerConfig::new(brokers, group_id);
         Self::with_config(config, key_serializer, value_serializer)
     }
@@ -104,17 +132,29 @@ where
             .retry_backoff(config.common.retry_backoff)
             .custom_properties(&config.common.custom_config)
             .build();
-        
+
         // Set consumer-specific configuration
         client_config
             .set("group.id", &config.group_id)
             .set("auto.offset.reset", config.auto_offset_reset.as_str())
             .set("enable.auto.commit", &config.enable_auto_commit.to_string())
-            .set("auto.commit.interval.ms", &config.auto_commit_interval.as_millis().to_string())
-            .set("session.timeout.ms", &config.session_timeout.as_millis().to_string())
-            .set("heartbeat.interval.ms", &config.heartbeat_interval.as_millis().to_string())
+            .set(
+                "auto.commit.interval.ms",
+                &config.auto_commit_interval.as_millis().to_string(),
+            )
+            .set(
+                "session.timeout.ms",
+                &config.session_timeout.as_millis().to_string(),
+            )
+            .set(
+                "heartbeat.interval.ms",
+                &config.heartbeat_interval.as_millis().to_string(),
+            )
             .set("fetch.min.bytes", &config.fetch_min_bytes.to_string())
-            .set("fetch.message.max.bytes", &config.max_partition_fetch_bytes.to_string())
+            .set(
+                "fetch.message.max.bytes",
+                &config.max_partition_fetch_bytes.to_string(),
+            )
             .set("isolation.level", config.isolation_level.as_str());
 
         let consumer: StreamConsumer = client_config.create()?;
@@ -137,7 +177,13 @@ where
     C: ConsumerContext + 'static,
 {
     /// Creates a new KafkaConsumer with custom context
-    pub fn new_with_context(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS, context: C) -> Result<Self, KafkaError> {
+    pub fn new_with_context(
+        brokers: &str,
+        group_id: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+        context: C,
+    ) -> Result<Self, KafkaError> {
         let consumer: StreamConsumer<C> = ClientConfig::new()
             .set("bootstrap.servers", brokers)
             .set("group.id", group_id)
@@ -160,39 +206,50 @@ where
     }
 
     /// Poll for a message with timeout
-    /// 
+    ///
     /// Returns a `Message<K, V>` containing the deserialized key, value, and headers.
     /// This method blocks until a message is available or the timeout expires.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use std::time::Duration;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// match consumer.poll_message(Duration::from_secs(5)).await {
-    ///     Ok(message) => {
-    ///         println!("Key: {:?}", message.key());
-    ///         println!("Value: {}", message.value());
-    ///         
-    ///         // Process headers
-    ///         if let Some(source) = message.headers().get("source") {
-    ///             println!("Message from: {}", source);
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use std::time::Duration;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     consumer.subscribe(&["my-topic"])?;
+    ///     
+    ///     match consumer.poll(Duration::from_secs(5)).await {
+    ///         Ok(message) => {
+    ///             println!("Key: {:?}", message.key());
+    ///             println!("Value: {}", message.value());
+    ///             
+    ///             // Process headers
+    ///             if let Some(source) = message.headers().get("source") {
+    ///                 println!("Message from: {}", source);
+    ///             }
     ///         }
+    ///         Err(e) => println!("No message received: {}", e),
     ///     }
-    ///     Err(e) => println!("No message received: {}", e),
+    ///     Ok(())
     /// }
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub async fn poll(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
         use tokio::time;
         let mut stream = self.consumer.stream();
-        
+
         match time::timeout(timeout, stream.next()).await {
             Ok(Some(Ok(msg))) => {
                 let payload = msg.payload().ok_or(ConsumerError::NoMessage)?;
                 let value = self.value_serializer.deserialize(payload)?;
-                
+
                 let key = if let Some(key_bytes) = msg.key() {
                     Some(self.key_serializer.deserialize(key_bytes)?)
                 } else {
@@ -209,16 +266,13 @@ where
                 let offset = msg.offset();
                 let timestamp = match msg.timestamp() {
                     rdkafka::Timestamp::NotAvailable => None,
-                    rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
+                    rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => {
+                        Some(t)
+                    }
                 };
 
                 Ok(Message::new(
-                    key,
-                    value,
-                    headers,
-                    partition,
-                    offset,
-                    timestamp
+                    key, value, headers, partition, offset, timestamp,
                 ))
             }
             Ok(Some(Err(e))) => Err(ConsumerError::KafkaError(e)),
@@ -233,101 +287,119 @@ where
     }
 
     /// Get a stream that yields deserialized typed messages
-    /// 
+    ///
     /// Returns a stream of `Result<Message<K, V>, ConsumerError>` where each message
     /// contains the deserialized key, value, and headers. This enables reactive
     /// processing patterns and functional composition.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ## Basic Stream Processing
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use futures::StreamExt;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// consumer.stream()
-    ///     .for_each(|result| async move {
-    ///         match result {
-    ///             Ok(message) => {
-    ///                 println!("Processing: {:?}", message.value());
-    ///                 
-    ///                 // Route based on headers
-    ///                 match message.headers().get("event-type") {
-    ///                     Some("user-created") => handle_user_created(message),
-    ///                     Some("user-updated") => handle_user_updated(message),
-    ///                     _ => println!("Unknown event type"),
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use futures::StreamExt;
+    ///
+    /// fn handle_user_created(_: ferrisstreams::Message<String, String>) {}
+    /// fn handle_user_updated(_: ferrisstreams::Message<String, String>) {}
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     
+    ///     consumer.stream()
+    ///         .for_each(|result| async move {
+    ///             match result {
+    ///                 Ok(message) => {
+    ///                     println!("Processing: {:?}", message.value());
+    ///                     
+    ///                     // Route based on headers
+    ///                     match message.headers().get("event-type") {
+    ///                         Some("user-created") => handle_user_created(message),
+    ///                         Some("user-updated") => handle_user_updated(message),
+    ///                         _ => println!("Unknown event type"),
+    ///                     }
     ///                 }
+    ///                 Err(e) => eprintln!("Error: {}", e),
     ///             }
-    ///             Err(e) => eprintln!("Error: {}", e),
-    ///         }
-    ///     })
-    ///     .await;
-    /// # fn handle_user_created(_: ferrisstreams::Message<String, String>) {}
-    /// # fn handle_user_updated(_: ferrisstreams::Message<String, String>) {}
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    ///         })
+    ///         .await;
+    ///     Ok(())
+    /// }
     /// ```
-    /// 
+    ///
     /// ## Filtering by Headers
     /// ```rust,no_run
-    /// # use ferrisstreams::{KafkaConsumer, JsonSerializer};
-    /// # use futures::StreamExt;
-    /// # let consumer = KafkaConsumer::<String, String, _, _>::new("localhost:9092", "group", JsonSerializer, JsonSerializer)?;
-    /// let important_messages: Vec<_> = consumer.stream()
-    ///     .filter_map(|result| async move { result.ok() })
-    ///     .filter(|message| {
-    ///         futures::future::ready(
-    ///             message.headers().get("priority") == Some("high")
-    ///         )
-    ///     })
-    ///     .take(10)
-    ///     .collect()
-    ///     .await;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// use ferrisstreams::{KafkaConsumer, JsonSerializer};
+    /// use futures::StreamExt;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+    ///         "localhost:9092",
+    ///         "group",
+    ///         JsonSerializer,
+    ///         JsonSerializer
+    ///     )?;
+    ///     
+    ///     let important_messages: Vec<_> = consumer.stream()
+    ///         .filter_map(|result| async move { result.ok() })
+    ///         .filter(|message| {
+    ///             futures::future::ready(
+    ///                 message.headers().get("priority") == Some("high")
+    ///             )
+    ///         })
+    ///         .take(10)
+    ///         .collect()
+    ///         .await;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn stream(&self) -> impl futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
-        self.consumer.stream().map(|msg_result| {
-            match msg_result {
-                Ok(borrowed_message) => {
-                    if let Some(payload) = borrowed_message.payload() {
-                        let value = self.value_serializer
-                            .deserialize(payload)
-                            .map_err(ConsumerError::SerializationError)?;
-                        
-                        let key = if let Some(key_bytes) = borrowed_message.key() {
-                            Some(self.key_serializer
+        self.consumer.stream().map(|msg_result| match msg_result {
+            Ok(borrowed_message) => {
+                if let Some(payload) = borrowed_message.payload() {
+                    let value = self
+                        .value_serializer
+                        .deserialize(payload)
+                        .map_err(ConsumerError::SerializationError)?;
+
+                    let key = if let Some(key_bytes) = borrowed_message.key() {
+                        Some(
+                            self.key_serializer
                                 .deserialize(key_bytes)
-                                .map_err(ConsumerError::SerializationError)?)
-                        } else {
-                            None
-                        };
-
-                        let headers = if let Some(kafka_headers) = borrowed_message.headers() {
-                            Headers::from_rdkafka_headers(kafka_headers)
-                        } else {
-                            Headers::new()
-                        };
-                        
-                        let partition = borrowed_message.partition();
-                        let offset = borrowed_message.offset();
-                        let timestamp = match borrowed_message.timestamp() {
-                            rdkafka::Timestamp::NotAvailable => None,
-                            rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
-                        };
-
-                        Ok(Message::new(
-                            key,
-                            value,
-                            headers,
-                            partition,
-                            offset,
-                            timestamp
-                        ))
+                                .map_err(ConsumerError::SerializationError)?,
+                        )
                     } else {
-                        Err(ConsumerError::NoMessage)
-                    }
+                        None
+                    };
+
+                    let headers = if let Some(kafka_headers) = borrowed_message.headers() {
+                        Headers::from_rdkafka_headers(kafka_headers)
+                    } else {
+                        Headers::new()
+                    };
+
+                    let partition = borrowed_message.partition();
+                    let offset = borrowed_message.offset();
+                    let timestamp = match borrowed_message.timestamp() {
+                        rdkafka::Timestamp::NotAvailable => None,
+                        rdkafka::Timestamp::CreateTime(t)
+                        | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
+                    };
+
+                    Ok(Message::new(
+                        key, value, headers, partition, offset, timestamp,
+                    ))
+                } else {
+                    Err(ConsumerError::NoMessage)
                 }
-                Err(e) => Err(ConsumerError::KafkaError(e)),
             }
+            Err(e) => Err(ConsumerError::KafkaError(e)),
         })
     }
 
@@ -404,14 +476,19 @@ where
 
     /// Builds the KafkaConsumer
     pub fn build(self) -> Result<KafkaConsumer<K, V, KS, VS, DefaultConsumerContext>, KafkaError> {
-        KafkaConsumer::new(&self.brokers, &self.group_id, self.key_serializer, self.value_serializer)
+        KafkaConsumer::new(
+            &self.brokers,
+            &self.group_id,
+            self.key_serializer,
+            self.value_serializer,
+        )
     }
 }
 
 impl<K, V, KS, VS, C> ConsumerBuilder<K, V, KS, VS, C>
 where
     KS: Serializer<K>,
-    VS: Serializer<V>, 
+    VS: Serializer<V>,
     C: ConsumerContext + 'static,
 {
     /// Sets a custom consumer context
@@ -438,12 +515,22 @@ where
     VS: Serializer<Self>,
 {
     /// Creates a consumer for this type
-    fn consumer(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS) -> Result<KafkaConsumer<K, Self, KS, VS>, KafkaError> {
+    fn consumer(
+        brokers: &str,
+        group_id: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Result<KafkaConsumer<K, Self, KS, VS>, KafkaError> {
         KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
     }
 
     /// Creates a consumer builder for this type
-    fn consumer_builder(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS) -> ConsumerBuilder<K, Self, KS, VS> {
+    fn consumer_builder(
+        brokers: &str,
+        group_id: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> ConsumerBuilder<K, Self, KS, VS> {
         ConsumerBuilder::new(brokers, group_id, key_serializer, value_serializer)
     }
 }
@@ -453,7 +540,8 @@ impl<K, V, KS, VS> KafkaConsumable<K, KS, VS> for V
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
-{}
+{
+}
 
 #[cfg(test)]
 mod tests {
@@ -486,6 +574,11 @@ mod tests {
     async fn test_consumable_trait() {
         let key_serializer = JsonSerializer;
         let value_serializer = JsonSerializer;
-        let _consumer: Result<KafkaConsumer<String, TestMessage, _, _>, _> = TestMessage::consumer("localhost:9092", "test-group", key_serializer, value_serializer);
+        let _consumer: Result<KafkaConsumer<String, TestMessage, _, _>, _> = TestMessage::consumer(
+            "localhost:9092",
+            "test-group",
+            key_serializer,
+            value_serializer,
+        );
     }
 }

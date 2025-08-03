@@ -1,15 +1,13 @@
-use ferrisstreams::ferris::sql::{
-    StreamingSqlParser, StreamExecutionEngine,
-    StreamRecord, FieldValue, SqlError
-};
-use ferrisstreams::ferris::kafka::{KafkaConsumer, JsonSerializer};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use clap::{Parser, Subcommand};
-use std::time::Duration;
-use log::{info, error, warn};
+use ferrisstreams::ferris::{
+    error::{FerrisError, FerrisResult},
+    kafka::{JsonSerializer, KafkaConsumer},
+    sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},
+};
+use log::{error, info, warn};
+use serde_json::Value;
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::sync::{RwLock, mpsc};
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]
@@ -27,11 +25,11 @@ enum Commands {
         /// Kafka broker addresses
         #[arg(long, default_value = "localhost:9092")]
         brokers: String,
-        
+
         /// Server port for SQL commands
         #[arg(long, default_value = "8080")]
         port: u16,
-        
+
         /// Consumer group ID
         #[arg(long, default_value = "ferris-sql-server")]
         group_id: String,
@@ -41,19 +39,19 @@ enum Commands {
         /// SQL query to execute
         #[arg(long)]
         query: String,
-        
+
         /// Kafka broker addresses
         #[arg(long, default_value = "localhost:9092")]
         brokers: String,
-        
+
         /// Input topic name
         #[arg(long)]
         topic: String,
-        
+
         /// Consumer group ID
         #[arg(long, default_value = "ferris-sql-client")]
         group_id: String,
-        
+
         /// Maximum number of records to process
         #[arg(long)]
         limit: Option<usize>,
@@ -87,22 +85,27 @@ pub enum JobStatus {
 impl SqlJobManager {
     pub fn new() -> Self {
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-        
+
         let execution_engine = Arc::new(StreamExecutionEngine::new(output_sender));
-        
+
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             execution_engine,
         }
     }
-    
-    pub async fn deploy_job(&self, name: String, version: String, query: String) -> Result<(), SqlError> {
+
+    pub async fn deploy_job(
+        &self,
+        name: String,
+        version: String,
+        query: String,
+    ) -> Result<(), SqlError> {
         info!("Deploying job '{}' version '{}': {}", name, version, query);
-        
+
         // Parse and validate the query
         let parser = StreamingSqlParser::new();
         let _parsed_query = parser.parse(&query)?;
-        
+
         // Create the job record
         let job = ActiveJob {
             name: name.clone(),
@@ -112,15 +115,15 @@ impl SqlJobManager {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        
+
         // Store the job
         let mut jobs = self.jobs.write().await;
         jobs.insert(name.clone(), job);
-        
+
         info!("Successfully deployed job '{}' version '{}'", name, version);
         Ok(())
     }
-    
+
     pub async fn pause_job(&self, name: &str) -> Result<(), SqlError> {
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(name) {
@@ -135,7 +138,7 @@ impl SqlJobManager {
             })
         }
     }
-    
+
     pub async fn resume_job(&self, name: &str) -> Result<(), SqlError> {
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(name) {
@@ -150,7 +153,7 @@ impl SqlJobManager {
             })
         }
     }
-    
+
     pub async fn stop_job(&self, name: &str) -> Result<(), SqlError> {
         let mut jobs = self.jobs.write().await;
         if let Some(_job) = jobs.remove(name) {
@@ -163,12 +166,12 @@ impl SqlJobManager {
             })
         }
     }
-    
+
     pub async fn list_jobs(&self) -> Vec<ActiveJob> {
         let jobs = self.jobs.read().await;
         jobs.values().cloned().collect()
     }
-    
+
     pub async fn get_job_status(&self, name: &str) -> Option<ActiveJob> {
         let jobs = self.jobs.read().await;
         jobs.get(name).cloned()
@@ -183,26 +186,33 @@ async fn execute_sql_query(
     limit: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Executing SQL query: {}", query);
-    
+
     // Parse the query
     let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(&query)?;
     info!("Successfully parsed SQL query");
-    
+
     // Create execution engine
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
-    
-    let execution_engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(output_sender)));
-    
+
+    let execution_engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
+
     // Create Kafka consumer
-    let consumer = KafkaConsumer::<String, Value, JsonSerializer, JsonSerializer>::new(&brokers, &group_id, JsonSerializer, JsonSerializer)?;
+    let consumer = KafkaConsumer::<String, Value, JsonSerializer, JsonSerializer>::new(
+        &brokers,
+        &group_id,
+        JsonSerializer,
+        JsonSerializer,
+    )?;
     consumer.subscribe(&[&topic])?;
-    
+
     info!("Connected to Kafka, consuming from topic '{}'", topic);
-    
+
     let mut processed_count = 0;
     let max_records = limit.unwrap_or(usize::MAX);
-    
+
     // Process records
     let engine_clone = Arc::clone(&execution_engine);
     tokio::spawn(async move {
@@ -210,11 +220,11 @@ async fn execute_sql_query(
             if processed_count >= max_records {
                 break;
             }
-            
+
             match consumer.poll(Duration::from_millis(1000)).await {
                 Ok(message) => {
                     processed_count += 1;
-                    
+
                     // Convert Kafka message to StreamRecord
                     let headers = message.headers().clone();
                     let mut header_map = HashMap::new();
@@ -223,7 +233,7 @@ async fn execute_sql_query(
                             header_map.insert(key.clone(), val.clone());
                         }
                     }
-                    
+
                     // Extract fields from JSON value
                     let mut fields = HashMap::new();
                     if let Some(json_obj) = message.value().as_object() {
@@ -246,7 +256,7 @@ async fn execute_sql_query(
                             fields.insert(key.clone(), field_value);
                         }
                     }
-                    
+
                     let stream_record = StreamRecord {
                         fields,
                         timestamp: message.timestamp().unwrap_or(0),
@@ -254,22 +264,109 @@ async fn execute_sql_query(
                         partition: message.partition(),
                         headers: header_map,
                     };
-                    
+
                     // Convert FieldValue back to JSON for execution engine
                     let mut record_json = HashMap::new();
                     for (key, field_value) in &stream_record.fields {
                         let json_value = match field_value {
                             FieldValue::String(s) => serde_json::Value::String(s.clone()),
-                            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-                            FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into())),
+                            FieldValue::Integer(i) => {
+                                serde_json::Value::Number(serde_json::Number::from(*i))
+                            }
+                            FieldValue::Float(f) => serde_json::Value::Number(
+                                serde_json::Number::from_f64(*f).unwrap_or(0.into()),
+                            ),
                             FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
                             FieldValue::Null => serde_json::Value::Null,
+                            FieldValue::Array(arr) => {
+                                let json_arr: Vec<serde_json::Value> = arr
+                                    .iter()
+                                    .map(|item| match item {
+                                        FieldValue::Integer(i) => {
+                                            serde_json::Value::Number(serde_json::Number::from(*i))
+                                        }
+                                        FieldValue::Float(f) => serde_json::Value::Number(
+                                            serde_json::Number::from_f64(*f).unwrap_or(0.into()),
+                                        ),
+                                        FieldValue::String(s) => {
+                                            serde_json::Value::String(s.clone())
+                                        }
+                                        FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+                                        FieldValue::Null => serde_json::Value::Null,
+                                        _ => serde_json::Value::String(format!("{:?}", item)),
+                                    })
+                                    .collect();
+                                serde_json::Value::Array(json_arr)
+                            }
+                            FieldValue::Map(map) => {
+                                let json_obj: serde_json::Map<String, serde_json::Value> = map
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        (
+                                            k.clone(),
+                                            match v {
+                                                FieldValue::Integer(i) => {
+                                                    serde_json::Value::Number(
+                                                        serde_json::Number::from(*i),
+                                                    )
+                                                }
+                                                FieldValue::Float(f) => serde_json::Value::Number(
+                                                    serde_json::Number::from_f64(*f)
+                                                        .unwrap_or(0.into()),
+                                                ),
+                                                FieldValue::String(s) => {
+                                                    serde_json::Value::String(s.clone())
+                                                }
+                                                FieldValue::Boolean(b) => {
+                                                    serde_json::Value::Bool(*b)
+                                                }
+                                                FieldValue::Null => serde_json::Value::Null,
+                                                _ => serde_json::Value::String(format!("{:?}", v)),
+                                            },
+                                        )
+                                    })
+                                    .collect();
+                                serde_json::Value::Object(json_obj)
+                            }
+                            FieldValue::Struct(fields) => {
+                                let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        (
+                                            k.clone(),
+                                            match v {
+                                                FieldValue::Integer(i) => {
+                                                    serde_json::Value::Number(
+                                                        serde_json::Number::from(*i),
+                                                    )
+                                                }
+                                                FieldValue::Float(f) => serde_json::Value::Number(
+                                                    serde_json::Number::from_f64(*f)
+                                                        .unwrap_or(0.into()),
+                                                ),
+                                                FieldValue::String(s) => {
+                                                    serde_json::Value::String(s.clone())
+                                                }
+                                                FieldValue::Boolean(b) => {
+                                                    serde_json::Value::Bool(*b)
+                                                }
+                                                FieldValue::Null => serde_json::Value::Null,
+                                                _ => serde_json::Value::String(format!("{:?}", v)),
+                                            },
+                                        )
+                                    })
+                                    .collect();
+                                serde_json::Value::Object(json_obj)
+                            }
                         };
                         record_json.insert(key.clone(), json_value);
                     }
-                    
+
                     let mut engine = engine_clone.lock().await;
-                    if let Err(e) = engine.execute_with_headers(&parsed_query, record_json, stream_record.headers).await {
+                    if let Err(e) = engine
+                        .execute_with_headers(&parsed_query, record_json, stream_record.headers)
+                        .await
+                    {
                         error!("Failed to process record: {:?}", e);
                     }
                 }
@@ -279,23 +376,23 @@ async fn execute_sql_query(
                 }
             }
         }
-        
+
         info!("Processed {} records", processed_count);
     });
-    
+
     // Print results
     let mut result_count = 0;
     while let Some(result) = output_receiver.recv().await {
         result_count += 1;
         println!("Result {}: {:?}", result_count, result);
-        
+
         if let Some(limit) = limit {
             if result_count >= limit {
                 break;
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -305,49 +402,68 @@ async fn start_sql_server(
     group_id: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting FerrisStreams SQL Server on port {}", port);
-    
+
     let job_manager = SqlJobManager::new();
-    
+
     // In a real implementation, you would:
     // 1. Start an HTTP server (using axum, warp, or actix-web)
     // 2. Expose REST endpoints for SQL operations
     // 3. Handle WebSocket connections for real-time query results
     // 4. Implement authentication and authorization
-    
+
     // For now, let's create a simple demonstration
     info!("SQL Server started successfully!");
     info!("Brokers: {}", brokers);
     info!("Consumer Group: {}", group_id);
-    
+
     // Example usage of job manager
     let query = "SELECT customer_id, amount FROM orders WHERE amount > 100";
-    job_manager.deploy_job("demo_job".to_string(), "1.0.0".to_string(), query.to_string()).await?;
-    
+    job_manager
+        .deploy_job(
+            "demo_job".to_string(),
+            "1.0.0".to_string(),
+            query.to_string(),
+        )
+        .await?;
+
     let jobs = job_manager.list_jobs().await;
     info!("Active jobs: {}", jobs.len());
-    
+
     // Keep the server running
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
-        info!("SQL Server is running... (jobs: {})", job_manager.list_jobs().await.len());
+        info!(
+            "SQL Server is running... (jobs: {})",
+            job_manager.list_jobs().await.len()
+        );
     }
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> FerrisResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    
+
     let cli = Cli::parse();
-    
+
     match cli.command {
-        Commands::Server { brokers, port, group_id } => {
+        Commands::Server {
+            brokers,
+            port,
+            group_id,
+        } => {
             start_sql_server(brokers, port, group_id).await?;
         }
-        Commands::Execute { query, brokers, topic, group_id, limit } => {
+        Commands::Execute {
+            query,
+            brokers,
+            topic,
+            group_id,
+            limit,
+        } => {
             execute_sql_query(query, brokers, topic, group_id, limit).await?;
         }
     }
-    
+
     Ok(())
 }

@@ -5,15 +5,15 @@
 //! - Adaptive batch sizes
 //! - Non-blocking operations
 
-use ferrisstreams::{ProducerBuilder, KafkaConsumer, JsonSerializer, KafkaAdminClient};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use serde::{Serialize, Deserialize};
-use std::time::{Duration, Instant};
+use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use ferrisstreams::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use futures::StreamExt;
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
 // Test configuration
@@ -60,13 +60,15 @@ impl ConcurrencyController {
     }
 
     fn maybe_adjust(&self) {
-        let total_ops = self.successful_ops.load(Ordering::Relaxed) + self.failed_ops.load(Ordering::Relaxed);
-        
+        let total_ops =
+            self.successful_ops.load(Ordering::Relaxed) + self.failed_ops.load(Ordering::Relaxed);
+
         // Adjust every 1000 operations
         if total_ops % 1000 == 0 && total_ops > 0 {
-            let success_rate = self.successful_ops.load(Ordering::Relaxed) as f64 / total_ops as f64;
+            let success_rate =
+                self.successful_ops.load(Ordering::Relaxed) as f64 / total_ops as f64;
             let current = self.current_concurrency.load(Ordering::Relaxed);
-            
+
             let new_concurrency = if success_rate > 0.95 && current < MAX_CONCURRENCY {
                 current + 1
             } else if success_rate < 0.85 && current > 1 {
@@ -74,10 +76,15 @@ impl ConcurrencyController {
             } else {
                 current
             };
-            
+
             if new_concurrency != current {
-                self.current_concurrency.store(new_concurrency, Ordering::Relaxed);
-                println!("🎛️  Concurrency adjusted: {} (success rate: {:.1}%)", new_concurrency, success_rate * 100.0);
+                self.current_concurrency
+                    .store(new_concurrency, Ordering::Relaxed);
+                println!(
+                    "🎛️  Concurrency adjusted: {} (success rate: {:.1}%)",
+                    new_concurrency,
+                    success_rate * 100.0
+                );
             }
         }
     }
@@ -117,15 +124,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     let result = run_simple_async_test().await.map_err(|e| e)?;
-    
+
     let (processed, elapsed) = result;
     let throughput = processed as f64 / elapsed;
-    
+
     println!("📊 Results:");
     println!("   Messages Processed: {:8}", processed);
     println!("   Throughput:         {:8.1} msg/s", throughput);
     println!("   Duration:           {:8.1} seconds", elapsed);
-    
+
     let efficiency = if throughput > 1000.0 {
         "🚀 Excellent"
     } else if throughput > 500.0 {
@@ -142,11 +149,14 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
     let topic = format!("simple-async-{}", chrono::Utc::now().timestamp_millis());
     let metrics = Arc::new(AsyncMetrics::new());
     let controller = Arc::new(ConcurrencyController::new(INITIAL_CONCURRENCY));
-    
+
     // Create topic
     let admin_client = KafkaAdminClient::new("localhost:9092").map_err(|e| e.to_string())?;
-    admin_client.create_performance_topic(&topic, 3).await.map_err(|e| e.to_string())?;
-    
+    admin_client
+        .create_performance_topic(&topic, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+
     // Create producer
     let producer_config = ProducerConfig::new("localhost:9092", &topic)
         .client_id("simple-async-producer")
@@ -159,7 +169,9 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
         producer_config,
         JsonSerializer,
         JsonSerializer,
-    ).build().map_err(|e| e.to_string())?;
+    )
+    .build()
+    .map_err(|e| e.to_string())?;
 
     // Create consumer
     let consumer_config = ConsumerConfig::new("localhost:9092", "simple-async-group")
@@ -174,7 +186,8 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
         consumer_config,
         JsonSerializer,
         JsonSerializer,
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     consumer.subscribe(&[&topic]).map_err(|e| e.to_string())?;
 
@@ -186,25 +199,28 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
             .for_each_concurrent(None, |message_result| {
                 let metrics = processor_metrics.clone();
                 let controller = processor_controller.clone();
-                
+
                 async move {
                     match message_result {
                         Ok(message) => {
                             let concurrency = controller.get_concurrency();
                             let semaphore = Arc::new(Semaphore::new(concurrency));
                             let _permit = semaphore.acquire().await.unwrap();
-                            
+
                             // Simulate async work
                             let work_duration = message.value().work_duration_ms;
                             tokio::time::sleep(Duration::from_millis(work_duration)).await;
-                            
+
                             metrics.record_processed();
                             controller.record_success();
-                            
+
                             // Log progress
                             let count = metrics.processed.load(Ordering::Relaxed);
                             if count % 500 == 0 {
-                                println!("📈 Processed: {} messages (concurrency: {})", count, concurrency);
+                                println!(
+                                    "📈 Processed: {} messages (concurrency: {})",
+                                    count, concurrency
+                                );
                             }
                         }
                         Err(e) => {
@@ -228,22 +244,25 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
             };
 
             let key = format!("key-{}", i);
-            
-            producer.send(
-                Some(&key),
-                &message,
-                ferrisstreams::Headers::new()
-                    .insert("test-type", "async")
-                    .insert("message-id", &i.to_string()),
-                None
-            ).await.map_err(|e| e.to_string())?;
+
+            producer
+                .send(
+                    Some(&key),
+                    &message,
+                    ferrisstreams::Headers::new()
+                        .insert("test-type", "async")
+                        .insert("message-id", &i.to_string()),
+                    None,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
 
             // Yield occasionally
             if i % 100 == 0 {
                 tokio::task::yield_now().await;
             }
         }
-        
+
         Ok::<(), String>(())
     });
 

@@ -54,12 +54,15 @@
 //! - Integrates seamlessly with async/await
 //! - Reduces boilerplate code significantly
 
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
-use serde::{Serialize, Deserialize};
-use std::time::Duration;
+use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::time::Duration;
 use uuid::Uuid;
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {
@@ -80,7 +83,13 @@ enum OrderStatus {
 }
 
 impl OrderEvent {
-    fn new(order_id: u64, customer_id: &str, amount: f64, status: OrderStatus, category: &str) -> Self {
+    fn new(
+        order_id: u64,
+        customer_id: &str,
+        amount: f64,
+        status: OrderStatus,
+        category: &str,
+    ) -> Self {
         Self {
             order_id,
             customer_id: customer_id.to_string(),
@@ -109,17 +118,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create producer and consumer
     let producer = KafkaProducer::<String, OrderEvent, _, _>::new(
-        broker, 
-        &topic, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        &topic,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
-        broker, 
-        &group_id, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        &group_id,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     consumer.subscribe(&[&topic])?;
@@ -127,58 +136,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate sample orders with different priorities and sources
     let orders = vec![
         (
-            OrderEvent::new(1001, "customer-1", 150.99, OrderStatus::Created, "electronics"),
+            OrderEvent::new(
+                1001,
+                "customer-1",
+                150.99,
+                OrderStatus::Created,
+                "electronics",
+            ),
             Headers::new()
                 .insert("source", "web-api")
                 .insert("priority", "high")
-                .insert("region", "us-west")
+                .insert("region", "us-west"),
         ),
         (
             OrderEvent::new(1002, "customer-2", 25.50, OrderStatus::Paid, "books"),
             Headers::new()
                 .insert("source", "mobile-app")
                 .insert("priority", "normal")
-                .insert("region", "us-east")
+                .insert("region", "us-east"),
         ),
         (
-            OrderEvent::new(1003, "customer-3", 299.99, OrderStatus::Created, "electronics"),
+            OrderEvent::new(
+                1003,
+                "customer-3",
+                299.99,
+                OrderStatus::Created,
+                "electronics",
+            ),
             Headers::new()
                 .insert("source", "web-api")
                 .insert("priority", "high")
-                .insert("region", "eu-west")
+                .insert("region", "eu-west"),
         ),
         (
             OrderEvent::new(1004, "customer-4", 12.99, OrderStatus::Shipped, "books"),
             Headers::new()
                 .insert("source", "api")
                 .insert("priority", "low")
-                .insert("region", "us-west")
+                .insert("region", "us-west"),
         ),
         (
-            OrderEvent::new(1005, "customer-5", 450.00, OrderStatus::Created, "furniture"),
+            OrderEvent::new(
+                1005,
+                "customer-5",
+                450.00,
+                OrderStatus::Created,
+                "furniture",
+            ),
             Headers::new()
                 .insert("source", "web-api")
                 .insert("priority", "high")
-                .insert("region", "us-east")
+                .insert("region", "us-east"),
         ),
         (
             OrderEvent::new(1006, "customer-1", 75.25, OrderStatus::Paid, "clothing"),
             Headers::new()
                 .insert("source", "mobile-app")
                 .insert("priority", "normal")
-                .insert("region", "us-west")
+                .insert("region", "us-west"),
         ),
     ];
 
     // Send all orders
     println!("📤 Sending {} orders with metadata...", orders.len());
     for (order, headers) in &orders {
-        producer.send(
-            Some(&format!("order-{}", order.order_id)),
-            order,
-            headers.clone(),
-            None
-        ).await?;
+        producer
+            .send(
+                Some(&format!("order-{}", order.order_id)),
+                order,
+                headers.clone(),
+                None,
+            )
+            .await?;
     }
     producer.flush(5000)?;
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -187,7 +216,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Basic streaming with take and collect
     println!("🌊 Example 1: Basic Stream Collection");
-    let all_messages: Vec<_> = consumer.stream()
+    let all_messages: Vec<_> = consumer
+        .stream()
         .take(3) // Take only first 3 messages
         .filter_map(|result| async move { result.ok() })
         .collect()
@@ -195,8 +225,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Collected {} messages:", all_messages.len());
     for message in &all_messages {
-        println!("  📦 Order {}: ${:.2} from {}", 
-            message.value().order_id, 
+        println!(
+            "  📦 Order {}: ${:.2} from {}",
+            message.value().order_id,
             message.value().amount,
             message.headers().get("source").unwrap_or("unknown")
         );
@@ -205,21 +236,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: Filter by headers - High Priority Only
     println!("🔥 Example 2: High Priority Orders Only");
-    let high_priority_orders: Vec<_> = consumer.stream()
+    let high_priority_orders: Vec<_> = consumer
+        .stream()
         .take(6) // Process remaining messages
         .filter_map(|result| async move { result.ok() })
-        .filter(|message| {
-            futures::future::ready(
-                message.headers().get("priority") == Some("high")
-            )
-        })
+        .filter(|message| futures::future::ready(message.headers().get("priority") == Some("high")))
         .collect()
         .await;
 
     println!("Found {} high priority orders:", high_priority_orders.len());
     for message in &high_priority_orders {
-        println!("  🚨 Order {}: ${:.2} ({})", 
-            message.value().order_id, 
+        println!(
+            "  🚨 Order {}: ${:.2} ({})",
+            message.value().order_id,
             message.value().amount,
             message.value().category
         );
@@ -228,7 +257,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: Transform and process - Convert to business objects
     println!("🔄 Example 3: Transform to Business Objects");
-    
+
     // Create new consumer for fresh stream
     let consumer2 = KafkaConsumer::<String, OrderEvent, _, _>::new(
         broker,
@@ -238,34 +267,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     consumer2.subscribe(&[&topic])?;
 
-    let processed_orders: Vec<ProcessedOrder> = consumer2.stream()
+    let processed_orders: Vec<ProcessedOrder> = consumer2
+        .stream()
         .take(6)
         .filter_map(|result| async move { result.ok() })
         .map(|message| {
             ProcessedOrder {
                 order_id: message.value().order_id,
                 total_amount: message.value().amount * 1.08, // Add tax
-                source: message.headers().get("source").unwrap_or("unknown").to_string(),
-                priority: message.headers().get("priority").unwrap_or("normal").to_string(),
+                source: message
+                    .headers()
+                    .get("source")
+                    .unwrap_or("unknown")
+                    .to_string(),
+                priority: message
+                    .headers()
+                    .get("priority")
+                    .unwrap_or("normal")
+                    .to_string(),
             }
         })
         .collect()
         .await;
 
-    println!("Processed {} orders with tax calculation:", processed_orders.len());
+    println!(
+        "Processed {} orders with tax calculation:",
+        processed_orders.len()
+    );
     for order in &processed_orders {
-        println!("  💰 Order {}: ${:.2} (with tax) from {} [{}]", 
-            order.order_id, 
-            order.total_amount,
-            order.source,
-            order.priority
+        println!(
+            "  💰 Order {}: ${:.2} (with tax) from {} [{}]",
+            order.order_id, order.total_amount, order.source, order.priority
         );
     }
     println!();
 
     // Example 4: Complex filtering and grouping
     println!("📊 Example 4: Complex Stream Processing - Web API Orders Only");
-    
+
     let consumer3 = KafkaConsumer::<String, OrderEvent, _, _>::new(
         broker,
         &format!("fluent-group3-{}", Uuid::new_v4()),
@@ -274,23 +313,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     consumer3.subscribe(&[&topic])?;
 
-    let web_orders: Vec<_> = consumer3.stream()
+    let web_orders: Vec<_> = consumer3
+        .stream()
         .take(6)
         .filter_map(|result| async move { result.ok() })
         .filter(|message| {
-            futures::future::ready(
-                message.headers().get("source") == Some("web-api")
-            )
+            futures::future::ready(message.headers().get("source") == Some("web-api"))
         })
         .filter(|message| {
             futures::future::ready(
-                message.value().amount > 100.0 // Orders over $100
+                message.value().amount > 100.0, // Orders over $100
             )
         })
         .map(|message| {
             (
                 message.value().clone(),
-                message.headers().get("region").unwrap_or("unknown").to_string()
+                message
+                    .headers()
+                    .get("region")
+                    .unwrap_or("unknown")
+                    .to_string(),
             )
         })
         .collect()
@@ -298,18 +340,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Found {} high-value web orders:", web_orders.len());
     for (order, region) in &web_orders {
-        println!("  🌐 Order {} in {}: ${:.2} ({})", 
-            order.order_id, 
-            region,
-            order.amount,
-            order.category
+        println!(
+            "  🌐 Order {} in {}: ${:.2} ({})",
+            order.order_id, region, order.amount, order.category
         );
     }
     println!();
 
     // Example 5: Asynchronous processing with for_each
     println!("⚡ Example 5: Async Processing Pipeline");
-    
+
     let consumer4 = KafkaConsumer::<String, OrderEvent, _, _>::new(
         broker,
         &format!("fluent-group4-{}", Uuid::new_v4()),
@@ -318,7 +358,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     consumer4.subscribe(&[&topic])?;
 
-    consumer4.stream()
+    consumer4
+        .stream()
         .take(6)
         .filter_map(|result| async move { result.ok() })
         .for_each(|message| async move {
@@ -328,10 +369,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "normal" => Duration::from_millis(200),
                 _ => Duration::from_millis(300),
             };
-            
+
             tokio::time::sleep(processing_time).await;
-            
-            println!("  ⚙️  Processed order {} from {} ({:?} processing)", 
+
+            println!(
+                "  ⚙️  Processed order {} from {} ({:?} processing)",
                 message.value().order_id,
                 message.headers().get("source").unwrap_or("unknown"),
                 processing_time
@@ -343,7 +385,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 6: Error handling in streams
     println!("🛡️  Example 6: Stream Error Handling");
-    
+
     let consumer5 = KafkaConsumer::<String, OrderEvent, _, _>::new(
         broker,
         &format!("fluent-group5-{}", Uuid::new_v4()),
@@ -360,7 +402,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let successful_clone = successful_count.clone();
     let error_clone = error_count.clone();
 
-    consumer5.stream()
+    consumer5
+        .stream()
         .take(6)
         .for_each(|result| {
             let successful = successful_clone.clone();
@@ -370,7 +413,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match result {
                     Ok(message) => {
                         successful.fetch_add(1, Ordering::Relaxed);
-                        println!("  ✅ Successfully processed order {}", message.value().order_id);
+                        println!(
+                            "  ✅ Successfully processed order {}",
+                            message.value().order_id
+                        );
                     }
                     Err(e) => {
                         error.fetch_add(1, Ordering::Relaxed);
@@ -381,13 +427,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
 
-    println!("📈 Processing Summary: {} successful, {} errors\n",
-             successful_count.load(Ordering::Relaxed),
-             error_count.load(Ordering::Relaxed));
+    println!(
+        "📈 Processing Summary: {} successful, {} errors\n",
+        successful_count.load(Ordering::Relaxed),
+        error_count.load(Ordering::Relaxed)
+    );
 
     // Example 7: Chain multiple stream operations
     println!("🔗 Example 7: Chained Stream Operations");
-    
+
     let consumer6 = KafkaConsumer::<String, OrderEvent, _, _>::new(
         broker,
         &format!("fluent-group6-{}", Uuid::new_v4()),
@@ -396,13 +444,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     consumer6.subscribe(&[&topic])?;
 
-    let summary = consumer6.stream()
+    let summary = consumer6
+        .stream()
         .take(6)
         .filter_map(|result| async move { result.ok() })
         .filter(|message| {
-            futures::future::ready(
-                matches!(message.value().status, OrderStatus::Created | OrderStatus::Paid)
-            )
+            futures::future::ready(matches!(
+                message.value().status,
+                OrderStatus::Created | OrderStatus::Paid
+            ))
         })
         .map(|message| message.value().amount)
         .fold(0.0, |acc, amount| async move { acc + amount })

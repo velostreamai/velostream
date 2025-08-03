@@ -1,10 +1,10 @@
-use rdkafka::producer::{NoCustomPartitioner, ProducerContext};
-use rdkafka::message::DeliveryResult;
-use rdkafka::{ClientContext, Message};
+use crate::ferris::kafka::convert_kafka_log_level;
+use log::error;
 use rdkafka::config::RDKafkaLogLevel;
 use rdkafka::error::KafkaError;
-use log::error;
-use crate::ferris::kafka::convert_kafka_log_level;
+use rdkafka::message::DeliveryResult;
+use rdkafka::producer::{NoCustomPartitioner, ProducerContext};
+use rdkafka::{ClientContext, Message};
 
 /// Custom context for tracking producer state and errors
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ impl LoggingProducerContext {
 impl LoggingProducerContext {
     pub fn default() -> Self {
         LoggingProducerContext {
-            last_delivery: std::sync::Mutex::new(None)
+            last_delivery: std::sync::Mutex::new(None),
         }
     }
 }
@@ -34,7 +34,11 @@ impl LoggingProducerContext {
 impl ProducerContext for LoggingProducerContext {
     type DeliveryOpaque = ();
 
-    fn delivery(&self, _delivery_result: &DeliveryResult<'_>, _delivery_opaque: Self::DeliveryOpaque) {
+    fn delivery(
+        &self,
+        _delivery_result: &DeliveryResult<'_>,
+        _delivery_opaque: Self::DeliveryOpaque,
+    ) {
         let info = match _delivery_result {
             Ok(delivery) => LastDelivery {
                 status: Ok(()),
@@ -61,7 +65,12 @@ impl ClientContext for LoggingProducerContext {
     fn log(&self, level: RDKafkaLogLevel, fac: &str, message: &str) {
         // Use the `log::log!` macro to emit the log message with the determined level.
         // The `fac` (facility) string often indicates the source within librdkafka (e.g., "BROKER", "TOPIC").
-        log::log!(convert_kafka_log_level(level), "Kafka log ({}): {}", fac, message);
+        log::log!(
+            convert_kafka_log_level(level),
+            "Kafka log ({}): {}",
+            fac,
+            message
+        );
     }
 
     // This method is called by rdkafka when a global error occurs.

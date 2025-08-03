@@ -21,12 +21,12 @@ The parser supports the following SQL grammar (simplified):
 
 ```sql
 -- SELECT statements
-SELECT field_list FROM stream_name 
-[WHERE condition] 
-[GROUP BY expression_list] 
+SELECT field_list FROM stream_name
+[WHERE condition]
+[GROUP BY expression_list]
 [HAVING condition]
-[WINDOW window_spec] 
-[ORDER BY order_list] 
+[WINDOW window_spec]
+[ORDER BY order_list]
 [LIMIT number]
 
 -- Stream creation
@@ -35,13 +35,13 @@ CREATE TABLE table_name [(column_definitions)] AS select_statement [WITH (proper
 
 -- Window specifications
 WINDOW TUMBLING(duration)
-WINDOW SLIDING(size, advance)  
+WINDOW SLIDING(size, advance)
 WINDOW SESSION(gap)
 ```
 
 ## Examples
 
-```rust
+```rust,no_run
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 
 let parser = StreamingSqlParser::new();
@@ -51,15 +51,15 @@ let query = parser.parse("SELECT * FROM orders WHERE amount > 100").unwrap();
 
 // Windowed aggregation
 let query = parser.parse(
-    "SELECT customer_id, COUNT(*), AVG(amount) 
-     FROM orders 
-     GROUP BY customer_id 
+    "SELECT customer_id, COUNT(*), AVG(amount)
+     FROM orders
+     GROUP BY customer_id
      WINDOW TUMBLING(5m)"
 ).unwrap();
 
 // Stream creation
 let query = parser.parse(
-    "CREATE STREAM high_value_orders AS 
+    "CREATE STREAM high_value_orders AS
      SELECT * FROM orders WHERE amount > 1000"
 ).unwrap();
 ```
@@ -91,7 +91,7 @@ The parser respects SQL operator precedence:
 The parser provides detailed error messages with position information:
 - Syntax errors with expected vs. actual tokens
 - Invalid number formats
-- Unclosed string literals  
+- Unclosed string literals
 - Unknown keywords or operators
 - Missing required clauses
 
@@ -104,31 +104,34 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Main parser for streaming SQL queries.
-/// 
+///
 /// The `StreamingSqlParser` handles the complete parsing pipeline from SQL text to AST.
 /// It maintains a keyword lookup table for efficient token classification and provides
 /// a simple interface for parsing various types of SQL statements.
-/// 
+///
 /// # Examples
-/// 
-/// ```rust
+///
+/// ```rust,no_run
 /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-/// 
-/// let parser = StreamingSqlParser::new();
-/// 
-/// // Parse a simple SELECT query
-/// let query = parser.parse("SELECT customer_id, amount FROM orders")?;
-/// 
-/// // Parse a complex windowed aggregation
-/// let query = parser.parse(
-///     "SELECT customer_id, COUNT(*), SUM(amount)
-///      FROM orders 
-///      WHERE amount > 100
-///      GROUP BY customer_id
-///      WINDOW TUMBLING(INTERVAL 5 MINUTES)
-///      ORDER BY customer_id
-///      LIMIT 100"
-/// )?;
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let parser = StreamingSqlParser::new();
+///
+///     // Parse a simple SELECT query
+///     let query = parser.parse("SELECT customer_id, amount FROM orders")?;
+///
+///     // Parse a complex windowed aggregation
+///     let query = parser.parse(
+///         "SELECT customer_id, COUNT(*), SUM(amount)
+///          FROM orders
+///          WHERE amount > 100
+///          GROUP BY customer_id
+///          WINDOW TUMBLING(INTERVAL 5 MINUTES)
+///          ORDER BY customer_id
+///          LIMIT 100"
+///     )?;
+///     Ok(())
+/// }
 /// ```
 #[derive(Debug, Clone)]
 pub struct StreamingSqlParser {
@@ -137,89 +140,100 @@ pub struct StreamingSqlParser {
 }
 
 /// Token types recognized by the SQL lexer.
-/// 
+///
 /// Each token type represents a different category of SQL syntax element,
 /// from keywords and operators to literals and punctuation.
 #[derive(Debug, Clone, PartialEq)]
 enum TokenType {
     // SQL Keywords
-    Select,      // SELECT
-    From,        // FROM  
-    Where,       // WHERE
-    GroupBy,     // GROUP (parsed as GROUP BY)
-    Having,      // HAVING
-    OrderBy,     // ORDER (parsed as ORDER BY)
-    Asc,         // ASC
-    Desc,        // DESC
-    Window,      // WINDOW
-    Limit,       // LIMIT
-    Stream,      // STREAM
-    Table,       // TABLE
-    Create,      // CREATE
-    Into,        // INTO
-    As,          // AS
-    With,        // WITH
-    Show,        // SHOW
-    List,        // LIST (alias for SHOW)
-    Streams,     // STREAMS
-    Tables,      // TABLES
-    Topics,      // TOPICS
-    Functions,   // FUNCTIONS
-    Schema,      // SCHEMA
-    Properties,  // PROPERTIES
-    Jobs,        // JOBS (renamed from Queries)
-    Partitions,  // PARTITIONS
-    Start,       // START
-    Stop,        // STOP  
-    Job,         // JOB (renamed from Query)
-    Force,       // FORCE
-    Pause,       // PAUSE
-    Resume,      // RESUME
-    Deploy,      // DEPLOY
-    Rollback,    // ROLLBACK
-    Version,     // VERSION
-    Strategy,    // STRATEGY
-    BlueGreen,   // BLUE_GREEN
-    Canary,      // CANARY
-    Rolling,     // ROLLING
-    Replace,     // REPLACE
-    Status,      // STATUS
-    Versions,    // VERSIONS
-    Metrics,     // METRICS
-    Describe,    // DESCRIBE
-    
+    Select,     // SELECT
+    From,       // FROM
+    Where,      // WHERE
+    GroupBy,    // GROUP (parsed as GROUP BY)
+    Having,     // HAVING
+    OrderBy,    // ORDER (parsed as ORDER BY)
+    Asc,        // ASC
+    Desc,       // DESC
+    Window,     // WINDOW
+    Limit,      // LIMIT
+    Stream,     // STREAM
+    Table,      // TABLE
+    Create,     // CREATE
+    Into,       // INTO
+    As,         // AS
+    With,       // WITH
+    Show,       // SHOW
+    List,       // LIST (alias for SHOW)
+    Streams,    // STREAMS
+    Tables,     // TABLES
+    Topics,     // TOPICS
+    Functions,  // FUNCTIONS
+    Schema,     // SCHEMA
+    Properties, // PROPERTIES
+    Jobs,       // JOBS (renamed from Queries)
+    Partitions, // PARTITIONS
+    Start,      // START
+    Stop,       // STOP
+    Job,        // JOB (renamed from Query)
+    Force,      // FORCE
+    Pause,      // PAUSE
+    Resume,     // RESUME
+    Deploy,     // DEPLOY
+    Rollback,   // ROLLBACK
+    Version,    // VERSION
+    Strategy,   // STRATEGY
+    BlueGreen,  // BLUE_GREEN
+    Canary,     // CANARY
+    Rolling,    // ROLLING
+    Replace,    // REPLACE
+    Status,     // STATUS
+    Versions,   // VERSIONS
+    Metrics,    // METRICS
+    Describe,   // DESCRIBE
+
     // Literals and Identifiers
-    Identifier,  // Column names, table names, function names
-    String,      // String literals ('hello', "world")
-    Number,      // Numeric literals (42, 3.14)
-    
+    Identifier, // Column names, table names, function names
+    String,     // String literals ('hello', "world")
+    Null,       // NULL literal
+    Number,     // Numeric literals (42, 3.14)
+
     // Punctuation
-    LeftParen,   // (
-    RightParen,  // )
-    Comma,       // ,
-    Asterisk,    // * (wildcard or multiplication)
-    Dot,         // . (qualified names)
-    
+    LeftParen,  // (
+    RightParen, // )
+    Comma,      // ,
+    Asterisk,   // * (wildcard or multiplication)
+    Dot,        // . (qualified names)
+
     // Arithmetic Operators
-    Plus,        // +
-    Minus,       // -
-    Multiply,    // * (when used as operator)
-    Divide,      // /
-    
+    Plus,     // +
+    Minus,    // -
+    Multiply, // * (when used as operator)
+    Divide,   // /
+
     // Comparison Operators
-    Equal,       // =
-    NotEqual,    // !=
-    LessThan,    // <
-    GreaterThan, // >
+    Equal,              // =
+    NotEqual,           // !=
+    LessThan,           // <
+    GreaterThan,        // >
     LessThanOrEqual,    // <=
     GreaterThanOrEqual, // >=
-    
+
+    // JOIN Keywords
+    Join,   // JOIN
+    Inner,  // INNER
+    Left,   // LEFT
+    Right,  // RIGHT
+    Full,   // FULL
+    Outer,  // OUTER
+    On,     // ON
+    Within, // WITHIN
+
     // Special
-    Eof,         // End of input
+    Eof, // End of input
 }
 
 /// A token with its type, value, and position information.
-/// 
+///
 /// Tokens are the atomic units of SQL syntax, produced by the lexer
 /// and consumed by the parser. Position information enables detailed
 /// error reporting.
@@ -235,15 +249,15 @@ struct Token {
 
 impl StreamingSqlParser {
     /// Creates a new SQL parser with all supported keywords initialized.
-    /// 
+    ///
     /// The parser is ready to use immediately after construction and can
     /// parse any supported SQL statement type.
-    /// 
+    ///
     /// # Examples
-    /// 
-    /// ```rust
+    ///
+    /// ```rust,no_run
     /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-    /// 
+    ///
     /// let parser = StreamingSqlParser::new();
     /// let result = parser.parse("SELECT * FROM orders");
     /// ```
@@ -293,56 +307,68 @@ impl StreamingSqlParser {
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
+        keywords.insert("JOIN".to_string(), TokenType::Join);
+        keywords.insert("INNER".to_string(), TokenType::Inner);
+        keywords.insert("LEFT".to_string(), TokenType::Left);
+        keywords.insert("RIGHT".to_string(), TokenType::Right);
+        keywords.insert("FULL".to_string(), TokenType::Full);
+        keywords.insert("OUTER".to_string(), TokenType::Outer);
+        keywords.insert("ON".to_string(), TokenType::On);
+        keywords.insert("WITHIN".to_string(), TokenType::Within);
+        keywords.insert("NULL".to_string(), TokenType::Null);
 
         Self { keywords }
     }
 
     /// Parses a SQL string into a StreamingQuery AST.
-    /// 
+    ///
     /// This is the main entry point for the parser. It handles the complete
     /// parsing pipeline from tokenization to AST construction.
-    /// 
+    ///
     /// # Arguments
     /// * `sql` - The SQL statement to parse
-    /// 
+    ///
     /// # Returns
     /// * `Ok(StreamingQuery)` - Successfully parsed query
     /// * `Err(SqlError)` - Parse error with position and message
-    /// 
+    ///
     /// # Supported Statements
     /// - SELECT queries with all standard clauses
     /// - CREATE STREAM AS SELECT
     /// - CREATE TABLE AS SELECT  
     /// - Window specifications (TUMBLING, SLIDING, SESSION)
     /// - Aggregation functions and expressions
-    /// 
+    ///
     /// # Examples
-    /// 
-    /// ```rust
+    ///
+    /// ```rust,no_run
     /// use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-    /// 
-    /// let parser = StreamingSqlParser::new();
-    /// 
-    /// // Simple query
-    /// let query = parser.parse("SELECT * FROM orders")?;
-    /// 
-    /// // Complex windowed aggregation
-    /// let query = parser.parse(
-    ///     "SELECT customer_id, COUNT(*), AVG(amount)
-    ///      FROM orders 
-    ///      WHERE status = 'active'
-    ///      GROUP BY customer_id
-    ///      HAVING COUNT(*) > 5
-    ///      WINDOW TUMBLING(5m)
-    ///      ORDER BY customer_id DESC
-    ///      LIMIT 100"
-    /// )?;
-    /// 
-    /// // Stream creation
-    /// let query = parser.parse(
-    ///     "CREATE STREAM high_value_orders AS
-    ///      SELECT * FROM orders WHERE amount > 1000"
-    /// )?;
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let parser = StreamingSqlParser::new();
+    ///
+    ///     // Simple query
+    ///     let query = parser.parse("SELECT * FROM orders")?;
+    ///
+    ///     // Complex windowed aggregation
+    ///     let query = parser.parse(
+    ///         "SELECT customer_id, COUNT(*), AVG(amount)
+    ///          FROM orders
+    ///          WHERE status = 'active'
+    ///          GROUP BY customer_id
+    ///          HAVING COUNT(*) > 5
+    ///          WINDOW TUMBLING(5m)
+    ///          ORDER BY customer_id DESC
+    ///          LIMIT 100"
+    ///     )?;
+    ///     
+    ///     // Stream creation
+    ///     let query = parser.parse(
+    ///         "CREATE STREAM high_value_orders AS
+    ///          SELECT * FROM orders WHERE amount > 1000"
+    ///     )?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         let tokens = self.tokenize(sql)?;
@@ -493,9 +519,9 @@ impl StreamingSqlParser {
                         chars.next();
                         position += 1;
                     } else {
-                        return Err(SqlError::ParseError { 
+                        return Err(SqlError::ParseError {
                             message: "Unexpected character '!' - did you mean '!='?".to_string(),
-                            position: Some(position - 1)
+                            position: Some(position - 1),
                         });
                     }
                 }
@@ -504,7 +530,7 @@ impl StreamingSqlParser {
                     chars.next();
                     position += 1;
                     let mut value = String::new();
-                    
+
                     while let Some(&next_ch) = chars.peek() {
                         if next_ch == quote {
                             chars.next();
@@ -515,7 +541,7 @@ impl StreamingSqlParser {
                         chars.next();
                         position += 1;
                     }
-                    
+
                     tokens.push(Token {
                         token_type: TokenType::String,
                         value,
@@ -533,7 +559,7 @@ impl StreamingSqlParser {
                             break;
                         }
                     }
-                    
+
                     tokens.push(Token {
                         token_type: TokenType::Number,
                         value,
@@ -551,12 +577,13 @@ impl StreamingSqlParser {
                             break;
                         }
                     }
-                    
-                    let token_type = self.keywords
+
+                    let token_type = self
+                        .keywords
                         .get(&value.to_uppercase())
                         .cloned()
                         .unwrap_or(TokenType::Identifier);
-                    
+
                     tokens.push(Token {
                         token_type,
                         value,
@@ -564,9 +591,9 @@ impl StreamingSqlParser {
                     });
                 }
                 _ => {
-                    return Err(SqlError::ParseError { 
+                    return Err(SqlError::ParseError {
                         message: format!("Unexpected character '{}' at position {}", ch, position),
-                        position: Some(position)
+                        position: Some(position),
                     });
                 }
             }
@@ -583,7 +610,7 @@ impl StreamingSqlParser {
 
     fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
         let mut parser = TokenParser::new(tokens);
-        
+
         match parser.current_token().token_type {
             TokenType::Select => parser.parse_select(),
             TokenType::Create => parser.parse_create(),
@@ -626,6 +653,15 @@ impl TokenParser {
         }
     }
 
+    fn peek_token(&self, offset: usize) -> Option<&Token> {
+        let peek_index = self.current + offset;
+        if peek_index < self.tokens.len() {
+            Some(&self.tokens[peek_index])
+        } else {
+            None
+        }
+    }
+
     fn advance(&mut self) {
         if self.current < self.tokens.len() - 1 {
             self.current += 1;
@@ -638,21 +674,36 @@ impl TokenParser {
             self.advance();
             Ok(token)
         } else {
-            Err(SqlError::ParseError { 
-                message: format!("Expected {:?}, found {:?} at position {}", expected, token.token_type, token.position),
-                position: Some(token.position)
+            Err(SqlError::ParseError {
+                message: format!(
+                    "Expected {:?}, found {:?} at position {}",
+                    expected, token.token_type, token.position
+                ),
+                position: Some(token.position),
             })
         }
     }
 
     fn parse_select(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
-        
+
         let fields = self.parse_select_fields()?;
-        
+
         self.expect(TokenType::From)?;
         let from_stream = self.expect(TokenType::Identifier)?.value;
-        
+
+        // Parse optional alias for FROM clause (e.g., "FROM events s")
+        let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+            let alias = self.current_token().value.clone();
+            self.advance();
+            Some(alias)
+        } else {
+            None
+        };
+
+        // Parse JOIN clauses
+        let joins = self.parse_join_clauses()?;
+
         let mut where_clause = None;
         if self.current_token().token_type == TokenType::Where {
             self.advance();
@@ -671,7 +722,7 @@ impl TokenParser {
             self.advance();
             having = Some(self.parse_expression()?);
         }
-        
+
         let mut window = None;
         if self.current_token().token_type == TokenType::Window {
             self.advance();
@@ -689,15 +740,21 @@ impl TokenParser {
         if self.current_token().token_type == TokenType::Limit {
             self.advance();
             let limit_token = self.expect(TokenType::Number)?;
-            limit = Some(limit_token.value.parse::<u64>().map_err(|_| SqlError::ParseError {
-                message: "Invalid LIMIT value".to_string(),
-                position: Some(limit_token.position),
-            })?);
+            limit = Some(
+                limit_token
+                    .value
+                    .parse::<u64>()
+                    .map_err(|_| SqlError::ParseError {
+                        message: "Invalid LIMIT value".to_string(),
+                        position: Some(limit_token.position),
+                    })?,
+            );
         }
 
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
+            joins,
             where_clause,
             group_by,
             having,
@@ -709,7 +766,7 @@ impl TokenParser {
 
     fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
         let mut fields = Vec::new();
-        
+
         loop {
             if self.current_token().token_type == TokenType::Asterisk {
                 self.advance();
@@ -724,15 +781,162 @@ impl TokenParser {
                 };
                 fields.push(SelectField::Expression { expr, alias });
             }
-            
+
             if self.current_token().token_type == TokenType::Comma {
                 self.advance();
             } else {
                 break;
             }
         }
-        
+
         Ok(fields)
+    }
+
+    fn parse_join_clauses(&mut self) -> Result<Option<Vec<JoinClause>>, SqlError> {
+        let mut joins = Vec::new();
+
+        while matches!(
+            self.current_token().token_type,
+            TokenType::Join
+                | TokenType::Inner
+                | TokenType::Left
+                | TokenType::Right
+                | TokenType::Full
+        ) {
+            let join_clause = self.parse_join_clause()?;
+            joins.push(join_clause);
+        }
+
+        if joins.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(joins))
+        }
+    }
+
+    fn parse_join_clause(&mut self) -> Result<JoinClause, SqlError> {
+        // Parse JOIN type
+        let join_type = match self.current_token().token_type {
+            TokenType::Join => {
+                self.advance();
+                JoinType::Inner
+            }
+            TokenType::Inner => {
+                self.advance();
+                self.expect(TokenType::Join)?;
+                JoinType::Inner
+            }
+            TokenType::Left => {
+                self.advance();
+                // Optional OUTER keyword
+                if self.current_token().token_type == TokenType::Outer {
+                    self.advance();
+                }
+                self.expect(TokenType::Join)?;
+                JoinType::Left
+            }
+            TokenType::Right => {
+                self.advance();
+                // Optional OUTER keyword
+                if self.current_token().token_type == TokenType::Outer {
+                    self.advance();
+                }
+                self.expect(TokenType::Join)?;
+                JoinType::Right
+            }
+            TokenType::Full => {
+                self.advance();
+                // OUTER keyword is required for FULL joins
+                self.expect(TokenType::Outer)?;
+                self.expect(TokenType::Join)?;
+                JoinType::FullOuter
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected JOIN keyword".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        };
+
+        // Parse the right side stream/table
+        let right_source = self.expect(TokenType::Identifier)?.value;
+
+        // Optional alias for the right source
+        let right_alias = if self.current_token().token_type == TokenType::Identifier {
+            Some(self.current_token().value.clone())
+        } else if self.current_token().token_type == TokenType::As {
+            self.advance();
+            Some(self.expect(TokenType::Identifier)?.value)
+        } else {
+            None
+        };
+
+        if right_alias.is_some() {
+            self.advance();
+        }
+
+        // Parse ON condition
+        self.expect(TokenType::On)?;
+        let condition = self.parse_expression()?;
+
+        // Parse optional WITHIN clause for windowed joins
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Within {
+            self.advance();
+            self.expect_keyword("INTERVAL")?;
+            let duration_str = self.parse_duration_token()?;
+            let time_unit = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let unit = self.current_token().value.to_uppercase();
+                    self.advance();
+                    match unit.as_str() {
+                        "MINUTES" | "MINUTE" => TimeUnit::Minute,
+                        "SECONDS" | "SECOND" => TimeUnit::Second,
+                        "HOURS" | "HOUR" => TimeUnit::Hour,
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: format!("Unsupported time unit: {}", unit),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    }
+                }
+                _ => TimeUnit::Second, // Default
+            };
+
+            // Parse the duration value and convert to Duration
+            let duration_value = duration_str
+                .chars()
+                .take_while(|c| c.is_numeric())
+                .collect::<String>()
+                .parse::<u64>()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid duration value: {}", duration_str),
+                    position: None,
+                })?;
+
+            // Convert to Duration based on time unit
+            let time_window = match time_unit {
+                TimeUnit::Second => Duration::from_secs(duration_value),
+                TimeUnit::Minute => Duration::from_secs(duration_value * 60),
+                TimeUnit::Hour => Duration::from_secs(duration_value * 3600),
+                _ => Duration::from_secs(duration_value), // Default to seconds
+            };
+
+            window = Some(JoinWindow {
+                time_window,
+                grace_period: Some(Duration::from_secs(0)), // Default grace period
+            });
+        }
+
+        Ok(JoinClause {
+            join_type,
+            right_source: StreamSource::Stream(right_source),
+            right_alias,
+            condition,
+            window,
+        })
     }
 
     fn parse_expression(&mut self) -> Result<Expr, SqlError> {
@@ -741,15 +945,20 @@ impl TokenParser {
 
     fn parse_comparison(&mut self) -> Result<Expr, SqlError> {
         let mut left = self.parse_additive()?;
-        
-        while matches!(self.current_token().token_type, 
-            TokenType::Equal | TokenType::NotEqual | TokenType::LessThan | 
-            TokenType::GreaterThan | TokenType::LessThanOrEqual | TokenType::GreaterThanOrEqual) {
-            
+
+        while matches!(
+            self.current_token().token_type,
+            TokenType::Equal
+                | TokenType::NotEqual
+                | TokenType::LessThan
+                | TokenType::GreaterThan
+                | TokenType::LessThanOrEqual
+                | TokenType::GreaterThanOrEqual
+        ) {
             let op_token = self.current_token().clone();
             self.advance();
             let right = self.parse_additive()?;
-            
+
             let op = match op_token.token_type {
                 TokenType::Equal => BinaryOperator::Equal,
                 TokenType::NotEqual => BinaryOperator::NotEqual,
@@ -759,62 +968,68 @@ impl TokenParser {
                 TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
                 _ => unreachable!(),
             };
-            
+
             left = Expr::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
             };
         }
-        
+
         Ok(left)
     }
 
     fn parse_additive(&mut self) -> Result<Expr, SqlError> {
         let mut left = self.parse_multiplicative()?;
-        
-        while matches!(self.current_token().token_type, TokenType::Plus | TokenType::Minus) {
+
+        while matches!(
+            self.current_token().token_type,
+            TokenType::Plus | TokenType::Minus
+        ) {
             let op_token = self.current_token().clone();
             self.advance();
             let right = self.parse_multiplicative()?;
-            
+
             let op = match op_token.token_type {
                 TokenType::Plus => BinaryOperator::Add,
                 TokenType::Minus => BinaryOperator::Subtract,
                 _ => unreachable!(),
             };
-            
+
             left = Expr::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
             };
         }
-        
+
         Ok(left)
     }
 
     fn parse_multiplicative(&mut self) -> Result<Expr, SqlError> {
         let mut left = self.parse_primary()?;
-        
-        while matches!(self.current_token().token_type, TokenType::Asterisk | TokenType::Divide) {
+
+        while matches!(
+            self.current_token().token_type,
+            TokenType::Asterisk | TokenType::Divide
+        ) {
             let op_token = self.current_token().clone();
             self.advance();
             let right = self.parse_primary()?;
-            
+
             let op = match op_token.token_type {
                 TokenType::Asterisk => BinaryOperator::Multiply,
                 TokenType::Divide => BinaryOperator::Divide,
                 _ => unreachable!(),
             };
-            
+
             left = Expr::BinaryOp {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
             };
         }
-        
+
         Ok(left)
     }
 
@@ -822,12 +1037,21 @@ impl TokenParser {
         let token = self.current_token().clone();
         match token.token_type {
             TokenType::Identifier => {
+                // Special handling for CURRENT_TIMESTAMP (no parentheses required)
+                if token.value.to_uppercase() == "CURRENT_TIMESTAMP" {
+                    self.advance();
+                    return Ok(Expr::Function {
+                        name: "CURRENT_TIMESTAMP".to_string(),
+                        args: Vec::new(),
+                    });
+                }
+
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
                     self.advance(); // consume '('
                     let mut args = Vec::new();
-                    
+
                     if self.current_token().token_type != TokenType::RightParen {
                         loop {
                             if self.current_token().token_type == TokenType::Asterisk {
@@ -837,7 +1061,7 @@ impl TokenParser {
                             } else {
                                 args.push(self.parse_expression()?);
                             }
-                            
+
                             if self.current_token().token_type == TokenType::Comma {
                                 self.advance();
                             } else {
@@ -845,7 +1069,7 @@ impl TokenParser {
                             }
                         }
                     }
-                    
+
                     self.expect(TokenType::RightParen)?;
                     Ok(Expr::Function {
                         name: token.value,
@@ -853,10 +1077,86 @@ impl TokenParser {
                     })
                 } else if self.current_token().token_type == TokenType::Dot {
                     self.advance();
-                    let field = self.expect(TokenType::Identifier)?.value;
+                    // Allow keywords to be used as field names in qualified expressions
+                    let field = match self.current_token().token_type {
+                        TokenType::Identifier => {
+                            let field_name = self.current_token().value.clone();
+                            self.advance();
+                            field_name
+                        }
+                        TokenType::Status
+                        | TokenType::Join
+                        | TokenType::Left
+                        | TokenType::Right
+                        | TokenType::Inner
+                        | TokenType::Full
+                        | TokenType::Outer
+                        | TokenType::On
+                        | TokenType::Within
+                        | TokenType::Versions
+                        | TokenType::Metrics => {
+                            let field_name = self.current_token().value.clone();
+                            self.advance();
+                            field_name
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected field name after dot".to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
                     Ok(Expr::Column(format!("{}.{}", token.value, field)))
                 } else {
                     Ok(Expr::Column(token.value))
+                }
+            }
+            // Allow keywords to be used as column names or function names
+            TokenType::Join
+            | TokenType::Left
+            | TokenType::Right
+            | TokenType::Inner
+            | TokenType::Full
+            | TokenType::Outer
+            | TokenType::On
+            | TokenType::Within
+            | TokenType::Replace
+            | TokenType::Status => {
+                if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
+                    // This keyword is being used as a function name
+                    let function_name = token.value;
+                    self.advance(); // consume keyword
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+
+                    if self.current_token().token_type != TokenType::RightParen {
+                        loop {
+                            if self.current_token().token_type == TokenType::Asterisk {
+                                // Handle COUNT(*) special case
+                                self.advance();
+                                args.push(Expr::Literal(LiteralValue::Integer(1)));
+                            } else {
+                                args.push(self.parse_expression()?);
+                            }
+
+                            if self.current_token().token_type == TokenType::Comma {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.expect(TokenType::RightParen)?;
+                    Ok(Expr::Function {
+                        name: function_name,
+                        args,
+                    })
+                } else {
+                    // This keyword is being used as a column name
+                    let column_name = token.value;
+                    self.advance();
+                    Ok(Expr::Column(column_name))
                 }
             }
             TokenType::String => {
@@ -870,11 +1170,15 @@ impl TokenParser {
                 } else if let Ok(f) = token.value.parse::<f64>() {
                     Ok(Expr::Literal(LiteralValue::Float(f)))
                 } else {
-                    Err(SqlError::ParseError { 
+                    Err(SqlError::ParseError {
                         message: format!("Invalid number: {}", token.value),
-                        position: Some(token.position)
+                        position: Some(token.position),
                     })
                 }
+            }
+            TokenType::Null => {
+                self.advance();
+                Ok(Expr::Literal(LiteralValue::Null))
             }
             TokenType::LeftParen => {
                 self.advance();
@@ -882,9 +1186,9 @@ impl TokenParser {
                 self.expect(TokenType::RightParen)?;
                 Ok(expr)
             }
-            _ => Err(SqlError::ParseError { 
+            _ => Err(SqlError::ParseError {
                 message: format!("Unexpected token in expression: {:?}", token.token_type),
-                position: Some(token.position)
+                position: Some(token.position),
             }),
         }
     }
@@ -896,9 +1200,12 @@ impl TokenParser {
                 self.expect(TokenType::LeftParen)?;
                 let duration_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
-                
+
                 let size = self.parse_duration(&duration_str)?;
-                WindowSpec::Tumbling { size, time_column: None }
+                WindowSpec::Tumbling {
+                    size,
+                    time_column: None,
+                }
             }
             "SLIDING" => {
                 self.advance();
@@ -907,24 +1214,31 @@ impl TokenParser {
                 self.expect(TokenType::Comma)?;
                 let advance_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
-                
+
                 let size = self.parse_duration(&duration_str)?;
                 let advance = self.parse_duration(&advance_str)?;
-                WindowSpec::Sliding { size, advance, time_column: None }
+                WindowSpec::Sliding {
+                    size,
+                    advance,
+                    time_column: None,
+                }
             }
             "SESSION" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
                 let gap_str = self.parse_duration_token()?;
                 self.expect(TokenType::RightParen)?;
-                
+
                 let gap = self.parse_duration(&gap_str)?;
-                WindowSpec::Session { gap, partition_by: Vec::new() }
+                WindowSpec::Session {
+                    gap,
+                    partition_by: Vec::new(),
+                }
             }
             _ => {
-                return Err(SqlError::ParseError { 
+                return Err(SqlError::ParseError {
                     message: "Expected window type (TUMBLING, SLIDING, or SESSION)".to_string(),
-                    position: None
+                    position: None,
                 });
             }
         };
@@ -952,80 +1266,87 @@ impl TokenParser {
                     Ok(format!("{}s", token.value))
                 }
             }
-            _ => Err(SqlError::ParseError { 
+            TokenType::String => {
+                // Handle string literals like '5' in INTERVAL '5' MINUTES
+                self.advance();
+                Ok(token.value)
+            }
+            _ => Err(SqlError::ParseError {
                 message: format!("Expected duration, found {:?}", token.token_type),
-                position: Some(token.position)
-            })
+                position: Some(token.position),
+            }),
         }
     }
 
     fn parse_duration(&self, duration_str: &str) -> Result<Duration, SqlError> {
         if duration_str.ends_with('s') {
-            let seconds: u64 = duration_str[..duration_str.len()-1].parse()
-                .map_err(|_| SqlError::ParseError { 
+            let seconds: u64 = duration_str[..duration_str.len() - 1]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
                     message: format!("Invalid duration: {}", duration_str),
-                    position: None
+                    position: None,
                 })?;
             Ok(Duration::from_secs(seconds))
         } else if duration_str.ends_with('m') {
-            let minutes: u64 = duration_str[..duration_str.len()-1].parse()
-                .map_err(|_| SqlError::ParseError { 
+            let minutes: u64 = duration_str[..duration_str.len() - 1]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
                     message: format!("Invalid duration: {}", duration_str),
-                    position: None
+                    position: None,
                 })?;
             Ok(Duration::from_secs(minutes * 60))
         } else if duration_str.ends_with('h') {
-            let hours: u64 = duration_str[..duration_str.len()-1].parse()
-                .map_err(|_| SqlError::ParseError { 
+            let hours: u64 = duration_str[..duration_str.len() - 1]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
                     message: format!("Invalid duration: {}", duration_str),
-                    position: None
+                    position: None,
                 })?;
             Ok(Duration::from_secs(hours * 3600))
         } else {
             // Default to seconds if no unit specified
-            let seconds: u64 = duration_str.parse()
-                .map_err(|_| SqlError::ParseError { 
-                    message: format!("Invalid duration: {}", duration_str),
-                    position: None
-                })?;
+            let seconds: u64 = duration_str.parse().map_err(|_| SqlError::ParseError {
+                message: format!("Invalid duration: {}", duration_str),
+                position: None,
+            })?;
             Ok(Duration::from_secs(seconds))
         }
     }
 
     fn parse_create(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Create)?;
-        
+
         match self.current_token().token_type {
             TokenType::Stream => self.parse_create_stream(),
             TokenType::Table => self.parse_create_table(),
             _ => Err(SqlError::ParseError {
                 message: "Expected STREAM or TABLE after CREATE".to_string(),
-                position: Some(self.current_token().position)
-            })
+                position: Some(self.current_token().position),
+            }),
         }
     }
 
     fn parse_create_stream(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Stream)?;
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Optional column definitions
         let columns = if self.current_token().token_type == TokenType::LeftParen {
             Some(self.parse_column_definitions()?)
         } else {
             None
         };
-        
+
         self.expect(TokenType::As)?;
         let as_select = Box::new(self.parse_select()?);
-        
+
         // Optional WITH properties
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
             HashMap::new()
         };
-        
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
@@ -1037,24 +1358,24 @@ impl TokenParser {
     fn parse_create_table(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Table)?;
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Optional column definitions
         let columns = if self.current_token().token_type == TokenType::LeftParen {
             Some(self.parse_column_definitions()?)
         } else {
             None
         };
-        
+
         self.expect(TokenType::As)?;
         let as_select = Box::new(self.parse_select()?);
-        
+
         // Optional WITH properties
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
             HashMap::new()
         };
-        
+
         Ok(StreamingQuery::CreateTable {
             name,
             columns,
@@ -1066,33 +1387,33 @@ impl TokenParser {
     fn parse_column_definitions(&mut self) -> Result<Vec<ColumnDef>, SqlError> {
         self.expect(TokenType::LeftParen)?;
         let mut columns = Vec::new();
-        
+
         loop {
             let name = self.expect(TokenType::Identifier)?.value;
             let data_type = self.parse_data_type()?;
             let nullable = !self.consume_if_matches("NOT");
-            
+
             columns.push(ColumnDef {
                 name,
                 data_type,
                 nullable,
                 properties: HashMap::new(),
             });
-            
+
             if self.current_token().token_type == TokenType::Comma {
                 self.advance();
             } else {
                 break;
             }
         }
-        
+
         self.expect(TokenType::RightParen)?;
         Ok(columns)
     }
 
     fn parse_data_type(&mut self) -> Result<DataType, SqlError> {
         let type_name = self.expect(TokenType::Identifier)?.value.to_uppercase();
-        
+
         match type_name.as_str() {
             "INT" | "INTEGER" => Ok(DataType::Integer),
             "FLOAT" | "DOUBLE" | "REAL" => Ok(DataType::Float),
@@ -1104,7 +1425,7 @@ impl TokenParser {
                 let inner_type = self.parse_data_type()?;
                 self.expect(TokenType::RightParen)?;
                 Ok(DataType::Array(Box::new(inner_type)))
-            },
+            }
             "MAP" => {
                 self.expect(TokenType::LeftParen)?;
                 let key_type = self.parse_data_type()?;
@@ -1112,20 +1433,20 @@ impl TokenParser {
                 let value_type = self.parse_data_type()?;
                 self.expect(TokenType::RightParen)?;
                 Ok(DataType::Map(Box::new(key_type), Box::new(value_type)))
-            },
+            }
             _ => Err(SqlError::ParseError {
                 message: format!("Unknown data type: {}", type_name),
-                position: None
-            })
+                position: None,
+            }),
         }
     }
 
     fn parse_with_properties(&mut self) -> Result<HashMap<String, String>, SqlError> {
         self.expect(TokenType::With)?;
         self.expect(TokenType::LeftParen)?;
-        
+
         let mut properties = HashMap::new();
-        
+
         loop {
             let key = self.expect(TokenType::String)?.value;
             // Expect = sign (we don't have it as a token, so look for identifier)
@@ -1133,21 +1454,21 @@ impl TokenParser {
             if equals_token.value != "=" {
                 return Err(SqlError::ParseError {
                     message: "Expected '=' in property definition".to_string(),
-                    position: Some(equals_token.position)
+                    position: Some(equals_token.position),
                 });
             }
             self.advance();
-            
+
             let value = self.expect(TokenType::String)?.value;
             properties.insert(key, value);
-            
+
             if self.current_token().token_type == TokenType::Comma {
                 self.advance();
             } else {
                 break;
             }
         }
-        
+
         self.expect(TokenType::RightParen)?;
         Ok(properties)
     }
@@ -1169,31 +1490,31 @@ impl TokenParser {
         } else {
             Err(SqlError::ParseError {
                 message: format!("Expected keyword '{}', found '{}'", keyword, token.value),
-                position: Some(token.position)
+                position: Some(token.position),
             })
         }
     }
 
     fn parse_group_by_list(&mut self) -> Result<Vec<Expr>, SqlError> {
         let mut expressions = Vec::new();
-        
+
         loop {
             let expr = self.parse_expression()?;
             expressions.push(expr);
-            
+
             if self.current_token().token_type == TokenType::Comma {
                 self.advance();
             } else {
                 break;
             }
         }
-        
+
         Ok(expressions)
     }
 
     fn parse_order_by_list(&mut self) -> Result<Vec<OrderByExpr>, SqlError> {
         let mut expressions = Vec::new();
-        
+
         loop {
             let expr = self.parse_expression()?;
             let direction = if self.current_token().token_type == TokenType::Asc {
@@ -1205,23 +1526,23 @@ impl TokenParser {
             } else {
                 OrderDirection::Asc // Default to ASC
             };
-            
+
             expressions.push(OrderByExpr { expr, direction });
-            
+
             if self.current_token().token_type == TokenType::Comma {
                 self.advance();
             } else {
                 break;
             }
         }
-        
+
         Ok(expressions)
     }
 
     fn parse_show(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume SHOW or LIST token
         self.advance();
-        
+
         let resource_type = match self.current_token().token_type {
             TokenType::Streams => {
                 self.advance();
@@ -1293,15 +1614,17 @@ impl TokenParser {
                     }
                     _ => {
                         return Err(SqlError::ParseError {
-                            message: "Expected resource type (STREAM, TABLE, etc.) after PROPERTIES".to_string(),
-                            position: Some(self.current_token().position)
+                            message:
+                                "Expected resource type (STREAM, TABLE, etc.) after PROPERTIES"
+                                    .to_string(),
+                            position: Some(self.current_token().position),
                         });
                     }
                 };
                 let name = self.expect(TokenType::Identifier)?.value;
-                ShowResourceType::Properties { 
-                    resource_type: resource_type_token, 
-                    name 
+                ShowResourceType::Properties {
+                    resource_type: resource_type_token,
+                    name,
                 }
             }
             TokenType::Partitions => {
@@ -1335,26 +1658,37 @@ impl TokenParser {
     fn parse_start_job(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume START token
         self.advance();
-        
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
-        
+
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!(
+                    "Expected JOB or QUERY after START, found '{}'",
+                    current_token
+                ),
+                position: Some(self.current_token().position),
+            });
+        }
+
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Expect AS keyword
         self.expect(TokenType::As)?;
-        
+
         // Parse the underlying query
         let query = Box::new(self.parse_tokens_inner()?);
-        
+
         // Optional WITH properties
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
             HashMap::new()
         };
-        
+
         Ok(StreamingQuery::StartJob {
             name,
             query,
@@ -1365,13 +1699,24 @@ impl TokenParser {
     fn parse_stop_job(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume STOP token
         self.advance();
-        
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
-        
+
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!(
+                    "Expected JOB or QUERY after STOP, found '{}'",
+                    current_token
+                ),
+                position: Some(self.current_token().position),
+            });
+        }
+
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Optional FORCE keyword
         let force = if self.current_token().token_type == TokenType::Force {
             self.advance();
@@ -1379,73 +1724,92 @@ impl TokenParser {
         } else {
             false
         };
-        
-        Ok(StreamingQuery::StopJob {
-            name,
-            force,
-        })
+
+        Ok(StreamingQuery::StopJob { name, force })
     }
 
     fn parse_pause_job(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume PAUSE token
         self.advance();
-        
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
-        
+
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!(
+                    "Expected JOB or QUERY after PAUSE, found '{}'",
+                    current_token
+                ),
+                position: Some(self.current_token().position),
+            });
+        }
+
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         Ok(StreamingQuery::PauseJob { name })
     }
 
     fn parse_resume_job(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume RESUME token
         self.advance();
-        
-        // Expect JOB keyword
-        self.expect(TokenType::Job)?;
-        
+
+        // Expect JOB or QUERY keyword (both are supported)
+        let current_token = self.current_token().value.to_uppercase();
+        if current_token == "JOB" || current_token == "QUERY" {
+            self.advance();
+        } else {
+            return Err(SqlError::ParseError {
+                message: format!(
+                    "Expected JOB or QUERY after RESUME, found '{}'",
+                    current_token
+                ),
+                position: Some(self.current_token().position),
+            });
+        }
+
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         Ok(StreamingQuery::ResumeJob { name })
     }
 
     fn parse_deploy_job(&mut self) -> Result<StreamingQuery, SqlError> {
         use crate::ferris::sql::ast::DeploymentStrategy;
-        
+
         // Consume DEPLOY token
         self.advance();
-        
+
         // Expect JOB keyword
         self.expect(TokenType::Job)?;
-        
+
         // Get query name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Expect VERSION keyword
         self.expect(TokenType::Version)?;
-        
+
         // Get version string
         let version = self.expect(TokenType::String)?.value;
-        
+
         // Expect AS keyword
         self.expect(TokenType::As)?;
-        
+
         // Parse the underlying query
         let query = Box::new(self.parse_tokens_inner()?);
-        
+
         // Optional WITH properties clause
         let mut properties = HashMap::new();
         if self.current_token().token_type == TokenType::With {
             properties = self.parse_with_properties()?;
         }
-        
+
         // Optional STRATEGY clause
         let strategy = if self.current_token().token_type == TokenType::Strategy {
             self.advance(); // consume STRATEGY
-            
+
             match self.current_token().token_type {
                 TokenType::BlueGreen => {
                     self.advance();
@@ -1456,11 +1820,14 @@ impl TokenParser {
                     // Expect percentage in parentheses
                     self.expect(TokenType::LeftParen)?;
                     let percentage_token = self.expect(TokenType::Number)?;
-                    let percentage: u8 = percentage_token.value.parse()
-                        .map_err(|_| SqlError::ParseError {
-                            message: "Invalid percentage for canary deployment".to_string(),
-                            position: Some(percentage_token.position)
-                        })?;
+                    let percentage: u8 =
+                        percentage_token
+                            .value
+                            .parse()
+                            .map_err(|_| SqlError::ParseError {
+                                message: "Invalid percentage for canary deployment".to_string(),
+                                position: Some(percentage_token.position),
+                            })?;
                     self.expect(TokenType::RightParen)?;
                     DeploymentStrategy::Canary { percentage }
                 }
@@ -1472,15 +1839,18 @@ impl TokenParser {
                     self.advance();
                     DeploymentStrategy::Replace
                 }
-                _ => return Err(SqlError::ParseError {
-                    message: "Expected BLUE_GREEN, CANARY, ROLLING, or REPLACE strategy".to_string(),
-                    position: Some(self.current_token().position)
-                })
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected BLUE_GREEN, CANARY, ROLLING, or REPLACE strategy"
+                            .to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
             }
         } else {
             DeploymentStrategy::BlueGreen // Default strategy
         };
-        
+
         Ok(StreamingQuery::DeployJob {
             name,
             version,
@@ -1493,13 +1863,13 @@ impl TokenParser {
     fn parse_rollback_job(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume ROLLBACK token
         self.advance();
-        
+
         // Expect JOB keyword
         self.expect(TokenType::Job)?;
-        
+
         // Get job name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         // Optional target version
         let target_version = if self.current_token().token_type == TokenType::Version {
             self.advance(); // consume VERSION
@@ -1507,7 +1877,7 @@ impl TokenParser {
         } else {
             None
         };
-        
+
         Ok(StreamingQuery::RollbackJob {
             name,
             target_version,
@@ -1517,10 +1887,10 @@ impl TokenParser {
     fn parse_describe(&mut self) -> Result<StreamingQuery, SqlError> {
         // Consume DESCRIBE token
         self.advance();
-        
+
         // Get resource name
         let name = self.expect(TokenType::Identifier)?.value;
-        
+
         Ok(StreamingQuery::Show {
             resource_type: ShowResourceType::Describe { name },
             pattern: None,
@@ -1534,8 +1904,8 @@ impl TokenParser {
             TokenType::Create => self.parse_create(),
             _ => Err(SqlError::ParseError {
                 message: "Expected SELECT or CREATE statement in START QUERY".to_string(),
-                position: Some(self.current_token().position)
-            })
+                position: Some(self.current_token().position),
+            }),
         }
     }
 }

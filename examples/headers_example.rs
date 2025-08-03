@@ -34,10 +34,8 @@
 //! - `consumer_with_headers.rs` - More comprehensive header processing
 //! - `fluent_api_example.rs` - Stream-based header filtering
 
-use ferrisstreams::{
-    KafkaProducer, KafkaConsumer, JsonSerializer, Headers
-};
-use serde::{Serialize, Deserialize};
+use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -56,18 +54,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create producer with key/value serializers
     let producer = KafkaProducer::<String, OrderEvent, _, _>::new(
-        broker, 
-        topic, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        topic,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     // Create consumer with key/value serializers
     let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
-        broker, 
-        group_id, 
-        JsonSerializer, 
-        JsonSerializer
+        broker,
+        group_id,
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     consumer.subscribe(&[topic])?;
@@ -93,13 +91,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Headers: {:?}", headers);
 
     // Send message with headers
-    producer.send(
-        Some(&format!("order-{}", order.order_id)), 
-        &order, 
-        headers, 
-        None
-    ).await?;
-    
+    producer
+        .send(
+            Some(&format!("order-{}", order.order_id)),
+            &order,
+            headers,
+            None,
+        )
+        .await?;
+
     producer.flush(5000)?;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Key: {:?}", message.key());
             println!("Value: {:?}", message.value());
             println!("Headers:");
-            
+
             // Access individual headers
             if let Some(source) = message.headers().get("source") {
                 println!("  source: {}", source);
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(user_agent) = message.headers().get("user-agent") {
                 println!("  user-agent: {}", user_agent);
             }
-            
+
             // Iterate over all headers
             println!("All headers:");
             for (key, value) in message.headers().iter() {
@@ -142,6 +142,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     consumer.commit()?;
     println!("Example completed successfully!");
-    
+
     Ok(())
 }

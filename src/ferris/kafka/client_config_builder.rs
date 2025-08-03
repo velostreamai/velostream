@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Shared utility for building Kafka client configurations
-/// 
+///
 /// This builder provides a common interface for setting up both producer
 /// and consumer client configurations, eliminating code duplication.
 pub struct ClientConfigBuilder {
@@ -34,13 +34,15 @@ impl ClientConfigBuilder {
 
     /// Set request timeout
     pub fn request_timeout(mut self, timeout: Duration) -> Self {
-        self.config.set("request.timeout.ms", &timeout.as_millis().to_string());
+        self.config
+            .set("request.timeout.ms", &timeout.as_millis().to_string());
         self
     }
 
     /// Set retry backoff
     pub fn retry_backoff(mut self, backoff: Duration) -> Self {
-        self.config.set("retry.backoff.ms", &backoff.as_millis().to_string());
+        self.config
+            .set("retry.backoff.ms", &backoff.as_millis().to_string());
         self
     }
 
@@ -94,7 +96,7 @@ mod tests {
             .build();
 
         // The config should have all the properties set
-        // (We can't easily test the internal state of ClientConfig, 
+        // (We can't easily test the internal state of ClientConfig,
         // but this ensures the builder pattern works)
         assert!(true); // Placeholder assertion
     }

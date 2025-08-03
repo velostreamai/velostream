@@ -130,7 +130,11 @@ impl ConsumerConfig {
     }
 
     /// Set session and heartbeat timeouts
-    pub fn session_config(mut self, session_timeout: Duration, heartbeat_interval: Duration) -> Self {
+    pub fn session_config(
+        mut self,
+        session_timeout: Duration,
+        heartbeat_interval: Duration,
+    ) -> Self {
         self.session_timeout = session_timeout;
         self.heartbeat_interval = heartbeat_interval;
         self
@@ -151,11 +155,11 @@ impl ConsumerConfig {
 
     /// Set fetch configuration
     pub fn fetch_config(
-        mut self, 
-        min_bytes: u32, 
-        max_bytes: u32, 
+        mut self,
+        min_bytes: u32,
+        max_bytes: u32,
         max_wait: Duration,
-        max_partition_bytes: u32
+        max_partition_bytes: u32,
     ) -> Self {
         self.fetch_min_bytes = min_bytes;
         self.fetch_max_bytes = max_bytes;
@@ -215,27 +219,37 @@ impl ConsumerConfig {
     /// Set fetch max bytes with custom property consolidation
     pub fn fetch_max_bytes_extended(mut self, max_bytes: u32) -> Self {
         self.fetch_max_bytes = max_bytes;
-        self.common = self.common.custom_property("fetch.max.bytes", max_bytes.to_string());
+        self.common = self
+            .common
+            .custom_property("fetch.max.bytes", max_bytes.to_string());
         self
     }
 
     /// Set max partition fetch bytes with custom property consolidation
     pub fn max_partition_fetch_bytes_extended(mut self, max_bytes: u32) -> Self {
         self.max_partition_fetch_bytes = max_bytes;
-        self.common = self.common.custom_property("max.partition.fetch.bytes", max_bytes.to_string());
+        self.common = self
+            .common
+            .custom_property("max.partition.fetch.bytes", max_bytes.to_string());
         self
     }
 
     /// Set socket buffer sizes (consolidates custom properties)
     pub fn socket_buffers(mut self, send_buffer: u32, receive_buffer: u32) -> Self {
-        self.common = self.common
+        self.common = self
+            .common
             .custom_property("socket.send.buffer.bytes", send_buffer.to_string())
             .custom_property("socket.receive.buffer.bytes", receive_buffer.to_string());
         self
     }
 
     /// Configure performance-related fetch and buffer settings
-    pub fn performance_tuning(self, fetch_max_mb: u32, partition_fetch_mb: u32, socket_buffer_kb: u32) -> Self {
+    pub fn performance_tuning(
+        self,
+        fetch_max_mb: u32,
+        partition_fetch_mb: u32,
+        socket_buffer_kb: u32,
+    ) -> Self {
         self.fetch_max_bytes_extended(fetch_max_mb * 1024 * 1024)
             .max_partition_fetch_bytes_extended(partition_fetch_mb * 1024 * 1024)
             .socket_buffers(socket_buffer_kb * 1024, socket_buffer_kb * 1024)

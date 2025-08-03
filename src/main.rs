@@ -1,5 +1,8 @@
-use crate::ferris::kafka::{KafkaProducer, JsonSerializer, Headers};
-use serde::{Serialize, Deserialize};
+use crate::ferris::{
+    error::FerrisResult,
+    kafka::{Headers, JsonSerializer, KafkaProducer},
+};
+use serde::{Deserialize, Serialize};
 
 // Import the module structure
 mod ferris;
@@ -11,18 +14,23 @@ struct TestMessage {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> FerrisResult<()> {
     // Initialize the logger
     pretty_env_logger::init();
 
     println!("Kafka Producer Example");
 
     // Create a KafkaProducer instance
-    let producer = match KafkaProducer::<String, TestMessage, _, _>::new("localhost:9092", "test-topic", JsonSerializer, JsonSerializer) {
+    let producer = match KafkaProducer::<String, TestMessage, _, _>::new(
+        "localhost:9092",
+        "test-topic",
+        JsonSerializer,
+        JsonSerializer,
+    ) {
         Ok(p) => {
             println!("Successfully created Kafka producer");
             p
-        },
+        }
         Err(e) => {
             println!("Failed to create Kafka producer: {}", e);
             return Ok(());
@@ -36,7 +44,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Send the message
-    match producer.send(Some(&"test-key".to_string()), &message, Headers::new(), None).await {
+    match producer
+        .send(
+            Some(&"test-key".to_string()),
+            &message,
+            Headers::new(),
+            None,
+        )
+        .await
+    {
         Ok(_) => println!("✅ Message sent successfully: {:?}", message),
         Err(e) => println!("❌ Failed to send message: {}", e),
     }

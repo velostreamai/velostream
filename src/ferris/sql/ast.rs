@@ -1,4 +1,4 @@
-/*! 
+/*!
 # Streaming SQL Abstract Syntax Tree (AST)
 
 This module defines the Abstract Syntax Tree for streaming SQL queries designed specifically
@@ -21,22 +21,22 @@ including windowing, real-time aggregations, and CREATE STREAM AS SELECT (CSAS) 
 SELECT customer_id, amount FROM orders WHERE amount > 100 LIMIT 10
 
 -- Windowed aggregation
-SELECT customer_id, COUNT(*), AVG(amount) 
-FROM orders 
+SELECT customer_id, COUNT(*), AVG(amount)
+FROM orders
 WHERE amount > 50
-GROUP BY customer_id 
+GROUP BY customer_id
 WINDOW TUMBLING(INTERVAL 5 MINUTES)
 
 -- Stream creation with transformation
-CREATE STREAM high_value_orders AS 
+CREATE STREAM high_value_orders AS
 SELECT customer_id, amount, HEADER('source') AS source
-FROM orders 
+FROM orders
 WHERE amount > 1000
 
 -- System column access
-SELECT customer_id, amount, _timestamp, _partition 
-FROM orders 
-ORDER BY _timestamp DESC 
+SELECT customer_id, amount, _timestamp, _partition
+FROM orders
+ORDER BY _timestamp DESC
 LIMIT 100
 ```
 
@@ -49,37 +49,41 @@ The AST is designed to be:
 - **Type-Safe**: Full Rust type checking throughout
 */
 
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Root AST node representing different types of streaming SQL queries.
-/// 
+///
 /// This enum encompasses all supported query types in the streaming SQL engine,
 /// from simple SELECT statements to complex stream creation operations.
-/// 
+///
 /// # Examples
-/// 
-/// ```rust
-/// use ferrisstreams::ferris::sql::ast::*;
-/// 
-/// // SELECT query
-/// let select_query = StreamingQuery::Select {
-///     fields: vec![SelectField::Wildcard],
-///     from: StreamSource::Stream("orders".to_string()),
-///     where_clause: None,
-///     group_by: None,
-///     having: None,
-///     window: None,
-///     order_by: None,
-///     limit: Some(100),
-/// };
+///
+/// ```rust,no_run
+/// use ferrisstreams::ferris::sql::ast::{StreamingQuery, SelectField, StreamSource};
+///
+/// fn main() {
+///     // SELECT query
+///     let select_query = StreamingQuery::Select {
+///         fields: vec![SelectField::Wildcard],
+///         from: StreamSource::Stream("orders".to_string()),
+///         joins: None,
+///         where_clause: None,
+///         group_by: None,
+///         having: None,
+///         window: None,
+///         order_by: None,
+///         limit: Some(100),
+///     };
+/// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamingQuery {
     /// Standard SELECT query for streaming data processing.
-    /// 
+    ///
     /// Supports all standard SQL SELECT features adapted for streaming:
     /// - Field selection (wildcards, expressions, aliases)
+    /// - FROM clause with optional JOINs
     /// - WHERE clause filtering
     /// - GROUP BY aggregations with streaming semantics
     /// - HAVING post-aggregation filtering
@@ -91,6 +95,8 @@ pub enum StreamingQuery {
         fields: Vec<SelectField>,
         /// Source stream or table
         from: StreamSource,
+        /// Optional JOIN clauses
+        joins: Option<Vec<JoinClause>>,
         /// Optional WHERE clause for filtering
         where_clause: Option<Expr>,
         /// Optional GROUP BY expressions for aggregation
@@ -105,7 +111,7 @@ pub enum StreamingQuery {
         limit: Option<u64>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
-    /// 
+    ///
     /// Creates a new Kafka stream (topic) populated by continuous execution
     /// of the nested SELECT query. The stream persists indefinitely and
     /// processes new records as they arrive in the source stream.
@@ -120,7 +126,7 @@ pub enum StreamingQuery {
         properties: HashMap<String, String>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
-    /// 
+    ///
     /// Creates a materialized table (KTable) that maintains the current
     /// state based on the continuous execution of the SELECT query.
     /// Supports aggregations and maintains consistent state.
@@ -135,7 +141,7 @@ pub enum StreamingQuery {
         properties: HashMap<String, String>,
     },
     /// SHOW/LIST commands for discovering available resources.
-    /// 
+    ///
     /// Provides metadata about streams, tables, topics, and other resources
     /// available in the streaming SQL context. Essential for data discovery
     /// and debugging.
@@ -146,7 +152,7 @@ pub enum StreamingQuery {
         pattern: Option<String>,
     },
     /// START JOB command for initiating continuous job execution.
-    /// 
+    ///
     /// Starts a named job that runs continuously until explicitly stopped.
     /// The job can be referenced by name for monitoring and management.
     StartJob {
@@ -158,7 +164,7 @@ pub enum StreamingQuery {
         properties: HashMap<String, String>,
     },
     /// STOP JOB command for terminating running jobs.
-    /// 
+    ///
     /// Gracefully stops a running job by name, cleaning up resources
     /// and ensuring proper state management.
     StopJob {
@@ -168,7 +174,7 @@ pub enum StreamingQuery {
         force: bool,
     },
     /// PAUSE JOB command for temporarily suspending job execution.
-    /// 
+    ///
     /// Pauses a running job while preserving its state and position.
     /// The job can be resumed later without data loss.
     PauseJob {
@@ -176,7 +182,7 @@ pub enum StreamingQuery {
         name: String,
     },
     /// RESUME JOB command for restarting paused jobs.
-    /// 
+    ///
     /// Resumes a paused job from where it left off, maintaining
     /// exactly-once processing guarantees.
     ResumeJob {
@@ -184,7 +190,7 @@ pub enum StreamingQuery {
         name: String,
     },
     /// DEPLOY JOB command for versioned job deployment.
-    /// 
+    ///
     /// Deploys a new version of a job with optional rollback capabilities.
     /// Supports blue-green deployments and canary releases.
     DeployJob {
@@ -200,7 +206,7 @@ pub enum StreamingQuery {
         strategy: DeploymentStrategy,
     },
     /// ROLLBACK JOB command for reverting to previous job version.
-    /// 
+    ///
     /// Rolls back a job deployment to a previous version, useful
     /// for handling deployment issues or bugs.
     RollbackJob {
@@ -212,7 +218,7 @@ pub enum StreamingQuery {
 }
 
 /// Deployment strategies for versioned job deployments.
-/// 
+///
 /// Different strategies provide varying levels of safety and rollback capabilities
 /// for production streaming SQL jobs.
 #[derive(Debug, Clone, PartialEq)]
@@ -247,7 +253,7 @@ pub enum JobStatus {
 }
 
 /// Types of resources that can be shown with SHOW/LIST commands.
-/// 
+///
 /// Each resource type provides different metadata about the streaming
 /// SQL environment, helping users discover and understand available data sources.
 #[derive(Debug, Clone, PartialEq)]
@@ -302,22 +308,59 @@ pub enum StreamSource {
     Subquery(Box<StreamingQuery>),
 }
 
+/// JOIN clause specification for stream-stream and stream-table joins
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinClause {
+    /// Type of join (INNER, LEFT, RIGHT, FULL OUTER)
+    pub join_type: JoinType,
+    /// Right side of the join
+    pub right_source: StreamSource,
+    /// Optional alias for the right source
+    pub right_alias: Option<String>,
+    /// JOIN condition (ON clause)
+    pub condition: Expr,
+    /// Optional window specification for windowed joins
+    pub window: Option<JoinWindow>,
+}
+
+/// Types of JOIN operations supported
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    /// INNER JOIN - only matching records from both sides
+    Inner,
+    /// LEFT JOIN - all records from left, matching from right
+    Left,
+    /// RIGHT JOIN - all records from right, matching from left  
+    Right,
+    /// FULL OUTER JOIN - all records from both sides
+    FullOuter,
+}
+
+/// Window specification for stream joins
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinWindow {
+    /// Time window for join matching
+    pub time_window: Duration,
+    /// Grace period for late arrivals
+    pub grace_period: Option<Duration>,
+}
+
 /// Window specifications for streaming
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowSpec {
     /// Fixed-size tumbling window
-    Tumbling { 
+    Tumbling {
         size: Duration,
         time_column: Option<String>,
     },
     /// Sliding window with advance interval
-    Sliding { 
-        size: Duration, 
+    Sliding {
+        size: Duration,
         advance: Duration,
         time_column: Option<String>,
     },
     /// Session window with inactivity gap
-    Session { 
+    Session {
         gap: Duration,
         partition_by: Vec<String>,
     },
@@ -351,15 +394,9 @@ pub enum Expr {
         right: Box<Expr>,
     },
     /// Unary operations: op expr
-    UnaryOp {
-        op: UnaryOperator,
-        expr: Box<Expr>,
-    },
+    UnaryOp { op: UnaryOperator, expr: Box<Expr> },
     /// Function calls: func_name(args...)
-    Function {
-        name: String,
-        args: Vec<Expr>,
-    },
+    Function { name: String, args: Vec<Expr> },
     /// CASE expressions for conditional logic
     Case {
         when_clauses: Vec<(Expr, Expr)>, // (condition, result)
@@ -376,7 +413,10 @@ pub enum LiteralValue {
     Boolean(bool),
     Null,
     /// Time intervals: INTERVAL '5' MINUTE
-    Interval { value: i64, unit: TimeUnit },
+    Interval {
+        value: i64,
+        unit: TimeUnit,
+    },
 }
 
 /// Time units for intervals
@@ -398,7 +438,7 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Modulo,
-    
+
     // Comparison
     Equal,
     NotEqual,
@@ -406,15 +446,15 @@ pub enum BinaryOperator {
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
-    
+
     // Logical
     And,
     Or,
-    
+
     // String operations
     Like,
     NotLike,
-    
+
     // Set operations
     In,
     NotIn,
@@ -456,8 +496,20 @@ pub enum DataType {
     String,
     Boolean,
     Timestamp,
+    /// Array of elements of a specific type
     Array(Box<DataType>),
+    /// Map with key-value pairs of specific types
     Map(Box<DataType>, Box<DataType>),
+    /// Structured type with named fields
+    Struct(Vec<StructField>),
+}
+
+/// Field definition for STRUCT data types
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub data_type: DataType,
+    pub nullable: bool,
 }
 
 impl StreamingQuery {
@@ -471,28 +523,32 @@ impl StreamingQuery {
             StreamingQuery::StartJob { query, .. } => query.has_window(),
             StreamingQuery::StopJob { .. } => false, // STOP commands don't use windows
             StreamingQuery::PauseJob { .. } => false, // PAUSE commands don't use windows
-            StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't use windows  
+            StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't use windows
             StreamingQuery::DeployJob { query, .. } => query.has_window(),
             StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't use windows
         }
     }
-    
+
     /// Get all column references in the query
     pub fn get_columns(&self) -> Vec<String> {
         match self {
-            StreamingQuery::Select { fields, where_clause, .. } => {
+            StreamingQuery::Select {
+                fields,
+                where_clause,
+                ..
+            } => {
                 let mut columns = Vec::new();
-                
+
                 // Extract from SELECT fields
                 for field in fields {
                     columns.extend(field.get_columns());
                 }
-                
+
                 // Extract from WHERE clause
                 if let Some(where_expr) = where_clause {
                     columns.extend(where_expr.get_columns());
                 }
-                
+
                 columns.sort();
                 columns.dedup();
                 columns
@@ -541,7 +597,10 @@ impl Expr {
                 }
                 columns
             }
-            Expr::Case { when_clauses, else_clause } => {
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
                 let mut columns = Vec::new();
                 for (condition, result) in when_clauses {
                     columns.extend(condition.get_columns());
@@ -565,7 +624,7 @@ impl WindowSpec {
             WindowSpec::Session { .. } => None, // Session windows use event time implicitly
         }
     }
-    
+
     /// Check if this window needs to maintain state
     pub fn is_stateful(&self) -> bool {
         // All window types require state management

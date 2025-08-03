@@ -42,12 +42,12 @@
 //! - `fluent_api_example.rs` - Stream processing patterns
 //! - Review test files for more configuration examples
 
-use ferrisstreams::{KafkaProducer, ProducerBuilder, JsonSerializer, Headers};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
+use ferrisstreams::KafkaConsumer;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use ferrisstreams::KafkaConsumer;
-use serde::{Serialize, Deserialize};
+use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use ferrisstreams::{Headers, JsonSerializer, KafkaProducer, ProducerBuilder};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -64,10 +64,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Basic producer (uses defaults)
     println!("1. Basic Producer (with defaults):");
     let basic_producer = KafkaProducer::<String, OrderEvent, _, _>::new(
-        "localhost:9092", 
-        "orders", 
-        JsonSerializer, 
-        JsonSerializer
+        "localhost:9092",
+        "orders",
+        JsonSerializer,
+        JsonSerializer,
     )?;
     println!("✅ Created basic producer with default configuration\n");
 
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )
     .client_id("high-throughput-producer")
-    .high_throughput()  // Applies optimized settings
+    .high_throughput() // Applies optimized settings
     .build()?;
     println!("✅ Created high-throughput producer\n");
 
@@ -90,16 +90,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_id("custom-producer")
         .compression(CompressionType::Lz4)
         .acks(AckMode::All)
-        .batching(32768, Duration::from_millis(10))  // 32KB batches, 10ms linger
+        .batching(32768, Duration::from_millis(10)) // 32KB batches, 10ms linger
         .retries(5, Duration::from_millis(200))
         .custom_property("security.protocol", "PLAINTEXT")
-        .custom_property("batch.size", "65536");  // Override batch size
+        .custom_property("batch.size", "65536"); // Override batch size
 
     let custom_producer = ProducerBuilder::<String, OrderEvent, _, _>::with_config(
         config,
         JsonSerializer,
         JsonSerializer,
-    ).build()?;
+    )
+    .build()?;
     println!("✅ Created producer with custom configuration\n");
 
     // 4. Low-latency producer
@@ -111,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )
     .client_id("low-latency-producer")
-    .low_latency()  // Optimized for minimal latency
+    .low_latency() // Optimized for minimal latency
     .build()?;
     println!("✅ Created low-latency producer\n");
 
@@ -124,13 +125,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )
     .client_id("durable-producer")
-    .max_durability()  // Optimized for data safety
+    .max_durability() // Optimized for data safety
     .build()?;
     println!("✅ Created maximum durability producer\n");
 
     // 6. Consumer configuration examples
     println!("6. Consumer Configurations:");
-    
+
     // Basic consumer
     let basic_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
@@ -156,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let streaming_config = ConsumerConfig::new("localhost:9092", "stream-processors")
         .client_id("streaming-consumer")
         .auto_offset_reset(OffsetReset::Latest)
-        .streaming();  // Optimized for continuous processing
+        .streaming(); // Optimized for continuous processing
 
     let streaming_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
         streaming_config,
@@ -168,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Development consumer
     let dev_config = ConsumerConfig::new("localhost:9092", "dev-processors")
         .client_id("dev-consumer")
-        .development()  // Development-friendly settings
+        .development() // Development-friendly settings
         .auto_commit(true, Duration::from_secs(1));
 
     let dev_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
@@ -180,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. Demonstrate sending with different producers
     println!("7. Sending Messages with Different Producers:");
-    
+
     let order = OrderEvent {
         order_id: 12345,
         customer_id: "customer-123".to_string(),
@@ -195,18 +196,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let producers = vec![
         ("basic", &basic_producer),
         ("high-throughput", &high_throughput_producer),
-        ("custom", &custom_producer),  
+        ("custom", &custom_producer),
         ("low-latency", &low_latency_producer),
         ("durable", &durable_producer),
     ];
 
     for (name, producer) in producers {
-        match producer.send(
-            Some(&format!("order-{}", order.order_id)),
-            &order,
-            headers.clone(),
-            None
-        ).await {
+        match producer
+            .send(
+                Some(&format!("order-{}", order.order_id)),
+                &order,
+                headers.clone(),
+                None,
+            )
+            .await
+        {
             Ok(_) => println!("✅ Successfully sent with {} producer", name),
             Err(e) => println!("❌ Failed to send with {} producer: {}", name, e),
         }

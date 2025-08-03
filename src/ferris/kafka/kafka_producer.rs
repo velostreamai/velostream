@@ -1,68 +1,93 @@
-use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
-use crate::ferris::kafka::serialization::Serializer;
-use crate::ferris::kafka::headers::Headers;
-use crate::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
-use crate::ferris::kafka::kafka_error::ProducerError;
-use crate::ferris::kafka::client_config_builder::ClientConfigBuilder;
-use crate::ferris::kafka::performance_presets::PerformancePresets;
-use rdkafka::error::KafkaError;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer, ProducerContext};
-use rdkafka::util::Timeout;
-use rdkafka::TopicPartitionList;
-use std::marker::PhantomData;
-use std::time::Duration;
+// Modern Rust 2024 grouped imports
+use crate::ferris::kafka::{
+    client_config_builder::ClientConfigBuilder,
+    headers::Headers,
+    kafka_error::ProducerError,
+    kafka_producer_def_context::LoggingProducerContext,
+    performance_presets::PerformancePresets,
+    producer_config::{AckMode, CompressionType, ProducerConfig},
+    serialization::Serializer,
+};
+use rdkafka::{
+    TopicPartitionList,
+    error::KafkaError,
+    producer::{FutureProducer, FutureRecord, Producer, ProducerContext},
+    util::Timeout,
+};
+use std::{marker::PhantomData, time::Duration};
 
 /// A Kafka producer that handles serialization automatically for keys, values, and headers
-/// 
+///
 /// This producer supports sending typed messages with:
 /// - **Keys**: Optional typed keys with dedicated serializer
 /// - **Values**: Typed message payloads with dedicated serializer  
 /// - **Headers**: Rich metadata support via the `Headers` type
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Basic Usage
 /// ```rust,no_run
-/// use ferrisstreams::{KafkaProducer, JsonSerializer};
-/// use ferrisstreams::ferris::kafka::Headers;
-/// 
-/// let producer = KafkaProducer::<String, MyMessage, _, _>::new(
-///     "localhost:9092",
-///     "my-topic",
-///     JsonSerializer,  // Key serializer
-///     JsonSerializer   // Value serializer
-/// )?;
-/// 
-/// let headers = Headers::new()
-///     .insert("source", "web-api")
-///     .insert("version", "1.0.0");
-/// 
-/// producer.send(Some(&key), &message, headers, None).await?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// use ferrisstreams::{KafkaProducer, JsonSerializer, Headers};
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyMessage {
+///     id: u32,
+///     content: String,
+/// }
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let producer = KafkaProducer::<String, MyMessage, _, _>::new(
+///         "localhost:9092",
+///         "my-topic",
+///         JsonSerializer,  // Key serializer
+///         JsonSerializer   // Value serializer
+///     )?;
+///
+///     let headers = Headers::new()
+///         .insert("source", "web-api")
+///         .insert("version", "1.0.0");
+///
+///     let key = "my-key".to_string();
+///     let message = MyMessage { id: 1, content: "Hello".to_string() };
+///     
+///     producer.send(Some(&key), &message, headers, None).await?;
+///     Ok(())
+/// }
 /// ```
-/// 
+///
 /// ## Headers for Message Routing
 /// ```rust,no_run
-/// # use ferrisstreams::{KafkaProducer, JsonSerializer};
-/// # use ferrisstreams::ferris::kafka::Headers;
-/// # let producer = KafkaProducer::<String, String, _, _>::new("localhost:9092", "topic", JsonSerializer, JsonSerializer)?;
-/// // Add routing and tracing headers
-/// let headers = Headers::new()
-///     .insert("event-type", "order-created")
-///     .insert("source-service", "order-api")
-///     .insert("trace-id", "abc-123-def")
-///     .insert("user-id", "user-456");
-/// 
-/// producer.send(
-///     Some(&"order-123".to_string()),
-///     &order_data,
-///     headers,
-///     None
-/// ).await?;
-/// # let order_data = "data";
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// use ferrisstreams::{KafkaProducer, JsonSerializer, Headers};
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let producer = KafkaProducer::<String, String, _, _>::new(
+///         "localhost:9092",
+///         "topic",
+///         JsonSerializer,
+///         JsonSerializer
+///     )?;
+///     
+///     // Add routing and tracing headers
+///     let headers = Headers::new()
+///         .insert("event-type", "order-created")
+///         .insert("source-service", "order-api")
+///         .insert("trace-id", "abc-123-def")
+///         .insert("user-id", "user-456");
+///
+///     let order_data = "order data".to_string();
+///     producer.send(
+///         Some(&"order-123".to_string()),
+///         &order_data,
+///         headers,
+///         None
+///     ).await?;
+///     Ok(())
+/// }
 /// ```
-pub struct KafkaProducer<K, V, KS, VS, C = LoggingProducerContext> 
+pub struct KafkaProducer<K, V, KS, VS, C = LoggingProducerContext>
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
@@ -109,29 +134,42 @@ where
             .retry_backoff(config.common.retry_backoff)
             .custom_properties(&config.common.custom_config)
             .build();
-        
+
         // Set producer-specific configuration
         client_config
-            .set("message.timeout.ms", &config.message_timeout.as_millis().to_string())
-            .set("delivery.timeout.ms", &config.delivery_timeout.as_millis().to_string())
+            .set(
+                "message.timeout.ms",
+                &config.message_timeout.as_millis().to_string(),
+            )
+            .set(
+                "delivery.timeout.ms",
+                &config.delivery_timeout.as_millis().to_string(),
+            )
             .set("enable.idempotence", &config.enable_idempotence.to_string())
-            .set("max.in.flight.requests.per.connection", &config.max_in_flight_requests.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                &config.max_in_flight_requests.to_string(),
+            )
             .set("retries", &config.retries.to_string())
             .set("batch.size", &config.batch_size.to_string())
             .set("linger.ms", &config.linger_ms.as_millis().to_string())
             .set("compression.type", config.compression_type.as_str())
             .set("acks", config.acks.as_str())
-            .set("queue.buffering.max.messages", &config.buffer_memory.to_string());
+            .set(
+                "queue.buffering.max.messages",
+                &config.buffer_memory.to_string(),
+            );
 
         // Configure transactional settings if enabled
         if let Some(ref transaction_id) = config.transactional_id {
-            client_config
-                .set("transactional.id", transaction_id)
-                .set("transaction.timeout.ms", &config.transaction_timeout.as_millis().to_string());
+            client_config.set("transactional.id", transaction_id).set(
+                "transaction.timeout.ms",
+                &config.transaction_timeout.as_millis().to_string(),
+            );
         }
 
-        let producer: FutureProducer<LoggingProducerContext> = client_config
-            .create_with_context(LoggingProducerContext::default())?;
+        let producer: FutureProducer<LoggingProducerContext> =
+            client_config.create_with_context(LoggingProducerContext::default())?;
 
         Ok(KafkaProducer {
             producer,
@@ -176,19 +214,31 @@ where
             .retry_backoff(config.common.retry_backoff)
             .custom_properties(&config.common.custom_config)
             .build();
-        
+
         // Set producer-specific configuration
         client_config
-            .set("message.timeout.ms", &config.message_timeout.as_millis().to_string())
-            .set("delivery.timeout.ms", &config.delivery_timeout.as_millis().to_string())
+            .set(
+                "message.timeout.ms",
+                &config.message_timeout.as_millis().to_string(),
+            )
+            .set(
+                "delivery.timeout.ms",
+                &config.delivery_timeout.as_millis().to_string(),
+            )
             .set("enable.idempotence", &config.enable_idempotence.to_string())
-            .set("max.in.flight.requests.per.connection", &config.max_in_flight_requests.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                &config.max_in_flight_requests.to_string(),
+            )
             .set("retries", &config.retries.to_string())
             .set("batch.size", &config.batch_size.to_string())
             .set("linger.ms", &config.linger_ms.as_millis().to_string())
             .set("compression.type", config.compression_type.as_str())
             .set("acks", config.acks.as_str())
-            .set("queue.buffering.max.messages", &config.buffer_memory.to_string());
+            .set(
+                "queue.buffering.max.messages",
+                &config.buffer_memory.to_string(),
+            );
 
         let producer: FutureProducer<C> = client_config.create_with_context(context)?;
 
@@ -210,7 +260,8 @@ where
         headers: Headers,
         timestamp: Option<i64>,
     ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
-        self.send_to_topic(&self.default_topic, key, value, headers, timestamp).await
+        self.send_to_topic(&self.default_topic, key, value, headers, timestamp)
+            .await
     }
 
     /// Sends a message to the default topic with current timestamp
@@ -237,15 +288,15 @@ where
         timestamp: Option<i64>,
     ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
         let payload = self.value_serializer.serialize(value)?;
-        
+
         let mut record = FutureRecord::to(topic).payload(&payload);
-        
+
         let key_bytes = if let Some(k) = key {
             Some(self.key_serializer.serialize(k)?)
         } else {
             None
         };
-        
+
         if let Some(ref kb) = key_bytes {
             record = record.key(kb);
         }
@@ -255,12 +306,16 @@ where
             let rdkafka_headers = headers.to_rdkafka_headers();
             record = record.headers(rdkafka_headers);
         }
-        
+
         if let Some(ts) = timestamp {
             record = record.timestamp(ts);
         }
 
-        match self.producer.send(record, Timeout::After(Duration::from_secs(SEND_WAIT_SECS))).await {
+        match self
+            .producer
+            .send(record, Timeout::After(Duration::from_secs(SEND_WAIT_SECS)))
+            .await
+        {
             Ok(delivery) => Ok(delivery),
             Err((err, _)) => Err(ProducerError::KafkaError(err)),
         }
@@ -268,7 +323,8 @@ where
 
     /// Flushes any pending messages
     pub fn flush(&self, timeout_ms: u64) -> Result<(), KafkaError> {
-        self.producer.flush(Timeout::After(Duration::from_millis(timeout_ms)))
+        self.producer
+            .flush(Timeout::After(Duration::from_millis(timeout_ms)))
     }
 
     /// Access the key serializer
@@ -283,20 +339,24 @@ where
 
     /// Begin a new transaction (requires transactional producer)
     pub async fn begin_transaction(&self) -> Result<(), ProducerError> {
-        match self.producer.init_transactions(Timeout::After(Duration::from_secs(30))) {
-            Ok(_) => {
-                match self.producer.begin_transaction() {
-                    Ok(_) => Ok(()),
-                    Err(err) => Err(ProducerError::KafkaError(err)),
-                }
-            }
+        match self
+            .producer
+            .init_transactions(Timeout::After(Duration::from_secs(30)))
+        {
+            Ok(_) => match self.producer.begin_transaction() {
+                Ok(_) => Ok(()),
+                Err(err) => Err(ProducerError::KafkaError(err)),
+            },
             Err(err) => Err(ProducerError::KafkaError(err)),
         }
     }
 
     /// Commit the current transaction
     pub async fn commit_transaction(&self) -> Result<(), ProducerError> {
-        match self.producer.commit_transaction(Timeout::After(Duration::from_secs(30))) {
+        match self
+            .producer
+            .commit_transaction(Timeout::After(Duration::from_secs(30)))
+        {
             Ok(_) => Ok(()),
             Err(err) => Err(ProducerError::KafkaError(err)),
         }
@@ -304,7 +364,10 @@ where
 
     /// Abort the current transaction
     pub async fn abort_transaction(&self) -> Result<(), ProducerError> {
-        match self.producer.abort_transaction(Timeout::After(Duration::from_secs(30))) {
+        match self
+            .producer
+            .abort_transaction(Timeout::After(Duration::from_secs(30)))
+        {
             Ok(_) => Ok(()),
             Err(err) => Err(ProducerError::KafkaError(err)),
         }
@@ -328,20 +391,20 @@ where
 }
 
 /// Builder for creating KafkaProducer with comprehensive configuration options
-/// 
+///
 /// This builder provides a fluent API for configuring Kafka producers with
 /// performance presets, custom settings, and fine-grained control over
 /// producer behavior.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Basic Usage
 /// ```rust,no_run
 /// # use ferrisstreams::{ProducerBuilder, JsonSerializer};
 /// # use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType};
 /// let producer = ProducerBuilder::<String, String, _, _>::new(
 ///     "localhost:9092",
-///     "my-topic", 
+///     "my-topic",
 ///     JsonSerializer,
 ///     JsonSerializer
 /// )
@@ -350,7 +413,7 @@ where
 /// .build()?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-/// 
+///
 /// ## Advanced Configuration
 /// ```rust,no_run
 /// # use ferrisstreams::{ProducerBuilder, JsonSerializer};
@@ -361,7 +424,7 @@ where
 ///     .acks(AckMode::All)
 ///     .batching(32768, Duration::from_millis(10))
 ///     .custom_property("security.protocol", "SSL");
-/// 
+///
 /// let producer = ProducerBuilder::<String, String, _, _>::with_config(
 ///     config,
 ///     JsonSerializer,
@@ -369,7 +432,7 @@ where
 /// ).build()?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub struct ProducerBuilder<K, V, KS, VS, C = LoggingProducerContext> 
+pub struct ProducerBuilder<K, V, KS, VS, C = LoggingProducerContext>
 where
     KS: Serializer<K>,
     VS: Serializer<V>,
@@ -389,7 +452,12 @@ where
     VS: Serializer<V>,
 {
     /// Creates a new builder with required parameters
-    pub fn new(brokers: &str, default_topic: &str, key_serializer: KS, value_serializer: VS) -> Self {
+    pub fn new(
+        brokers: &str,
+        default_topic: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Self {
         Self {
             config: ProducerConfig::new(brokers, default_topic),
             key_serializer,

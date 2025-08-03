@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::schema::{Schema, FieldDefinition, StreamHandle};
+use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
 
 #[cfg(test)]
 mod tests {
@@ -34,10 +34,10 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
+
         let result = context.register_stream("orders".to_string(), handle, schema);
         assert!(result.is_ok());
-        
+
         let streams = context.list_streams();
         assert_eq!(streams.len(), 1);
         assert!(streams.contains(&"orders".to_string()));
@@ -48,14 +48,19 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle.clone(), schema.clone()).unwrap();
+
+        context
+            .register_stream("orders".to_string(), handle.clone(), schema.clone())
+            .unwrap();
         let result = context.register_stream("orders".to_string(), handle, schema);
-        
+
         assert!(result.is_err());
         // Check that it's a StreamError
         if let Err(err) = result {
-            assert!(matches!(err, ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }));
+            assert!(matches!(
+                err,
+                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+            ));
         }
     }
 
@@ -64,10 +69,12 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
         assert_eq!(context.list_streams().len(), 1);
-        
+
         let result = context.unregister_stream("orders");
         assert!(result.is_ok());
         assert_eq!(context.list_streams().len(), 0);
@@ -77,10 +84,13 @@ mod tests {
     fn test_unregister_nonexistent_stream() {
         let mut context = StreamingSqlContext::new();
         let result = context.unregister_stream("nonexistent");
-        
+
         assert!(result.is_err());
         if let Err(err) = result {
-            assert!(matches!(err, ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }));
+            assert!(matches!(
+                err,
+                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+            ));
         }
     }
 
@@ -89,9 +99,11 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let result = context.execute_query("SELECT * FROM orders");
         assert!(result.is_ok());
     }
@@ -100,10 +112,13 @@ mod tests {
     fn test_query_with_nonexistent_stream() {
         let context = StreamingSqlContext::new();
         let result = context.execute_query("SELECT * FROM nonexistent");
-        
+
         assert!(result.is_err());
         if let Err(err) = result {
-            assert!(matches!(err, ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }));
+            assert!(matches!(
+                err,
+                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+            ));
         }
     }
 
@@ -112,9 +127,11 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let result = context.execute_query("SELECT id, customer_id, amount FROM orders");
         assert!(result.is_ok());
     }
@@ -124,13 +141,18 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let result = context.execute_query("SELECT nonexistent_column FROM orders");
         assert!(result.is_err());
         if let Err(err) = result {
-            assert!(matches!(err, ferrisstreams::ferris::sql::error::SqlError::SchemaError { .. }));
+            assert!(matches!(
+                err,
+                ferrisstreams::ferris::sql::error::SqlError::SchemaError { .. }
+            ));
         }
     }
 
@@ -139,15 +161,17 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let retrieved_schema = context.get_stream_schema("orders");
         assert!(retrieved_schema.is_some());
-        
+
         let schema = retrieved_schema.unwrap();
         assert_eq!(schema.fields.len(), 4);
-        
+
         // Check specific fields
         assert!(schema.has_field("id"));
         assert!(schema.has_field("customer_id"));
@@ -161,16 +185,30 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let retrieved_schema = context.get_stream_schema("orders").unwrap();
-        
+
         // Check field types
-        assert_eq!(retrieved_schema.get_field_type("id"), Some(&DataType::Integer));
-        assert_eq!(retrieved_schema.get_field_type("customer_id"), Some(&DataType::Integer));
-        assert_eq!(retrieved_schema.get_field_type("amount"), Some(&DataType::Float));
-        assert_eq!(retrieved_schema.get_field_type("status"), Some(&DataType::String));
+        assert_eq!(
+            retrieved_schema.get_field_type("id"),
+            Some(&DataType::Integer)
+        );
+        assert_eq!(
+            retrieved_schema.get_field_type("customer_id"),
+            Some(&DataType::Integer)
+        );
+        assert_eq!(
+            retrieved_schema.get_field_type("amount"),
+            Some(&DataType::Float)
+        );
+        assert_eq!(
+            retrieved_schema.get_field_type("status"),
+            Some(&DataType::String)
+        );
         assert_eq!(retrieved_schema.get_field_type("nonexistent"), None);
     }
 
@@ -179,9 +217,11 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let result = context.execute_query("SELECT SUM(amount) FROM orders WINDOW TUMBLING(5m)");
         assert!(result.is_ok());
     }
@@ -191,9 +231,11 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let result = context.execute_query("SELECT id AS order_id, amount AS total FROM orders");
         assert!(result.is_ok());
     }
@@ -201,7 +243,7 @@ mod tests {
     #[test]
     fn test_multiple_stream_registration() {
         let mut context = StreamingSqlContext::new();
-        
+
         // Register first stream
         let handle1 = StreamHandle::new(
             "orders_stream".to_string(),
@@ -212,8 +254,10 @@ mod tests {
             FieldDefinition::required("order_id".to_string(), DataType::Integer),
             FieldDefinition::required("amount".to_string(), DataType::Float),
         ]);
-        context.register_stream("orders".to_string(), handle1, schema1).unwrap();
-        
+        context
+            .register_stream("orders".to_string(), handle1, schema1)
+            .unwrap();
+
         // Register second stream
         let handle2 = StreamHandle::new(
             "users_stream".to_string(),
@@ -224,17 +268,19 @@ mod tests {
             FieldDefinition::required("user_id".to_string(), DataType::Integer),
             FieldDefinition::required("name".to_string(), DataType::String),
         ]);
-        context.register_stream("users".to_string(), handle2, schema2).unwrap();
-        
+        context
+            .register_stream("users".to_string(), handle2, schema2)
+            .unwrap();
+
         assert_eq!(context.list_streams().len(), 2);
-        
+
         // Test queries on both streams
         let result1 = context.execute_query("SELECT order_id FROM orders");
         assert!(result1.is_ok());
-        
+
         let result2 = context.execute_query("SELECT user_id FROM users");
         assert!(result2.is_ok());
-        
+
         // Test cross-stream validation
         let result3 = context.execute_query("SELECT order_id FROM users");
         assert!(result3.is_err()); // order_id doesn't exist in users stream
@@ -245,12 +291,14 @@ mod tests {
         let mut context = StreamingSqlContext::new();
         let handle = create_test_handle();
         let schema = create_test_schema();
-        
-        context.register_stream("orders".to_string(), handle, schema).unwrap();
-        
+
+        context
+            .register_stream("orders".to_string(), handle, schema)
+            .unwrap();
+
         let retrieved_schema = context.get_stream_schema("orders").unwrap();
         let field_names = retrieved_schema.field_names();
-        
+
         assert_eq!(field_names.len(), 4);
         assert!(field_names.contains(&"id"));
         assert!(field_names.contains(&"customer_id"));
@@ -264,45 +312,60 @@ mod tests {
             FieldDefinition::required("id".to_string(), DataType::Integer),
             FieldDefinition::optional("description".to_string(), DataType::String),
         ]);
-        
+
         // Check field nullability
         let id_field = schema.get_field("id").unwrap();
         assert!(!id_field.nullable);
-        
+
         let desc_field = schema.get_field("description").unwrap();
         assert!(desc_field.nullable);
     }
 
     #[test]
     fn test_schema_validation_with_json() {
-        use std::collections::HashMap;
         use serde_json::Value;
-        
+        use std::collections::HashMap;
+
         let schema = create_test_schema();
-        
+
         // Valid record
         let mut valid_record = HashMap::new();
         valid_record.insert("id".to_string(), Value::Number(serde_json::Number::from(1)));
-        valid_record.insert("customer_id".to_string(), Value::Number(serde_json::Number::from(100)));
-        valid_record.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(299.99).unwrap()));
+        valid_record.insert(
+            "customer_id".to_string(),
+            Value::Number(serde_json::Number::from(100)),
+        );
+        valid_record.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(299.99).unwrap()),
+        );
         valid_record.insert("status".to_string(), Value::String("pending".to_string()));
-        
+
         assert!(schema.validate_record(&valid_record));
-        
+
         // Invalid record (missing required field)
         let mut invalid_record = HashMap::new();
         invalid_record.insert("id".to_string(), Value::Number(serde_json::Number::from(1)));
         // Missing customer_id (required field)
-        invalid_record.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(299.99).unwrap()));
-        
+        invalid_record.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(299.99).unwrap()),
+        );
+
         assert!(!schema.validate_record(&invalid_record));
-        
+
         // Invalid record (wrong type)
         let mut wrong_type_record = HashMap::new();
         wrong_type_record.insert("id".to_string(), Value::String("not_a_number".to_string()));
-        wrong_type_record.insert("customer_id".to_string(), Value::Number(serde_json::Number::from(100)));
-        wrong_type_record.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(299.99).unwrap()));
-        
+        wrong_type_record.insert(
+            "customer_id".to_string(),
+            Value::Number(serde_json::Number::from(100)),
+        );
+        wrong_type_record.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(299.99).unwrap()),
+        );
+
         assert!(!schema.validate_record(&wrong_type_record));
     }
 }

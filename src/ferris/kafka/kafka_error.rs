@@ -2,7 +2,7 @@ use crate::ferris::kafka::serialization::SerializationError;
 use rdkafka::error::KafkaError;
 
 /// Unified error type for Kafka producer and consumer operations
-/// 
+///
 /// This consolidated error type eliminates duplication between ProducerError
 /// and ConsumerError while providing all necessary error variants.
 #[derive(Debug)]

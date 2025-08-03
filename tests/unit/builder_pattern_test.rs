@@ -8,7 +8,8 @@ async fn test_producer_builder_basic() {
         "builder-test-topic",
         JsonSerializer,
         JsonSerializer,
-    ).build();
+    )
+    .build();
 
     match producer_result {
         Ok(producer) => {
@@ -16,18 +17,18 @@ async fn test_producer_builder_basic() {
             let test_message = TestMessage::basic(1, "builder test");
 
             let headers = Headers::new().insert("source", "builder-test");
-            
+
             // Try to send a message (might fail if Kafka is not available)
-            let _ = producer.send(
-                Some(&"test-key".to_string()),
-                &test_message,
-                headers,
-                None,
-            ).await;
-        },
+            let _ = producer
+                .send(Some(&"test-key".to_string()), &test_message, headers, None)
+                .await;
+        }
         Err(err) => {
             // Builder might fail if Kafka is not available - that's acceptable
-            println!("Producer builder failed (Kafka might not be available): {:?}", err);
+            println!(
+                "Producer builder failed (Kafka might not be available): {:?}",
+                err
+            );
         }
     }
 }
@@ -52,7 +53,7 @@ async fn test_producer_builder_with_configuration() {
     .build();
 
     match producer_result {
-        Ok(_) => {}, // Success case
+        Ok(_) => {} // Success case
         Err(e) => panic!("Producer builder with configuration failed: {:?}", e),
     }
 }
@@ -70,7 +71,10 @@ async fn test_producer_builder_with_presets() {
     .high_throughput()
     .build();
 
-    assert!(high_throughput_result.is_ok(), "High throughput producer should build successfully");
+    assert!(
+        high_throughput_result.is_ok(),
+        "High throughput producer should build successfully"
+    );
 
     let low_latency_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -82,7 +86,10 @@ async fn test_producer_builder_with_presets() {
     .low_latency()
     .build();
 
-    assert!(low_latency_result.is_ok(), "Low latency producer should build successfully");
+    assert!(
+        low_latency_result.is_ok(),
+        "Low latency producer should build successfully"
+    );
 
     let max_durability_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -95,7 +102,7 @@ async fn test_producer_builder_with_presets() {
     .build();
 
     match max_durability_result {
-        Ok(_) => {}, // Success case
+        Ok(_) => {} // Success case
         Err(e) => panic!("Max durability producer failed: {:?}", e),
     }
 
@@ -110,7 +117,7 @@ async fn test_producer_builder_with_presets() {
     .build();
 
     match development_result {
-        Ok(_) => {}, // Success case
+        Ok(_) => {} // Success case
         Err(e) => panic!("Development producer failed: {:?}", e),
     }
 }
@@ -129,10 +136,11 @@ async fn test_producer_builder_with_config_object() {
         config,
         JsonSerializer,
         JsonSerializer,
-    ).build();
+    )
+    .build();
 
     match producer_result {
-        Ok(_) => {}, // Success case
+        Ok(_) => {} // Success case
         Err(e) => panic!("Producer builder with config object failed: {:?}", e),
     }
 }
@@ -145,19 +153,23 @@ async fn test_consumer_builder_basic() {
         "builder-consumer-group",
         JsonSerializer,
         JsonSerializer,
-    ).build();
+    )
+    .build();
 
     match consumer_result {
         Ok(consumer) => {
             // Verify we can use the consumer
             let _ = consumer.subscribe(&["builder-consumer-test-topic"]);
-            
+
             // Try to poll (might timeout if no messages)
             let _ = consumer.poll(Duration::from_millis(100)).await;
-        },
+        }
         Err(err) => {
             // Consumer might fail if Kafka is not available - that's acceptable
-            println!("Consumer builder failed (Kafka might not be available): {:?}", err);
+            println!(
+                "Consumer builder failed (Kafka might not be available): {:?}",
+                err
+            );
         }
     }
 }
@@ -175,7 +187,10 @@ async fn test_consumer_builder_with_presets() {
         JsonSerializer,
     );
 
-    assert!(ht_consumer_result.is_ok(), "High throughput consumer should build successfully");
+    assert!(
+        ht_consumer_result.is_ok(),
+        "High throughput consumer should build successfully"
+    );
 
     let low_latency_config = ConsumerConfig::new("localhost:9092", "ll-consumer-group")
         .client_id("ll-consumer")
@@ -187,7 +202,10 @@ async fn test_consumer_builder_with_presets() {
         JsonSerializer,
     );
 
-    assert!(ll_consumer_result.is_ok(), "Low latency consumer should build successfully");
+    assert!(
+        ll_consumer_result.is_ok(),
+        "Low latency consumer should build successfully"
+    );
 
     let development_config = ConsumerConfig::new("localhost:9092", "dev-consumer-group")
         .client_id("dev-consumer")
@@ -199,7 +217,10 @@ async fn test_consumer_builder_with_presets() {
         JsonSerializer,
     );
 
-    assert!(dev_consumer_result.is_ok(), "Development consumer should build successfully");
+    assert!(
+        dev_consumer_result.is_ok(),
+        "Development consumer should build successfully"
+    );
 
     let streaming_config = ConsumerConfig::new("localhost:9092", "stream-consumer-group")
         .client_id("stream-consumer")
@@ -211,7 +232,10 @@ async fn test_consumer_builder_with_presets() {
         JsonSerializer,
     );
 
-    assert!(stream_consumer_result.is_ok(), "Streaming consumer should build successfully");
+    assert!(
+        stream_consumer_result.is_ok(),
+        "Streaming consumer should build successfully"
+    );
 }
 
 #[tokio::test]
@@ -240,9 +264,12 @@ async fn test_producer_builder_method_chaining() {
     .compression(CompressionType::Lz4)
     .build();
 
-    assert!(producer1_result.is_ok(), "First chained producer should build");
+    assert!(
+        producer1_result.is_ok(),
+        "First chained producer should build"
+    );
     match producer2_result {
-        Ok(_) => {}, // Success case
+        Ok(_) => {} // Success case
         Err(e) => panic!("Second chained producer failed: {:?}", e),
     }
 }
@@ -262,7 +289,10 @@ async fn test_builder_configuration_override() {
     .compression(CompressionType::Gzip) // This should override None
     .build();
 
-    assert!(producer_result.is_ok(), "Producer with overridden config should build");
+    assert!(
+        producer_result.is_ok(),
+        "Producer with overridden config should build"
+    );
 }
 
 #[tokio::test]
@@ -279,14 +309,17 @@ async fn test_producer_builder_preset_override() {
     .acks(AckMode::All) // Override acks from preset
     .build();
 
-    assert!(producer_result.is_ok(), "Producer with preset override should build");
+    assert!(
+        producer_result.is_ok(),
+        "Producer with preset override should build"
+    );
 }
 
 #[tokio::test]
 async fn test_consumer_builder_with_custom_context() {
     // Test consumer builder with custom context
     use rdkafka::consumer::DefaultConsumerContext;
-    
+
     let context = DefaultConsumerContext;
     let consumer_result = ConsumerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -302,7 +335,7 @@ async fn test_consumer_builder_with_custom_context() {
     match consumer_result {
         Ok(_) => {
             // Custom context consumer created successfully
-        },
+        }
         Err(err) => {
             // Might fail if Kafka is not available
             println!("Consumer with custom context failed: {:?}", err);
@@ -314,7 +347,7 @@ async fn test_consumer_builder_with_custom_context() {
 async fn test_producer_builder_with_custom_context() {
     // Test producer builder with custom context
     use ferrisstreams::ferris::kafka::LoggingProducerContext;
-    
+
     let context = LoggingProducerContext::default();
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -329,7 +362,7 @@ async fn test_producer_builder_with_custom_context() {
     match producer_result {
         Ok(_) => {
             // Custom context producer created successfully
-        },
+        }
         Err(err) => {
             // Might fail if Kafka is not available
             println!("Producer with custom context failed: {:?}", err);
@@ -367,29 +400,30 @@ async fn test_end_to_end_builder_workflow() {
             // Send a test message
             let test_message = TestMessage::basic(42, "end-to-end builder test");
 
-            let headers = Headers::new()
-                .insert("test-type", "e2e-builder")
-                .insert("timestamp", &std::time::SystemTime::now()
+            let headers = Headers::new().insert("test-type", "e2e-builder").insert(
+                "timestamp",
+                &std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()
-                    .to_string());
+                    .to_string(),
+            );
 
-            let send_result = producer.send(
-                Some(&"e2e-key".to_string()),
-                &test_message,
-                headers,
-                None,
-            ).await;
+            let send_result = producer
+                .send(Some(&"e2e-key".to_string()), &test_message, headers, None)
+                .await;
 
             match send_result {
                 Ok(_) => {
                     // Message sent successfully
                     // Try to consume it (might timeout if Kafka is slow)
                     let _ = consumer.poll(Duration::from_secs(1)).await;
-                },
+                }
                 Err(err) => {
-                    println!("Send failed in e2e test (Kafka might not be available): {:?}", err);
+                    println!(
+                        "Send failed in e2e test (Kafka might not be available): {:?}",
+                        err
+                    );
                 }
             }
         }

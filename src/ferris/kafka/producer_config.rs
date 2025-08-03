@@ -49,7 +49,7 @@ impl CompressionType {
     pub fn as_str(&self) -> &'static str {
         match self {
             CompressionType::None => "none",
-            CompressionType::Gzip => "gzip", 
+            CompressionType::Gzip => "gzip",
             CompressionType::Snappy => "snappy",
             CompressionType::Lz4 => "lz4",
             CompressionType::Zstd => "zstd",
@@ -71,7 +71,7 @@ impl AckMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             AckMode::None => "0",
-            AckMode::Leader => "1", 
+            AckMode::Leader => "1",
             AckMode::All => "all",
         }
     }
@@ -178,13 +178,16 @@ impl ProducerConfig {
 
     /// Set message max bytes (consolidates custom property)
     pub fn message_max_bytes(mut self, max_bytes: u64) -> Self {
-        self.common = self.common.custom_property("message.max.bytes", max_bytes.to_string());
+        self.common = self
+            .common
+            .custom_property("message.max.bytes", max_bytes.to_string());
         self
     }
 
     /// Set socket buffer sizes (consolidates custom properties)
     pub fn socket_buffers(mut self, send_buffer: u32, receive_buffer: u32) -> Self {
-        self.common = self.common
+        self.common = self
+            .common
             .custom_property("socket.send.buffer.bytes", send_buffer.to_string())
             .custom_property("socket.receive.buffer.bytes", receive_buffer.to_string());
         self
@@ -193,7 +196,10 @@ impl ProducerConfig {
     /// Set max in-flight requests per connection (consolidates custom property)
     pub fn max_in_flight_requests_per_connection(mut self, max_requests: u32) -> Self {
         self.max_in_flight_requests = max_requests;
-        self.common = self.common.custom_property("max.in.flight.requests.per.connection", max_requests.to_string());
+        self.common = self.common.custom_property(
+            "max.in.flight.requests.per.connection",
+            max_requests.to_string(),
+        );
         self
     }
 
@@ -214,12 +220,28 @@ impl ProducerConfig {
         self.transactional_id = Some(transaction_id.into());
         self.enable_idempotence = true; // Required for transactions
         self.acks = AckMode::All; // Required for transactions
+
+        // Ensure message.timeout.ms <= transaction.timeout.ms for transactional producers
+        if self.message_timeout > self.transaction_timeout {
+            self.message_timeout = self.transaction_timeout;
+        }
+
         self
     }
 
     /// Set transaction timeout
+    ///
+    /// If the transaction timeout is less than the current message timeout,
+    /// the message timeout will be automatically adjusted to ensure
+    /// message.timeout.ms <= transaction.timeout.ms (Kafka requirement).
     pub fn transaction_timeout(mut self, timeout: Duration) -> Self {
         self.transaction_timeout = timeout;
+
+        // Ensure message.timeout.ms <= transaction.timeout.ms
+        if self.message_timeout > timeout {
+            self.message_timeout = timeout;
+        }
+
         self
     }
 
@@ -271,7 +293,7 @@ impl PerformancePresets for ProducerConfig {
         self.enable_idempotence = false; // Disable idempotence for speed
         self.acks = AckMode::Leader; // Trade consistency for speed
         self.buffer_memory = 67108864; // 64MB
-        
+
         // Apply consolidated performance tuning automatically
         self.message_max_bytes(67108864) // 64MB
             .max_in_flight_requests_per_connection(5)

@@ -1,9 +1,9 @@
 // tests/ferris/kafka/test_utils.rs
+use crate::unit::test_messages::*;
+use ferrisstreams::ferris::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
-use ferrisstreams::ferris::kafka::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
-use crate::unit::test_messages::*;
 
 /// Helper functions
 pub(crate) fn is_kafka_running() -> bool {
@@ -38,29 +38,85 @@ pub(crate) fn generate_group_id(prefix: &str) -> String {
 }
 
 // Producer creation helpers
-pub(crate) fn create_test_message_producer(topic: &str) -> Result<KafkaProducer<String, TestMessage, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaProducer::new("localhost:9092", topic, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_test_message_producer(
+    topic: &str,
+) -> Result<
+    KafkaProducer<String, TestMessage, JsonSerializer, JsonSerializer>,
+    Box<dyn std::error::Error>,
+> {
+    Ok(KafkaProducer::new(
+        "localhost:9092",
+        topic,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
-pub(crate) fn create_user_producer(topic: &str) -> Result<KafkaProducer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaProducer::new("localhost:9092", topic, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_user_producer(
+    topic: &str,
+) -> Result<KafkaProducer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
+{
+    Ok(KafkaProducer::new(
+        "localhost:9092",
+        topic,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
-pub(crate) fn create_order_producer(topic: &str) -> Result<KafkaProducer<String, OrderEvent, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaProducer::new("localhost:9092", topic, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_order_producer(
+    topic: &str,
+) -> Result<
+    KafkaProducer<String, OrderEvent, JsonSerializer, JsonSerializer>,
+    Box<dyn std::error::Error>,
+> {
+    Ok(KafkaProducer::new(
+        "localhost:9092",
+        topic,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
 // Consumer creation helpers
-pub(crate) fn create_test_message_consumer(group_id: &str) -> Result<KafkaConsumer<String, TestMessage, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaConsumer::new("localhost:9092", group_id, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_test_message_consumer(
+    group_id: &str,
+) -> Result<
+    KafkaConsumer<String, TestMessage, JsonSerializer, JsonSerializer>,
+    Box<dyn std::error::Error>,
+> {
+    Ok(KafkaConsumer::new(
+        "localhost:9092",
+        group_id,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
-pub(crate) fn create_user_consumer(group_id: &str) -> Result<KafkaConsumer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaConsumer::new("localhost:9092", group_id, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_user_consumer(
+    group_id: &str,
+) -> Result<KafkaConsumer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
+{
+    Ok(KafkaConsumer::new(
+        "localhost:9092",
+        group_id,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
-pub(crate) fn create_order_consumer(group_id: &str) -> Result<KafkaConsumer<String, OrderEvent, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
-    Ok(KafkaConsumer::new("localhost:9092", group_id, JsonSerializer, JsonSerializer)?)
+pub(crate) fn create_order_consumer(
+    group_id: &str,
+) -> Result<
+    KafkaConsumer<String, OrderEvent, JsonSerializer, JsonSerializer>,
+    Box<dyn std::error::Error>,
+> {
+    Ok(KafkaConsumer::new(
+        "localhost:9092",
+        group_id,
+        JsonSerializer,
+        JsonSerializer,
+    )?)
 }
 
 // Common test operations
@@ -99,10 +155,15 @@ impl TestSetup<TestMessage> {
         let group_id = generate_group_id(prefix);
         let producer = create_test_message_producer(&topic)?;
         let consumer = create_test_message_consumer(&group_id)?;
-        
+
         consumer.subscribe(&[&topic])?;
-        
-        Ok(Self { topic, group_id, producer, consumer })
+
+        Ok(Self {
+            topic,
+            group_id,
+            producer,
+            consumer,
+        })
     }
 }
 
@@ -112,10 +173,15 @@ impl TestSetup<User> {
         let group_id = generate_group_id(prefix);
         let producer = create_user_producer(&topic)?;
         let consumer = create_user_consumer(&group_id)?;
-        
+
         consumer.subscribe(&[&topic])?;
-        
-        Ok(Self { topic, group_id, producer, consumer })
+
+        Ok(Self {
+            topic,
+            group_id,
+            producer,
+            consumer,
+        })
     }
 }
 
@@ -125,16 +191,23 @@ impl TestSetup<OrderEvent> {
         let group_id = generate_group_id(prefix);
         let producer = create_order_producer(&topic)?;
         let consumer = create_order_consumer(&group_id)?;
-        
+
         consumer.subscribe(&[&topic])?;
-        
-        Ok(Self { topic, group_id, producer, consumer })
+
+        Ok(Self {
+            topic,
+            group_id,
+            producer,
+            consumer,
+        })
     }
 }
 
 // Safe commit helper
-pub(crate) fn safe_commit<K, V, KS, VS>(consumer: &KafkaConsumer<K, V, KS, VS>, received_count: usize) 
-where
+pub(crate) fn safe_commit<K, V, KS, VS>(
+    consumer: &KafkaConsumer<K, V, KS, VS>,
+    received_count: usize,
+) where
     KS: ferrisstreams::ferris::kafka::Serializer<K>,
     VS: ferrisstreams::ferris::kafka::Serializer<V>,
 {

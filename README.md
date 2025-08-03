@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/ferrisstreams.svg)](https://crates.io/crates/ferrisstreams)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](./LICENSE)
 
-A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams** with full support for **keys, values, and headers**.
+A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams** with full support for **keys, values, headers**, and **comprehensive SQL streaming with JOIN operations**.
 
 ## 🌟 Key Features
 
@@ -14,6 +14,8 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Asynchronous Processing:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O
 * **Flexible Serialization:** Modular `serde` framework with JSON support and extensible traits for custom formats
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
+* **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, and real-time analytics
+* **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
 * **Builder Patterns:** Ergonomic APIs for creating producers and consumers
 * **Robust Error Handling:** Comprehensive error types with proper error propagation
 
@@ -258,6 +260,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### SQL Streaming API
+
+```rust
+use ferrisstreams::ferris::sql::{StreamExecutionEngine, StreamingSqlParser};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+    
+    // Parse and execute streaming SQL with JOINs
+    let query = "
+        SELECT 
+            o.order_id,
+            o.customer_id,
+            o.amount,
+            c.customer_name,
+            c.tier
+        FROM orders o
+        INNER JOIN customers c ON o.customer_id = c.customer_id
+        WHERE o.amount > 100.0
+    ";
+    
+    let parsed_query = parser.parse(query)?;
+    
+    // Execute with streaming data
+    // engine.execute(&parsed_query, json_record).await?;
+    
+    Ok(())
+}
+```
+
 ## 🔄 Message Processing Patterns
 
 ### 1. Polling Pattern
@@ -321,6 +356,10 @@ let high_priority: Vec<_> = consumer.stream()
 - ✅ Builder patterns for ergonomic configuration
 - ✅ Comprehensive error handling
 - ✅ JSON serialization support
+- ✅ **SQL Streaming Engine** with comprehensive SQL support
+- ✅ **JOIN Operations** - All JOIN types (INNER, LEFT, RIGHT, FULL OUTER)
+- ✅ **Windowed JOINs** for temporal correlation in streaming data
+- ✅ **Stream-Table JOINs** optimized for reference data lookups
 
 ### Planned Features 🔄
 - **Advanced Stream Processing:**

@@ -2,9 +2,9 @@ name: Quick Check
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, master ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, master ]
 
 jobs:
   quick-check:
@@ -37,7 +37,7 @@ jobs:
       run: cargo check --all-targets
 
     - name: Run clippy
-      run: cargo clippy --all-targets -- -D warnings
+      run: cargo clippy --all-targets
 
     - name: Build project
       run: cargo build

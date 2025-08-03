@@ -10,8 +10,9 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[Simplified Kafka API](SIMPLIFIED_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](HEADERS_GUIDE.md)** - Working with Kafka message headers
 
-### SQL Streaming (New!)
+### SQL Streaming
 - **[SQL Reference Guide](SQL_REFERENCE_GUIDE.md)** - Complete SQL syntax and function reference
+- **[JOIN Operations Guide](JOIN_OPERATIONS_GUIDE.md)** - Comprehensive guide to JOIN operations and windowed JOINs
 - **[SQL Feature Request](SQL_FEATURE_REQUEST.md)** - Comprehensive SQL implementation roadmap and current status
 
 ### Performance & Optimization
@@ -40,8 +41,11 @@ FerrisStreams now includes a comprehensive SQL interface for stream processing:
 
 ### Key Capabilities
 - **Enterprise Job Management**: Complete lifecycle with versioning, deployment strategies (Blue-Green, Canary, Rolling)
+- **JOIN Operations**: Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing  
+- **Windowed JOINs**: Time-based correlation for streaming data with configurable grace periods
+- **Stream-Table JOINs**: Optimized reference data lookups with materialized tables
 - **JSON Processing**: Native JSON parsing with JSONPath support for complex Kafka payloads  
-- **Advanced Functions**: 15+ SQL functions including aggregations, string manipulation, and analytics
+- **Advanced Functions**: 42+ SQL functions including aggregations, string manipulation, and analytics
 - **Real-Time Processing**: Event-at-a-time processing with bounded memory and backpressure handling
 - **Type Safety**: Full Rust type safety throughout the SQL execution pipeline
 
@@ -56,6 +60,21 @@ SELECT
 FROM kafka_events 
 WHERE JSON_VALUE(payload, '$.type') = 'purchase'
 STRATEGY CANARY(25);
+
+-- Real-time data enrichment with JOINs
+DEPLOY JOB order_enrichment VERSION '1.0.0' AS
+SELECT 
+    o.order_id,
+    o.customer_id,
+    c.customer_name,
+    c.tier,
+    p.product_name,
+    o.quantity * p.unit_price as total_value
+FROM streaming_orders o
+INNER JOIN customer_table c ON o.customer_id = c.customer_id
+INNER JOIN product_catalog p ON o.product_id = p.product_id
+WHERE c.tier IN ('gold', 'platinum')
+STRATEGY BLUE_GREEN;
 
 -- Job lifecycle management
 PAUSE JOB user_analytics;

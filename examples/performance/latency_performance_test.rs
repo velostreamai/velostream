@@ -6,27 +6,29 @@
 //! - Latency vs throughput trade-offs
 //! - Low-latency configuration testing
 
-use ferrisstreams::{ProducerBuilder, KafkaConsumer, JsonSerializer, Headers, Message, KafkaAdminClient};
-use ferrisstreams::ferris::kafka::producer_config::{ProducerConfig, CompressionType, AckMode};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use serde::{Serialize, Deserialize};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use ferrisstreams::{
+    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, Message, ProducerBuilder,
+};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
-use futures::StreamExt;
 
 // Latency test configuration
-const MESSAGE_COUNT: u64 = 1_000;  // Smaller count for latency focus
-const CONCURRENT_PRODUCERS: usize = 1;  // Single producer for consistent latency
+const MESSAGE_COUNT: u64 = 1_000; // Smaller count for latency focus
+const CONCURRENT_PRODUCERS: usize = 1; // Single producer for consistent latency
 const CONSUMER_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LatencyTestMessage {
     id: u64,
-    send_timestamp: u64,  // Microseconds since epoch
+    send_timestamp: u64, // Microseconds since epoch
     payload: String,
 }
 
@@ -62,10 +64,10 @@ impl LatencyMetrics {
     fn get_latency_stats(&self) -> LatencyStats {
         let mut latencies = self.latencies_us.lock().unwrap().clone();
         latencies.sort_unstable();
-        
+
         let len = latencies.len();
         let elapsed = self.start_time.elapsed().as_secs_f64();
-        
+
         LatencyStats {
             total_messages: len,
             throughput_msg_per_sec: len as f64 / elapsed,
@@ -102,7 +104,7 @@ fn percentile(sorted_data: &[u64], percentile: f64) -> u64 {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     println!("⚡ Latency Performance Testing Suite");
     println!("===================================");
     println!("Messages: {}", MESSAGE_COUNT);
@@ -119,12 +121,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (scenario_name, (producer_config, consumer_config)) in test_scenarios {
         println!("📊 Testing: {}", scenario_name);
         println!("─────────────────────────────────");
-        
+
         match run_latency_test(producer_config, consumer_config).await {
             Ok(stats) => print_latency_results(&stats, scenario_name),
             Err(e) => println!("❌ Test failed: {}", e),
         }
-        
+
         println!();
         sleep(Duration::from_secs(2)).await;
     }
@@ -137,19 +139,17 @@ fn create_ultra_low_latency_config() -> (ProducerConfig, ConsumerConfig) {
     // Start with low latency preset
     let mut producer_config = ProducerConfig::new("localhost:9092", "latency-test")
         .client_id("ultra-low-latency-producer")
-        .low_latency()  // Apply baseline low-latency preset first
+        .low_latency() // Apply baseline low-latency preset first
         // Then add ultra-low-latency specific optimizations
-        .compression(CompressionType::None)  // No compression for lowest latency
-        .acks(AckMode::Leader)// Only wait for leader acknowledgment
-        .idempotence(false)// Disable idempotence for lowest latency
-        .batching(1, Duration::from_millis(0))  // No batching
-        .retries(0, Duration::from_millis(1));  // Minimum allowed retry backoff
-
-
+        .compression(CompressionType::None) // No compression for lowest latency
+        .acks(AckMode::Leader) // Only wait for leader acknowledgment
+        .idempotence(false) // Disable idempotence for lowest latency
+        .batching(1, Duration::from_millis(0)) // No batching
+        .retries(0, Duration::from_millis(1)); // Minimum allowed retry backoff
 
     let consumer_config = ConsumerConfig::new("localhost:9092", "ultra-low-latency-group")
         .client_id("ultra-low-latency-consumer")
-        .low_latency()  // Apply baseline low-latency preset first
+        .low_latency() // Apply baseline low-latency preset first
         // Then add ultra-low-latency specific optimizations
         .auto_offset_reset(OffsetReset::Latest)
         .max_poll_records(1)
@@ -164,8 +164,8 @@ fn create_balanced_latency_config() -> (ProducerConfig, ConsumerConfig) {
         .client_id("balanced-latency-producer")
         .compression(CompressionType::Lz4)
         .acks(AckMode::Leader)
-        .idempotence(false)// Disable idempotence for balanced config
-        .batching(16384, Duration::from_millis(5))  // Small batches
+        .idempotence(false) // Disable idempotence for balanced config
+        .batching(16384, Duration::from_millis(5)) // Small batches
         .retries(3, Duration::from_millis(50));
 
     let consumer_config = ConsumerConfig::new("localhost:9092", "balanced-latency-group")
@@ -194,13 +194,34 @@ fn create_high_throughput_config() -> (ProducerConfig, ConsumerConfig) {
 fn print_latency_results(stats: &LatencyStats, scenario: &str) {
     println!("⚡ {} Latency Results:", scenario);
     println!("   Total Messages:    {:8}", stats.total_messages);
-    println!("   Throughput:        {:8.1} msg/s", stats.throughput_msg_per_sec);
-    println!("   Min Latency:       {:8.1} ms", stats.min_latency_us as f64 / 1000.0);
-    println!("   Avg Latency:       {:8.1} ms", stats.avg_latency_us / 1000.0);
-    println!("   P50 Latency:       {:8.1} ms", stats.p50_latency_us as f64 / 1000.0);
-    println!("   P95 Latency:       {:8.1} ms", stats.p95_latency_us as f64 / 1000.0);
-    println!("   P99 Latency:       {:8.1} ms", stats.p99_latency_us as f64 / 1000.0);
-    println!("   Max Latency:       {:8.1} ms", stats.max_latency_us as f64 / 1000.0);
+    println!(
+        "   Throughput:        {:8.1} msg/s",
+        stats.throughput_msg_per_sec
+    );
+    println!(
+        "   Min Latency:       {:8.1} ms",
+        stats.min_latency_us as f64 / 1000.0
+    );
+    println!(
+        "   Avg Latency:       {:8.1} ms",
+        stats.avg_latency_us / 1000.0
+    );
+    println!(
+        "   P50 Latency:       {:8.1} ms",
+        stats.p50_latency_us as f64 / 1000.0
+    );
+    println!(
+        "   P95 Latency:       {:8.1} ms",
+        stats.p95_latency_us as f64 / 1000.0
+    );
+    println!(
+        "   P99 Latency:       {:8.1} ms",
+        stats.p99_latency_us as f64 / 1000.0
+    );
+    println!(
+        "   Max Latency:       {:8.1} ms",
+        stats.max_latency_us as f64 / 1000.0
+    );
 
     // Latency rating
     let p95_ms = stats.p95_latency_us as f64 / 1000.0;
@@ -222,10 +243,10 @@ async fn run_latency_test(
 ) -> Result<LatencyStats, Box<dyn std::error::Error>> {
     let topic = format!("latency-test-{}", chrono::Utc::now().timestamp_millis());
     let metrics = Arc::new(LatencyMetrics::new());
-    
+
     // Create topic
     let admin_client = KafkaAdminClient::new("localhost:9092")?;
-    admin_client.create_performance_topic(&topic, 1).await?;  // Single partition for consistent ordering
+    admin_client.create_performance_topic(&topic, 1).await?; // Single partition for consistent ordering
 
     // Create producer
     let mut producer_config = producer_config;
@@ -234,7 +255,8 @@ async fn run_latency_test(
         producer_config,
         JsonSerializer,
         JsonSerializer,
-    ).build()?;
+    )
+    .build()?;
 
     // Create consumer
     let consumer = KafkaConsumer::<String, LatencyTestMessage, _, _>::with_config(
@@ -251,32 +273,35 @@ async fn run_latency_test(
         let timeout_future = tokio::time::sleep(CONSUMER_TIMEOUT);
         tokio::pin!(timeout_future);
 
-        let stream_future = consumer.stream()
-            .take(MESSAGE_COUNT as usize)
-            .for_each(|message_result| {
-                let metrics = consumer_metrics.clone();
-                async move {
-                    match message_result {
-                        Ok(message) => {
-                            let receive_time = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64;
-                            
-                            let send_time = message.value().send_timestamp;
-                            let latency_us = receive_time.saturating_sub(send_time);
-                            
-                            metrics.record_receive(latency_us);
+        let stream_future =
+            consumer
+                .stream()
+                .take(MESSAGE_COUNT as usize)
+                .for_each(|message_result| {
+                    let metrics = consumer_metrics.clone();
+                    async move {
+                        match message_result {
+                            Ok(message) => {
+                                let receive_time = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_micros()
+                                    as u64;
 
-                            // Print metadata for each message
-                            println!("Message metadata: {}", message.metadata_string());
-                        }
-                        Err(e) => {
-                            println!("❌ Consumer error: {}", e);
+                                let send_time = message.value().send_timestamp;
+                                let latency_us = receive_time.saturating_sub(send_time);
+
+                                metrics.record_receive(latency_us);
+
+                                // Print metadata for each message
+                                println!("Message metadata: {}", message.metadata_string());
+                            }
+                            Err(e) => {
+                                println!("❌ Consumer error: {}", e);
+                            }
                         }
                     }
-                }
-            });
+                });
 
         tokio::select! {
             _ = timeout_future => {
@@ -308,7 +333,9 @@ async fn run_latency_test(
             .insert("test-type", "latency")
             .insert("message-id", &i.to_string());
 
-        producer.send(Some(&format!("key-{}", i)), &message, headers, None).await?;
+        producer
+            .send(Some(&format!("key-{}", i)), &message, headers, None)
+            .await?;
         metrics.record_send();
 
         // Small delay between messages for consistent latency measurement
