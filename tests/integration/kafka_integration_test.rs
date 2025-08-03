@@ -72,6 +72,9 @@ async fn test_multiple_messages() {
         return;
     }
 
+    // Add 30-second delay to prevent concurrent test execution in CI
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
     let topic = format!("integration-multi-{}", Uuid::new_v4());
     let group_id = format!("multi-group-{}", Uuid::new_v4());
 
@@ -109,12 +112,12 @@ async fn test_multiple_messages() {
     }
 
     producer.flush(5000).expect("Failed to flush");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Receive messages using stream with implicit deserialization
     let mut stream = consumer.stream();
     let mut received = Vec::new();
-    let timeout_duration = Duration::from_secs(10);
+    let timeout_duration = Duration::from_secs(20);
     let start_time = std::time::Instant::now();
 
     while received.len() < messages.len() && start_time.elapsed() < timeout_duration {
