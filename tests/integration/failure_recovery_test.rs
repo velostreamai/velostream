@@ -10,6 +10,9 @@ async fn test_network_partition_recovery_with_retry_logic() {
     if !is_kafka_running() {
         return;
     }
+    
+    // Add delay for CI environment to reduce resource contention
+    sleep(Duration::from_secs(3)).await;
 
     let topic = format!("partition-recovery-{}", Uuid::new_v4());
     let producer = KafkaProducer::<String, TestMessage, _, _>::new(
@@ -123,7 +126,7 @@ async fn test_network_partition_recovery_with_retry_logic() {
 /// Test consumer resilience during broker failures
 #[tokio::test]
 #[serial]
-#[ignore]
+#[ignore] // ignored due to CI environment limitations
 async fn test_consumer_graceful_degradation() {
     if !is_kafka_running() {
         return;
