@@ -14,7 +14,7 @@ let bytes = serde_json::to_vec(&user)?;
 producer.send(Some("user-1"), &bytes, None).await?;
 
 // Manual deserialization - type unsafe
-let (bytes, key) = consumer.poll_message(timeout).await?;
+let (bytes, key) = consumer.poll(timeout).await?;
 let user: User = serde_json::from_slice(&bytes)?;
 ```
 
@@ -27,7 +27,7 @@ typed_producer.send(Some("user-1"), &user, None).await?;
 
 // Automatic deserialization - compile-time type safety
 let typed_consumer = TypedKafkaConsumer::<User, _>::new(brokers, group_id, JsonSerializer);
-let typed_message = typed_consumer.poll_message(timeout).await?;
+let typed_message = typed_consumer.poll(timeout).await?;
 let user = typed_message.value(); // Already a User struct!
 ```
 
@@ -214,12 +214,12 @@ producer.send(key, &message, timestamp).await?;
 ```rust
 // Old way
 let consumer = KafkaConsumer::new(brokers, group_id);
-let (bytes, key) = consumer.poll_message(timeout).await?;
+let (bytes, key) = consumer.poll(timeout).await?;
 let message: MyMessage = serde_json::from_slice(&bytes)?;
 
 // New way
 let consumer = TypedKafkaConsumer::<MyMessage, _>::new(brokers, group_id, JsonSerializer);
-let typed_message = consumer.poll_message(timeout).await?;
+let typed_message = consumer.poll(timeout).await?;
 let message = typed_message.value();
 ```
 

@@ -281,7 +281,7 @@ while let Some(message_result) = stream.next().await {
 ```rust
 // Less efficient - avoid for new code
 for _ in 0..100 {
-    match consumer.poll_message(Duration::from_secs(1)).await {
+    match consumer.poll(Duration::from_secs(1)).await {
         Ok(message) => {
             // Process message.into_value()
         }
@@ -345,7 +345,7 @@ consumer.stream()
 ```
 
 ### **Recommendation**
-Always use `consumer.stream()` for new applications - it now provides **implicit deserialization** making your code incredibly clean! Combine with `StreamExt` methods for powerful fluent processing. Only use `poll_message()` for simple examples or when integrating with legacy code that requires explicit polling.
+Always use `consumer.stream()` for new applications - it now provides **implicit deserialization** making your code incredibly clean! Combine with `StreamExt` methods for powerful fluent processing. Only use `poll()` for simple examples or when integrating with legacy code that requires explicit polling.
 
 ### **✨ Implicit Deserialization Benefits**
 

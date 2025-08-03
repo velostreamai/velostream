@@ -50,7 +50,7 @@ let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
 )?;
 
 // Poll for messages - returns Message<K, V> with headers
-let message = consumer.poll_message(Duration::from_secs(5)).await?;
+let message = consumer.poll(Duration::from_secs(5)).await?;
 println!("Key: {:?}", message.key());
 println!("Value: {:?}", message.value());
 println!("Headers: {:?}", message.headers());
@@ -80,7 +80,7 @@ let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
 )?;
 
 // Poll for messages with full metadata access
-let message = consumer.poll_message(Duration::from_secs(5)).await?;
+let message = consumer.poll(Duration::from_secs(5)).await?;
 
 // Access all metadata at once
 println!("{}", message.metadata_string());
@@ -155,17 +155,25 @@ for (key, value) in headers.iter() {
 - **[Latency Performance Test](examples/latency_performance_test.rs)** - Performance testing with metadata tracking
 
 ### Test Suite Examples
-- **[Builder Pattern Tests](tests/ferris/kafka/builder_pattern_test.rs)** - Comprehensive builder pattern test suite (16 tests)
-- **[Error Handling Tests](tests/ferris/kafka/error_handling_test.rs)** - Error scenarios and edge cases (12 tests)
-- **[Serialization Tests](tests/ferris/kafka/serialization_unit_test.rs)** - JSON serialization validation (7 tests)
-- **[Integration Tests](tests/ferris/kafka/kafka_integration_test.rs)** - Complete test suite including headers functionality
-- **[Performance Tests](tests/ferris/kafka/kafka_performance_test.rs)** - Performance benchmarks and load testing
-- **[Advanced Tests](tests/ferris/kafka/kafka_advanced_test.rs)** - Advanced patterns and edge cases
+
+#### Unit Tests
+- **[Builder Pattern Tests](tests/unit/builder_pattern_test.rs)** - Comprehensive builder pattern test suite
+- **[Error Handling Tests](tests/unit/error_handling_test.rs)** - Error scenarios and edge cases
+- **[Serialization Tests](tests/unit/serialization_unit_test.rs)** - JSON serialization validation
+- **[Message Metadata Tests](tests/unit/message_metadata_test.rs)** - Message metadata functionality
+- **[Headers Edge Cases](tests/unit/headers_edge_cases_test.rs)** - Advanced headers testing
+
+#### Integration Tests  
+- **[Kafka Integration Tests](tests/integration/kafka_integration_test.rs)** - Complete test suite including headers functionality
+- **[Kafka Advanced Tests](tests/integration/kafka_advanced_test.rs)** - Advanced patterns and edge cases
+- **[Transaction Tests](tests/integration/transaction_test.rs)** - Transactional producer/consumer patterns
+- **[KTable Tests](tests/integration/ktable_test.rs)** - KTable functionality testing
+- **[Failure Recovery Tests](tests/integration/failure_recovery_test.rs)** - Network partition and retry logic
 
 ### Shared Test Infrastructure
-- **[Test Messages](tests/ferris/kafka/test_messages.rs)** - Unified message types for testing
-- **[Test Utils](tests/ferris/kafka/test_utils.rs)** - Shared utilities and helper functions
-- **[Common Imports](tests/ferris/kafka/common.rs)** - Consolidated imports for all tests
+- **[Test Messages](tests/unit/test_messages.rs)** - Unified message types for testing
+- **[Test Utils](tests/unit/test_utils.rs)** - Shared utilities and helper functions
+- **[Common Imports](tests/unit/common.rs)** - Consolidated imports for all tests
 
 ## 🚀 Quick Start
 
@@ -240,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     consumer.subscribe(&["orders"])?;
 
     loop {
-        match consumer.poll_message(Duration::from_secs(1)).await {
+        match consumer.poll(Duration::from_secs(1)).await {
             Ok(message) => {
                 println!("Received order: {:?}", message.value());
                 
@@ -298,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 1. Polling Pattern
 ```rust
 // Traditional polling approach
-while let Ok(message) = consumer.poll_message(timeout).await {
+while let Ok(message) = consumer.poll(timeout).await {
     let (key, value, headers) = message.into_parts();
     // Process message...
 }
@@ -411,9 +419,9 @@ cargo test test_performance            # Performance benchmarks
 ### Test Structure
 
 The test suite has been consolidated to eliminate duplication:
-- **Shared Messages**: `tests/ferris/kafka/test_messages.rs` - Unified message types
-- **Shared Utilities**: `tests/ferris/kafka/test_utils.rs` - Common test helpers
-- **Common Imports**: `tests/ferris/kafka/common.rs` - Single import module
+- **Shared Messages**: `tests/unit/test_messages.rs` - Unified message types
+- **Shared Utilities**: `tests/unit/test_utils.rs` - Common test helpers
+- **Common Imports**: `tests/unit/common.rs` - Single import module
 - **35+ Tests**: Covering builder patterns, error handling, serialization, and integration scenarios
 
 ### Current Test Status ✅
