@@ -88,8 +88,8 @@ jobs:
         echo "Waiting 30 seconds before next test suite..."
         sleep 30
         
-        echo "Running kafka_advanced_test..."
-        cargo test integration::kafka_advanced_test -- --nocapture
+        echo "Running failure_recovery_test..."
+        cargo test integration::failure_recovery_test -- --nocapture
         echo "Waiting 30 seconds before next test suite..."
         sleep 30
         
@@ -97,6 +97,12 @@ jobs:
         cargo test integration::transaction_test -- --nocapture
         echo "Waiting 30 seconds before next test suite..."
         sleep 30
+
+        echo "Running kafka_advanced_test..."
+        cargo test integration::kafka_advanced_test -- --nocapture
+        echo "Waiting 30 seconds before next test suite..."
+        sleep 30
+        
         
         echo "Running remaining integration tests (excluding failure_recovery and transaction)..."
         cargo test integration -- --nocapture --skip failure_recovery_test --skip transaction_test
