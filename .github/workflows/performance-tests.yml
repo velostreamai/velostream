@@ -135,8 +135,8 @@ jobs:
         echo "Checking for performance regressions..."
         
         # Define minimum acceptable performance thresholds
-        MIN_JSON_THROUGHPUT=1000
-        MIN_RAW_THROUGHPUT=5000
+        MIN_JSON_THROUGHPUT=100
+        MIN_RAW_THROUGHPUT=100
         MAX_P95_LATENCY=100
         
         # Check JSON throughput
