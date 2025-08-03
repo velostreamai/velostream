@@ -10,7 +10,7 @@ async fn test_network_partition_recovery_with_retry_logic() {
     if !is_kafka_running() {
         return;
     }
-    
+
     // Add delay for CI environment to reduce resource contention
     sleep(Duration::from_secs(3)).await;
 

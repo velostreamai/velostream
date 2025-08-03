@@ -11,7 +11,7 @@ async fn test_transactional_producer_commit() {
     if !is_kafka_running() {
         return;
     }
-    
+
     // Add delay for CI environment to avoid transaction ID conflicts
     sleep(Duration::from_secs(2)).await;
 
@@ -23,8 +23,8 @@ async fn test_transactional_producer_commit() {
         .transactional(transaction_id.clone())
         .idempotence(true)
         .acks(AckMode::All)
-        .transaction_timeout(Duration::from_secs(30))  // Longer timeout for CI
-        .request_timeout(Duration::from_secs(10));     // Longer request timeout
+        .transaction_timeout(Duration::from_secs(30)) // Longer timeout for CI
+        .request_timeout(Duration::from_secs(10)); // Longer request timeout
 
     let producer = match KafkaProducer::<String, TestMessage, _, _>::with_config(
         config,
