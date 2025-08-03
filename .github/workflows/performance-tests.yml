@@ -102,14 +102,24 @@ jobs:
       run: |
         echo "Extracting performance metrics..."
         
-        # Extract JSON throughput
-        JSON_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\K\d+\.\d+(?= msg/s)' json_perf_results.txt | head -1 || echo "0")
+        # Debug: Show relevant lines from results files
+        echo "=== JSON Performance Results (Messages Sent lines) ==="
+        grep "Messages Sent" json_perf_results.txt || echo "No 'Messages Sent' lines found in json_perf_results.txt"
         
-        # Extract Raw throughput  
-        RAW_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\K\d+\.\d+(?= msg/s)' raw_perf_results.txt | head -1 || echo "0")
+        echo "=== Raw Performance Results (Messages Sent lines) ==="
+        grep "Messages Sent" raw_perf_results.txt || echo "No 'Messages Sent' lines found in raw_perf_results.txt"
         
-        # Extract P95 latency
-        P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?= ms)' latency_perf_results.txt | head -1 || echo "999")
+        echo "=== Latency Performance Results (P95 Latency lines) ==="
+        grep "P95 Latency" latency_perf_results.txt || echo "No 'P95 Latency' lines found in latency_perf_results.txt"
+        
+        # Extract JSON throughput (matches format: "Messages Sent:     12345 (123.4 msg/s)")
+        JSON_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\d+\s+\(\K\d+\.\d+(?=\s+msg/s\))' json_perf_results.txt | head -1 || echo "0")
+        
+        # Extract Raw throughput (matches format: "Messages Sent:     12345 (123.4 msg/s)")
+        RAW_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\d+\s+\(\K\d+\.\d+(?=\s+msg/s\))' raw_perf_results.txt | head -1 || echo "0")
+        
+        # Extract P95 latency (matches format: "   P95 Latency:       123.4 ms")
+        P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?=\s+ms)' latency_perf_results.txt | head -1 || echo "999")
         
         echo "JSON_THROUGHPUT=$JSON_THROUGHPUT" >> $GITHUB_ENV
         echo "RAW_THROUGHPUT=$RAW_THROUGHPUT" >> $GITHUB_ENV  
