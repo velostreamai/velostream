@@ -2,7 +2,6 @@ use crate::unit::common::*;
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_multiple_user_workflow() {
     if !is_kafka_running() {
         return;
@@ -156,7 +155,6 @@ async fn test_multiple_user_workflow() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_cross_topic_messaging() {
     if !is_kafka_running() {
         return;
@@ -313,7 +311,6 @@ async fn test_cross_topic_messaging() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_high_throughput_scenario() {
     if !is_kafka_running() {
         return;
@@ -423,7 +420,6 @@ async fn test_high_throughput_scenario() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_complex_enum_serialization() {
     if !is_kafka_running() {
         return;
@@ -499,7 +495,6 @@ async fn test_complex_enum_serialization() {
 
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_concurrent_producers() {
     if !is_kafka_running() {
         return;
