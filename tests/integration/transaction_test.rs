@@ -7,7 +7,6 @@ use tokio::time::{Duration, sleep};
 /// Test transactional producer with commit
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_transactional_producer_commit() {
     if !is_kafka_running() {
         return;
@@ -93,7 +92,6 @@ async fn test_transactional_producer_commit() {
 /// Test transactional producer with abort
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_transactional_producer_abort() {
     if !is_kafka_running() {
         return;
@@ -174,7 +172,6 @@ async fn test_transactional_producer_abort() {
 /// Test exactly-once semantics with multiple producers
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_exactly_once_semantics() {
     if !is_kafka_running() {
         return;
@@ -317,7 +314,6 @@ async fn test_exactly_once_semantics() {
 /// Test transaction timeout and recovery
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_transaction_timeout() {
     if !is_kafka_running() {
         return;
@@ -397,7 +393,6 @@ async fn test_transaction_timeout() {
 /// Test true exactly-once semantics with consumer-producer coordination
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_exactly_once_consumer_producer_coordination() {
     if !is_kafka_running() {
         return;
@@ -577,7 +572,6 @@ async fn test_exactly_once_consumer_producer_coordination() {
 /// Test exactly-once processing with failure recovery
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_exactly_once_with_failure_recovery() {
     if !is_kafka_running() {
         return;
@@ -758,7 +752,6 @@ async fn test_exactly_once_with_failure_recovery() {
 /// Test exactly-once semantics using consumer stream instead of polling
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_exactly_once_with_consumer_stream() {
     if !is_kafka_running() {
         return;
@@ -948,7 +941,6 @@ async fn test_exactly_once_with_consumer_stream() {
 /// Test exactly-once with stream and error handling/recovery
 #[tokio::test]
 #[serial]
-#[ignore] // Temporarily disabled to isolate failing tests
 async fn test_exactly_once_stream_with_error_handling() {
     if !is_kafka_running() {
         return;
