@@ -71,8 +71,8 @@ async fn test_multiple_messages() {
         return;
     }
 
-    // Add 30-second delay to prevent concurrent test execution in CI
-    tokio::time::sleep(Duration::from_secs(30)).await;
+    // Add delay for CI environment to reduce resource contention
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     let topic = format!("integration-multi-{}", Uuid::new_v4());
     let group_id = format!("multi-group-{}", Uuid::new_v4());

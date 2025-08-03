@@ -73,18 +73,24 @@ jobs:
         echo "Running JSON Performance Test..."
         cargo run --release --example json_performance_test > json_perf_results.txt 2>&1
         cat json_perf_results.txt
+        echo "Waiting 45 seconds before next performance test..."
+        sleep 45
     
     - name: Run Raw Bytes Performance Test
       run: |
         echo "Running Raw Bytes Performance Test..."
         cargo run --release --example raw_bytes_performance_test > raw_perf_results.txt 2>&1
         cat raw_perf_results.txt
+        echo "Waiting 45 seconds before next performance test..."
+        sleep 45
     
     - name: Run Latency Performance Test
       run: |
         echo "Running Latency Performance Test..."
         cargo run --release --example latency_performance_test > latency_perf_results.txt 2>&1
         cat latency_perf_results.txt
+        echo "Waiting 45 seconds before next performance test..."
+        sleep 45
     
     - name: Run Resource Monitoring Test
       run: |
