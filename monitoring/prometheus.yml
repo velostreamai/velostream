@@ -1,0 +1,53 @@
+# Prometheus configuration for FerrisStreams SQL monitoring
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Rules and alerts configuration
+rule_files:
+  # - "rules/*.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # FerrisStreams SQL Single Server
+  - job_name: 'ferris-sql-single'
+    static_configs:
+      - targets: ['ferris-sql-single:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # FerrisStreams SQL Multi-Job Server
+  - job_name: 'ferris-sql-multi'
+    static_configs:
+      - targets: ['ferris-sql-multi:9091']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Kafka JMX metrics (if enabled)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Docker container metrics (if cAdvisor is enabled)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+# Alert manager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093

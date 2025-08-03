@@ -1,0 +1,86 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ferris-sql-ingress
+  namespace: ferris-sql
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  rules:
+  - host: ferris-sql.local
+    http:
+      paths:
+      - path: /single
+        pathType: Prefix
+        backend:
+          service:
+            name: ferris-sql-single
+            port:
+              number: 8080
+      - path: /multi
+        pathType: Prefix
+        backend:
+          service:
+            name: ferris-sql-multi
+            port:
+              number: 8080
+      - path: /metrics/single
+        pathType: Prefix
+        backend:
+          service:
+            name: ferris-sql-single
+            port:
+              number: 9090
+      - path: /metrics/multi
+        pathType: Prefix
+        backend:
+          service:
+            name: ferris-sql-multi
+            port:
+              number: 9090
+
+---
+# LoadBalancer service for external access (cloud environments)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ferris-sql-loadbalancer
+  namespace: ferris-sql
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  selector:
+    app: ferris-sql-single
+  ports:
+  - name: single-api
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: single-metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# NodePort service for local development
+apiVersion: v1
+kind: Service
+metadata:
+  name: ferris-sql-nodeport
+  namespace: ferris-sql
+spec:
+  type: NodePort
+  selector:
+    app: ferris-sql-single
+  ports:
+  - name: single-api
+    port: 8080
+    targetPort: 8080
+    nodePort: 30080
+  - name: single-metrics
+    port: 9090
+    targetPort: 9090
+    nodePort: 30090

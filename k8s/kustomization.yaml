@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - kafka.yaml
+  - sql-servers.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/name: ferrisstreams-sql
+  app.kubernetes.io/version: 1.0.0
+  app.kubernetes.io/component: sql-processing
+  app.kubernetes.io/part-of: ferrisstreams
+
+namespace: ferris-sql
+
+# ConfigMap generator for SQL examples
+configMapGenerator:
+  - name: sql-examples
+    files:
+      - ../examples/ecommerce_analytics.sql
+      - ../examples/financial_trading.sql
+      - ../examples/iot_monitoring.sql
+      - ../examples/social_media_analytics.sql
+
+# Images to use (customize as needed)
+images:
+  - name: ferris-sql
+    newTag: latest
+  - name: ferris-sql-multi
+    newTag: latest
+
+# Resource patches for different environments
+patchesStrategicMerge:
+  # Uncomment for production environments
+  # - production-resources.yaml
+
+# Replicas for different environments
+replicas:
+  - name: ferris-sql-single
+    count: 2
+  - name: ferris-sql-multi
+    count: 1
