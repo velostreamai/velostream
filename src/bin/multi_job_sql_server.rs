@@ -596,38 +596,8 @@ async fn start_multi_job_server(
 
     let server = MultiJobSqlServer::new(brokers.clone(), group_id.clone(), max_jobs);
 
-    // Example: Deploy some test jobs
-    info!("Deploying example jobs...");
-
-    // Job 1: High-value orders
-    let _ = server
-        .deploy_job(
-            "high_value_orders".to_string(),
-            "1.0.0".to_string(),
-            "SELECT customer_id, amount FROM orders WHERE amount > 1000".to_string(),
-            "orders".to_string(),
-        )
-        .await;
-
-    // Job 2: User activity tracking
-    let _ = server.deploy_job(
-        "user_activity".to_string(),
-        "1.0.0".to_string(),
-        "SELECT JSON_VALUE(payload, '$.user_id') as user_id, JSON_VALUE(payload, '$.action') as action FROM events".to_string(),
-        "user_events".to_string(),
-    ).await;
-
-    // Job 3: Error monitoring
-    let _ = server
-        .deploy_job(
-            "error_monitor".to_string(),
-            "1.0.0".to_string(),
-            "SELECT * FROM logs WHERE level = 'ERROR'".to_string(),
-            "application_logs".to_string(),
-        )
-        .await;
-
-    info!("Example jobs deployed successfully");
+    info!("Multi-job SQL server ready - no jobs deployed");
+    info!("Use 'deploy-app' command or HTTP API to deploy SQL applications");
 
     // Status monitoring loop
     loop {

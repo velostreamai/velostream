@@ -1,0 +1,12 @@
+# Grafana dashboard provisioning configuration
+apiVersion: 1
+
+providers:
+  - name: 'FerrisStreams Dashboards'
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

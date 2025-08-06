@@ -354,7 +354,23 @@ let config = ProducerConfig::new("broker:9092", "topic")
 ```
 
 ### Health Checks
-Implement proper health checking by testing basic connectivity:
+
+#### Using FerrisStreams CLI (Recommended)
+For production environments, use the built-in CLI tool for comprehensive health monitoring:
+
+```bash
+# Quick health check of all components
+./ferris-cli --remote --sql-host prod-server.com health
+
+# Detailed monitoring with real-time updates
+./ferris-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+
+# Check specific components
+./ferris-cli --remote --sql-host prod-server.com jobs --sql --topics
+```
+
+#### Programmatic Health Checks
+For custom health check implementations:
 
 ```rust
 async fn kafka_health_check() -> Result<(), KafkaClientError> {

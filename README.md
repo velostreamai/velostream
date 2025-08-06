@@ -16,6 +16,7 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
 * **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, and real-time analytics
 * **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
+* **Management CLI:** Built-in CLI tool for monitoring, health checks, and production management
 * **Builder Patterns:** Ergonomic APIs for creating producers and consumers
 * **Robust Error Handling:** Comprehensive error types with proper error propagation
 
@@ -300,6 +301,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## 🛠️ FerrisStreams CLI
+
+FerrisStreams includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
+
+### Features
+- **Health Monitoring**: Real-time health checks of all FerrisStreams components
+- **Job Management**: Monitor SQL jobs, data generators, and streaming tasks
+- **Kafka Monitoring**: Topic inspection, consumer group monitoring, and cluster health
+- **Remote Support**: Connect to production servers via HTTP APIs
+- **Real-time Dashboards**: Live monitoring with auto-refresh capabilities
+
+### Quick Start
+```bash
+# Build the CLI (creates convenient symlink)
+./demo/trading/build_cli.sh
+
+# Local monitoring
+./ferris-cli health
+./ferris-cli status --verbose
+./ferris-cli jobs --sql --topics
+
+# Remote production monitoring
+./ferris-cli --remote --sql-host prod-server.com health
+./ferris-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+```
+
+### Available Commands
+- `health` - Quick health check of all components
+- `status` - Comprehensive system status with optional real-time monitoring
+- `jobs` - Detailed job and task information (SQL, generators, topics)
+- `kafka` - Kafka cluster and topic monitoring
+- `sql` - SQL server information and job details
+- `docker` - Docker container status
+- `processes` - Process information
+
+### Connection Options
+```bash
+--sql-host <HOST>          # SQL server host (default: localhost)
+--sql-port <PORT>          # SQL server port (default: 8080)
+--kafka-brokers <BROKERS>  # Kafka brokers (default: localhost:9092)
+--remote                   # Remote mode - skip local Docker/process checks
+```
+
+See [CLI_USAGE.md](demo/trading/CLI_USAGE.md) for comprehensive documentation.
 
 ## 🔄 Message Processing Patterns
 

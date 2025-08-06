@@ -416,11 +416,11 @@ async fn start_sql_server(
     info!("Brokers: {}", brokers);
     info!("Consumer Group: {}", group_id);
 
-    // Example usage of job manager
-    let query = "SELECT customer_id, amount FROM orders WHERE amount > 100";
+    // Deploy financial trading volume spike analysis
+    let query = "SELECT symbol, volume, price, timestamp as spike_time FROM market_data WHERE volume > 500000";
     job_manager
         .deploy_job(
-            "demo_job".to_string(),
+            "volume_spike_analysis".to_string(),
             "1.0.0".to_string(),
             query.to_string(),
         )

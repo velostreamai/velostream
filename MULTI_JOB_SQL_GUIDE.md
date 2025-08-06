@@ -52,10 +52,10 @@ Job 'iot_monitoring' (sensor_data): Running - 45,200 records/sec
 
 ### Example 1: E-commerce Platform
 ```bash
-# Start multi-job server
+# Start multi-job server (app-agnostic - no jobs deployed)
 ferris-sql-multi server --brokers kafka-prod:9092 --max-jobs 10
 
-# The server automatically deploys these example jobs:
+# Server starts clean - deploy jobs using deploy-app or HTTP API:
 ```
 
 **Job 1: High-Value Order Processing**
@@ -232,7 +232,7 @@ let status = server.get_job_status("iot_monitoring").await;
 # Build the multi-job server
 cargo build --release --bin ferris-sql-multi
 
-# Start with example jobs
+# Start clean multi-job server
 ./target/release/ferris-sql-multi server \
   --brokers localhost:9092 \
   --max-jobs 10 \

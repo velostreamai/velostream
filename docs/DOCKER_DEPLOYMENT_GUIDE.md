@@ -474,7 +474,8 @@ docker push registry.company.com/ferris-sql:latest
 2. **Test with sample data**: Use the data-producer container
 3. **Deploy SQL applications**: Try the example .sql files
 4. **Enable monitoring**: Add `--profile monitoring` for production insights
-5. **Scale horizontally**: Add more SQL server instances as needed
+5. **Use the CLI tool**: `./demo/trading/build_cli.sh && ./ferris-cli --remote --sql-host <host> health`
+6. **Scale horizontally**: Add more SQL server instances as needed
 
 ## 🤝 Support
 
