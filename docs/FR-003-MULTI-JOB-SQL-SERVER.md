@@ -1,4 +1,4 @@
-# Feature Request: MultiJobSqlServer Enhancement
+**# Feature Request: MultiJobSqlServer Enhancement
 
 ## Overview
 This document outlines the feature enhancements and improvements for the MultiJobSqlServer component, a critical part of the Ferris SQL streaming platform that manages multiple concurrent SQL jobs.
@@ -82,4 +82,4 @@ The MultiJobSqlServer enables deployment and management of multiple SQL streamin
 - MultiJobSqlServer is now properly testable in lib crate
 - App-agnostic design allows for flexible deployment scenarios
 - Remote connection support enables distributed deployments
-- Comprehensive test suite ensures reliability and stability
+- Comprehensive test suite ensures reliability and stability**

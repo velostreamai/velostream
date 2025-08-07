@@ -116,12 +116,39 @@ async fn test_sql_parser_extracts_all_jobs() {
 
 #[tokio::test]
 async fn test_multi_job_server_deploy_all_jobs() {
-    // Integration test that requires actual Kafka and multi-job server
-
     if !is_kafka_available().await {
         println!("⏸️ Skipping integration test - Kafka not available");
         println!("💡 Start Kafka with: docker-compose -f demo/trading/kafka-compose.yml up -d");
         return;
+    }
+
+    // Determine binary path based on environment
+    let binary_name = "multi_job_sql_server";
+    let binary_path = if std::env::var("CI").is_ok() {
+        format!("./target/debug/{}", binary_name)
+    } else {
+        format!("./target/release/{}", binary_name)
+    };
+
+    // Check and build binary if needed
+    if !std::path::Path::new(&binary_path).exists() {
+        println!("🔨 Building binary...");
+        let build_args = if std::env::var("CI").is_ok() {
+            vec!["build", "--bin", binary_name]
+        } else {
+            vec!["build", "--release", "--bin", binary_name]
+        };
+
+        let build_output = Command::new("cargo")
+            .args(&build_args)
+            .output()
+            .expect("Failed to build binary");
+
+        if !build_output.status.success() {
+            let error = String::from_utf8_lossy(&build_output.stderr);
+            panic!("Failed to build binary: {}", error);
+        }
+        println!("✅ Binary built successfully");
     }
 
     println!("🧪 Testing multi-job SQL server deployment...");
@@ -133,10 +160,10 @@ async fn test_multi_job_server_deploy_all_jobs() {
         .expect("Failed to write to temp file");
     let temp_path = temp_file.path();
 
-    // Start a test multi-job server (requires Kafka to be running)
+    // Start a test multi-job server
     println!("🚀 Starting multi-job SQL server for test...");
 
-    let mut server_process = Command::new("./target/release/ferris-sql-multi")
+    let mut server_process = Command::new(&binary_path)
         .args(&[
             "server",
             "--brokers",
@@ -157,7 +184,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     // Deploy the SQL application
     println!("📊 Deploying test SQL application...");
 
-    let deploy_output = Command::new("./target/release/ferris-sql-multi")
+    let deploy_output = Command::new(&binary_path)
         .args(&[
             "deploy-app",
             "--file",
@@ -468,15 +495,16 @@ fn get_kafka_container_name_sync() -> Option<String> {
 async fn test_prerequisites() {
     println!("🔍 Checking test prerequisites...");
 
-    // Check if ferris-sql-multi binary exists
-    let binary_exists = std::path::Path::new("./target/release/ferris-sql-multi").exists();
+    // Check if multi-job server binary exists
+    let binary_path = "./target/release/multi_job_sql_server";
+    let binary_exists = std::path::Path::new(binary_path).exists();
     println!(
-        "   ferris-sql-multi binary: {}",
+        "   multi_job_sql_server binary: {}",
         if binary_exists { "✅" } else { "❌" }
     );
 
     if !binary_exists {
-        println!("💡 Run 'cargo build --release --bin ferris-sql-multi' to build the binary");
+        println!("💡 Run 'cargo build --release --bin multi_job_sql_server' to build the binary");
     }
 
     // Check if Kafka is available
@@ -499,6 +527,6 @@ async fn test_prerequisites() {
 
     println!("\n📝 To run integration tests:");
     println!("   1. Start Kafka: docker-compose -f demo/trading/kafka-compose.yml up -d");
-    println!("   2. Build binary: cargo build --release --bin ferris-sql-multi");
+    println!("   2. Build binary: cargo build --release --bin multi_job_sql_server");
     println!("   3. Run tests: cargo test test_multi_job_server -- --ignored");
 }

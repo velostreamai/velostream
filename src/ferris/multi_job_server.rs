@@ -3,10 +3,20 @@
 //! This module contains the core MultiJobSqlServer implementation that can be
 //! used both as a library and in the binary application.
 
-use crate::ferris::sql::{
-    SqlApplicationParser, SqlError, StreamExecutionEngine, StreamingSqlParser,
+use crate::ferris::{
+    serialization::SerializationFormat,
+    sql::{
+        FieldValue, SqlApplicationParser, SqlError, StreamExecutionEngine, StreamRecord,
+        StreamingQuery, StreamingSqlParser,
+    },
 };
 use log::{error, info, warn};
+use rdkafka::{
+    ClientConfig, Message,
+    consumer::{Consumer, StreamConsumer},
+    producer::{FutureProducer, FutureRecord},
+};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -174,32 +184,162 @@ impl MultiJobSqlServer {
         // Create shutdown channel
         let (shutdown_sender, mut shutdown_receiver) = mpsc::unbounded_channel();
 
-        // Create job execution task (mock implementation for testing)
+        // Create real job execution task
         let job_name_clone = name.clone();
         let query_clone = query.clone();
+        let brokers_clone = self.brokers.clone();
         let execution_handle = tokio::spawn(async move {
-            info!("Starting job execution for '{}'", job_name_clone);
+            info!("Starting real job execution for '{}'", job_name_clone);
 
-            // Mock job execution - in real implementation this would:
-            // 1. Create Kafka consumer with group_id
-            // 2. Set up stream execution engine
-            // 3. Process messages continuously
-            // 4. Update metrics
+            // Parse the SQL query to extract input and output topics
+            let parser = SqlApplicationParser::new();
+            let sql_app = match parser.parse_application(&query_clone) {
+                Ok(app) => app,
+                Err(e) => {
+                    error!("Failed to parse SQL for job '{}': {:?}", job_name_clone, e);
+                    return;
+                }
+            };
 
+            // Extract the first statement (assuming single query for now)
+            let statement = match sql_app.statements.first() {
+                Some(stmt) => stmt,
+                None => {
+                    error!("No SQL statements found for job '{}'", job_name_clone);
+                    return;
+                }
+            };
+
+            // Extract input topic from SQL FROM clause (primary) or properties (fallback)
+            let input_topic = extract_input_topic_from_sql(&statement.sql)
+                .or_else(|| {
+                    // Fallback to properties if FROM clause parsing fails
+                    statement.properties.get("input.topic").cloned()
+                })
+                .unwrap_or_else(|| "default_input".to_string());
+
+            let output_topic = statement
+                .properties
+                .get("output.topic")
+                .cloned()
+                .unwrap_or_else(|| "default_output".to_string());
+
+
+            // Create output channel for SQL results with unbounded capacity
+            let (result_sender, mut result_receiver) =
+                tokio::sync::mpsc::unbounded_channel::<HashMap<String, crate::ferris::serialization::InternalValue>>();
+            info!("Job '{}' created output channel for SQL results", job_name_clone);
+
+            // Create serialization format (JSON by default)
+            let serialization_format = std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
+
+            // Create and configure StreamExecutionEngine
+            let mut execution_engine = StreamExecutionEngine::new(result_sender, serialization_format);
+            info!("Job '{}' created StreamExecutionEngine", job_name_clone);
+
+            // Parse the SQL into a StreamingQuery for execution
+            let streaming_query = match parse_sql_to_streaming_query(&statement.sql) {
+                Ok(query) => query,
+                Err(e) => {
+                    error!("Failed to parse SQL for job '{}': {:?}", job_name_clone, e);
+                    return;
+                }
+            };
+            info!(
+                "Job '{}' consuming from '{}', producing to '{}'",
+                job_name_clone, input_topic, output_topic
+            );
+
+            // Create Kafka consumer for input
+            let consumer =
+                match create_kafka_consumer(&brokers_clone, &job_name_clone, &input_topic).await {
+                    Ok(consumer) => consumer,
+                    Err(e) => {
+                        error!(
+                            "Failed to create consumer for job '{}': {:?}",
+                            job_name_clone, e
+                        );
+                        return;
+                    }
+                };
+
+            // Create Kafka producer for output
+            let producer = match create_kafka_producer(&brokers_clone).await {
+                Ok(producer) => producer,
+                Err(e) => {
+                    error!(
+                        "Failed to create producer for job '{}': {:?}",
+                        job_name_clone, e
+                    );
+                    return;
+                }
+            };
+
+            // Main processing loop - fixed channel communication
             loop {
                 tokio::select! {
                     _ = shutdown_receiver.recv() => {
                         info!("Job '{}' received shutdown signal", job_name_clone);
                         break;
                     }
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                        // Simulate processing work
-                        continue;
+
+                    // Handle SQL execution results - prioritize this to prevent channel blocking
+                    Some(result) = result_receiver.recv() => {
+                        info!("Job '{}' received SQL result with {} fields", job_name_clone, result.len());
+                        // Use serialization format to convert results to bytes for Kafka output
+                        let serialization_format = std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
+                        
+                        // Convert InternalValue to FieldValue map
+                        let mut field_result = HashMap::new();
+                        for (key, internal_value) in result {
+                            field_result.insert(key, internal_to_field_value(&internal_value));
+                        }
+                        
+                        // Serialize using the pluggable format
+                        match serialization_format.serialize_record(&field_result) {
+                            Ok(serialized_bytes) => {
+                                if let Err(e) = send_bytes_to_kafka(&producer, &output_topic, serialized_bytes).await {
+                                    error!("Job '{}' failed to send result to Kafka: {:?}", job_name_clone, e);
+                                } else {
+                                    info!("Job '{}' successfully sent result to topic '{}'", job_name_clone, output_topic);
+                                }
+                            },
+                            Err(e) => {
+                                error!("Job '{}' failed to serialize result: {:?}", job_name_clone, e);
+                            }
+                        }
+                    }
+
+                    // Handle incoming Kafka messages
+                    _ = tokio::time::sleep(Duration::from_millis(1)) => {
+                        // Poll for messages from Kafka
+                        match tokio::time::timeout(
+                            Duration::from_millis(100),
+                            async {
+                                use futures::StreamExt;
+                                let mut stream = consumer.stream();
+                                stream.next().await
+                            }
+                        ).await {
+                            Ok(Some(Ok(message))) => {
+                                // Process the message through SQL execution engine
+                                if let Err(e) = process_kafka_message(&mut execution_engine, &message, &streaming_query).await {
+                                    error!("Job '{}' failed to process record: {:?}", job_name_clone, e);
+                                }
+                            }
+                            Ok(Some(Err(e))) => {
+                                error!("Job '{}' consumer error: {:?}", job_name_clone, e);
+                            }
+                            Ok(None) | Err(_) => {
+                                // No message available or timeout - this is normal, continue polling
+                            }
+                        }
                     }
                 }
             }
 
-            info!("Job '{}' execution completed", job_name_clone);
+            info!("Job '{}' execution completed - cleaning up channels", job_name_clone);
+            drop(result_receiver); // Explicitly drop receiver to clean up
         });
 
         // Create and store the running job
@@ -308,7 +448,7 @@ impl MultiJobSqlServer {
     ) -> Result<usize, SqlError> {
         info!("Deploying SQL application");
 
-        let mut parser = SqlApplicationParser::new();
+        let parser = SqlApplicationParser::new();
         let app = parser.parse_application(sql_content)?;
 
         info!(
@@ -391,5 +531,253 @@ impl MultiJobSqlServer {
     /// Get base group ID
     pub fn base_group_id(&self) -> &str {
         &self.base_group_id
+    }
+}
+
+// Helper functions for real job execution
+
+/// Create a Kafka consumer for the given topic
+async fn create_kafka_consumer(
+    brokers: &str,
+    group_id: &str,
+    topic: &str,
+) -> Result<StreamConsumer, SqlError> {
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("group.id", group_id)
+        .set("bootstrap.servers", brokers)
+        .set("enable.partition.eof", "false")
+        .set("session.timeout.ms", "6000")
+        .set("enable.auto.commit", "true")
+        .set("auto.offset.reset", "latest")
+        .create()
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to create consumer: {}", e),
+            query: None,
+        })?;
+
+    consumer
+        .subscribe(&[topic])
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to subscribe to topic '{}': {}", topic, e),
+            query: None,
+        })?;
+
+    info!(
+        "Created Kafka consumer for topic '{}' with group '{}'",
+        topic, group_id
+    );
+    Ok(consumer)
+}
+
+/// Create a Kafka producer
+async fn create_kafka_producer(brokers: &str) -> Result<FutureProducer, SqlError> {
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("message.timeout.ms", "5000")
+        .create()
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to create producer: {}", e),
+            query: None,
+        })?;
+
+    info!("Created Kafka producer");
+    Ok(producer)
+}
+
+/// Process a Kafka message through the SQL execution engine
+async fn process_kafka_message(
+    execution_engine: &mut StreamExecutionEngine,
+    message: &rdkafka::message::BorrowedMessage<'_>,
+    query: &crate::ferris::sql::StreamingQuery,
+) -> Result<(), SqlError> {
+    // Extract message payload
+    let payload = match message.payload() {
+        Some(p) => p,
+        None => {
+            warn!("Received message with no payload");
+            return Ok(());
+        }
+    };
+
+    // Parse JSON payload into StreamRecord
+    let json_value: Value =
+        serde_json::from_slice(payload).map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to parse message payload as JSON: {}", e),
+            query: None,
+        })?;
+
+    // Convert serde_json::Value to HashMap<String, InternalValue>
+    let record_map: HashMap<String, crate::ferris::serialization::InternalValue> = match json_value {
+        Value::Object(map) => {
+            let mut internal_map = HashMap::new();
+            for (key, value) in map {
+                let internal_value = json_to_internal(&value)?;
+                internal_map.insert(key, internal_value);
+            }
+            internal_map
+        },
+        _ => {
+            return Err(SqlError::ExecutionError {
+                message: "Expected JSON object for record processing".to_string(),
+                query: None,
+            });
+        }
+    };
+
+    // Execute the SQL query on this record
+    // This will process the record through the SQL pipeline and generate results
+    execution_engine.execute(query, record_map).await
+}
+
+/// Convert JSON value to StreamRecord format
+fn json_to_stream_record(json: Value) -> Result<StreamRecord, SqlError> {
+    let mut fields = HashMap::new();
+
+    match json {
+        Value::Object(map) => {
+            for (key, value) in map {
+                let field_value = match value {
+                    Value::String(s) => FieldValue::String(s),
+                    Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            FieldValue::Integer(i)
+                        } else if let Some(f) = n.as_f64() {
+                            FieldValue::Float(f)
+                        } else {
+                            FieldValue::String(n.to_string())
+                        }
+                    }
+                    Value::Bool(b) => FieldValue::String(b.to_string()), // Convert bool to string for now
+                    Value::Null => FieldValue::Null,
+                    other => FieldValue::String(other.to_string()),
+                };
+                fields.insert(key, field_value);
+            }
+        }
+        _ => {
+            return Err(SqlError::ExecutionError {
+                message: "Expected JSON object for stream record".to_string(),
+                query: None,
+            });
+        }
+    }
+
+    Ok(StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    })
+}
+
+/// Send serialized bytes to Kafka topic
+async fn send_bytes_to_kafka(
+    producer: &FutureProducer,
+    topic: &str,
+    bytes: Vec<u8>,
+) -> Result<(), SqlError> {
+    let record = FutureRecord::to(topic).payload(&bytes).key("result");
+
+    producer
+        .send(record, Duration::from_secs(5))
+        .await
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to send message to Kafka: {:?}", e.0),
+            query: None,
+        })?;
+
+    Ok(())
+}
+
+/// Parse SQL string into a StreamingQuery
+fn parse_sql_to_streaming_query(sql: &str) -> Result<StreamingQuery, SqlError> {
+    let parser = StreamingSqlParser::new();
+    parser.parse(sql)
+}
+
+/// Extract input topic from SQL FROM clause
+fn extract_input_topic_from_sql(sql: &str) -> Option<String> {
+    // Extract table/topic name from FROM clause
+    // Handles: "SELECT ... FROM topic_name", "FROM schema.table", "FROM table AS alias"
+    let sql_upper = sql.to_uppercase();
+    
+    if let Some(from_pos) = sql_upper.find("FROM ") {
+        let after_from = &sql[from_pos + 5..]; // Skip "FROM "
+        
+        // Find the table name (stop at whitespace, comma, or keywords)
+        let table_part: String = after_from
+            .chars()
+            .skip_while(|c| c.is_whitespace())
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+            .collect();
+        
+        if !table_part.is_empty() {
+            // Handle schema.table format - take just the table name
+            let topic_name = if let Some(dot_pos) = table_part.rfind('.') {
+                table_part[dot_pos + 1..].to_string()
+            } else {
+                table_part
+            };
+            
+            return Some(topic_name);
+        }
+    }
+    
+    None
+}
+
+/// Convert serde_json::Value to InternalValue
+fn json_to_internal(json_value: &serde_json::Value) -> Result<crate::ferris::serialization::InternalValue, SqlError> {
+    use crate::ferris::serialization::InternalValue;
+    
+    match json_value {
+        serde_json::Value::String(s) => Ok(InternalValue::String(s.clone())),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(InternalValue::Integer(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(InternalValue::Number(f))
+            } else {
+                Ok(InternalValue::String(n.to_string()))
+            }
+        },
+        serde_json::Value::Bool(b) => Ok(InternalValue::Boolean(*b)),
+        serde_json::Value::Null => Ok(InternalValue::Null),
+        serde_json::Value::Array(arr) => {
+            let internal_arr: Result<Vec<_>, _> = arr.iter().map(json_to_internal).collect();
+            Ok(InternalValue::Array(internal_arr?))
+        },
+        serde_json::Value::Object(obj) => {
+            let mut internal_map = HashMap::new();
+            for (k, v) in obj {
+                internal_map.insert(k.clone(), json_to_internal(v)?);
+            }
+            Ok(InternalValue::Object(internal_map))
+        }
+    }
+}
+
+/// Convert InternalValue to FieldValue
+fn internal_to_field_value(internal_value: &crate::ferris::serialization::InternalValue) -> FieldValue {
+    use crate::ferris::serialization::InternalValue;
+    
+    match internal_value {
+        InternalValue::String(s) => FieldValue::String(s.clone()),
+        InternalValue::Number(n) => FieldValue::Float(*n),
+        InternalValue::Integer(i) => FieldValue::Integer(*i),
+        InternalValue::Boolean(b) => FieldValue::Boolean(*b),
+        InternalValue::Null => FieldValue::Null,
+        InternalValue::Array(arr) => {
+            let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
+            FieldValue::Array(field_arr)
+        },
+        InternalValue::Object(obj) => {
+            let mut field_map = HashMap::new();
+            for (k, v) in obj {
+                field_map.insert(k.clone(), internal_to_field_value(v));
+            }
+            FieldValue::Map(field_map)
+        }
     }
 }

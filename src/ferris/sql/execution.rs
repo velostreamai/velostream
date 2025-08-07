@@ -91,18 +91,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 */
 
 use crate::ferris::sql::ast::{
-    BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, SelectField,
+    BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
     StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
+use crate::ferris::serialization::{SerializationFormat, InternalValue};
+use log::warn;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
-    output_sender: UnboundedSender<HashMap<String, serde_json::Value>>,
+    output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+    serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
 }
 
@@ -221,30 +225,36 @@ struct WindowState {
 }
 
 impl StreamExecutionEngine {
-    pub fn new(output_sender: UnboundedSender<HashMap<String, serde_json::Value>>) -> Self {
+    pub fn new(
+        output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+        serialization_format: Arc<dyn SerializationFormat>,
+    ) -> Self {
         let (message_sender, receiver) = mpsc::channel(1000);
         Self {
             active_queries: HashMap::new(),
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
+            serialization_format,
             record_count: 0,
         }
     }
 
+
     pub async fn execute(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
     ) -> Result<(), SqlError> {
         self.execute_with_headers(query, record, HashMap::new())
             .await
     }
 
+
     pub async fn execute_with_headers(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
         headers: HashMap<String, String>,
     ) -> Result<(), SqlError> {
         self.execute_with_metadata(query, record, headers, None, None, None)
@@ -254,7 +264,7 @@ impl StreamExecutionEngine {
     pub async fn execute_with_metadata(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
         headers: HashMap<String, String>,
         timestamp: Option<i64>,
         offset: Option<i64>,
@@ -266,18 +276,38 @@ impl StreamExecutionEngine {
                 .into_iter()
                 .map(|(k, v)| {
                     let field_value = match v {
-                        serde_json::Value::Number(n) => {
-                            if let Some(i) = n.as_i64() {
-                                FieldValue::Integer(i)
-                            } else if let Some(f) = n.as_f64() {
-                                FieldValue::Float(f)
-                            } else {
-                                FieldValue::Null
-                            }
+                        InternalValue::Integer(i) => FieldValue::Integer(i),
+                        InternalValue::Number(f) => FieldValue::Float(f),
+                        InternalValue::String(s) => FieldValue::String(s),
+                        InternalValue::Boolean(b) => FieldValue::Boolean(b),
+                        InternalValue::Null => FieldValue::Null,
+                        InternalValue::Array(arr) => {
+                            // Convert InternalValue array to FieldValue array
+                            let field_arr: Vec<FieldValue> = arr.into_iter().map(|item| match item {
+                                InternalValue::Integer(i) => FieldValue::Integer(i),
+                                InternalValue::Number(f) => FieldValue::Float(f),
+                                InternalValue::String(s) => FieldValue::String(s),
+                                InternalValue::Boolean(b) => FieldValue::Boolean(b),
+                                InternalValue::Null => FieldValue::Null,
+                                _ => FieldValue::String(format!("{:?}", item)),
+                            }).collect();
+                            FieldValue::Array(field_arr)
+                        },
+                        InternalValue::Object(map) => {
+                            // Convert InternalValue map to FieldValue map
+                            let field_map: HashMap<String, FieldValue> = map.into_iter().map(|(key, value)| {
+                                let field_val = match value {
+                                    InternalValue::Integer(i) => FieldValue::Integer(i),
+                                    InternalValue::Number(f) => FieldValue::Float(f),
+                                    InternalValue::String(s) => FieldValue::String(s),
+                                    InternalValue::Boolean(b) => FieldValue::Boolean(b),
+                                    InternalValue::Null => FieldValue::Null,
+                                    _ => FieldValue::String(format!("{:?}", value)),
+                                };
+                                (key, field_val)
+                            }).collect();
+                            FieldValue::Map(field_map)
                         }
-                        serde_json::Value::String(s) => FieldValue::String(s),
-                        serde_json::Value::Bool(b) => FieldValue::Boolean(b),
-                        _ => FieldValue::Null,
                     };
                     (k, field_value)
                 })
@@ -290,44 +320,40 @@ impl StreamExecutionEngine {
 
         // Apply query and process record
         if let Some(result) = self.apply_query(query, &stream_record)? {
-            // Convert result back to JSON format
-            let json_result: HashMap<String, serde_json::Value> = result
+            // Convert result to InternalValue format
+            let internal_result: HashMap<String, InternalValue> = result
                 .fields
                 .into_iter()
                 .map(|(k, v)| {
-                    let json_value = match v {
-                        FieldValue::Integer(i) => {
-                            serde_json::Value::Number(serde_json::Number::from(i))
-                        }
-                        FieldValue::Float(f) => serde_json::Value::Number(
-                            serde_json::Number::from_f64(f).unwrap_or(0.into()),
-                        ),
-                        FieldValue::String(s) => serde_json::Value::String(s),
-                        FieldValue::Boolean(b) => serde_json::Value::Bool(b),
-                        FieldValue::Null => serde_json::Value::Null,
+                    let internal_value = match v {
+                        FieldValue::Integer(i) => InternalValue::Integer(i),
+                        FieldValue::Float(f) => InternalValue::Number(f),
+                        FieldValue::String(s) => InternalValue::String(s),
+                        FieldValue::Boolean(b) => InternalValue::Boolean(b),
+                        FieldValue::Null => InternalValue::Null,
                         FieldValue::Array(arr) => {
-                            let json_arr: Vec<serde_json::Value> = arr
+                            let internal_arr: Vec<InternalValue> = arr
                                 .into_iter()
-                                .map(|item| self.field_value_to_json(item))
+                                .map(|item| self.field_value_to_internal(item))
                                 .collect();
-                            serde_json::Value::Array(json_arr)
+                            InternalValue::Array(internal_arr)
                         }
                         FieldValue::Map(map) => {
-                            let json_obj: serde_json::Map<String, serde_json::Value> = map
+                            let internal_map: HashMap<String, InternalValue> = map
                                 .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_json(v)))
+                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
                                 .collect();
-                            serde_json::Value::Object(json_obj)
+                            InternalValue::Object(internal_map)
                         }
                         FieldValue::Struct(fields) => {
-                            let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                            let internal_map: HashMap<String, InternalValue> = fields
                                 .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_json(v)))
+                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
                                 .collect();
-                            serde_json::Value::Object(json_obj)
+                            InternalValue::Object(internal_map)
                         }
                     };
-                    (k, json_value)
+                    (k, internal_value)
                 })
                 .collect();
 
@@ -343,9 +369,9 @@ impl StreamExecutionEngine {
                     query: None,
                 })?;
 
-            // Send result to output channel
+            // Send result to output channel (non-async send for unbounded channel)
             self.output_sender
-                .send(json_result)
+                .send(internal_result)
                 .map_err(|_| SqlError::ExecutionError {
                     message: "Failed to send result to output channel".to_string(),
                     query: None,
@@ -1001,6 +1027,14 @@ impl StreamExecutionEngine {
                     value: None,
                 })
             }
+            Expr::WindowFunction { .. } => {
+                // For now, treat window function results as non-boolean
+                Err(SqlError::TypeError {
+                    expected: "boolean".to_string(),
+                    actual: "window function result".to_string(),
+                    value: None,
+                })
+            }
         }
     }
 
@@ -1106,6 +1140,11 @@ impl StreamExecutionEngine {
                 }
             }
             Expr::Function { name, args } => self.evaluate_function(name, args, record),
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => self.evaluate_window_function(function_name, args, over_clause, record),
         }
     }
 
@@ -1115,6 +1154,7 @@ impl StreamExecutionEngine {
             Expr::Literal(_) => "literal".to_string(),
             Expr::BinaryOp { .. } => "expression".to_string(),
             Expr::Function { name, .. } => name.clone(),
+            Expr::WindowFunction { function_name, .. } => function_name.clone(),
             _ => "expression".to_string(),
         }
     }
@@ -1313,6 +1353,53 @@ impl StreamExecutionEngine {
                 expected: "numeric".to_string(),
                 actual: "non-numeric".to_string(),
                 value: None,
+            }),
+        }
+    }
+
+    /// Evaluate window functions like LAG, LEAD, ROW_NUMBER with OVER clause
+    fn evaluate_window_function(
+        &self,
+        function_name: &str,
+        args: &[Expr],
+        over_clause: &OverClause,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        match function_name.to_uppercase().as_str() {
+            "LAG" => {
+                if args.len() != 1 && args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LAG requires 1 or 2 arguments (expression, [offset])".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For now, return NULL since we need to implement proper window state management
+                // TODO: Implement proper LAG function with partition buffering
+                warn!("LAG window function called but not fully implemented yet - returning NULL");
+                Ok(FieldValue::Null)
+            }
+            "LEAD" => {
+                if args.len() != 1 && args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LEAD requires 1 or 2 arguments (expression, [offset])".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For now, return NULL since we need to implement proper window state management
+                warn!("LEAD window function called but not fully implemented yet - returning NULL");
+                Ok(FieldValue::Null)
+            }
+            "ROW_NUMBER" => {
+                // ROW_NUMBER() OVER (...)
+                // For now, return 1 since we need to implement proper window state management
+                warn!("ROW_NUMBER window function called but not fully implemented yet - returning 1");
+                Ok(FieldValue::Integer(1))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: format!("Unsupported window function: {}", function_name),
+                query: None,
             }),
         }
     }
@@ -2502,36 +2589,35 @@ impl StreamExecutionEngine {
         self.message_sender.clone()
     }
 
-    // Helper method to convert FieldValue to JSON recursively
-    fn field_value_to_json(&self, value: FieldValue) -> serde_json::Value {
+
+    /// Convert FieldValue to InternalValue for pluggable serialization
+    fn field_value_to_internal(&self, value: FieldValue) -> InternalValue {
         match value {
-            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
-            FieldValue::Float(f) => {
-                serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(0.into()))
-            }
-            FieldValue::String(s) => serde_json::Value::String(s),
-            FieldValue::Boolean(b) => serde_json::Value::Bool(b),
-            FieldValue::Null => serde_json::Value::Null,
+            FieldValue::Integer(i) => InternalValue::Integer(i),
+            FieldValue::Float(f) => InternalValue::Number(f),
+            FieldValue::String(s) => InternalValue::String(s),
+            FieldValue::Boolean(b) => InternalValue::Boolean(b),
+            FieldValue::Null => InternalValue::Null,
             FieldValue::Array(arr) => {
-                let json_arr: Vec<serde_json::Value> = arr
+                let internal_arr: Vec<InternalValue> = arr
                     .into_iter()
-                    .map(|item| self.field_value_to_json(item))
+                    .map(|item| self.field_value_to_internal(item))
                     .collect();
-                serde_json::Value::Array(json_arr)
+                InternalValue::Array(internal_arr)
             }
             FieldValue::Map(map) => {
-                let json_obj: serde_json::Map<String, serde_json::Value> = map
+                let internal_map: HashMap<String, InternalValue> = map
                     .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_json(v)))
+                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
                     .collect();
-                serde_json::Value::Object(json_obj)
+                InternalValue::Object(internal_map)
             }
             FieldValue::Struct(fields) => {
-                let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                let internal_map: HashMap<String, InternalValue> = fields
                     .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_json(v)))
+                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
                     .collect();
-                serde_json::Value::Object(json_obj)
+                InternalValue::Object(internal_map)
             }
         }
     }
@@ -2968,3 +3054,4 @@ impl StreamExecutionEngine {
         })
     }
 }
+

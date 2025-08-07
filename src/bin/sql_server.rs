@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::{
     error::{FerrisError, FerrisResult},
     kafka::{JsonSerializer, KafkaConsumer},
+    serialization::{JsonFormat, InternalValue, SerializationFormat},
     sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},
 };
 use log::{error, info, warn};
@@ -86,7 +87,9 @@ impl SqlJobManager {
     pub fn new() -> Self {
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
 
-        let execution_engine = Arc::new(StreamExecutionEngine::new(output_sender));
+        // Create serialization format (JSON by default)
+        let serialization_format = Arc::new(JsonFormat);
+        let execution_engine = Arc::new(StreamExecutionEngine::new(output_sender, serialization_format));
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
@@ -195,8 +198,11 @@ async fn execute_sql_query(
     // Create execution engine
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
 
+    // Create serialization format (JSON by default)
+    let serialization_format = Arc::new(JsonFormat);
     let execution_engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(
         output_sender,
+        serialization_format,
     )));
 
     // Create Kafka consumer
@@ -265,106 +271,74 @@ async fn execute_sql_query(
                         headers: header_map,
                     };
 
-                    // Convert FieldValue back to JSON for execution engine
-                    let mut record_json = HashMap::new();
+                    // Convert FieldValue to InternalValue for execution engine
+                    let mut record_internal = HashMap::new();
                     for (key, field_value) in &stream_record.fields {
-                        let json_value = match field_value {
-                            FieldValue::String(s) => serde_json::Value::String(s.clone()),
-                            FieldValue::Integer(i) => {
-                                serde_json::Value::Number(serde_json::Number::from(*i))
-                            }
-                            FieldValue::Float(f) => serde_json::Value::Number(
-                                serde_json::Number::from_f64(*f).unwrap_or(0.into()),
-                            ),
-                            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
-                            FieldValue::Null => serde_json::Value::Null,
+                        let internal_value = match field_value {
+                            FieldValue::String(s) => InternalValue::String(s.clone()),
+                            FieldValue::Integer(i) => InternalValue::Integer(*i),
+                            FieldValue::Float(f) => InternalValue::Number(*f),
+                            FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                            FieldValue::Null => InternalValue::Null,
                             FieldValue::Array(arr) => {
-                                let json_arr: Vec<serde_json::Value> = arr
+                                let internal_arr: Vec<InternalValue> = arr
                                     .iter()
                                     .map(|item| match item {
-                                        FieldValue::Integer(i) => {
-                                            serde_json::Value::Number(serde_json::Number::from(*i))
-                                        }
-                                        FieldValue::Float(f) => serde_json::Value::Number(
-                                            serde_json::Number::from_f64(*f).unwrap_or(0.into()),
-                                        ),
-                                        FieldValue::String(s) => {
-                                            serde_json::Value::String(s.clone())
-                                        }
-                                        FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
-                                        FieldValue::Null => serde_json::Value::Null,
-                                        _ => serde_json::Value::String(format!("{:?}", item)),
+                                        FieldValue::Integer(i) => InternalValue::Integer(*i),
+                                        FieldValue::Float(f) => InternalValue::Number(*f),
+                                        FieldValue::String(s) => InternalValue::String(s.clone()),
+                                        FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                                        FieldValue::Null => InternalValue::Null,
+                                        _ => InternalValue::String(format!("{:?}", item)),
                                     })
                                     .collect();
-                                serde_json::Value::Array(json_arr)
+                                InternalValue::Array(internal_arr)
                             }
                             FieldValue::Map(map) => {
-                                let json_obj: serde_json::Map<String, serde_json::Value> = map
+                                let internal_obj: HashMap<String, InternalValue> = map
                                     .iter()
                                     .map(|(k, v)| {
                                         (
                                             k.clone(),
                                             match v {
-                                                FieldValue::Integer(i) => {
-                                                    serde_json::Value::Number(
-                                                        serde_json::Number::from(*i),
-                                                    )
-                                                }
-                                                FieldValue::Float(f) => serde_json::Value::Number(
-                                                    serde_json::Number::from_f64(*f)
-                                                        .unwrap_or(0.into()),
-                                                ),
-                                                FieldValue::String(s) => {
-                                                    serde_json::Value::String(s.clone())
-                                                }
-                                                FieldValue::Boolean(b) => {
-                                                    serde_json::Value::Bool(*b)
-                                                }
-                                                FieldValue::Null => serde_json::Value::Null,
-                                                _ => serde_json::Value::String(format!("{:?}", v)),
+                                                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                                                FieldValue::Float(f) => InternalValue::Number(*f),
+                                                FieldValue::String(s) => InternalValue::String(s.clone()),
+                                                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                                                FieldValue::Null => InternalValue::Null,
+                                                _ => InternalValue::String(format!("{:?}", v)),
                                             },
                                         )
                                     })
                                     .collect();
-                                serde_json::Value::Object(json_obj)
+                                InternalValue::Object(internal_obj)
                             }
                             FieldValue::Struct(fields) => {
-                                let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                                let internal_obj: HashMap<String, InternalValue> = fields
                                     .iter()
                                     .map(|(k, v)| {
                                         (
                                             k.clone(),
                                             match v {
-                                                FieldValue::Integer(i) => {
-                                                    serde_json::Value::Number(
-                                                        serde_json::Number::from(*i),
-                                                    )
-                                                }
-                                                FieldValue::Float(f) => serde_json::Value::Number(
-                                                    serde_json::Number::from_f64(*f)
-                                                        .unwrap_or(0.into()),
-                                                ),
-                                                FieldValue::String(s) => {
-                                                    serde_json::Value::String(s.clone())
-                                                }
-                                                FieldValue::Boolean(b) => {
-                                                    serde_json::Value::Bool(*b)
-                                                }
-                                                FieldValue::Null => serde_json::Value::Null,
-                                                _ => serde_json::Value::String(format!("{:?}", v)),
+                                                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                                                FieldValue::Float(f) => InternalValue::Number(*f),
+                                                FieldValue::String(s) => InternalValue::String(s.clone()),
+                                                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                                                FieldValue::Null => InternalValue::Null,
+                                                _ => InternalValue::String(format!("{:?}", v)),
                                             },
                                         )
                                     })
                                     .collect();
-                                serde_json::Value::Object(json_obj)
+                                InternalValue::Object(internal_obj)
                             }
                         };
-                        record_json.insert(key.clone(), json_value);
+                        record_internal.insert(key.clone(), internal_value);
                     }
 
                     let mut engine = engine_clone.lock().await;
                     if let Err(e) = engine
-                        .execute_with_headers(&parsed_query, record_json, stream_record.headers)
+                        .execute_with_headers(&parsed_query, record_internal, stream_record.headers)
                         .await
                     {
                         error!("Failed to process record: {:?}", e);

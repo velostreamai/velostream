@@ -380,6 +380,45 @@ pub enum OrderDirection {
     Desc,
 }
 
+/// OVER clause for window functions
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverClause {
+    /// PARTITION BY columns
+    pub partition_by: Vec<String>,
+    /// ORDER BY specification
+    pub order_by: Vec<OrderByExpr>,
+    /// Window frame (ROWS/RANGE BETWEEN ... AND ...)
+    pub window_frame: Option<WindowFrame>,
+}
+
+/// Window frame specification for window functions
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowFrame {
+    /// Frame type (ROWS or RANGE)
+    pub frame_type: FrameType,
+    /// Start bound
+    pub start_bound: FrameBound,
+    /// End bound (defaults to CURRENT ROW if not specified)
+    pub end_bound: Option<FrameBound>,
+}
+
+/// Frame type for window functions
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrameType {
+    Rows,
+    Range,
+}
+
+/// Frame boundary for window functions
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrameBound {
+    UnboundedPreceding,
+    Preceding(u64),
+    CurrentRow,
+    Following(u64),
+    UnboundedFollowing,
+}
+
 /// SQL expressions for WHERE clauses and computations
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -397,6 +436,12 @@ pub enum Expr {
     UnaryOp { op: UnaryOperator, expr: Box<Expr> },
     /// Function calls: func_name(args...)
     Function { name: String, args: Vec<Expr> },
+    /// Window functions like LAG(expr) OVER (PARTITION BY col ORDER BY col)
+    WindowFunction {
+        function_name: String,
+        args: Vec<Expr>,
+        over_clause: OverClause,
+    },
     /// CASE expressions for conditional logic
     Case {
         when_clauses: Vec<(Expr, Expr)>, // (condition, result)
@@ -608,6 +653,19 @@ impl Expr {
                 }
                 if let Some(else_expr) = else_clause {
                     columns.extend(else_expr.get_columns());
+                }
+                columns
+            }
+            Expr::WindowFunction { args, over_clause, .. } => {
+                let mut columns = Vec::new();
+                // Extract columns from function arguments
+                for arg in args {
+                    columns.extend(arg.get_columns());
+                }
+                // Extract columns from PARTITION BY and ORDER BY clauses
+                columns.extend(over_clause.partition_by.clone());
+                for order_expr in &over_clause.order_by {
+                    columns.extend(order_expr.expr.get_columns());
                 }
                 columns
             }

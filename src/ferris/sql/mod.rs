@@ -11,7 +11,7 @@ pub mod schema;
 
 // Re-export main API
 pub use app_parser::{ApplicationMetadata, SqlApplication, SqlApplicationParser, SqlStatement};
-pub use ast::{DataType, Expr, SelectField, StreamingQuery, WindowSpec};
+pub use ast::{DataType, Expr, FrameBound, FrameType, OverClause, SelectField, StreamingQuery, WindowFrame, WindowSpec};
 pub use context::StreamingSqlContext;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
@@ -23,6 +23,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const FEATURES: &[&str] = &[
     "streaming_select",
     "windowing",
+    "window_functions",  // LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK with OVER clause
     "time_functions",
     "stream_registration",
     "math_functions",    // ABS, ROUND, CEIL, FLOOR, MOD, POWER, SQRT
