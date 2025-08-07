@@ -15,7 +15,8 @@ if ! command -v docker-compose &> /dev/null; then
 fi
 
 echo "Starting Kafka environment..."
-docker-compose up -d
+# Start only the Kafka-related services, skip data-producer for now
+docker-compose up -d kafka kafka-ui
 
 # Wait for services to be ready
 echo "Waiting for services to start (60 seconds)..."

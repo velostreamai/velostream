@@ -465,7 +465,7 @@ docker push registry.company.com/ferris-sql:latest
 ### Documentation
 
 - **[SQL Reference Guide](SQL_REFERENCE_GUIDE.md)** - Complete SQL syntax
-- **[Multi-Job Guide](../MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
+- **[Multi-Job Guide](MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
 - **[Performance Guide](ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)** - Optimization strategies
 
 ## 🎯 Next Steps

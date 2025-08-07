@@ -104,6 +104,22 @@ jobs:
         KAFKA_BROKERS: localhost:9092
         RUST_LOG: debug
     
+    - name: Build binaries for multi-job tests
+      run: |
+        echo "Building ferris-sql-multi binary for integration tests..."
+        cargo build --release --bin ferris-sql-multi
+        
+        # Verify binary was built
+        ls -la target/release/ferris-sql-multi
+
+    - name: Run multi-job SQL server tests
+      run: |
+        echo "Running multi-job SQL server integration tests..."
+        cargo test --test test_multi_job_sql_server -- --nocapture
+      env:
+        KAFKA_BROKERS: localhost:9092
+        RUST_LOG: info
+
     - name: Build and test examples
       run: |
         echo "Waiting 20 seconds before building examples..."

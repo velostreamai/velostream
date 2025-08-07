@@ -269,7 +269,7 @@ KAFKA_REPLICATION_FACTOR=3
 ### Deployment Guides
 - **[Docker Deployment](docs/DOCKER_DEPLOYMENT_GUIDE.md)** - Complete Docker setup
 - **[SQL Reference](docs/SQL_REFERENCE_GUIDE.md)** - SQL syntax and functions
-- **[Multi-Job Guide](MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
+- **[Multi-Job Guide](docs/MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
 
 ### Configuration References
 - **[SQL Configuration](sql-config.yaml)** - Service configuration

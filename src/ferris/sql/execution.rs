@@ -1169,6 +1169,46 @@ impl StreamExecutionEngine {
         Ok(op(left_num, right_num))
     }
 
+    fn compare_values_for_min(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<bool, SqlError> {
+        match (left, right) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a < b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a < b),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) < *b),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a < (*b as f64)),
+            (FieldValue::String(a), FieldValue::String(b)) => Ok(a < b),
+            (FieldValue::Null, _) => Ok(false), // NULL is not less than anything
+            (_, FieldValue::Null) => Ok(true),  // anything is less than NULL
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot compare incompatible types for LEAST".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn compare_values_for_max(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<bool, SqlError> {
+        match (left, right) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a > b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a > b),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) > *b),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a > (*b as f64)),
+            (FieldValue::String(a), FieldValue::String(b)) => Ok(a > b),
+            (FieldValue::Null, _) => Ok(false), // NULL is not greater than anything
+            (_, FieldValue::Null) => Ok(true),  // anything is greater than NULL
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot compare incompatible types for GREATEST".to_string(),
+                query: None,
+            }),
+        }
+    }
+
     pub fn add_values(
         &self,
         left: &FieldValue,
@@ -1630,8 +1670,9 @@ impl StreamExecutionEngine {
                 match value {
                     FieldValue::Integer(i) => Ok(FieldValue::Integer(i.abs())),
                     FieldValue::Float(f) => Ok(FieldValue::Float(f.abs())),
+                    FieldValue::Null => Ok(FieldValue::Null),
                     _ => Err(SqlError::ExecutionError {
-                        message: "ABS requires numeric argument".to_string(),
+                        message: "ABS can only be applied to numeric values".to_string(),
                         query: None,
                     }),
                 }
@@ -2259,6 +2300,40 @@ impl StreamExecutionEngine {
                     fields.insert(format!("field_{}", i + 1), value);
                 }
                 Ok(FieldValue::Struct(fields))
+            }
+            "LEAST" => {
+                if args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: "LEAST requires at least one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                let mut min_val = self.evaluate_expression_value(&args[0], record)?;
+                for arg in &args[1..] {
+                    let val = self.evaluate_expression_value(arg, record)?;
+                    if self.compare_values_for_min(&val, &min_val)? {
+                        min_val = val;
+                    }
+                }
+                Ok(min_val)
+            }
+            "GREATEST" => {
+                if args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: "GREATEST requires at least one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                let mut max_val = self.evaluate_expression_value(&args[0], record)?;
+                for arg in &args[1..] {
+                    let val = self.evaluate_expression_value(arg, record)?;
+                    if self.compare_values_for_max(&val, &max_val)? {
+                        max_val = val;
+                    }
+                }
+                Ok(max_val)
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unknown function {}", name),

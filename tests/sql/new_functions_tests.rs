@@ -390,3 +390,81 @@ async fn test_type_conversions() {
         .unwrap();
     assert_eq!(results[0]["power_int"], 1764.0);
 }
+
+#[tokio::test]
+async fn test_new_comparison_functions() {
+    // Test LEAST function
+    let results = execute_query("SELECT LEAST(10, 5, 15) as least_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["least_result"], 5);
+
+    let results = execute_query("SELECT LEAST(amount, quantity) as least_mixed FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["least_mixed"], 42.0);
+
+    // Test GREATEST function
+    let results = execute_query("SELECT GREATEST(10, 5, 15) as greatest_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["greatest_result"], 15);
+
+    let results =
+        execute_query("SELECT GREATEST(amount, quantity) as greatest_mixed FROM test_stream")
+            .await
+            .unwrap();
+    assert_eq!(results[0]["greatest_mixed"], 123.456);
+
+    // Test with strings
+    let results =
+        execute_query("SELECT LEAST('apple', 'banana', 'cherry') as least_string FROM test_stream")
+            .await
+            .unwrap();
+    assert_eq!(results[0]["least_string"], "apple");
+
+    let results = execute_query(
+        "SELECT GREATEST('apple', 'banana', 'cherry') as greatest_string FROM test_stream",
+    )
+    .await
+    .unwrap();
+    assert_eq!(results[0]["greatest_string"], "cherry");
+
+    // Test with NULL values
+    let results = execute_query("SELECT LEAST(10, NULL, 5) as least_with_null FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["least_with_null"], 5);
+
+    let results =
+        execute_query("SELECT GREATEST(10, NULL, 5) as greatest_with_null FROM test_stream")
+            .await
+            .unwrap();
+    assert_eq!(results[0]["greatest_with_null"], 10);
+}
+
+#[tokio::test]
+async fn test_abs_function_extended() {
+    // Test ABS with integers using the negative_num field
+    let results = execute_query("SELECT ABS(negative_num) as abs_int FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["abs_int"], 15);
+
+    let results = execute_query("SELECT ABS(quantity) as abs_positive FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["abs_positive"], 42);
+
+    // Test ABS with floats
+    let results = execute_query("SELECT ABS(amount) as abs_float FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["abs_float"], 123.456);
+
+    // Test ABS with NULL
+    let results = execute_query("SELECT ABS(NULL) as abs_null FROM test_stream")
+        .await
+        .unwrap();
+    assert!(results[0]["abs_null"].is_null());
+}

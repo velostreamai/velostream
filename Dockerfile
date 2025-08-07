@@ -1,7 +1,11 @@
 # FerrisStreams SQL Server Docker Image
 FROM rust:1.85-bookworm as builder
 
-# Install system dependencies
+# Configure Git and Cargo to handle SSL issues
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt
+
+# Install system dependencies and update CA certificates
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -9,10 +13,21 @@ RUN apt-get update && apt-get install -y \
     libzstd-dev \
     liblz4-dev \
     librdkafka-dev \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
+
+# Configure Cargo registry with more robust settings
+RUN mkdir -p ~/.cargo && \
+    echo '[http]' >> ~/.cargo/config.toml && \
+    echo 'check-revoke = false' >> ~/.cargo/config.toml && \
+    echo 'timeout = 60' >> ~/.cargo/config.toml && \
+    echo '[net]' >> ~/.cargo/config.toml && \
+    echo 'retry = 3' >> ~/.cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
 
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
