@@ -656,7 +656,9 @@ impl Expr {
                 }
                 columns
             }
-            Expr::WindowFunction { args, over_clause, .. } => {
+            Expr::WindowFunction {
+                args, over_clause, ..
+            } => {
                 let mut columns = Vec::new();
                 // Extract columns from function arguments
                 for arg in args {

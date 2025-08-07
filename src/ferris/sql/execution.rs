@@ -90,12 +90,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
+use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
     StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
-use crate::ferris::serialization::{SerializationFormat, InternalValue};
 use log::warn;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -240,7 +240,6 @@ impl StreamExecutionEngine {
         }
     }
 
-
     pub async fn execute(
         &mut self,
         query: &StreamingQuery,
@@ -249,7 +248,6 @@ impl StreamExecutionEngine {
         self.execute_with_headers(query, record, HashMap::new())
             .await
     }
-
 
     pub async fn execute_with_headers(
         &mut self,
@@ -283,29 +281,35 @@ impl StreamExecutionEngine {
                         InternalValue::Null => FieldValue::Null,
                         InternalValue::Array(arr) => {
                             // Convert InternalValue array to FieldValue array
-                            let field_arr: Vec<FieldValue> = arr.into_iter().map(|item| match item {
-                                InternalValue::Integer(i) => FieldValue::Integer(i),
-                                InternalValue::Number(f) => FieldValue::Float(f),
-                                InternalValue::String(s) => FieldValue::String(s),
-                                InternalValue::Boolean(b) => FieldValue::Boolean(b),
-                                InternalValue::Null => FieldValue::Null,
-                                _ => FieldValue::String(format!("{:?}", item)),
-                            }).collect();
-                            FieldValue::Array(field_arr)
-                        },
-                        InternalValue::Object(map) => {
-                            // Convert InternalValue map to FieldValue map
-                            let field_map: HashMap<String, FieldValue> = map.into_iter().map(|(key, value)| {
-                                let field_val = match value {
+                            let field_arr: Vec<FieldValue> = arr
+                                .into_iter()
+                                .map(|item| match item {
                                     InternalValue::Integer(i) => FieldValue::Integer(i),
                                     InternalValue::Number(f) => FieldValue::Float(f),
                                     InternalValue::String(s) => FieldValue::String(s),
                                     InternalValue::Boolean(b) => FieldValue::Boolean(b),
                                     InternalValue::Null => FieldValue::Null,
-                                    _ => FieldValue::String(format!("{:?}", value)),
-                                };
-                                (key, field_val)
-                            }).collect();
+                                    _ => FieldValue::String(format!("{:?}", item)),
+                                })
+                                .collect();
+                            FieldValue::Array(field_arr)
+                        }
+                        InternalValue::Object(map) => {
+                            // Convert InternalValue map to FieldValue map
+                            let field_map: HashMap<String, FieldValue> = map
+                                .into_iter()
+                                .map(|(key, value)| {
+                                    let field_val = match value {
+                                        InternalValue::Integer(i) => FieldValue::Integer(i),
+                                        InternalValue::Number(f) => FieldValue::Float(f),
+                                        InternalValue::String(s) => FieldValue::String(s),
+                                        InternalValue::Boolean(b) => FieldValue::Boolean(b),
+                                        InternalValue::Null => FieldValue::Null,
+                                        _ => FieldValue::String(format!("{:?}", value)),
+                                    };
+                                    (key, field_val)
+                                })
+                                .collect();
                             FieldValue::Map(field_map)
                         }
                     };
@@ -1382,7 +1386,8 @@ impl StreamExecutionEngine {
             "LEAD" => {
                 if args.len() != 1 && args.len() != 2 {
                     return Err(SqlError::ExecutionError {
-                        message: "LEAD requires 1 or 2 arguments (expression, [offset])".to_string(),
+                        message: "LEAD requires 1 or 2 arguments (expression, [offset])"
+                            .to_string(),
                         query: None,
                     });
                 }
@@ -1394,7 +1399,9 @@ impl StreamExecutionEngine {
             "ROW_NUMBER" => {
                 // ROW_NUMBER() OVER (...)
                 // For now, return 1 since we need to implement proper window state management
-                warn!("ROW_NUMBER window function called but not fully implemented yet - returning 1");
+                warn!(
+                    "ROW_NUMBER window function called but not fully implemented yet - returning 1"
+                );
                 Ok(FieldValue::Integer(1))
             }
             _ => Err(SqlError::ExecutionError {
@@ -2589,7 +2596,6 @@ impl StreamExecutionEngine {
         self.message_sender.clone()
     }
 
-
     /// Convert FieldValue to InternalValue for pluggable serialization
     fn field_value_to_internal(&self, value: FieldValue) -> InternalValue {
         match value {
@@ -3054,4 +3060,3 @@ impl StreamExecutionEngine {
         })
     }
 }
-

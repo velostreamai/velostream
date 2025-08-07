@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::{
     error::{FerrisError, FerrisResult},
     kafka::{JsonSerializer, KafkaConsumer},
-    serialization::{JsonFormat, InternalValue, SerializationFormat},
+    serialization::{InternalValue, JsonFormat, SerializationFormat},
     sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},
 };
 use log::{error, info, warn};
@@ -89,7 +89,10 @@ impl SqlJobManager {
 
         // Create serialization format (JSON by default)
         let serialization_format = Arc::new(JsonFormat);
-        let execution_engine = Arc::new(StreamExecutionEngine::new(output_sender, serialization_format));
+        let execution_engine = Arc::new(StreamExecutionEngine::new(
+            output_sender,
+            serialization_format,
+        ));
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
@@ -301,10 +304,16 @@ async fn execute_sql_query(
                                         (
                                             k.clone(),
                                             match v {
-                                                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                                                FieldValue::Integer(i) => {
+                                                    InternalValue::Integer(*i)
+                                                }
                                                 FieldValue::Float(f) => InternalValue::Number(*f),
-                                                FieldValue::String(s) => InternalValue::String(s.clone()),
-                                                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                                                FieldValue::String(s) => {
+                                                    InternalValue::String(s.clone())
+                                                }
+                                                FieldValue::Boolean(b) => {
+                                                    InternalValue::Boolean(*b)
+                                                }
                                                 FieldValue::Null => InternalValue::Null,
                                                 _ => InternalValue::String(format!("{:?}", v)),
                                             },
@@ -320,10 +329,16 @@ async fn execute_sql_query(
                                         (
                                             k.clone(),
                                             match v {
-                                                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                                                FieldValue::Integer(i) => {
+                                                    InternalValue::Integer(*i)
+                                                }
                                                 FieldValue::Float(f) => InternalValue::Number(*f),
-                                                FieldValue::String(s) => InternalValue::String(s.clone()),
-                                                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                                                FieldValue::String(s) => {
+                                                    InternalValue::String(s.clone())
+                                                }
+                                                FieldValue::Boolean(b) => {
+                                                    InternalValue::Boolean(*b)
+                                                }
                                                 FieldValue::Null => InternalValue::Null,
                                                 _ => InternalValue::String(format!("{:?}", v)),
                                             },

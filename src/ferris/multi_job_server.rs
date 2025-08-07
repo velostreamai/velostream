@@ -224,17 +224,22 @@ impl MultiJobSqlServer {
                 .cloned()
                 .unwrap_or_else(|| "default_output".to_string());
 
-
             // Create output channel for SQL results with unbounded capacity
-            let (result_sender, mut result_receiver) =
-                tokio::sync::mpsc::unbounded_channel::<HashMap<String, crate::ferris::serialization::InternalValue>>();
-            info!("Job '{}' created output channel for SQL results", job_name_clone);
+            let (result_sender, mut result_receiver) = tokio::sync::mpsc::unbounded_channel::<
+                HashMap<String, crate::ferris::serialization::InternalValue>,
+            >();
+            info!(
+                "Job '{}' created output channel for SQL results",
+                job_name_clone
+            );
 
             // Create serialization format (JSON by default)
-            let serialization_format = std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
+            let serialization_format =
+                std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
 
             // Create and configure StreamExecutionEngine
-            let mut execution_engine = StreamExecutionEngine::new(result_sender, serialization_format);
+            let mut execution_engine =
+                StreamExecutionEngine::new(result_sender, serialization_format);
             info!("Job '{}' created StreamExecutionEngine", job_name_clone);
 
             // Parse the SQL into a StreamingQuery for execution
@@ -288,13 +293,13 @@ impl MultiJobSqlServer {
                         info!("Job '{}' received SQL result with {} fields", job_name_clone, result.len());
                         // Use serialization format to convert results to bytes for Kafka output
                         let serialization_format = std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
-                        
+
                         // Convert InternalValue to FieldValue map
                         let mut field_result = HashMap::new();
                         for (key, internal_value) in result {
                             field_result.insert(key, internal_to_field_value(&internal_value));
                         }
-                        
+
                         // Serialize using the pluggable format
                         match serialization_format.serialize_record(&field_result) {
                             Ok(serialized_bytes) => {
@@ -338,7 +343,10 @@ impl MultiJobSqlServer {
                 }
             }
 
-            info!("Job '{}' execution completed - cleaning up channels", job_name_clone);
+            info!(
+                "Job '{}' execution completed - cleaning up channels",
+                job_name_clone
+            );
             drop(result_receiver); // Explicitly drop receiver to clean up
         });
 
@@ -607,7 +615,8 @@ async fn process_kafka_message(
         })?;
 
     // Convert serde_json::Value to HashMap<String, InternalValue>
-    let record_map: HashMap<String, crate::ferris::serialization::InternalValue> = match json_value {
+    let record_map: HashMap<String, crate::ferris::serialization::InternalValue> = match json_value
+    {
         Value::Object(map) => {
             let mut internal_map = HashMap::new();
             for (key, value) in map {
@@ -615,7 +624,7 @@ async fn process_kafka_message(
                 internal_map.insert(key, internal_value);
             }
             internal_map
-        },
+        }
         _ => {
             return Err(SqlError::ExecutionError {
                 message: "Expected JSON object for record processing".to_string(),
@@ -701,17 +710,17 @@ fn extract_input_topic_from_sql(sql: &str) -> Option<String> {
     // Extract table/topic name from FROM clause
     // Handles: "SELECT ... FROM topic_name", "FROM schema.table", "FROM table AS alias"
     let sql_upper = sql.to_uppercase();
-    
+
     if let Some(from_pos) = sql_upper.find("FROM ") {
         let after_from = &sql[from_pos + 5..]; // Skip "FROM "
-        
+
         // Find the table name (stop at whitespace, comma, or keywords)
         let table_part: String = after_from
             .chars()
             .skip_while(|c| c.is_whitespace())
             .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
             .collect();
-        
+
         if !table_part.is_empty() {
             // Handle schema.table format - take just the table name
             let topic_name = if let Some(dot_pos) = table_part.rfind('.') {
@@ -719,18 +728,20 @@ fn extract_input_topic_from_sql(sql: &str) -> Option<String> {
             } else {
                 table_part
             };
-            
+
             return Some(topic_name);
         }
     }
-    
+
     None
 }
 
 /// Convert serde_json::Value to InternalValue
-fn json_to_internal(json_value: &serde_json::Value) -> Result<crate::ferris::serialization::InternalValue, SqlError> {
+fn json_to_internal(
+    json_value: &serde_json::Value,
+) -> Result<crate::ferris::serialization::InternalValue, SqlError> {
     use crate::ferris::serialization::InternalValue;
-    
+
     match json_value {
         serde_json::Value::String(s) => Ok(InternalValue::String(s.clone())),
         serde_json::Value::Number(n) => {
@@ -741,13 +752,13 @@ fn json_to_internal(json_value: &serde_json::Value) -> Result<crate::ferris::ser
             } else {
                 Ok(InternalValue::String(n.to_string()))
             }
-        },
+        }
         serde_json::Value::Bool(b) => Ok(InternalValue::Boolean(*b)),
         serde_json::Value::Null => Ok(InternalValue::Null),
         serde_json::Value::Array(arr) => {
             let internal_arr: Result<Vec<_>, _> = arr.iter().map(json_to_internal).collect();
             Ok(InternalValue::Array(internal_arr?))
-        },
+        }
         serde_json::Value::Object(obj) => {
             let mut internal_map = HashMap::new();
             for (k, v) in obj {
@@ -759,9 +770,11 @@ fn json_to_internal(json_value: &serde_json::Value) -> Result<crate::ferris::ser
 }
 
 /// Convert InternalValue to FieldValue
-fn internal_to_field_value(internal_value: &crate::ferris::serialization::InternalValue) -> FieldValue {
+fn internal_to_field_value(
+    internal_value: &crate::ferris::serialization::InternalValue,
+) -> FieldValue {
     use crate::ferris::serialization::InternalValue;
-    
+
     match internal_value {
         InternalValue::String(s) => FieldValue::String(s.clone()),
         InternalValue::Number(n) => FieldValue::Float(*n),
@@ -771,7 +784,7 @@ fn internal_to_field_value(internal_value: &crate::ferris::serialization::Intern
         InternalValue::Array(arr) => {
             let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
             FieldValue::Array(field_arr)
-        },
+        }
         InternalValue::Object(obj) => {
             let mut field_map = HashMap::new();
             for (k, v) in obj {
