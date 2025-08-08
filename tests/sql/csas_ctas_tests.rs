@@ -1,10 +1,12 @@
+use ferrisstreams::ferris::serialization::InternalValue;
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
-use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -224,8 +226,10 @@ mod tests {
     #[tokio::test]
     async fn test_csas_execution() {
         // Setup execution engine
+        let serialization_format = std::sync::Arc::new(JsonFormat);
+
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
 
         // Parse CSAS query
         let parser = StreamingSqlParser::new();
@@ -235,16 +239,12 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        record.insert("amount".to_string(), InternalValue::Number(299.99));
         record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(123)),
+            "status".to_string(),
+            InternalValue::String("pending".to_string()),
         );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(299.99).unwrap()),
-        );
-        record.insert("status".to_string(), Value::String("pending".to_string()));
-
         // Execute CREATE STREAM
         let result = engine.execute(&query, record).await;
         assert!(result.is_ok());
@@ -260,7 +260,9 @@ mod tests {
     async fn test_ctas_execution() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let serialization_format = std::sync::Arc::new(JsonFormat);
+
+        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
 
         // Parse CTAS query
         let parser = StreamingSqlParser::new();
@@ -270,14 +272,8 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(456)),
-        );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(150.00).unwrap()),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(456));
+        record.insert("amount".to_string(), InternalValue::Number(150.00));
 
         // Execute CREATE TABLE
         let result = engine.execute(&query, record).await;

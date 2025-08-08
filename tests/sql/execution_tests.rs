@@ -1,11 +1,12 @@
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::ast::{
     BinaryOperator, DataType, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
     WindowSpec,
 };
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema};
-use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -28,26 +29,20 @@ mod tests {
         customer_id: i64,
         amount: f64,
         status: Option<&str>,
-    ) -> HashMap<String, Value> {
+    ) -> HashMap<String, InternalValue> {
         let mut record = HashMap::new();
-        record.insert(
-            "id".to_string(),
-            Value::Number(serde_json::Number::from(id)),
-        );
+        record.insert("id".to_string(), InternalValue::Integer(id));
         record.insert(
             "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(customer_id)),
+            InternalValue::Integer(customer_id),
         );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
-        );
+        record.insert("amount".to_string(), InternalValue::Number(amount));
         if let Some(s) = status {
-            record.insert("status".to_string(), Value::String(s.to_string()));
+            record.insert("status".to_string(), InternalValue::String(s.to_string()));
         }
         record.insert(
             "timestamp".to_string(),
-            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
+            InternalValue::Integer(chrono::Utc::now().timestamp()),
         );
         record
     }
@@ -55,7 +50,7 @@ mod tests {
     #[tokio::test]
     async fn test_engine_creation() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let engine = StreamExecutionEngine::new(tx);
+        let engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Basic creation test - engine should start without errors
         assert!(true); // Engine created successfully
@@ -64,7 +59,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_simple_select() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
@@ -91,7 +86,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_specific_columns() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![
@@ -129,7 +124,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_literals() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![
@@ -158,20 +153,17 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        assert_eq!(
-            output.get("constant"),
-            Some(&Value::Number(serde_json::Number::from(42)))
-        );
+        assert_eq!(output.get("constant"), Some(&InternalValue::Integer(42)));
         assert_eq!(
             output.get("message"),
-            Some(&Value::String("test".to_string()))
+            Some(&InternalValue::String("test".to_string()))
         );
     }
 
     #[tokio::test]
     async fn test_arithmetic_expressions() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -198,8 +190,7 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        if let Some(Value::Number(result_value)) = output.get("amount_with_tax") {
-            let result_float = result_value.as_f64().unwrap();
+        if let Some(InternalValue::Number(result_float)) = output.get("amount_with_tax") {
             assert!((result_float - 110.0).abs() < 0.001); // 100.0 * 1.1 = 110.0
         } else {
             panic!("Expected numeric result for arithmetic operation");
@@ -209,7 +200,7 @@ mod tests {
     #[tokio::test]
     async fn test_boolean_expressions() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -236,13 +227,16 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("is_large_order"), Some(&Value::Bool(true)));
+        assert_eq!(
+            output.get("is_large_order"),
+            Some(&InternalValue::Boolean(true))
+        );
     }
 
     #[tokio::test]
     async fn test_missing_column_returns_null() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -266,13 +260,13 @@ mod tests {
 
         let output = rx.try_recv().unwrap();
         // Missing columns should return NULL
-        assert_eq!(output.get("nonexistent_column"), Some(&Value::Null));
+        assert_eq!(output.get("nonexistent_column"), Some(&InternalValue::Null));
     }
 
     #[tokio::test]
     async fn test_arithmetic_error_handling() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -302,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn test_windowed_execution_tumbling() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -337,7 +331,7 @@ mod tests {
     #[tokio::test]
     async fn test_sliding_window_execution() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -373,7 +367,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_window_execution() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -408,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn test_aggregation_functions() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![
@@ -461,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_records_processing() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
@@ -496,7 +490,7 @@ mod tests {
     #[tokio::test]
     async fn test_complex_expression_evaluation() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Complex expression: (amount * 1.1) + 10
         let query = StreamingQuery::Select {
@@ -528,8 +522,7 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        if let Some(Value::Number(result_value)) = output.get("complex_calc") {
-            let result_float = result_value.as_f64().unwrap();
+        if let Some(InternalValue::Number(result_float)) = output.get("complex_calc") {
             assert!((result_float - 120.0).abs() < 0.001); // (100.0 * 1.1) + 10 = 120.0
         } else {
             panic!("Expected numeric result for complex expression");
@@ -539,7 +532,7 @@ mod tests {
     #[tokio::test]
     async fn test_null_value_handling() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Expression {
@@ -564,8 +557,8 @@ mod tests {
         let output = rx.try_recv().unwrap();
         // The status field should either be absent or null
         match output.get("status") {
-            None => {}              // Field is absent, which is acceptable
-            Some(Value::Null) => {} // Field is explicitly null, which is also acceptable
+            None => {}                      // Field is absent, which is acceptable
+            Some(InternalValue::Null) => {} // Field is explicitly null, which is also acceptable
             _ => panic!("Expected null or absent status field"),
         }
     }

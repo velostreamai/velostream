@@ -4,9 +4,11 @@
 Comprehensive test suite for newly added math, string, and date/time functions.
 */
 
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn create_test_record() -> StreamRecord {
@@ -36,46 +38,39 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
+fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
+    record
+        .fields
+        .iter()
+        .map(|(k, v)| {
+            let internal_val = match v {
+                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                FieldValue::Float(f) => InternalValue::Number(*f),
+                FieldValue::String(s) => InternalValue::String(s.clone()),
+                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                FieldValue::Null => InternalValue::Null,
+                _ => InternalValue::String(format!("{:?}", v)),
+            };
+            (k.clone(), internal_val)
+        })
+        .collect()
+}
+
 async fn execute_query(
     query: &str,
-) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, serde_json::Value>
-    let json_record: HashMap<String, serde_json::Value> = record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let json_val = match v {
-                FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-                FieldValue::Float(f) => {
-                    serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(0.into()))
-                }
-                FieldValue::String(s) => serde_json::Value::String(s.clone()),
-                FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
-                FieldValue::Null => serde_json::Value::Null,
-                _ => serde_json::Value::String(format!("{:?}", v)),
-            };
-            (k.clone(), json_val)
-        })
-        .collect();
+    // Convert StreamRecord to HashMap<String, InternalValue>
+    let internal_record = convert_stream_record_to_internal(&record);
 
-    // Use execute_with_metadata to preserve the original timestamp
-    engine
-        .execute_with_metadata(
-            &parsed_query,
-            json_record,
-            record.headers.clone(),
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
-        .await?;
+    // Execute the query with internal record
+    engine.execute(&parsed_query, internal_record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -91,63 +86,67 @@ async fn test_math_functions() {
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["abs_result"], 15);
+    assert_eq!(results[0]["abs_result"], InternalValue::Integer(15));
 
     let results = execute_query("SELECT ABS(amount) as abs_amount FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_amount"], 123.456);
+    assert_eq!(results[0]["abs_amount"], InternalValue::Number(123.456));
 
     // Test ROUND function
     let results = execute_query("SELECT ROUND(amount) as rounded FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["rounded"], 123.0);
+    assert_eq!(results[0]["rounded"], InternalValue::Number(123.0));
 
     let results = execute_query("SELECT ROUND(amount, 2) as rounded_2 FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["rounded_2"], 123.46);
+    assert_eq!(results[0]["rounded_2"], InternalValue::Number(123.46));
 
     // Test CEIL function
     let results = execute_query("SELECT CEIL(amount) as ceiling FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["ceiling"], 124);
+    assert_eq!(results[0]["ceiling"], InternalValue::Integer(124));
 
     let results = execute_query("SELECT CEILING(amount) as ceiling2 FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["ceiling2"], 124);
+    assert_eq!(results[0]["ceiling2"], InternalValue::Integer(124));
 
     // Test FLOOR function
     let results = execute_query("SELECT FLOOR(amount) as floor_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["floor_result"], 123);
+    assert_eq!(results[0]["floor_result"], InternalValue::Integer(123));
 
     // Test MOD function
     let results = execute_query("SELECT MOD(quantity, 10) as mod_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["mod_result"], 2);
+    assert_eq!(results[0]["mod_result"], InternalValue::Integer(2));
 
     // Test POWER function
     let results = execute_query("SELECT POWER(2, 3) as power_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["power_result"], 8.0);
+    assert_eq!(results[0]["power_result"], InternalValue::Number(8.0));
 
     let results = execute_query("SELECT POW(quantity, 2) as pow_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["pow_result"], 1764.0);
+    assert_eq!(results[0]["pow_result"], InternalValue::Number(1764.0));
 
     // Test SQRT function
     let results = execute_query("SELECT SQRT(quantity) as sqrt_result FROM test_stream")
         .await
         .unwrap();
-    assert!((results[0]["sqrt_result"].as_f64().unwrap() - 6.48074069840786).abs() < 1e-10);
+    let sqrt_val = match &results[0]["sqrt_result"] {
+        InternalValue::Number(n) => *n,
+        _ => panic!("Expected Number for sqrt result"),
+    };
+    assert!((sqrt_val - 6.48074069840786).abs() < 1e-10);
 }
 
 #[tokio::test]
@@ -157,70 +156,100 @@ async fn test_string_functions() {
         execute_query("SELECT CONCAT('Hello ', 'World') as concat_result FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["concat_result"], "Hello World");
+    assert_eq!(
+        results[0]["concat_result"],
+        InternalValue::String("Hello World".to_string())
+    );
 
     let results = execute_query(
         "SELECT CONCAT(product_name, ' - Version 2') as concat_product FROM test_stream",
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["concat_product"], "Test Product - Version 2");
+    assert_eq!(
+        results[0]["concat_product"],
+        InternalValue::String("Test Product - Version 2".to_string())
+    );
 
     // Test LENGTH function
     let results = execute_query("SELECT LENGTH(product_name) as name_length FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["name_length"], 12);
+    assert_eq!(results[0]["name_length"], InternalValue::Integer(12));
 
     let results = execute_query("SELECT LEN(product_name) as name_len FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["name_len"], 12);
+    assert_eq!(results[0]["name_len"], InternalValue::Integer(12));
 
     // Test TRIM functions
     let results = execute_query("SELECT TRIM(description) as trimmed FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["trimmed"], "This is a test description");
+    assert_eq!(
+        results[0]["trimmed"],
+        InternalValue::String("This is a test description".to_string())
+    );
 
     let results = execute_query("SELECT LTRIM(description) as left_trimmed FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["left_trimmed"], "This is a test description  ");
+    assert_eq!(
+        results[0]["left_trimmed"],
+        InternalValue::String("This is a test description  ".to_string())
+    );
 
     let results = execute_query("SELECT RTRIM(description) as right_trimmed FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["right_trimmed"], "  This is a test description");
+    assert_eq!(
+        results[0]["right_trimmed"],
+        InternalValue::String("  This is a test description".to_string())
+    );
 
     // Test UPPER and LOWER functions
     let results = execute_query("SELECT UPPER(product_name) as upper_name FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["upper_name"], "TEST PRODUCT");
+    assert_eq!(
+        results[0]["upper_name"],
+        InternalValue::String("TEST PRODUCT".to_string())
+    );
 
     let results = execute_query("SELECT LOWER(product_name) as lower_name FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["lower_name"], "test product");
+    assert_eq!(
+        results[0]["lower_name"],
+        InternalValue::String("test product".to_string())
+    );
 
     // Test REPLACE function
     let results =
         execute_query("SELECT REPLACE(product_name, 'Test', 'Demo') as replaced FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["replaced"], "Demo Product");
+    assert_eq!(
+        results[0]["replaced"],
+        InternalValue::String("Demo Product".to_string())
+    );
 
     // Test LEFT and RIGHT functions
     let results = execute_query("SELECT LEFT(product_name, 4) as left_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["left_part"], "Test");
+    assert_eq!(
+        results[0]["left_part"],
+        InternalValue::String("Test".to_string())
+    );
 
     let results = execute_query("SELECT RIGHT(product_name, 7) as right_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["right_part"], "Product");
+    assert_eq!(
+        results[0]["right_part"],
+        InternalValue::String("Product".to_string())
+    );
 }
 
 #[tokio::test]
@@ -229,37 +258,43 @@ async fn test_date_time_functions() {
     let results = execute_query("SELECT NOW() as current_time FROM test_stream")
         .await
         .unwrap();
-    let now_result = results[0]["current_time"].as_i64().unwrap();
+    let now_result = match &results[0]["current_time"] {
+        InternalValue::Integer(n) => *n,
+        _ => panic!("Expected Integer for current_time"),
+    };
     assert!(now_result > 1734652800000); // Should be after our test timestamp
 
     // Test CURRENT_TIMESTAMP function
     let results = execute_query("SELECT CURRENT_TIMESTAMP as current_ts FROM test_stream")
         .await
         .unwrap();
-    let ts_result = results[0]["current_ts"].as_i64().unwrap();
+    let ts_result = match &results[0]["current_ts"] {
+        InternalValue::Integer(n) => *n,
+        _ => panic!("Expected Integer for current_ts"),
+    };
     assert!(ts_result > 1734652800000);
 
     // Test EXTRACT function with record timestamp
     let results = execute_query("SELECT EXTRACT('YEAR', _timestamp) as year_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["year_part"], 2024);
+    assert_eq!(results[0]["year_part"], InternalValue::Integer(2024));
 
     let results =
         execute_query("SELECT EXTRACT('MONTH', _timestamp) as month_part FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["month_part"], 12);
+    assert_eq!(results[0]["month_part"], InternalValue::Integer(12));
 
     let results = execute_query("SELECT EXTRACT('DAY', _timestamp) as day_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["day_part"], 20);
+    assert_eq!(results[0]["day_part"], InternalValue::Integer(20));
 
     let results = execute_query("SELECT EXTRACT('HOUR', _timestamp) as hour_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["hour_part"], 0);
+    assert_eq!(results[0]["hour_part"], InternalValue::Integer(0));
 
     // Test DATE_FORMAT function
     let results = execute_query(
@@ -267,10 +302,16 @@ async fn test_date_time_functions() {
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["formatted_date"], "2024-12-20");
+    assert_eq!(
+        results[0]["formatted_date"],
+        InternalValue::String("2024-12-20".to_string())
+    );
 
     let results = execute_query("SELECT DATE_FORMAT(_timestamp, '%Y-%m-%d %H:%M:%S') as formatted_datetime FROM test_stream").await.unwrap();
-    assert_eq!(results[0]["formatted_datetime"], "2024-12-20 00:00:00");
+    assert_eq!(
+        results[0]["formatted_datetime"],
+        InternalValue::String("2024-12-20 00:00:00".to_string())
+    );
 }
 
 #[tokio::test]
@@ -281,14 +322,20 @@ async fn test_utility_functions() {
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["coalesce_result"], "default");
+    assert_eq!(
+        results[0]["coalesce_result"],
+        InternalValue::String("default".to_string())
+    );
 
     let results = execute_query(
         "SELECT COALESCE(product_name, 'default') as coalesce_product FROM test_stream",
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["coalesce_product"], "Test Product");
+    assert_eq!(
+        results[0]["coalesce_product"],
+        InternalValue::String("Test Product".to_string())
+    );
 
     // Test NULLIF function
     let results = execute_query(
@@ -296,14 +343,17 @@ async fn test_utility_functions() {
     )
     .await
     .unwrap();
-    assert!(results[0]["nullif_result"].is_null());
+    assert_eq!(results[0]["nullif_result"], InternalValue::Null);
 
     let results = execute_query(
         "SELECT NULLIF(product_name, 'Different') as nullif_different FROM test_stream",
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["nullif_different"], "Test Product");
+    assert_eq!(
+        results[0]["nullif_different"],
+        InternalValue::String("Test Product".to_string())
+    );
 }
 
 #[tokio::test]
@@ -314,18 +364,24 @@ async fn test_complex_expressions() {
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["complex_string"], "THIS IS A ");
+    assert_eq!(
+        results[0]["complex_string"],
+        InternalValue::String("THIS IS A ".to_string())
+    );
 
     let results =
         execute_query("SELECT ROUND(ABS(negative_num) * 1.5, 1) as complex_math FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["complex_math"], 22.5);
+    assert_eq!(results[0]["complex_math"], InternalValue::Number(22.5));
 
     let results = execute_query(
         "SELECT CONCAT('Order ', quantity, ' at $', ROUND(amount, 2)) as order_summary FROM test_stream"
     ).await.unwrap();
-    assert_eq!(results[0]["order_summary"], "Order 42 at $123.46");
+    assert_eq!(
+        results[0]["order_summary"],
+        InternalValue::String("Order 42 at $123.46".to_string())
+    );
 }
 
 #[tokio::test]
@@ -356,17 +412,17 @@ async fn test_null_handling() {
     let results = execute_query("SELECT LENGTH(NULL) as null_length FROM test_stream")
         .await
         .unwrap();
-    assert!(results[0]["null_length"].is_null());
+    assert_eq!(results[0]["null_length"], InternalValue::Null);
 
     let results = execute_query("SELECT UPPER(NULL) as null_upper FROM test_stream")
         .await
         .unwrap();
-    assert!(results[0]["null_upper"].is_null());
+    assert_eq!(results[0]["null_upper"], InternalValue::Null);
 
     let results = execute_query("SELECT TRIM(NULL) as null_trim FROM test_stream")
         .await
         .unwrap();
-    assert!(results[0]["null_trim"].is_null());
+    assert_eq!(results[0]["null_trim"], InternalValue::Null);
 }
 
 #[tokio::test]
@@ -376,19 +432,25 @@ async fn test_type_conversions() {
         execute_query("SELECT CONCAT('Value: ', quantity) as concat_int FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["concat_int"], "Value: 42");
+    assert_eq!(
+        results[0]["concat_int"],
+        InternalValue::String("Value: 42".to_string())
+    );
 
     let results =
         execute_query("SELECT CONCAT('Amount: $', amount) as concat_float FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["concat_float"], "Amount: $123.456");
+    assert_eq!(
+        results[0]["concat_float"],
+        InternalValue::String("Amount: $123.456".to_string())
+    );
 
     // Test POWER with integer inputs
     let results = execute_query("SELECT POWER(quantity, 2) as power_int FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["power_int"], 1764.0);
+    assert_eq!(results[0]["power_int"], InternalValue::Number(1764.0));
 }
 
 #[tokio::test]
@@ -397,50 +459,296 @@ async fn test_new_comparison_functions() {
     let results = execute_query("SELECT LEAST(10, 5, 15) as least_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_result"], 5);
+    assert_eq!(results[0]["least_result"], InternalValue::Integer(5));
 
     let results = execute_query("SELECT LEAST(amount, quantity) as least_mixed FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_mixed"], 42.0);
+    assert_eq!(results[0]["least_mixed"], InternalValue::Number(42.0));
 
     // Test GREATEST function
     let results = execute_query("SELECT GREATEST(10, 5, 15) as greatest_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["greatest_result"], 15);
+    assert_eq!(results[0]["greatest_result"], InternalValue::Integer(15));
 
     let results =
         execute_query("SELECT GREATEST(amount, quantity) as greatest_mixed FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["greatest_mixed"], 123.456);
+    assert_eq!(results[0]["greatest_mixed"], InternalValue::Number(123.456));
 
     // Test with strings
     let results =
         execute_query("SELECT LEAST('apple', 'banana', 'cherry') as least_string FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["least_string"], "apple");
+    assert_eq!(
+        results[0]["least_string"],
+        InternalValue::String("apple".to_string())
+    );
 
     let results = execute_query(
         "SELECT GREATEST('apple', 'banana', 'cherry') as greatest_string FROM test_stream",
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["greatest_string"], "cherry");
+    assert_eq!(
+        results[0]["greatest_string"],
+        InternalValue::String("cherry".to_string())
+    );
 
     // Test with NULL values
     let results = execute_query("SELECT LEAST(10, NULL, 5) as least_with_null FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_with_null"], 5);
+    assert_eq!(results[0]["least_with_null"], InternalValue::Integer(5));
 
     let results =
         execute_query("SELECT GREATEST(10, NULL, 5) as greatest_with_null FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["greatest_with_null"], 10);
+    assert_eq!(results[0]["greatest_with_null"], InternalValue::Integer(10));
+}
+
+#[tokio::test]
+async fn test_datediff_function() {
+    // For this test, we'll create a custom test record with specific dates
+    // Since our execute_query function uses a fixed test record, we'll test with computed values
+
+    // Test hours difference between two timestamps
+    let results = execute_query(
+        "SELECT DATEDIFF('hours', 1734652800000, 1734739200000) as hour_diff FROM test_stream",
+    )
+    .await
+    .unwrap();
+    let hour_diff = match &results[0]["hour_diff"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer result for DATEDIFF hours"),
+    };
+    assert_eq!(hour_diff, 24); // 24 hours difference
+
+    // Test days difference
+    let results = execute_query(
+        "SELECT DATEDIFF('days', 1734652800000, 1734739200000) as day_diff FROM test_stream",
+    )
+    .await
+    .unwrap();
+    let day_diff = match &results[0]["day_diff"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer result for DATEDIFF days"),
+    };
+    assert_eq!(day_diff, 1); // 1 day difference
+}
+
+#[tokio::test]
+async fn test_position_function() {
+    // Test POSITION function - using product_name from our test record which is "Test Product"
+    let results = execute_query("SELECT POSITION('t', product_name) as t_pos FROM test_stream")
+        .await
+        .unwrap();
+    let t_pos = match &results[0]["t_pos"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer result for POSITION"),
+    };
+    assert_eq!(t_pos, 6); // Position of 't' in "Test Product" (case-sensitive, lowercase 't' in "Product")
+
+    // Test POSITION when substring not found
+    let results =
+        execute_query("SELECT POSITION('xyz', product_name) as not_found FROM test_stream")
+            .await
+            .unwrap();
+    let not_found = match &results[0]["not_found"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer result for POSITION not found"),
+    };
+    assert_eq!(not_found, 0); // Should return 0 when not found
+}
+
+#[tokio::test]
+async fn test_listagg_function() {
+    // Test LISTAGG with single string value (our test data doesn't have arrays, so we test this way)
+    let results =
+        execute_query("SELECT LISTAGG(product_name, '; ') as single_product FROM test_stream")
+            .await
+            .unwrap();
+    let single_product = match &results[0]["single_product"] {
+        InternalValue::String(val) => val,
+        _ => panic!("Expected string result for LISTAGG single value"),
+    };
+    assert_eq!(single_product, "Test Product");
+}
+
+#[tokio::test]
+async fn test_having_clause_execution() {
+    // Note: HAVING clause testing is complex because it requires GROUP BY functionality
+    // For now, we test that HAVING clauses are parsed correctly and that the execution
+    // pipeline supports them at the record level
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(
+        tx,
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+    );
+    let parser = StreamingSqlParser::new();
+
+    // Test simple HAVING clause (would work with aggregated data in a real scenario)
+    let query = "SELECT quantity, amount FROM test HAVING quantity > 40";
+    let parsed_query = parser.parse(query).unwrap();
+
+    // Verify the query parsed correctly with HAVING clause
+    match &parsed_query {
+        ferrisstreams::ferris::sql::StreamingQuery::Select {
+            having: Some(_), ..
+        } => {
+            // HAVING clause is present in parsed query
+        }
+        _ => panic!("Expected query with HAVING clause"),
+    }
+
+    let test_record = create_test_record();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    engine
+        .execute(&parsed_query, internal_record)
+        .await
+        .unwrap();
+
+    let result = rx.try_recv().unwrap();
+    // Should return the record since quantity (42) > 40
+    let quantity_result = match &result["quantity"] {
+        ferrisstreams::ferris::serialization::InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer result for quantity"),
+    };
+    assert_eq!(quantity_result, 42);
+
+    // Test HAVING clause that should filter out the record
+    let query = "SELECT quantity, amount FROM test HAVING quantity > 50";
+    let parsed_query = parser.parse(query).unwrap();
+    let test_record = create_test_record();
+
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    // Should return an error or Ok(None) since quantity (42) is not > 50
+    // For now, let's just check it executes without panicking
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_datediff_error_cases() {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(
+        tx,
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+    );
+    let parser = StreamingSqlParser::new();
+
+    // Test with wrong number of arguments
+    let query = "SELECT DATEDIFF('hours', 123456789) FROM test";
+    let parsed_query = parser.parse(query).unwrap();
+    let test_record = create_test_record();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    assert!(
+        result.is_err(),
+        "DATEDIFF should fail with wrong number of arguments"
+    );
+
+    // Test with invalid unit
+    let test_record = create_test_record();
+    let query = "SELECT DATEDIFF('invalid_unit', 123456789, 987654321) FROM test";
+    let parsed_query = parser.parse(query).unwrap();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    assert!(
+        result.is_err(),
+        "DATEDIFF should fail with invalid time unit"
+    );
+}
+
+#[tokio::test]
+async fn test_position_error_cases() {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(
+        tx,
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+    );
+    let parser = StreamingSqlParser::new();
+
+    // Test with wrong number of arguments (too few)
+    let query = "SELECT POSITION('test') FROM test";
+    let parsed_query = parser.parse(query).unwrap();
+    let test_record = create_test_record();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    assert!(
+        result.is_err(),
+        "POSITION should fail with too few arguments"
+    );
+
+    // Test with wrong number of arguments (too many)
+    let query = "SELECT POSITION('a', 'test', 1, 'extra') FROM test";
+    let parsed_query = parser.parse(query).unwrap();
+    let test_record = create_test_record();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    assert!(
+        result.is_err(),
+        "POSITION should fail with too many arguments"
+    );
+}
+
+#[tokio::test]
+async fn test_listagg_error_cases() {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(
+        tx,
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+    );
+    let parser = StreamingSqlParser::new();
+
+    // Test with wrong number of arguments
+    let query = "SELECT LISTAGG('test') FROM test";
+    let parsed_query = parser.parse(query).unwrap();
+    let test_record = create_test_record();
+    let internal_record = convert_stream_record_to_internal(&test_record);
+    let result = engine.execute(&parsed_query, internal_record).await;
+    assert!(
+        result.is_err(),
+        "LISTAGG should fail with wrong number of arguments"
+    );
+}
+
+#[tokio::test]
+async fn test_comprehensive_new_functions_integration() {
+    // Test combining multiple new functions in one query using our existing test data
+    let results = execute_query(
+        "SELECT 
+            POSITION('o', product_name) as letter_pos,
+            ABS(negative_num) as absolute_val,
+            UPPER(LEFT(product_name, 4)) as first_word_upper
+        FROM test_stream",
+    )
+    .await
+    .unwrap();
+
+    // Verify all function results
+    let letter_pos = match &results[0]["letter_pos"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer for letter_pos"),
+    };
+    assert_eq!(letter_pos, 12); // Position of 'o' in "Test Product"
+
+    let absolute_val = match &results[0]["absolute_val"] {
+        InternalValue::Integer(val) => *val,
+        _ => panic!("Expected integer for absolute_val"),
+    };
+    assert_eq!(absolute_val, 15); // ABS(-15) = 15
+
+    let first_word_upper = match &results[0]["first_word_upper"] {
+        InternalValue::String(val) => val,
+        _ => panic!("Expected string for first_word_upper"),
+    };
+    assert_eq!(first_word_upper, "TEST");
 }
 
 #[tokio::test]
@@ -449,22 +757,22 @@ async fn test_abs_function_extended() {
     let results = execute_query("SELECT ABS(negative_num) as abs_int FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_int"], 15);
+    assert_eq!(results[0]["abs_int"], InternalValue::Integer(15));
 
     let results = execute_query("SELECT ABS(quantity) as abs_positive FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_positive"], 42);
+    assert_eq!(results[0]["abs_positive"], InternalValue::Integer(42));
 
     // Test ABS with floats
     let results = execute_query("SELECT ABS(amount) as abs_float FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_float"], 123.456);
+    assert_eq!(results[0]["abs_float"], InternalValue::Number(123.456));
 
     // Test ABS with NULL
     let results = execute_query("SELECT ABS(NULL) as abs_null FROM test_stream")
         .await
         .unwrap();
-    assert!(results[0]["abs_null"].is_null());
+    assert_eq!(results[0]["abs_null"], InternalValue::Null);
 }

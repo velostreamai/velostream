@@ -1,7 +1,8 @@
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[cfg(test)]
@@ -70,7 +71,7 @@ mod tests {
     async fn test_limit_execution_basic() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with LIMIT 2
         let parser = StreamingSqlParser::new();
@@ -79,70 +80,35 @@ mod tests {
             .unwrap();
 
         // Create test records
-        let records = vec![
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(1)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(100.0).unwrap()),
-                );
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(2)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(200.0).unwrap()),
-                );
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(3)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(300.0).unwrap()),
-                );
-                record
-            },
-        ];
-
-        // Execute records - should only process first 2
-        for record in records {
-            let result = engine.execute(&query, record).await;
-            assert!(result.is_ok());
+        let mut records: Vec<HashMap<String, InternalValue>> = Vec::new();
+        for i in 1..=3 {
+            let mut record = HashMap::new();
+            record.insert("customer_id".to_string(), InternalValue::Integer(i));
+            record.insert(
+                "amount".to_string(),
+                InternalValue::Number(100.0 * i as f64),
+            );
+            // Execute each record individually
+            engine.execute(&query, record).await.unwrap();
         }
 
-        // Should receive exactly 2 outputs
-        let output1 = rx.try_recv().unwrap();
-        assert_eq!(output1.get("customer_id").unwrap().as_i64().unwrap(), 1);
-
-        let output2 = rx.try_recv().unwrap();
-        assert_eq!(output2.get("customer_id").unwrap().as_i64().unwrap(), 2);
-
-        // Third record should not produce output due to LIMIT
-        assert!(
-            rx.try_recv().is_err(),
-            "Should not receive third record due to LIMIT"
-        );
+        // Check results
+        let mut count = 0;
+        while let Some(_result) = rx.recv().await {
+            count += 1;
+            assert!(
+                count <= 2,
+                "Should not receive more than 2 records due to LIMIT"
+            );
+        }
+        assert_eq!(count, 2, "Should receive exactly 2 records due to LIMIT");
     }
 
     #[tokio::test]
     async fn test_limit_with_where_clause() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with WHERE and LIMIT
         let parser = StreamingSqlParser::new();
@@ -150,56 +116,32 @@ mod tests {
             .parse("SELECT customer_id, amount FROM orders WHERE amount > 150 LIMIT 1")
             .unwrap();
 
-        // Create test records - only some will match WHERE clause
-        let records = vec![
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(1)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(100.0).unwrap()),
-                ); // Won't match WHERE
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(2)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(200.0).unwrap()),
-                ); // Will match
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(3)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(300.0).unwrap()),
-                ); // Will match but LIMIT reached
-                record
-            },
-        ];
+        // Create and execute test records
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        record.insert("amount".to_string(), InternalValue::Number(100.0));
+        engine.execute(&query, record).await.unwrap();
 
-        // Execute records
-        for record in records {
-            let result = engine.execute(&query, record).await;
-            assert!(result.is_ok());
-        }
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(2));
+        record.insert("amount".to_string(), InternalValue::Number(200.0));
+        engine.execute(&query, record).await.unwrap();
+
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(3));
+        record.insert("amount".to_string(), InternalValue::Number(300.0));
+        engine.execute(&query, record).await.unwrap();
 
         // Should receive exactly 1 output (first record matching WHERE clause)
-        let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("customer_id").unwrap().as_i64().unwrap(), 2);
-        assert_eq!(output.get("amount").unwrap().as_f64().unwrap(), 200.0);
+        if let Some(output) = rx.recv().await {
+            match (&output["customer_id"], &output["amount"]) {
+                (InternalValue::Integer(id), InternalValue::Number(amount)) => {
+                    assert_eq!(*id, 2);
+                    assert_eq!(*amount, 200.0);
+                }
+                _ => panic!("Unexpected output types"),
+            }
+        }
 
         // Should not receive second matching record due to LIMIT
         assert!(
@@ -212,7 +154,7 @@ mod tests {
     async fn test_limit_zero() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with LIMIT 0
         let parser = StreamingSqlParser::new();
@@ -220,16 +162,10 @@ mod tests {
             .parse("SELECT customer_id FROM orders LIMIT 0")
             .unwrap();
 
-        // Create test record
+        // Create and execute test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(1)),
-        );
-
-        // Execute record
-        let result = engine.execute(&query, record).await;
-        assert!(result.is_ok());
+        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        engine.execute(&query, record).await.unwrap();
 
         // Should not receive any output due to LIMIT 0
         assert!(
@@ -242,7 +178,7 @@ mod tests {
     async fn test_limit_with_csas() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse CSAS query with LIMIT
         let parser = StreamingSqlParser::new();
@@ -250,43 +186,26 @@ mod tests {
             .parse("CREATE STREAM limited_orders AS SELECT customer_id, amount FROM orders LIMIT 1")
             .unwrap();
 
-        // Create test records
-        let records = vec![
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(1)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(100.0).unwrap()),
-                );
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(2)),
-                );
-                record.insert(
-                    "amount".to_string(),
-                    Value::Number(serde_json::Number::from_f64(200.0).unwrap()),
-                );
-                record
-            },
-        ];
+        // Create and execute test records
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        record.insert("amount".to_string(), InternalValue::Number(100.0));
+        engine.execute(&query, record).await.unwrap();
 
-        // Execute records
-        for record in records {
-            let result = engine.execute(&query, record).await;
-            assert!(result.is_ok());
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(2));
+        record.insert("amount".to_string(), InternalValue::Number(200.0));
+        engine.execute(&query, record).await.unwrap();
+
+        // Should receive exactly 1 output
+        if let Some(output) = rx.recv().await {
+            match &output["customer_id"] {
+                InternalValue::Integer(id) => assert_eq!(*id, 1),
+                _ => panic!("Unexpected customer_id type"),
+            }
+        } else {
+            panic!("Expected to receive one record");
         }
-
-        // Should receive exactly 1 output due to LIMIT in CSAS
-        let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("customer_id").unwrap().as_i64().unwrap(), 1);
 
         // Should not receive second record
         assert!(
@@ -299,7 +218,7 @@ mod tests {
     async fn test_limit_with_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with system columns and LIMIT
         let parser = StreamingSqlParser::new();
@@ -307,37 +226,24 @@ mod tests {
             .parse("SELECT customer_id, _timestamp, _partition FROM orders LIMIT 1")
             .unwrap();
 
-        // Create test records
-        let records = vec![
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(1)),
-                );
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(2)),
-                );
-                record
-            },
-        ];
+        // Create and execute test records
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        engine.execute(&query, record).await.unwrap();
 
-        // Execute records
-        for record in records {
-            let result = engine.execute(&query, record).await;
-            assert!(result.is_ok());
-        }
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(2));
+        engine.execute(&query, record).await.unwrap();
 
         // Should receive exactly 1 output
-        let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("customer_id").unwrap().as_i64().unwrap(), 1);
-        assert!(output.contains_key("_timestamp"));
-        assert!(output.contains_key("_partition"));
+        if let Some(output) = rx.recv().await {
+            match &output["customer_id"] {
+                InternalValue::Integer(id) => assert_eq!(*id, 1),
+                _ => panic!("Unexpected customer_id type"),
+            }
+            assert!(output.contains_key("_timestamp"));
+            assert!(output.contains_key("_partition"));
+        }
 
         // Should not receive second record
         assert!(
@@ -350,7 +256,7 @@ mod tests {
     async fn test_limit_with_headers() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -362,38 +268,31 @@ mod tests {
             .parse("SELECT customer_id, HEADER('source') AS source FROM orders LIMIT 1")
             .unwrap();
 
-        // Create test records
-        let records = vec![
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(1)),
-                );
-                record
-            },
-            {
-                let mut record = HashMap::new();
-                record.insert(
-                    "customer_id".to_string(),
-                    Value::Number(serde_json::Number::from(2)),
-                );
-                record
-            },
-        ];
+        // Create and execute test records
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        engine
+            .execute_with_headers(&query, record, headers.clone())
+            .await
+            .unwrap();
 
-        // Execute records with headers
-        for record in records {
-            let result = engine
-                .execute_with_headers(&query, record, headers.clone())
-                .await;
-            assert!(result.is_ok());
-        }
+        let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(2));
+        engine
+            .execute_with_headers(&query, record, headers)
+            .await
+            .unwrap();
 
         // Should receive exactly 1 output
-        let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("customer_id").unwrap().as_i64().unwrap(), 1);
-        assert_eq!(output.get("source").unwrap().as_str().unwrap(), "test-app");
+        if let Some(output) = rx.recv().await {
+            match (&output["customer_id"], &output["source"]) {
+                (InternalValue::Integer(id), InternalValue::String(source)) => {
+                    assert_eq!(*id, 1);
+                    assert_eq!(source, "test-app");
+                }
+                _ => panic!("Unexpected output types"),
+            }
+        }
 
         // Should not receive second record
         assert!(

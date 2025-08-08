@@ -1,10 +1,11 @@
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
-use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[cfg(test)]
@@ -35,26 +36,20 @@ mod tests {
         customer_id: i64,
         amount: f64,
         status: Option<&str>,
-    ) -> HashMap<String, Value> {
+    ) -> HashMap<String, InternalValue> {
         let mut record = HashMap::new();
-        record.insert(
-            "order_id".to_string(),
-            Value::Number(serde_json::Number::from(order_id)),
-        );
+        record.insert("order_id".to_string(), InternalValue::Integer(order_id));
         record.insert(
             "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(customer_id)),
+            InternalValue::Integer(customer_id),
         );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
-        );
+        record.insert("amount".to_string(), InternalValue::Number(amount));
         if let Some(s) = status {
-            record.insert("status".to_string(), Value::String(s.to_string()));
+            record.insert("status".to_string(), InternalValue::String(s.to_string()));
         }
         record.insert(
             "timestamp".to_string(),
-            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
+            InternalValue::Integer(chrono::Utc::now().timestamp()),
         );
         record
     }
@@ -64,19 +59,16 @@ mod tests {
         name: &str,
         email: &str,
         age: Option<i64>,
-    ) -> HashMap<String, Value> {
+    ) -> HashMap<String, InternalValue> {
         let mut record = HashMap::new();
+        record.insert("user_id".to_string(), InternalValue::Integer(user_id));
+        record.insert("name".to_string(), InternalValue::String(name.to_string()));
         record.insert(
-            "user_id".to_string(),
-            Value::Number(serde_json::Number::from(user_id)),
+            "email".to_string(),
+            InternalValue::String(email.to_string()),
         );
-        record.insert("name".to_string(), Value::String(name.to_string()));
-        record.insert("email".to_string(), Value::String(email.to_string()));
         if let Some(a) = age {
-            record.insert(
-                "age".to_string(),
-                Value::Number(serde_json::Number::from(a)),
-            );
+            record.insert("age".to_string(), InternalValue::Integer(a));
         }
         record
     }
@@ -97,7 +89,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query
         let parser = StreamingSqlParser::new();
@@ -131,7 +123,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse windowed query
         let parser = StreamingSqlParser::new();
@@ -185,7 +177,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
         let parser = StreamingSqlParser::new();
 
         // Test orders query
@@ -227,7 +219,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse complex query with arithmetic and aliases
         let parser = StreamingSqlParser::new();
@@ -247,15 +239,14 @@ mod tests {
         assert!(output.contains_key("new_status"));
 
         // Check calculated value
-        if let Some(Value::Number(tax_amount)) = output.get("amount_with_tax") {
-            let tax_value = tax_amount.as_f64().unwrap();
+        if let Some(InternalValue::Number(tax_value)) = output.get("amount_with_tax") {
             assert!((tax_value - 108.0).abs() < 0.001); // 100.0 * 1.08 = 108.0
         }
 
         // Check literal value
         assert_eq!(
             output.get("new_status"),
-            Some(&Value::String("processed".to_string()))
+            Some(&InternalValue::String("processed".to_string()))
         );
     }
 
@@ -301,7 +292,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse sliding window query
         let parser = StreamingSqlParser::new();
@@ -338,7 +329,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse session window query
         let parser = StreamingSqlParser::new();
@@ -360,7 +351,7 @@ mod tests {
     async fn test_error_propagation_integration() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse valid query
         let parser = StreamingSqlParser::new();
@@ -374,10 +365,7 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        assert_eq!(
-            output.get("nonexistent_column"),
-            Some(&serde_json::Value::Null)
-        );
+        assert_eq!(output.get("nonexistent_column"), Some(&InternalValue::Null));
     }
 
     #[tokio::test]
@@ -399,25 +387,44 @@ mod tests {
 
         // Valid record
         let valid_record = create_order_record(1, 100, 299.99, Some("pending"));
-        assert!(schema.validate_record(&valid_record));
+        // Convert InternalValue to serde_json::Value for validation
+        let valid_json_record: HashMap<String, serde_json::Value> = valid_record
+            .iter()
+            .map(|(k, v)| {
+                let json_val = match v {
+                    InternalValue::Integer(i) => {
+                        serde_json::Value::Number(serde_json::Number::from(*i))
+                    }
+                    InternalValue::Number(f) => serde_json::Value::Number(
+                        serde_json::Number::from_f64(*f).unwrap_or(serde_json::Number::from(0)),
+                    ),
+                    InternalValue::String(s) => serde_json::Value::String(s.clone()),
+                    InternalValue::Boolean(b) => serde_json::Value::Bool(*b),
+                    InternalValue::Null => serde_json::Value::Null,
+                    _ => serde_json::Value::String(format!("{:?}", v)),
+                };
+                (k.clone(), json_val)
+            })
+            .collect();
+        assert!(schema.validate_record(&valid_json_record));
 
         // Invalid record - wrong type for amount
         let mut invalid_record = HashMap::new();
         invalid_record.insert(
             "order_id".to_string(),
-            Value::Number(serde_json::Number::from(1)),
+            serde_json::Value::Number(serde_json::Number::from(1)),
         );
         invalid_record.insert(
             "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(100)),
+            serde_json::Value::Number(serde_json::Number::from(100)),
         );
         invalid_record.insert(
             "amount".to_string(),
-            Value::String("not_a_number".to_string()),
+            serde_json::Value::String("not_a_number".to_string()),
         ); // Wrong type
         invalid_record.insert(
             "timestamp".to_string(),
-            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
+            serde_json::Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())),
         );
 
         assert!(!schema.validate_record(&invalid_record));
@@ -426,7 +433,7 @@ mod tests {
         let mut missing_field_record = HashMap::new();
         missing_field_record.insert(
             "order_id".to_string(),
-            Value::Number(serde_json::Number::from(1)),
+            serde_json::Value::Number(serde_json::Number::from(1)),
         );
         // Missing customer_id and other required fields
 
@@ -448,7 +455,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with multiple aggregations
         let parser = StreamingSqlParser::new();

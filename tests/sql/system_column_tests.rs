@@ -1,8 +1,9 @@
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[cfg(test)]
@@ -62,7 +63,7 @@ mod tests {
     async fn test_system_column_execution() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with system columns
         let parser = StreamingSqlParser::new();
@@ -72,14 +73,8 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(123)),
-        );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(299.99).unwrap()),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        record.insert("amount".to_string(), InternalValue::Number(299.99));
 
         // Execute query
         let result = engine.execute(&query, record).await;
@@ -93,16 +88,25 @@ mod tests {
         assert!(output.contains_key("_partition"));
 
         // Verify system column values are integers
-        assert!(output.get("_timestamp").unwrap().is_number());
-        assert!(output.get("_offset").unwrap().is_number());
-        assert!(output.get("_partition").unwrap().is_number());
+        assert!(matches!(
+            output.get("_timestamp").unwrap(),
+            InternalValue::Integer(_)
+        ));
+        assert!(matches!(
+            output.get("_offset").unwrap(),
+            InternalValue::Integer(_)
+        ));
+        assert!(matches!(
+            output.get("_partition").unwrap(),
+            InternalValue::Integer(_)
+        ));
     }
 
     #[tokio::test]
     async fn test_system_column_with_aliases() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with aliased system columns
         let parser = StreamingSqlParser::new();
@@ -112,10 +116,7 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(456)),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(456));
 
         // Execute query
         let result = engine.execute(&query, record).await;
@@ -133,7 +134,7 @@ mod tests {
     async fn test_system_column_in_where_clause() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query with system column in WHERE clause
         let parser = StreamingSqlParser::new();
@@ -143,10 +144,7 @@ mod tests {
 
         // Create test record (partition will be 0 by default in test)
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(789)),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(789));
 
         // Execute query
         let result = engine.execute(&query, record).await;
@@ -161,7 +159,7 @@ mod tests {
     async fn test_mixed_regular_and_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse query mixing regular and system columns
         let parser = StreamingSqlParser::new();
@@ -171,15 +169,12 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
+        record.insert("customer_id".to_string(), InternalValue::Integer(101));
+        record.insert("amount".to_string(), InternalValue::Number(59.99));
         record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(101)),
+            "status".to_string(),
+            InternalValue::String("active".to_string()),
         );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(59.99).unwrap()),
-        );
-        record.insert("status".to_string(), Value::String("active".to_string()));
 
         // Execute query
         let result = engine.execute(&query, record).await;
@@ -200,7 +195,7 @@ mod tests {
     async fn test_wildcard_does_not_include_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse wildcard query
         let parser = StreamingSqlParser::new();
@@ -208,14 +203,8 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(202)),
-        );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(149.99).unwrap()),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(202));
+        record.insert("amount".to_string(), InternalValue::Number(149.99));
 
         // Execute query
         let result = engine.execute(&query, record).await;
@@ -234,7 +223,7 @@ mod tests {
     async fn test_system_columns_case_insensitive() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Test both lowercase and uppercase system column names
         let queries = vec![
@@ -249,10 +238,7 @@ mod tests {
 
             // Create test record
             let mut record = HashMap::new();
-            record.insert(
-                "test_id".to_string(),
-                Value::Number(serde_json::Number::from(i as i64)),
-            );
+            record.insert("test_id".to_string(), InternalValue::Integer(i as i64));
 
             // Execute query
             let result = engine.execute(&query, record).await;
@@ -276,7 +262,7 @@ mod tests {
     async fn test_csas_with_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Parse CSAS query with system columns
         let parser = StreamingSqlParser::new();
@@ -284,14 +270,8 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert(
-            "customer_id".to_string(),
-            Value::Number(serde_json::Number::from(303)),
-        );
-        record.insert(
-            "amount".to_string(),
-            Value::Number(serde_json::Number::from_f64(75.50).unwrap()),
-        );
+        record.insert("customer_id".to_string(), InternalValue::Integer(303));
+        record.insert("amount".to_string(), InternalValue::Number(75.50));
 
         // Execute CREATE STREAM
         let result = engine.execute(&query, record).await;

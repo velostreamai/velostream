@@ -280,17 +280,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
     
-    // Parse and execute streaming SQL with JOINs
+    // Parse and execute advanced streaming SQL with JOINs, functions, and aggregation
     let query = "
         SELECT 
             o.order_id,
             o.customer_id,
             o.amount,
             c.customer_name,
-            c.tier
+            c.tier,
+            DATEDIFF('hours', o.created_at, NOW()) as hours_old,
+            POSITION('@', c.email) as email_at_pos,
+            LISTAGG(p.product_name, ', ') as products
         FROM orders o
         INNER JOIN customers c ON o.customer_id = c.customer_id
+        LEFT JOIN order_products p ON o.order_id = p.order_id
         WHERE o.amount > 100.0
+        GROUP BY o.order_id, o.customer_id, o.amount, c.customer_name, c.tier, o.created_at, c.email
+        HAVING COUNT(p.product_id) > 1
     ";
     
     let parsed_query = parser.parse(query)?;

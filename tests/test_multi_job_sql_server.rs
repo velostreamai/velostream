@@ -123,7 +123,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     }
 
     // Determine binary path based on environment
-    let binary_name = "multi_job_sql_server";
+    let binary_name = "ferris-sql-multi";
     let binary_path = if std::env::var("CI").is_ok() {
         format!("./target/debug/{}", binary_name)
     } else {

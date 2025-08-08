@@ -533,6 +533,7 @@ impl StreamExecutionEngine {
                 fields,
                 where_clause,
                 joins,
+                having,
                 limit,
                 ..
             } => {
@@ -602,6 +603,22 @@ impl StreamExecutionEngine {
                                 .clone();
                             result_fields.insert(field_name, value);
                         }
+                    }
+                }
+
+                // Apply HAVING clause on the result fields
+                if let Some(having_expr) = having {
+                    // Create a temporary record with the result fields to evaluate HAVING
+                    let result_record = StreamRecord {
+                        fields: result_fields.clone(),
+                        timestamp: joined_record.timestamp,
+                        offset: joined_record.offset,
+                        partition: joined_record.partition,
+                        headers: joined_record.headers.clone(),
+                    };
+
+                    if !self.evaluate_expression(having_expr, &result_record)? {
+                        return Ok(None);
                     }
                 }
 
@@ -1437,6 +1454,69 @@ impl StreamExecutionEngine {
                 }
                 self.evaluate_expression_value(&args[0], record)
             }
+            "LISTAGG" => {
+                // LISTAGG(expression, delimiter) or LISTAGG(DISTINCT expression, delimiter)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LISTAGG requires 2 arguments: LISTAGG(expression, delimiter) or LISTAGG(DISTINCT expression, delimiter)".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For streaming, we can only aggregate the current record
+                // In a real implementation, this would need windowing or group by support
+                let value_expr = if args.len() == 3 {
+                    // Handle LISTAGG(DISTINCT expression, delimiter) case
+                    // args[0] would be the DISTINCT keyword (but we simplify this for now)
+                    &args[1]
+                } else {
+                    // Handle LISTAGG(expression, delimiter) case
+                    &args[0]
+                };
+
+                let delimiter_expr = &args[args.len() - 1]; // Last argument is always delimiter
+
+                let value = self.evaluate_expression_value(value_expr, record)?;
+                let delimiter = self.evaluate_expression_value(delimiter_expr, record)?;
+
+                match (value, delimiter) {
+                    (FieldValue::String(val), FieldValue::String(_delim)) => {
+                        // For single record, just return the value
+                        // In real streaming aggregation, this would collect values with delimiter
+                        Ok(FieldValue::String(val))
+                    }
+                    (FieldValue::Array(arr), FieldValue::String(delim)) => {
+                        // If the input is an array, concatenate all string values
+                        let string_vals: Result<Vec<String>, _> = arr
+                            .iter()
+                            .map(|v| match v {
+                                FieldValue::String(s) => Ok(s.clone()),
+                                FieldValue::Integer(i) => Ok(i.to_string()),
+                                FieldValue::Float(f) => Ok(f.to_string()),
+                                FieldValue::Boolean(b) => Ok(b.to_string()),
+                                FieldValue::Null => Ok("".to_string()),
+                                _ => Err(SqlError::ExecutionError {
+                                    message: "LISTAGG array elements must be convertible to string"
+                                        .to_string(),
+                                    query: None,
+                                }),
+                            })
+                            .collect();
+
+                        match string_vals {
+                            Ok(vals) => Ok(FieldValue::String(vals.join(&delim))),
+                            Err(e) => Err(e),
+                        }
+                    }
+                    (FieldValue::Null, _) => Ok(FieldValue::String("".to_string())),
+                    _ => Err(SqlError::ExecutionError {
+                        message:
+                            "LISTAGG requires string or array first argument and string delimiter"
+                                .to_string(),
+                        query: None,
+                    }),
+                }
+            }
             "HEADER" => {
                 if args.len() != 1 {
                     return Err(SqlError::ExecutionError {
@@ -2264,6 +2344,126 @@ impl StreamExecutionEngine {
                     Ok(FieldValue::Null)
                 } else {
                     Ok(value1)
+                }
+            }
+            "DATEDIFF" => {
+                if args.len() != 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "DATEDIFF requires exactly 3 arguments: DATEDIFF(unit, start_date, end_date)".to_string(),
+                        query: None,
+                    });
+                }
+                let unit_val = self.evaluate_expression_value(&args[0], record)?;
+                let start_val = self.evaluate_expression_value(&args[1], record)?;
+                let end_val = self.evaluate_expression_value(&args[2], record)?;
+
+                match (unit_val, start_val, end_val) {
+                    (
+                        FieldValue::String(unit),
+                        FieldValue::Integer(start_ts),
+                        FieldValue::Integer(end_ts),
+                    ) => {
+                        use chrono::{TimeZone, Utc};
+
+                        let start_dt =
+                            Utc.timestamp_millis_opt(start_ts).single().ok_or_else(|| {
+                                SqlError::ExecutionError {
+                                    message: format!("Invalid start timestamp: {}", start_ts),
+                                    query: None,
+                                }
+                            })?;
+
+                        let end_dt =
+                            Utc.timestamp_millis_opt(end_ts).single().ok_or_else(|| {
+                                SqlError::ExecutionError {
+                                    message: format!("Invalid end timestamp: {}", end_ts),
+                                    query: None,
+                                }
+                            })?;
+
+                        let diff_ms = end_dt.timestamp_millis() - start_dt.timestamp_millis();
+
+                        let result = match unit.to_lowercase().as_str() {
+                            "milliseconds" | "ms" => diff_ms,
+                            "seconds" | "second" => diff_ms / 1000,
+                            "minutes" | "minute" => diff_ms / (1000 * 60),
+                            "hours" | "hour" => diff_ms / (1000 * 60 * 60),
+                            "days" | "day" => diff_ms / (1000 * 60 * 60 * 24),
+                            _ => {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "Unsupported DATEDIFF unit: {}. Supported units: milliseconds, seconds, minutes, hours, days",
+                                        unit
+                                    ),
+                                    query: None,
+                                });
+                            }
+                        };
+
+                        Ok(FieldValue::Integer(result))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "DATEDIFF requires string unit and integer timestamps".to_string(),
+                        query: None,
+                    }),
+                }
+            }
+            "POSITION" => {
+                // POSITION(substring IN string) or POSITION(substring IN string FROM start_position)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "POSITION requires 2 or 3 arguments: POSITION(substring, string [, start_position])".to_string(),
+                        query: None,
+                    });
+                }
+                let substring_val = self.evaluate_expression_value(&args[0], record)?;
+                let string_val = self.evaluate_expression_value(&args[1], record)?;
+                let start_pos = if args.len() == 3 {
+                    match self.evaluate_expression_value(&args[2], record)? {
+                        FieldValue::Integer(pos) => pos.max(1) as usize, // SQL positions are 1-based, minimum 1
+                        _ => {
+                            return Err(SqlError::ExecutionError {
+                                message: "POSITION start position must be an integer".to_string(),
+                                query: None,
+                            });
+                        }
+                    }
+                } else {
+                    1 // Start from position 1 (1-based indexing)
+                };
+
+                match (substring_val, string_val) {
+                    (FieldValue::String(substring), FieldValue::String(string)) => {
+                        if substring.is_empty() {
+                            // Empty substring is found at position 1
+                            Ok(FieldValue::Integer(start_pos as i64))
+                        } else {
+                            // Convert to char arrays to handle Unicode properly
+                            let string_chars: Vec<char> = string.chars().collect();
+                            let substring_chars: Vec<char> = substring.chars().collect();
+
+                            // Search starting from the specified position (convert from 1-based to 0-based)
+                            let search_start =
+                                (start_pos.saturating_sub(1)).min(string_chars.len());
+
+                            // Find the substring
+                            if let Some(pos) = string_chars[search_start..]
+                                .windows(substring_chars.len())
+                                .position(|window| window == substring_chars.as_slice())
+                            {
+                                // Convert back to 1-based indexing and add the offset
+                                Ok(FieldValue::Integer((search_start + pos + 1) as i64))
+                            } else {
+                                // Substring not found
+                                Ok(FieldValue::Integer(0))
+                            }
+                        }
+                    }
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                    _ => Err(SqlError::ExecutionError {
+                        message: "POSITION requires string arguments".to_string(),
+                        query: None,
+                    }),
                 }
             }
             // Array Functions

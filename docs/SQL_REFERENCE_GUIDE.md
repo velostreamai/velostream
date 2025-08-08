@@ -377,6 +377,42 @@ SHOW METRICS;
 SHOW METRICS analytics;
 ```
 
+### HAVING Clause Support
+
+The HAVING clause enables post-aggregation filtering, allowing you to filter results after GROUP BY operations:
+
+```sql
+-- Filter high-activity customers
+SELECT 
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_spent
+FROM orders
+GROUP BY customer_id
+HAVING COUNT(*) > 10 AND SUM(amount) > 1000;
+
+-- Social media trending hashtags with HAVING
+SELECT 
+    SUBSTRING(content, POSITION('#', content), POSITION(' ', content, POSITION('#', content)) - POSITION('#', content)) as hashtag,
+    COUNT(*) as mention_count,
+    COUNT(DISTINCT user_id) as unique_users
+FROM social_posts
+WHERE POSITION('#', content) > 0
+GROUP BY SUBSTRING(content, POSITION('#', content), POSITION(' ', content, POSITION('#', content)) - POSITION('#', content))
+HAVING COUNT(*) > 100;
+
+-- High-value influencer activity
+SELECT 
+    user_id,
+    username,
+    follower_count,
+    COUNT(*) as post_count
+FROM social_posts
+WHERE follower_count > 10000
+GROUP BY user_id, username, follower_count
+HAVING COUNT(*) > 5;
+```
+
 ## Built-in Functions
 
 ### Aggregate Functions
@@ -392,6 +428,29 @@ SELECT
     MAX(amount) as max_amount
 FROM orders
 GROUP BY customer_id;
+
+-- String aggregation with LISTAGG
+SELECT 
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_amount,
+    LISTAGG(product_name, ', ') as purchased_products,
+    LISTAGG(DISTINCT category, '; ') as product_categories
+FROM order_items
+GROUP BY customer_id
+HAVING COUNT(*) > 5;
+
+-- Crisis monitoring with location aggregation
+SELECT 
+    crisis_type,
+    COUNT(*) as mention_count,
+    COUNT(DISTINCT user_id) as unique_reporters,
+    LISTAGG(DISTINCT location, ', ') as affected_locations,
+    MIN(timestamp) as first_mention,
+    MAX(timestamp) as latest_mention
+FROM crisis_reports
+GROUP BY crisis_type
+HAVING COUNT(*) > 50;
 
 -- Advanced analytical functions
 SELECT 
@@ -460,6 +519,35 @@ SELECT
     LEFT(product_code, 3) as category_code,
     RIGHT(order_id, 4) as order_suffix
 FROM orders;
+
+-- String position finding
+SELECT 
+    customer_id,
+    email,
+    POSITION('@', email) as at_position,
+    POSITION('.', email, POSITION('@', email)) as domain_dot_position
+FROM customers;
+```
+
+### Advanced String Processing with POSITION
+
+```sql
+-- Extract hashtags from social media content
+SELECT 
+    post_id,
+    content,
+    POSITION('#', content) as hashtag_start,
+    SUBSTRING(content, POSITION('#', content), POSITION(' ', content, POSITION('#', content)) - POSITION('#', content)) as hashtag
+FROM social_posts
+WHERE POSITION('#', content) > 0;
+
+-- Find email domains
+SELECT 
+    customer_id,
+    email,
+    SUBSTRING(email, POSITION('@', email) + 1) as email_domain
+FROM customers
+WHERE POSITION('@', email) > 0;
 ```
 
 ### Date/Time Functions
@@ -484,6 +572,28 @@ SELECT
     EXTRACT('DOW', _timestamp) as day_of_week,
     EXTRACT('DOY', _timestamp) as day_of_year
 FROM orders;
+
+-- Date difference calculations
+SELECT 
+    order_id,
+    _timestamp as order_time,
+    DATEDIFF('seconds', order_timestamp, NOW()) as seconds_since_order,
+    DATEDIFF('minutes', order_timestamp, NOW()) as minutes_since_order,
+    DATEDIFF('hours', order_timestamp, NOW()) as hours_since_order,
+    DATEDIFF('days', order_timestamp, NOW()) as days_since_order
+FROM orders;
+
+-- IoT sensor data time analysis
+SELECT 
+    device_id,
+    sensor_reading,
+    last_charge_time,
+    DATEDIFF('hours', last_charge_time, TIMESTAMP()) as hours_since_charge,
+    CASE 
+        WHEN DATEDIFF('hours', last_charge_time, TIMESTAMP()) > 24 THEN 'LOW_BATTERY'
+        ELSE 'NORMAL'
+    END as battery_status
+FROM iot_sensors;
 ```
 
 ### Utility Functions
@@ -945,7 +1055,7 @@ FROM events;
 - `POWER(base, exponent)`, `POW(base, exponent)` - Exponentiation
 - `SQRT(number)` - Square root
 
-### String Functions (11 functions)
+### String Functions (12 functions)
 - `CONCAT(str1, str2, ...)` - Concatenate strings
 - `LENGTH(string)`, `LEN(string)` - String length in characters
 - `TRIM(string)` - Remove leading and trailing whitespace
@@ -957,12 +1067,14 @@ FROM events;
 - `LEFT(string, length)` - Get leftmost characters
 - `RIGHT(string, length)` - Get rightmost characters
 - `SUBSTRING(string, start[, length])` - Extract substring
+- `POSITION(substring, string[, start_position])` - Find substring position
 
-### Date/Time Functions (4 functions)
+### Date/Time Functions (5 functions)
 - `NOW()` - Current timestamp in milliseconds
 - `CURRENT_TIMESTAMP` - Current timestamp in milliseconds
 - `DATE_FORMAT(timestamp, format)` - Format timestamp as string
 - `EXTRACT(part, timestamp)` - Extract date/time component
+- `DATEDIFF(unit, start_date, end_date)` - Calculate time difference between dates
 
 ### Utility Functions (6 functions)
 - `COALESCE(value1, value2, ...)` - Return first non-null value
@@ -972,13 +1084,14 @@ FROM events;
 - `SPLIT(string, delimiter)` - Split string (returns first part)
 - `JOIN(delimiter, str1, str2, ...)` - Join strings with delimiter
 
-### Aggregate Functions (6 functions)
+### Aggregate Functions (7 functions)
 - `COUNT(*)` - Count records
 - `SUM(column)` - Sum numeric values
 - `AVG(column)` - Average of numeric values
 - `MIN(column)` - Minimum value
 - `MAX(column)` - Maximum value
 - `APPROX_COUNT_DISTINCT(column)` - Approximate distinct count
+- `LISTAGG(expression, delimiter)` - Concatenate values with delimiter
 
 ### JSON Functions (2 functions)
 - `JSON_VALUE(json_string, path)` - Extract scalar value from JSON
@@ -994,6 +1107,6 @@ FROM events;
 - `_offset` - Kafka message offset
 - `_partition` - Kafka partition number
 
-**Total: 42 functions + 3 system columns**
+**Total: 45 functions + 3 system columns**
 
 This reference guide covers all currently implemented SQL features in FerrisStreams. For the latest updates and additional examples, refer to the test suite and feature documentation.

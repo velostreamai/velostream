@@ -80,13 +80,19 @@ async fn test_simple_select_query() {
     assert_eq!(results.len(), 2);
 
     // Check first result
-    assert_eq!(results[0]["symbol"], "AAPL");
-    assert_eq!(results[0]["bid_price"], 150.0);
+    assert_eq!(
+        results[0]["symbol"],
+        InternalValue::String("AAPL".to_string())
+    );
+    assert_eq!(results[0]["bid_price"], InternalValue::Number(150.0));
     assert!(!results[0].contains_key("ask_price")); // Should not be selected
 
     // Check second result
-    assert_eq!(results[1]["symbol"], "GOOGL");
-    assert_eq!(results[1]["bid_price"], 2500.0);
+    assert_eq!(
+        results[1]["symbol"],
+        InternalValue::String("GOOGL".to_string())
+    );
+    assert_eq!(results[1]["bid_price"], InternalValue::Number(2500.0));
 
     println!("✅ Simple SELECT query works correctly");
 }
@@ -105,8 +111,11 @@ async fn test_select_with_where_clause() {
     let results = execute_sql_query(sql, records).await.unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["symbol"], "GOOGL");
-    assert_eq!(results[0]["bid_price"], 2500.0);
+    assert_eq!(
+        results[0]["symbol"],
+        InternalValue::String("GOOGL".to_string())
+    );
+    assert_eq!(results[0]["bid_price"], InternalValue::Number(2500.0));
 
     println!("✅ WHERE clause filtering works correctly");
 }
@@ -123,10 +132,10 @@ async fn test_arithmetic_functions() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result["symbol"], "AAPL");
-    assert_eq!(result["spread"], 1.0); // ABS(150.0 - 151.0) = 1.0
-    assert_eq!(result["min_size"], 100); // LEAST(100, 200) = 100
-    assert_eq!(result["max_size"], 200); // GREATEST(100, 200) = 200
+    assert_eq!(result["symbol"], InternalValue::String("AAPL".to_string()));
+    assert_eq!(result["spread"], InternalValue::Number(1.0)); // ABS(150.0 - 151.0) = 1.0
+    assert_eq!(result["min_size"], InternalValue::Integer(100)); // LEAST(100, 200) = 100
+    assert_eq!(result["max_size"], InternalValue::Integer(200)); // GREATEST(100, 200) = 200
 
     println!("✅ Arithmetic functions work correctly");
 }
@@ -162,11 +171,11 @@ async fn test_trading_arbitrage_query() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result["symbol"], "GOOGL");
-    assert_eq!(result["bid_price"], 2502.0);
-    assert_eq!(result["ask_price"], 2501.0);
-    assert_eq!(result["available_volume"], 50); // LEAST(50, 75) = 50
-    assert_eq!(result["spread"], 1.0); // ABS(2502.0 - 2501.0) = 1.0
+    assert_eq!(result["symbol"], InternalValue::String("GOOGL".to_string()));
+    assert_eq!(result["bid_price"], InternalValue::Number(2502.0));
+    assert_eq!(result["ask_price"], InternalValue::Number(2501.0));
+    assert_eq!(result["available_volume"], InternalValue::Integer(50)); // LEAST(50, 75) = 50
+    assert_eq!(result["spread"], InternalValue::Number(1.0)); // ABS(2502.0 - 2501.0) = 1.0
 
     println!("✅ Arbitrage detection query works correctly");
 }
@@ -187,8 +196,14 @@ async fn test_limit_functionality() {
 
     // Should only return first 2 records due to LIMIT
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0]["symbol"], "AAPL");
-    assert_eq!(results[1]["symbol"], "GOOGL");
+    assert_eq!(
+        results[0]["symbol"],
+        InternalValue::String("AAPL".to_string())
+    );
+    assert_eq!(
+        results[1]["symbol"],
+        InternalValue::String("GOOGL".to_string())
+    );
 
     println!("✅ LIMIT functionality works correctly");
 }
@@ -206,8 +221,11 @@ async fn test_string_functions() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result["upper_symbol"], "AAPL");
-    assert_eq!(result["symbol_length"], 4);
+    assert_eq!(
+        result["upper_symbol"],
+        InternalValue::String("AAPL".to_string())
+    );
+    assert_eq!(result["symbol_length"], InternalValue::Integer(4));
 
     println!("✅ String functions work correctly");
 }
@@ -222,18 +240,18 @@ async fn test_null_handling() {
     let mut record = HashMap::new();
     record.insert(
         "symbol".to_string(),
-        serde_json::Value::String("TEST".to_string()),
+        InternalValue::String("TEST".to_string()),
     );
-    record.insert("bid_price".to_string(), serde_json::Value::Null);
-    record.insert("ask_price".to_string(), serde_json::json!(100.0));
+    record.insert("bid_price".to_string(), InternalValue::Null);
+    record.insert("ask_price".to_string(), InternalValue::Number(100.0));
 
     let results = execute_sql_query(sql, vec![record]).await.unwrap();
 
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result["symbol"], "TEST");
-    assert_eq!(result["safe_bid_price"], 0.0); // COALESCE should return 0.0 for null
+    assert_eq!(result["symbol"], InternalValue::String("TEST".to_string()));
+    assert_eq!(result["safe_bid_price"], InternalValue::Number(0.0)); // COALESCE should return 0.0 for null
 
     println!("✅ NULL handling works correctly");
 }
@@ -257,9 +275,9 @@ async fn test_complex_expression() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result["symbol"], "AAPL");
+    assert_eq!(result["symbol"], InternalValue::String("AAPL".to_string()));
     // ROUND(ABS(150.5 - 151.7) * LEAST(100, 200), 2) = ROUND(1.2 * 100, 2) = 120.0
-    assert_eq!(result["total_opportunity"], 120.0);
+    assert_eq!(result["total_opportunity"], InternalValue::Number(120.0));
 
     println!("✅ Complex expressions work correctly");
 }
@@ -292,7 +310,7 @@ async fn test_streaming_behavior() {
 
     // Create engine
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(output_sender);
+    let mut engine = StreamExecutionEngine::new(output_sender, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).unwrap();
 
@@ -309,8 +327,11 @@ async fn test_streaming_behavior() {
 
     // Should only get one result (GOOGL)
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["symbol"], "GOOGL");
-    assert_eq!(results[0]["bid_price"], 2500.0);
+    assert_eq!(
+        results[0]["symbol"],
+        InternalValue::String("GOOGL".to_string())
+    );
+    assert_eq!(results[0]["bid_price"], InternalValue::Number(2500.0));
 
     println!("✅ Streaming behavior works correctly - each record processed independently");
 }
@@ -348,26 +369,33 @@ async fn test_end_to_end_integration() {
 
     // Verify GOOGL arbitrage
     let googl_result = &results[0];
-    assert_eq!(googl_result["symbol"], "GOOGL");
-    assert_eq!(googl_result["available_volume"], 50); // LEAST(50, 75)
-    assert_eq!(googl_result["spread"], 1.5); // ABS(2502.5 - 2501.0)
-    assert_eq!(googl_result["potential_profit"], 75.0); // (2502.5 - 2501.0) * 50
+    assert_eq!(
+        googl_result["symbol"],
+        InternalValue::String("GOOGL".to_string())
+    );
+    assert_eq!(googl_result["available_volume"], InternalValue::Integer(50)); // LEAST(50, 75)
+    assert_eq!(googl_result["spread"], InternalValue::Number(1.5)); // ABS(2502.5 - 2501.0)
+    assert_eq!(
+        googl_result["potential_profit"],
+        InternalValue::Number(75.0)
+    ); // (2502.5 - 2501.0) * 50
 
     // Verify TSLA arbitrage
     let tsla_result = &results[1];
-    assert_eq!(tsla_result["symbol"], "TSLA");
-    assert_eq!(tsla_result["available_volume"], 25); // LEAST(30, 25)
-    assert_eq!(tsla_result["spread"], 0.5); // ABS(801.0 - 800.5)
-    assert_eq!(tsla_result["potential_profit"], 12.5); // (801.0 - 800.5) * 25
+    assert_eq!(
+        tsla_result["symbol"],
+        InternalValue::String("TSLA".to_string())
+    );
+    assert_eq!(tsla_result["available_volume"], InternalValue::Integer(25)); // LEAST(30, 25)
+    assert_eq!(tsla_result["spread"], InternalValue::Number(0.5)); // ABS(801.0 - 800.5)
+    assert_eq!(tsla_result["potential_profit"], InternalValue::Number(12.5)); // (801.0 - 800.5) * 25
 
     println!("✅ End-to-end integration test passed - arbitrage detection working perfectly!");
     println!("   Found {} arbitrage opportunities", results.len());
-    println!(
-        "   GOOGL: ${:.2} potential profit",
-        googl_result["potential_profit"]
-    );
-    println!(
-        "   TSLA: ${:.2} potential profit",
-        tsla_result["potential_profit"]
-    );
+    if let InternalValue::Number(googl_profit) = &googl_result["potential_profit"] {
+        println!("   GOOGL: ${:.2} potential profit", googl_profit);
+    }
+    if let InternalValue::Number(tsla_profit) = &tsla_result["potential_profit"] {
+        println!("   TSLA: ${:.2} potential profit", tsla_profit);
+    }
 }
