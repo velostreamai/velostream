@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
-    StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
+    StreamSource, StreamingQuery, TimeUnit, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
 use log::warn;
@@ -1105,11 +1105,17 @@ impl StreamExecutionEngine {
                 LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 LiteralValue::Null => Ok(FieldValue::Null),
-                LiteralValue::Interval { .. } => Err(SqlError::TypeError {
-                    expected: "basic type".to_string(),
-                    actual: "interval".to_string(),
-                    value: None,
-                }),
+                LiteralValue::Interval { value, unit } => {
+                    // Convert INTERVAL to milliseconds for internal representation
+                    let millis = match unit {
+                        TimeUnit::Millisecond => *value,
+                        TimeUnit::Second => *value * 1000,
+                        TimeUnit::Minute => *value * 60 * 1000,
+                        TimeUnit::Hour => *value * 60 * 60 * 1000,
+                        TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
+                    };
+                    Ok(FieldValue::Integer(millis))
+                }
             },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = self.evaluate_expression_value(left, record)?;

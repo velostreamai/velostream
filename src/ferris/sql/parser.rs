@@ -228,6 +228,9 @@ enum TokenType {
     On,     // ON
     Within, // WITHIN
 
+    // Time Keywords
+    Interval, // INTERVAL
+
     // Special
     Eof, // End of input
 }
@@ -315,6 +318,7 @@ impl StreamingSqlParser {
         keywords.insert("OUTER".to_string(), TokenType::Outer);
         keywords.insert("ON".to_string(), TokenType::On);
         keywords.insert("WITHIN".to_string(), TokenType::Within);
+        keywords.insert("INTERVAL".to_string(), TokenType::Interval);
         keywords.insert("NULL".to_string(), TokenType::Null);
 
         Self { keywords }
@@ -1179,6 +1183,56 @@ impl TokenParser {
             TokenType::Null => {
                 self.advance();
                 Ok(Expr::Literal(LiteralValue::Null))
+            }
+            TokenType::Interval => {
+                self.advance(); // consume INTERVAL
+
+                // Parse the value (could be a string literal or number)
+                let value_token = self.current_token().clone();
+                let value_str = match value_token.token_type {
+                    TokenType::String | TokenType::Number => {
+                        self.advance();
+                        value_token.value
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: "Expected string or number after INTERVAL".to_string(),
+                            position: Some(value_token.position),
+                        });
+                    }
+                };
+
+                // Parse the value as integer
+                let value = value_str.parse::<i64>().map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid interval value: {}", value_str),
+                    position: Some(value_token.position),
+                })?;
+
+                // Parse the time unit
+                let unit_token = self.current_token().clone();
+                if unit_token.token_type != TokenType::Identifier {
+                    return Err(SqlError::ParseError {
+                        message: "Expected time unit after INTERVAL value".to_string(),
+                        position: Some(unit_token.position),
+                    });
+                }
+
+                let unit = match unit_token.value.to_uppercase().as_str() {
+                    "MILLISECOND" | "MILLISECONDS" => TimeUnit::Millisecond,
+                    "SECOND" | "SECONDS" => TimeUnit::Second,
+                    "MINUTE" | "MINUTES" => TimeUnit::Minute,
+                    "HOUR" | "HOURS" => TimeUnit::Hour,
+                    "DAY" | "DAYS" => TimeUnit::Day,
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!("Invalid time unit: {}", unit_token.value),
+                            position: Some(unit_token.position),
+                        });
+                    }
+                };
+
+                self.advance(); // consume time unit
+                Ok(Expr::Literal(LiteralValue::Interval { value, unit }))
             }
             TokenType::LeftParen => {
                 self.advance();

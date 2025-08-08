@@ -8,6 +8,7 @@ pub mod execution_tests;
 pub mod group_by_tests;
 pub mod header_tests;
 pub mod integration_tests;
+mod interval_tests;
 pub mod job_management_tests;
 mod join_tests;
 pub mod limit_tests;
