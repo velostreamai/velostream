@@ -56,45 +56,77 @@ async fn execute_query(
     query: &str,
 ) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat));
+    let mut engine = StreamExecutionEngine::new(
+        tx,
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+    );
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_with_advanced_types();
 
     // Convert StreamRecord to HashMap<String, InternalValue> for the engine
-    let internal_record: HashMap<String, ferrisstreams::ferris::serialization::InternalValue> = record
-        .fields
-        .into_iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                ferrisstreams::ferris::sql::execution::FieldValue::Integer(i) => ferrisstreams::ferris::serialization::InternalValue::Integer(i),
-                ferrisstreams::ferris::sql::execution::FieldValue::Float(f) => ferrisstreams::ferris::serialization::InternalValue::Number(f),
-                ferrisstreams::ferris::sql::execution::FieldValue::String(s) => ferrisstreams::ferris::serialization::InternalValue::String(s),
-                ferrisstreams::ferris::sql::execution::FieldValue::Boolean(b) => ferrisstreams::ferris::serialization::InternalValue::Boolean(b),
-                ferrisstreams::ferris::sql::execution::FieldValue::Null => ferrisstreams::ferris::serialization::InternalValue::Null,
-                _ => ferrisstreams::ferris::serialization::InternalValue::String(format!("{:?}", v)),
-            };
-            (k, internal_val)
-        })
-        .collect();
+    let internal_record: HashMap<String, ferrisstreams::ferris::serialization::InternalValue> =
+        record
+            .fields
+            .into_iter()
+            .map(|(k, v)| {
+                let internal_val = match v {
+                    ferrisstreams::ferris::sql::execution::FieldValue::Integer(i) => {
+                        ferrisstreams::ferris::serialization::InternalValue::Integer(i)
+                    }
+                    ferrisstreams::ferris::sql::execution::FieldValue::Float(f) => {
+                        ferrisstreams::ferris::serialization::InternalValue::Number(f)
+                    }
+                    ferrisstreams::ferris::sql::execution::FieldValue::String(s) => {
+                        ferrisstreams::ferris::serialization::InternalValue::String(s)
+                    }
+                    ferrisstreams::ferris::sql::execution::FieldValue::Boolean(b) => {
+                        ferrisstreams::ferris::serialization::InternalValue::Boolean(b)
+                    }
+                    ferrisstreams::ferris::sql::execution::FieldValue::Null => {
+                        ferrisstreams::ferris::serialization::InternalValue::Null
+                    }
+                    _ => ferrisstreams::ferris::serialization::InternalValue::String(format!(
+                        "{:?}",
+                        v
+                    )),
+                };
+                (k, internal_val)
+            })
+            .collect();
 
     engine.execute(&parsed_query, internal_record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
         // Convert HashMap<String, InternalValue> to HashMap<String, serde_json::Value>
-        let converted: HashMap<String, serde_json::Value> = result.into_iter().map(|(k, v)| {
-            let json_val = match v {
-                ferrisstreams::ferris::serialization::InternalValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
-                ferrisstreams::ferris::serialization::InternalValue::Number(f) => serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(0.into())),
-                ferrisstreams::ferris::serialization::InternalValue::String(s) => serde_json::Value::String(s),
-                ferrisstreams::ferris::serialization::InternalValue::Boolean(b) => serde_json::Value::Bool(b),
-                ferrisstreams::ferris::serialization::InternalValue::Null => serde_json::Value::Null,
-                _ => serde_json::Value::String(format!("{:?}", v)),
-            };
-            (k, json_val)
-        }).collect();
+        let converted: HashMap<String, serde_json::Value> = result
+            .into_iter()
+            .map(|(k, v)| {
+                let json_val = match v {
+                    ferrisstreams::ferris::serialization::InternalValue::Integer(i) => {
+                        serde_json::Value::Number(serde_json::Number::from(i))
+                    }
+                    ferrisstreams::ferris::serialization::InternalValue::Number(f) => {
+                        serde_json::Value::Number(
+                            serde_json::Number::from_f64(f).unwrap_or(0.into()),
+                        )
+                    }
+                    ferrisstreams::ferris::serialization::InternalValue::String(s) => {
+                        serde_json::Value::String(s)
+                    }
+                    ferrisstreams::ferris::serialization::InternalValue::Boolean(b) => {
+                        serde_json::Value::Bool(b)
+                    }
+                    ferrisstreams::ferris::serialization::InternalValue::Null => {
+                        serde_json::Value::Null
+                    }
+                    _ => serde_json::Value::String(format!("{:?}", v)),
+                };
+                (k, json_val)
+            })
+            .collect();
         results.push(converted);
     }
     Ok(results)
