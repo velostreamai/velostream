@@ -736,7 +736,7 @@ async fn test_comprehensive_new_functions_integration() {
         InternalValue::Integer(val) => *val,
         _ => panic!("Expected integer for letter_pos"),
     };
-    assert_eq!(letter_pos, 12); // Position of 'o' in "Test Product"
+    assert_eq!(letter_pos, 8); // Position of 'o' in "Test Product" (first 'o' in "Product")
 
     let absolute_val = match &results[0]["absolute_val"] {
         InternalValue::Integer(val) => *val,
