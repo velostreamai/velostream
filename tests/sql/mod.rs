@@ -2,6 +2,7 @@
 
 pub mod advanced_functions_tests;
 pub mod advanced_job_lifecycle_tests;
+mod case_when_tests;
 pub mod context_tests;
 pub mod csas_ctas_tests;
 pub mod execution_tests;
@@ -17,3 +18,4 @@ pub mod parser_tests;
 pub mod show_tests;
 pub mod string_json_functions_tests;
 pub mod system_column_tests;
+mod window_frame_tests;

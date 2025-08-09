@@ -10,12 +10,18 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
 2. [JOIN Operations](#join-operations)
 3. [Job Lifecycle Management](#job-lifecycle-management)
 4. [Built-in Functions](#built-in-functions)
+   - [Aggregate Functions](#aggregate-functions)
+   - [Math Functions](#math-functions)
+   - [String Functions](#string-functions)
+   - [Date/Time Functions](#datetime-functions)
+   - [Utility Functions](#utility-functions)
+   - [CASE WHEN Expressions](#case-when-expressions)
+   - [INTERVAL Arithmetic](#interval-arithmetic)
 5. [JSON Processing](#json-processing)
-6. [String Functions](#string-functions)
-7. [System Columns](#system-columns)
-8. [Window Operations](#window-operations)
-9. [Schema Management](#schema-management)
-10. [Examples](#examples)
+6. [System Columns](#system-columns)
+7. [Window Operations](#window-operations)
+8. [Schema Management](#schema-management)
+9. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -628,6 +634,326 @@ SELECT
 FROM orders;
 ```
 
+### CASE WHEN Expressions
+
+CASE WHEN expressions provide conditional logic in SQL queries, allowing for complex decision trees and conditional value assignment.
+
+#### Basic CASE WHEN Syntax
+
+```sql
+-- Simple CASE WHEN expression
+SELECT 
+    customer_id,
+    order_amount,
+    CASE 
+        WHEN order_amount > 1000 THEN 'VIP'
+        WHEN order_amount > 500 THEN 'Premium'
+        WHEN order_amount > 100 THEN 'Standard'
+        ELSE 'Basic'
+    END as customer_tier
+FROM orders;
+
+-- CASE without ELSE (returns NULL for unmatched conditions)
+SELECT 
+    product_id,
+    status,
+    CASE 
+        WHEN status = 'active' THEN 'Available'
+        WHEN status = 'maintenance' THEN 'Temporarily Unavailable'
+    END as availability_message
+FROM products;
+```
+
+#### CASE WHEN in Conditional Aggregations
+
+One of the most powerful features is using CASE WHEN expressions within aggregate functions for conditional aggregations:
+
+```sql
+-- Conditional counting and summing
+SELECT 
+    store_id,
+    COUNT(*) as total_orders,
+    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders,
+    COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_orders,
+    SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END) as completed_revenue,
+    SUM(CASE WHEN priority = 'urgent' THEN amount ELSE 0 END) as urgent_revenue,
+    AVG(CASE WHEN rating >= 4 THEN rating END) as avg_good_rating
+FROM orders
+GROUP BY store_id;
+
+-- Multi-dimensional analysis with conditional aggregations
+SELECT 
+    product_category,
+    COUNT(*) as total_sales,
+    -- Count by price tier
+    COUNT(CASE WHEN price > 100 THEN 1 END) as premium_sales,
+    COUNT(CASE WHEN price BETWEEN 50 AND 100 THEN 1 END) as mid_tier_sales,
+    COUNT(CASE WHEN price < 50 THEN 1 END) as budget_sales,
+    -- Revenue by customer type
+    SUM(CASE WHEN customer_type = 'B2B' THEN amount ELSE 0 END) as b2b_revenue,
+    SUM(CASE WHEN customer_type = 'B2C' THEN amount ELSE 0 END) as b2c_revenue,
+    -- Average satisfaction by tier
+    AVG(CASE WHEN customer_tier = 'VIP' THEN satisfaction_score END) as vip_satisfaction
+FROM sales
+GROUP BY product_category
+HAVING COUNT(*) > 100;
+```
+
+#### Advanced CASE WHEN Patterns
+
+```sql
+-- Nested CASE expressions for complex logic
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    CASE 
+        WHEN customer_type = 'VIP' THEN 
+            CASE 
+                WHEN amount > 5000 THEN 'VIP_PLATINUM'
+                WHEN amount > 1000 THEN 'VIP_GOLD'
+                ELSE 'VIP_STANDARD'
+            END
+        WHEN customer_type = 'REGULAR' THEN
+            CASE 
+                WHEN amount > 2000 THEN 'REGULAR_HIGH'
+                WHEN amount > 500 THEN 'REGULAR_MEDIUM'
+                ELSE 'REGULAR_LOW'
+            END
+        ELSE 'NEW_CUSTOMER'
+    END as detailed_segment
+FROM orders;
+
+-- CASE with complex conditions
+SELECT 
+    order_id,
+    customer_id,
+    amount,
+    order_date,
+    CASE 
+        WHEN amount > 1000 AND customer_tier = 'VIP' AND EXTRACT('HOUR', order_date) BETWEEN 9 AND 17 THEN 'PRIORITY_PROCESSING'
+        WHEN amount > 500 OR (customer_tier = 'PREMIUM' AND payment_method = 'CREDIT') THEN 'FAST_PROCESSING'
+        WHEN EXTRACT('DAY_OF_WEEK', order_date) IN (6, 7) THEN 'WEEKEND_PROCESSING'
+        ELSE 'STANDARD_PROCESSING'
+    END as processing_priority
+FROM orders;
+
+-- Real-time alert generation with CASE
+SELECT 
+    device_id,
+    sensor_reading,
+    temperature,
+    humidity,
+    CASE 
+        WHEN temperature > 85 AND humidity > 70 THEN 'CRITICAL_ALERT'
+        WHEN temperature > 80 OR humidity > 80 THEN 'WARNING'
+        WHEN sensor_reading IS NULL THEN 'SENSOR_OFFLINE'
+        ELSE 'NORMAL'
+    END as alert_status,
+    CASE 
+        WHEN temperature > 85 AND humidity > 70 THEN 'Immediate attention required'
+        WHEN temperature > 80 THEN 'Temperature threshold exceeded'
+        WHEN humidity > 80 THEN 'Humidity threshold exceeded'
+        WHEN sensor_reading IS NULL THEN 'Device connection lost'
+        ELSE NULL
+    END as alert_message
+FROM environmental_sensors;
+```
+
+#### CASE WHEN for Data Transformation
+
+```sql
+-- Data normalization and standardization
+SELECT 
+    user_id,
+    raw_country_input,
+    CASE 
+        WHEN UPPER(raw_country_input) IN ('US', 'USA', 'UNITED STATES', 'AMERICA') THEN 'United States'
+        WHEN UPPER(raw_country_input) IN ('UK', 'GB', 'GREAT BRITAIN', 'ENGLAND') THEN 'United Kingdom'
+        WHEN UPPER(raw_country_input) IN ('DE', 'GERMANY', 'DEUTSCHLAND') THEN 'Germany'
+        WHEN LENGTH(raw_country_input) = 2 THEN UPPER(raw_country_input)  -- ISO country codes
+        ELSE INITCAP(raw_country_input)  -- Capitalize first letter of each word
+    END as normalized_country
+FROM user_data;
+
+-- Business logic implementation
+SELECT 
+    product_id,
+    base_price,
+    quantity,
+    customer_tier,
+    region,
+    CASE 
+        WHEN customer_tier = 'VIP' AND quantity >= 100 THEN base_price * 0.8  -- 20% discount
+        WHEN customer_tier = 'VIP' AND quantity >= 50 THEN base_price * 0.85   -- 15% discount
+        WHEN customer_tier = 'VIP' THEN base_price * 0.9                       -- 10% discount
+        WHEN quantity >= 100 THEN base_price * 0.9                             -- 10% volume discount
+        WHEN region = 'DEVELOPING' THEN base_price * 0.95                      -- 5% regional discount
+        ELSE base_price
+    END as final_price
+FROM order_items;
+```
+
+### INTERVAL Arithmetic
+
+INTERVAL arithmetic enables time-based calculations for temporal analysis, scheduling, and time window operations.
+
+#### Basic INTERVAL Usage
+
+```sql
+-- INTERVAL literals and arithmetic
+SELECT 
+    order_id,
+    order_timestamp,
+    order_timestamp + INTERVAL '1' HOUR as estimated_preparation,
+    order_timestamp + INTERVAL '30' MINUTES as pickup_ready_time,
+    order_timestamp + INTERVAL '2' HOURS as delivery_window_start,
+    order_timestamp + INTERVAL '4' HOURS as delivery_window_end
+FROM orders;
+
+-- Working with different time units
+SELECT 
+    event_id,
+    event_timestamp,
+    event_timestamp - INTERVAL '5' MINUTES as pre_event_window,
+    event_timestamp + INTERVAL '1' DAY as followup_date,
+    event_timestamp + INTERVAL '7' DAYS as weekly_followup,
+    event_timestamp + INTERVAL '1000' MILLISECONDS as microsecond_precision
+FROM events;
+```
+
+#### INTERVAL with System Columns
+
+```sql
+-- Using INTERVAL with system columns for stream processing
+SELECT 
+    message_id,
+    _timestamp as message_time,
+    _timestamp + INTERVAL '15' MINUTES as alert_window_end,
+    _timestamp - INTERVAL '1' HOUR as lookback_window_start,
+    CASE 
+        WHEN _timestamp + INTERVAL '10' MINUTES > TIMESTAMP() THEN 'RECENT'
+        WHEN _timestamp + INTERVAL '1' HOUR > TIMESTAMP() THEN 'CURRENT'
+        ELSE 'HISTORICAL'
+    END as message_age_category
+FROM message_stream;
+
+-- Time-based filtering with INTERVAL
+SELECT *
+FROM sensor_readings
+WHERE _timestamp > (_timestamp - INTERVAL '5' MINUTES)
+  AND temperature > 75.0;
+```
+
+#### Advanced INTERVAL Operations
+
+```sql
+-- Complex time window analysis
+SELECT 
+    user_id,
+    session_start,
+    session_end,
+    session_end - session_start as session_duration_ms,
+    CASE 
+        WHEN (session_end - session_start) > INTERVAL '30' MINUTES THEN 'LONG_SESSION'
+        WHEN (session_end - session_start) > INTERVAL '10' MINUTES THEN 'MEDIUM_SESSION'
+        WHEN (session_end - session_start) > INTERVAL '2' MINUTES THEN 'SHORT_SESSION'
+        ELSE 'VERY_SHORT_SESSION'
+    END as session_category
+FROM user_sessions;
+
+-- Sliding time windows for streaming analytics
+SELECT 
+    device_id,
+    reading_timestamp,
+    sensor_value,
+    AVG(sensor_value) OVER (
+        PARTITION BY device_id 
+        ORDER BY reading_timestamp 
+        RANGE BETWEEN INTERVAL '15' MINUTES PRECEDING AND CURRENT ROW
+    ) as rolling_15min_avg,
+    CASE 
+        WHEN reading_timestamp - LAG(reading_timestamp) OVER (PARTITION BY device_id ORDER BY reading_timestamp) > INTERVAL '5' MINUTES 
+        THEN 'DATA_GAP'
+        ELSE 'CONTINUOUS'
+    END as data_continuity
+FROM sensor_data;
+
+-- Business hours and scheduling logic
+SELECT 
+    order_id,
+    order_timestamp,
+    CASE 
+        WHEN EXTRACT('HOUR', order_timestamp) BETWEEN 9 AND 17 THEN 'BUSINESS_HOURS'
+        WHEN EXTRACT('HOUR', order_timestamp) BETWEEN 7 AND 21 THEN 'EXTENDED_HOURS'
+        ELSE 'AFTER_HOURS'
+    END as time_category,
+    CASE 
+        WHEN EXTRACT('HOUR', order_timestamp) BETWEEN 9 AND 17 THEN 
+            order_timestamp + INTERVAL '2' HOURS  -- Standard processing
+        WHEN EXTRACT('HOUR', order_timestamp) BETWEEN 18 AND 21 THEN 
+            order_timestamp + INTERVAL '12' HOURS -- Next business day
+        ELSE 
+            order_timestamp + INTERVAL '1' DAY    -- Next day processing
+    END as expected_processing_time
+FROM orders;
+```
+
+#### Real-time Temporal Analysis
+
+```sql
+-- Real-time alerting with time-based conditions
+SELECT 
+    sensor_id,
+    reading_timestamp,
+    temperature,
+    CASE 
+        WHEN temperature > 80 AND 
+             reading_timestamp > (TIMESTAMP() - INTERVAL '5' MINUTES) THEN 'IMMEDIATE_ALERT'
+        WHEN temperature > 75 AND 
+             reading_timestamp > (TIMESTAMP() - INTERVAL '10' MINUTES) THEN 'WARNING'
+        ELSE 'NORMAL'
+    END as alert_level,
+    TIMESTAMP() - reading_timestamp as data_age_ms
+FROM temperature_sensors
+WHERE reading_timestamp > (TIMESTAMP() - INTERVAL '1' HOUR);
+
+-- Time-based aggregation windows
+SELECT 
+    DATE_FORMAT(_timestamp, '%Y-%m-%d %H:00:00') as hourly_bucket,
+    COUNT(*) as event_count,
+    COUNT(CASE WHEN severity = 'HIGH' THEN 1 END) as high_severity_events,
+    AVG(CASE WHEN response_time IS NOT NULL THEN response_time END) as avg_response_time,
+    MIN(_timestamp) as window_start,
+    MAX(_timestamp) as window_end,
+    MAX(_timestamp) - MIN(_timestamp) as actual_window_duration
+FROM system_events
+WHERE _timestamp > (TIMESTAMP() - INTERVAL '24' HOURS)
+GROUP BY DATE_FORMAT(_timestamp, '%Y-%m-%d %H:00:00')
+ORDER BY hourly_bucket DESC;
+```
+
+#### Supported INTERVAL Units
+
+- `MILLISECONDS` / `MILLISECOND`: Precise timing for high-frequency operations
+- `SECONDS` / `SECOND`: Standard time operations
+- `MINUTES` / `MINUTE`: Short-term scheduling and windows
+- `HOURS` / `HOUR`: Business logic and daily operations
+- `DAYS` / `DAY`: Long-term planning and retention
+
+```sql
+-- Examples of all supported units
+SELECT 
+    event_id,
+    base_timestamp,
+    base_timestamp + INTERVAL '500' MILLISECONDS as precise_timing,
+    base_timestamp + INTERVAL '30' SECONDS as half_minute_later,
+    base_timestamp + INTERVAL '15' MINUTES as quarter_hour_later,
+    base_timestamp + INTERVAL '4' HOURS as same_day_later,
+    base_timestamp + INTERVAL '7' DAYS as one_week_later
+FROM scheduled_events;
+```
+
 ## JSON Processing
 
 ### JSON Extraction Functions
@@ -783,6 +1109,261 @@ SELECT
 FROM orders
 GROUP BY customer_id
 WINDOW TUMBLING(1h, order_timestamp);
+```
+
+### Window Functions with OVER Clauses
+
+Window functions perform calculations across a set of rows related to the current row using OVER clauses. They support PARTITION BY, ORDER BY, and frame specifications with ROWS BETWEEN and RANGE BETWEEN clauses.
+
+#### Basic Window Functions
+
+```sql
+-- ROW_NUMBER: Assign unique row numbers within partitions
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date) as order_sequence
+FROM orders;
+
+-- RANK and DENSE_RANK: Ranking functions
+SELECT 
+    order_id,
+    customer_id,
+    amount,
+    RANK() OVER (ORDER BY amount DESC) as amount_rank,
+    DENSE_RANK() OVER (ORDER BY amount DESC) as amount_dense_rank
+FROM orders;
+```
+
+#### LAG and LEAD Functions
+
+```sql
+-- LAG: Access previous row values
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    LAG(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_amount,
+    LAG(order_date, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_order_date
+FROM orders;
+
+-- LEAD: Access following row values  
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    LEAD(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as next_amount,
+    LEAD(order_date, 2) OVER (PARTITION BY customer_id ORDER BY order_date) as next_next_order_date
+FROM orders;
+```
+
+#### Window Frames with ROWS BETWEEN
+
+Window frames define the subset of rows within the partition for calculation. ROWS BETWEEN clauses specify physical row boundaries.
+
+```sql
+-- Running totals with UNBOUNDED PRECEDING
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    SUM(amount) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date 
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as running_total
+FROM orders;
+
+-- Moving averages with physical row windows
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    AVG(amount) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date 
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) as moving_avg_3_orders
+FROM orders;
+
+-- Forward-looking calculations
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    SUM(amount) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date 
+        ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING
+    ) as next_3_orders_total
+FROM orders;
+```
+
+#### Window Frames with RANGE BETWEEN
+
+RANGE BETWEEN specifies logical value ranges instead of physical row counts.
+
+```sql
+-- Range-based window for time intervals
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    amount,
+    COUNT(*) OVER (
+        ORDER BY order_date
+        RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as orders_up_to_date,
+    SUM(amount) OVER (
+        ORDER BY order_date
+        RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING  
+    ) as remaining_revenue
+FROM orders;
+```
+
+#### Complex Window Specifications
+
+```sql
+-- Multiple window functions with different frames
+SELECT 
+    order_id,
+    customer_id,
+    product_category,
+    order_date,
+    amount,
+    
+    -- Row number within customer partition
+    ROW_NUMBER() OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date
+    ) as customer_order_sequence,
+    
+    -- Running sum of customer orders
+    SUM(amount) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date
+        ROWS UNBOUNDED PRECEDING
+    ) as customer_lifetime_value,
+    
+    -- Moving average over last 5 orders per category
+    AVG(amount) OVER (
+        PARTITION BY product_category
+        ORDER BY order_date
+        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+    ) as category_moving_avg,
+    
+    -- Percentage of total revenue
+    amount / SUM(amount) OVER () * 100 as pct_of_total_revenue,
+    
+    -- Compare with previous and next orders
+    LAG(amount, 1) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date
+    ) as prev_order_amount,
+    
+    LEAD(amount, 1) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date  
+    ) as next_order_amount
+FROM orders;
+```
+
+#### Streaming Analytics with Window Functions
+
+```sql
+-- Real-time customer behavior analysis
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    product_category,
+    
+    -- Customer order frequency
+    DATEDIFF('days', 
+        LAG(order_date, 1) OVER (PARTITION BY customer_id ORDER BY order_date),
+        order_date
+    ) as days_since_last_order,
+    
+    -- Customer spending trend (3-order moving average)
+    AVG(amount) OVER (
+        PARTITION BY customer_id 
+        ORDER BY order_date
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) as spending_trend,
+    
+    -- Category rank within time window
+    DENSE_RANK() OVER (
+        PARTITION BY product_category
+        ORDER BY order_date DESC
+    ) as category_recency_rank,
+    
+    -- Running customer value percentile
+    PERCENT_RANK() OVER (
+        ORDER BY SUM(amount) OVER (
+            PARTITION BY customer_id 
+            ORDER BY order_date
+            ROWS UNBOUNDED PRECEDING
+        )
+    ) as customer_value_percentile
+FROM orders
+WHERE order_date >= NOW() - INTERVAL '30' DAYS;
+```
+
+#### Performance Considerations
+
+1. **Partition Strategy**: Use PARTITION BY to limit window scope and improve performance
+2. **Frame Specification**: Smaller frames (e.g., ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) are more efficient than unbounded frames
+3. **Ordering**: Ensure ORDER BY columns are indexed for optimal performance
+4. **Memory Usage**: Large partitions with unbounded frames may consume significant memory
+
+#### Common Window Function Patterns
+
+```sql
+-- Pattern 1: Top-N per group
+SELECT *
+FROM (
+    SELECT 
+        customer_id,
+        order_id,
+        amount,
+        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY amount DESC) as rn
+    FROM orders
+) ranked
+WHERE rn <= 3;  -- Top 3 orders per customer
+
+-- Pattern 2: Running totals and percentages
+SELECT 
+    order_date,
+    daily_revenue,
+    SUM(daily_revenue) OVER (ORDER BY order_date) as cumulative_revenue,
+    daily_revenue / SUM(daily_revenue) OVER () * 100 as pct_of_total
+FROM (
+    SELECT 
+        DATE(order_date) as order_date,
+        SUM(amount) as daily_revenue
+    FROM orders
+    GROUP BY DATE(order_date)
+) daily_totals;
+
+-- Pattern 3: Change detection
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    LAG(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_amount,
+    CASE 
+        WHEN amount > LAG(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) THEN 'INCREASE'
+        WHEN amount < LAG(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) THEN 'DECREASE'
+        ELSE 'SAME'
+    END as amount_trend
+FROM orders;
 ```
 
 ## Schema Management
