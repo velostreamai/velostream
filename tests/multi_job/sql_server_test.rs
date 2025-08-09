@@ -72,7 +72,7 @@ WITH ('output.topic' = 'job5_output');
 #[tokio::test]
 async fn test_sql_parser_extracts_all_jobs() {
     // Test that our SQL parser can extract all 5 jobs from the test application
-    let mut parser = SqlApplicationParser::new();
+    let parser = SqlApplicationParser::new();
 
     match parser.parse_application(TEST_SQL_APP) {
         Ok(app) => {

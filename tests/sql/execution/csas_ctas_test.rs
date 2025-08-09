@@ -303,13 +303,13 @@ mod tests {
             .unwrap();
 
         // Test valid CSAS query
-        let valid_result =
+        let _valid_result =
             context.execute_query("CREATE STREAM high_value AS SELECT customer_id FROM orders");
         // Note: This may not be fully implemented in context yet, but should parse correctly
         // assert!(valid_result.is_ok()); // Uncomment when context supports CREATE queries
 
         // Test invalid CSAS query (referencing non-existent column)
-        let invalid_result =
+        let _invalid_result =
             context.execute_query("CREATE STREAM invalid AS SELECT nonexistent_column FROM orders");
         // assert!(invalid_result.is_err()); // Uncomment when context supports CREATE queries
     }

@@ -50,7 +50,7 @@ mod tests {
     #[tokio::test]
     async fn test_engine_creation() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let _engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
 
         // Basic creation test - engine should start without errors
         assert!(true); // Engine created successfully

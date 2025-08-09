@@ -19,7 +19,7 @@ mod tests {
                 from,
                 where_clause,
                 window,
-                limit,
+                limit: _,
                 ..
             } => {
                 assert_eq!(fields.len(), 1);

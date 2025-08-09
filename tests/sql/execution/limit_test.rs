@@ -80,7 +80,7 @@ mod tests {
             .unwrap();
 
         // Create test records
-        let mut records: Vec<HashMap<String, InternalValue>> = Vec::new();
+        let _records: Vec<HashMap<String, InternalValue>> = Vec::new();
         for i in 1..=3 {
             let mut record = HashMap::new();
             record.insert("customer_id".to_string(), InternalValue::Integer(i));

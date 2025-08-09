@@ -298,7 +298,7 @@ fn create_test_record_with_join_fields() -> StreamRecord {
 #[tokio::test]
 async fn test_join_execution_logic() {
     // Test that the JOIN execution logic actually works with the parser
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, std::sync::Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
 
