@@ -87,8 +87,8 @@ jobs:
     - name: Run integration tests
       run: |
         # Run tests that require Kafka with delays to prevent resource contention
-        echo "Running kafka_integration_test..."
-        cargo test integration::kafka_integration_test -- --nocapture
+        echo "Running kafka_basic_test..."
+        cargo test integration::kafka_basic_test -- --nocapture
         echo "Waiting 30 seconds before next test suite..."
         sleep 30
         
@@ -98,8 +98,8 @@ jobs:
         sleep 30
         
         
-        echo "Running remaining integration tests (excluding failure_recovery and transaction)..."
-        cargo test integration -- --nocapture --skip failure_recovery_test --skip transaction_test
+        echo "Running remaining integration tests (excluding failure_recovery and transactions)..."
+        cargo test integration -- --nocapture --skip failure_recovery_test --skip transactions_test
       env:
         KAFKA_BROKERS: localhost:9092
         RUST_LOG: debug
@@ -115,7 +115,7 @@ jobs:
     - name: Run multi-job SQL server tests
       run: |
         echo "Running multi-job SQL server integration tests..."
-        cargo test --test test_multi_job_sql_server -- --nocapture
+        cargo test multi_job::sql_server_test -- --nocapture
       env:
         KAFKA_BROKERS: localhost:9092
         RUST_LOG: info

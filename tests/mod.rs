@@ -10,8 +10,8 @@ pub mod integration;
 // Performance tests - Wrapper for examples/performance/
 pub mod performance;
 
-// Property-based tests - Future implementation
-pub mod property;
+// Multi-job server tests - Tests for multi-job functionality
+pub mod multi_job;
 
 // SQL tests - Streaming SQL parser and execution tests
 pub mod sql;
