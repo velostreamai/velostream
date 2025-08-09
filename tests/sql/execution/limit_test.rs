@@ -92,10 +92,14 @@ mod tests {
             engine.execute(&query, record).await.unwrap();
         }
 
-        // Check results
+        // Check results with timeout to avoid hanging
         let mut count = 0;
-        while let Some(_result) = rx.recv().await {
+        // Give some time for processing, then collect results
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        while let Ok(result) = rx.try_recv() {
             count += 1;
+            let _ = result; // Consume the result
             assert!(
                 count <= 2,
                 "Should not receive more than 2 records due to LIMIT"
