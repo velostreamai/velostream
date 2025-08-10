@@ -39,7 +39,7 @@ async fn execute_query_with_window(
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
-    
+
     // Process each record to simulate streaming with window buffer
     for record in records {
         let internal_record: HashMap<String, InternalValue> = record
@@ -94,7 +94,7 @@ async fn test_row_number_function() {
     .unwrap();
 
     assert_eq!(results.len(), 3);
-    
+
     // Each record should have a row number
     for (i, result) in results.iter().enumerate() {
         let row_num = match &result["row_num"] {
@@ -122,16 +122,16 @@ async fn test_lag_function_basic() {
     .unwrap();
 
     assert_eq!(results.len(), 4);
-    
+
     // First record should have NULL for LAG
     assert_eq!(results[0]["prev_value"], InternalValue::Null);
-    
+
     // Second record should have first record's value
     if results.len() > 1 {
         assert_eq!(results[1]["prev_value"], InternalValue::Integer(100));
     }
-    
-    // Third record should have second record's value  
+
+    // Third record should have second record's value
     if results.len() > 2 {
         assert_eq!(results[2]["prev_value"], InternalValue::Integer(200));
     }
@@ -155,18 +155,18 @@ async fn test_lag_function_with_offset() {
     .unwrap();
 
     assert_eq!(results.len(), 5);
-    
+
     // First two records should have NULL for LAG(2)
     assert_eq!(results[0]["lag2_value"], InternalValue::Null);
     if results.len() > 1 {
         assert_eq!(results[1]["lag2_value"], InternalValue::Null);
     }
-    
+
     // Third record should have first record's value
     if results.len() > 2 {
         assert_eq!(results[2]["lag2_value"], InternalValue::Integer(100));
     }
-    
+
     // Fourth record should have second record's value
     if results.len() > 3 {
         assert_eq!(results[3]["lag2_value"], InternalValue::Integer(200));
@@ -188,10 +188,10 @@ async fn test_lag_function_with_default() {
     .unwrap();
 
     assert_eq!(results.len(), 2);
-    
+
     // First record should have default value -1
     assert_eq!(results[0]["lag_with_default"], InternalValue::Integer(-1));
-    
+
     // Second record should have first record's value
     if results.len() > 1 {
         assert_eq!(results[1]["lag_with_default"], InternalValue::Integer(100));
@@ -214,7 +214,7 @@ async fn test_lead_function() {
     .unwrap();
 
     assert_eq!(results.len(), 3);
-    
+
     // All LEAD values should be NULL in streaming (cannot look forward)
     for result in &results {
         assert_eq!(result["next_value"], InternalValue::Null);
@@ -236,7 +236,7 @@ async fn test_lead_function_with_default() {
     .unwrap();
 
     assert_eq!(results.len(), 2);
-    
+
     // All LEAD values should be the default value -999 in streaming
     for result in &results {
         assert_eq!(result["lead_with_default"], InternalValue::Integer(-999));
@@ -259,7 +259,7 @@ async fn test_rank_function() {
     .unwrap();
 
     assert_eq!(results.len(), 3);
-    
+
     // In streaming, RANK behaves like ROW_NUMBER
     for (i, result) in results.iter().enumerate() {
         let rank_num = match &result["rank_num"] {
@@ -286,7 +286,7 @@ async fn test_dense_rank_function() {
     .unwrap();
 
     assert_eq!(results.len(), 3);
-    
+
     // In streaming, DENSE_RANK behaves like ROW_NUMBER
     for (i, result) in results.iter().enumerate() {
         let dense_rank_num = match &result["dense_rank_num"] {
@@ -313,7 +313,7 @@ async fn test_multiple_window_functions() {
     .unwrap();
 
     assert_eq!(results.len(), 3);
-    
+
     for (i, result) in results.iter().enumerate() {
         // Check ROW_NUMBER
         let row_num = match &result["row_num"] {
@@ -321,14 +321,14 @@ async fn test_multiple_window_functions() {
             _ => panic!("Expected integer for row_num"),
         };
         assert_eq!(row_num, (i + 1) as i64);
-        
+
         // Check RANK
         let rank_num = match &result["rank_num"] {
             InternalValue::Integer(n) => *n,
             _ => panic!("Expected integer for rank_num"),
         };
         assert_eq!(rank_num, (i + 1) as i64);
-        
+
         // Check LAG
         if i == 0 {
             assert_eq!(result["prev_value"], InternalValue::Null);
@@ -343,7 +343,7 @@ async fn test_multiple_window_functions() {
 #[tokio::test]
 async fn test_row_number_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT ROW_NUMBER(1) OVER () as row_num FROM test_stream",
         records,
@@ -358,12 +358,10 @@ async fn test_row_number_with_arguments_error() {
 #[tokio::test]
 async fn test_lag_with_no_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
-    let result = execute_query_with_window(
-        "SELECT LAG() OVER () as lag_val FROM test_stream",
-        records,
-    )
-    .await;
+
+    let result =
+        execute_query_with_window("SELECT LAG() OVER () as lag_val FROM test_stream", records)
+            .await;
 
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
@@ -373,7 +371,7 @@ async fn test_lag_with_no_arguments_error() {
 #[tokio::test]
 async fn test_lag_with_too_many_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT LAG(value, 1, 0, 'extra') OVER () as lag_val FROM test_stream",
         records,
@@ -388,7 +386,7 @@ async fn test_lag_with_too_many_arguments_error() {
 #[tokio::test]
 async fn test_lag_with_negative_offset_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT LAG(value, -1) OVER () as lag_val FROM test_stream",
         records,
@@ -403,7 +401,7 @@ async fn test_lag_with_negative_offset_error() {
 #[tokio::test]
 async fn test_lead_with_no_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT LEAD() OVER () as lead_val FROM test_stream",
         records,
@@ -418,7 +416,7 @@ async fn test_lead_with_no_arguments_error() {
 #[tokio::test]
 async fn test_lead_with_negative_offset_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT LEAD(value, -2) OVER () as lead_val FROM test_stream",
         records,
@@ -433,7 +431,7 @@ async fn test_lead_with_negative_offset_error() {
 #[tokio::test]
 async fn test_unsupported_window_function_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT UNKNOWN_FUNCTION() OVER () as unknown FROM test_stream",
         records,
@@ -449,7 +447,7 @@ async fn test_unsupported_window_function_error() {
 #[tokio::test]
 async fn test_rank_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT RANK(value) OVER () as rank_val FROM test_stream",
         records,
@@ -464,7 +462,7 @@ async fn test_rank_with_arguments_error() {
 #[tokio::test]
 async fn test_dense_rank_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
-    
+
     let result = execute_query_with_window(
         "SELECT DENSE_RANK(1, 2) OVER () as dense_rank_val FROM test_stream",
         records,
