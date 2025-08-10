@@ -60,6 +60,10 @@ enum Commands {
         /// Default topic for statements without explicit topics
         #[arg(long)]
         default_topic: Option<String>,
+
+        /// Don't monitor jobs after deployment (exit immediately)
+        #[arg(long, default_value = "false")]
+        no_monitor: bool,
     },
 }
 
@@ -616,8 +620,10 @@ async fn main() -> ferrisstreams::ferris::error::FerrisResult<()> {
             brokers,
             group_id,
             default_topic,
+            no_monitor,
         } => {
-            deploy_sql_application_from_file(file, brokers, group_id, default_topic).await?;
+            deploy_sql_application_from_file(file, brokers, group_id, default_topic, no_monitor)
+                .await?;
         }
     }
 
@@ -629,6 +635,7 @@ async fn deploy_sql_application_from_file(
     brokers: String,
     group_id: String,
     default_topic: Option<String>,
+    no_monitor: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Deploying SQL application from file: {}", file_path);
 
@@ -667,6 +674,11 @@ async fn deploy_sql_application_from_file(
 
     if let Some(author) = &app.metadata.author {
         info!("Author: {}", author);
+    }
+
+    if no_monitor {
+        info!("Deployment completed. Jobs are running in the background.");
+        return Ok(());
     }
 
     // Keep the jobs running

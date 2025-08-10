@@ -191,6 +191,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
             temp_path.to_str().unwrap(),
             "--brokers",
             "localhost:9092",
+            "--no-monitor",
         ])
         .output()
         .expect("Failed to execute deploy-app command");
