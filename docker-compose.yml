@@ -1,10 +1,11 @@
-version: '3'
+# FerrisStreams SQL Infrastructure
+version: '3.8'
 
 services:
-
+  # Kafka with KRaft (no Zookeeper needed)
   kafka:
-    image: confluentinc/cp-kafka:latest
-    container_name: kafka
+    image: confluentinc/cp-kafka:7.4.3
+    container_name: ferris-kafka
     ports:
       - "9092:9092"
       - "9093:9093"
@@ -19,4 +20,173 @@ services:
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
       KAFKA_NODE_ID: 1
-      CLUSTER_ID: "testcluster1111"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - ferris-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Kafka UI for management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: ferris-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ferris-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: true
+    networks:
+      - ferris-network
+    restart: unless-stopped
+
+  # FerrisStreams SQL Server (single job)
+  ferris-sql-single:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ferris-sql-single
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - RUST_LOG=info
+      - KAFKA_BROKERS=kafka:9092
+    volumes:
+      - ./sql-config.yaml:/app/sql-config.yaml:ro
+      - sql-logs:/app/logs
+      - sql-data:/app/data
+    networks:
+      - ferris-network
+    command: ["ferris-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-single"]
+    healthcheck:
+      test: ["CMD", "ferris-sql", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # FerrisStreams Multi-Job SQL Server
+  ferris-sql-multi:
+    build: 
+      context: .
+      dockerfile: Dockerfile.multi
+    container_name: ferris-sql-multi
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+      - "9091:9090"
+    environment:
+      - RUST_LOG=info
+      - KAFKA_BROKERS=kafka:9092
+    volumes:
+      - ./sql-config.yaml:/app/sql-config.yaml:ro
+      - ./examples:/app/examples:ro
+      - multi-sql-logs:/app/logs
+      - multi-sql-data:/app/data
+    networks:
+      - ferris-network
+    command: ["ferris-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-multi", "--max-jobs", "20"]
+    healthcheck:
+      test: ["CMD", "ferris-sql-multi", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Data producer for testing
+  data-producer:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: ferris-data-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=info
+    volumes:
+      - ./examples:/app/examples:ro
+    networks:
+      - ferris-network
+    command: ["sh", "-c", "sleep 60 && echo 'Data producer ready for manual execution. Use: docker exec -it ferris-data-producer bash'"]
+    restart: "no"
+
+  # Prometheus for monitoring (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ferris-prometheus
+    ports:
+      - "9093:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - ferris-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    profiles:
+      - monitoring
+
+  # Grafana for dashboards (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ferris-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=ferris123
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - ferris-network
+    profiles:
+      - monitoring
+
+volumes:
+  kafka-data:
+    driver: local
+  sql-logs:
+    driver: local
+  sql-data:
+    driver: local
+  multi-sql-logs:
+    driver: local
+  multi-sql-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  ferris-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

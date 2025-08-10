@@ -87,8 +87,8 @@ jobs:
     - name: Run integration tests
       run: |
         # Run tests that require Kafka with delays to prevent resource contention
-        echo "Running kafka_integration_test..."
-        cargo test integration::kafka_integration_test -- --nocapture
+        echo "Running kafka_basic_test..."
+        cargo test integration::kafka_basic_test -- --nocapture
         echo "Waiting 30 seconds before next test suite..."
         sleep 30
         
@@ -98,12 +98,28 @@ jobs:
         sleep 30
         
         
-        echo "Running remaining integration tests (excluding failure_recovery and transaction)..."
-        cargo test integration -- --nocapture --skip failure_recovery_test --skip transaction_test
+        echo "Running remaining integration tests (excluding failure_recovery and transactions)..."
+        cargo test integration -- --nocapture --skip failure_recovery_test --skip transactions_test
       env:
         KAFKA_BROKERS: localhost:9092
         RUST_LOG: debug
     
+    - name: Build binaries for multi-job tests
+      run: |
+        echo "Building ferris-sql-multi binary for integration tests..."
+        cargo build --release --bin ferris-sql-multi
+        
+        # Verify binary was built
+        ls -la target/release/ferris-sql-multi
+
+    - name: Run multi-job SQL server tests
+      run: |
+        echo "Running multi-job SQL server integration tests..."
+        cargo test multi_job::sql_server_test -- --nocapture
+      env:
+        KAFKA_BROKERS: localhost:9092
+        RUST_LOG: info
+
     - name: Build and test examples
       run: |
         echo "Waiting 20 seconds before building examples..."

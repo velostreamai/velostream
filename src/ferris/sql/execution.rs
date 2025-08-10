@@ -52,24 +52,26 @@ The execution engine follows an event-driven architecture:
 ```rust,no_run
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create parser and execution engine
     let parser = StreamingSqlParser::new();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
 
     // Execute a simple SELECT query
     let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
 
-    // Create test record
+    // Create test record using InternalValue types
     let mut record = HashMap::new();
-    record.insert("customer_id".to_string(), Value::String("123".to_string()));
-    record.insert("amount".to_string(), Value::Number(serde_json::Number::from(150)));
+    record.insert("customer_id".to_string(), InternalValue::String("123".to_string()));
+    record.insert("amount".to_string(), InternalValue::Number(150.0));
 
     engine.execute(&query, record).await?;
 
@@ -90,19 +92,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
+use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{
-    BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, SelectField,
-    StreamSource, StreamingQuery, UnaryOperator, WindowSpec,
+    BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
+    StreamSource, StreamingQuery, TimeUnit, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
+use log::warn;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
-    output_sender: UnboundedSender<HashMap<String, serde_json::Value>>,
+    output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+    serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
 }
 
@@ -221,13 +227,17 @@ struct WindowState {
 }
 
 impl StreamExecutionEngine {
-    pub fn new(output_sender: UnboundedSender<HashMap<String, serde_json::Value>>) -> Self {
+    pub fn new(
+        output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+        serialization_format: Arc<dyn SerializationFormat>,
+    ) -> Self {
         let (message_sender, receiver) = mpsc::channel(1000);
         Self {
             active_queries: HashMap::new(),
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
+            serialization_format,
             record_count: 0,
         }
     }
@@ -235,7 +245,7 @@ impl StreamExecutionEngine {
     pub async fn execute(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
     ) -> Result<(), SqlError> {
         self.execute_with_headers(query, record, HashMap::new())
             .await
@@ -244,7 +254,7 @@ impl StreamExecutionEngine {
     pub async fn execute_with_headers(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
         headers: HashMap<String, String>,
     ) -> Result<(), SqlError> {
         self.execute_with_metadata(query, record, headers, None, None, None)
@@ -254,7 +264,7 @@ impl StreamExecutionEngine {
     pub async fn execute_with_metadata(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, serde_json::Value>,
+        record: HashMap<String, InternalValue>,
         headers: HashMap<String, String>,
         timestamp: Option<i64>,
         offset: Option<i64>,
@@ -265,20 +275,7 @@ impl StreamExecutionEngine {
             fields: record
                 .into_iter()
                 .map(|(k, v)| {
-                    let field_value = match v {
-                        serde_json::Value::Number(n) => {
-                            if let Some(i) = n.as_i64() {
-                                FieldValue::Integer(i)
-                            } else if let Some(f) = n.as_f64() {
-                                FieldValue::Float(f)
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
-                        serde_json::Value::String(s) => FieldValue::String(s),
-                        serde_json::Value::Bool(b) => FieldValue::Boolean(b),
-                        _ => FieldValue::Null,
-                    };
+                    let field_value = self.internal_to_field_value(v);
                     (k, field_value)
                 })
                 .collect(),
@@ -290,44 +287,40 @@ impl StreamExecutionEngine {
 
         // Apply query and process record
         if let Some(result) = self.apply_query(query, &stream_record)? {
-            // Convert result back to JSON format
-            let json_result: HashMap<String, serde_json::Value> = result
+            // Convert result to InternalValue format
+            let internal_result: HashMap<String, InternalValue> = result
                 .fields
                 .into_iter()
                 .map(|(k, v)| {
-                    let json_value = match v {
-                        FieldValue::Integer(i) => {
-                            serde_json::Value::Number(serde_json::Number::from(i))
-                        }
-                        FieldValue::Float(f) => serde_json::Value::Number(
-                            serde_json::Number::from_f64(f).unwrap_or(0.into()),
-                        ),
-                        FieldValue::String(s) => serde_json::Value::String(s),
-                        FieldValue::Boolean(b) => serde_json::Value::Bool(b),
-                        FieldValue::Null => serde_json::Value::Null,
+                    let internal_value = match v {
+                        FieldValue::Integer(i) => InternalValue::Integer(i),
+                        FieldValue::Float(f) => InternalValue::Number(f),
+                        FieldValue::String(s) => InternalValue::String(s),
+                        FieldValue::Boolean(b) => InternalValue::Boolean(b),
+                        FieldValue::Null => InternalValue::Null,
                         FieldValue::Array(arr) => {
-                            let json_arr: Vec<serde_json::Value> = arr
+                            let internal_arr: Vec<InternalValue> = arr
                                 .into_iter()
-                                .map(|item| self.field_value_to_json(item))
+                                .map(|item| self.field_value_to_internal(item))
                                 .collect();
-                            serde_json::Value::Array(json_arr)
+                            InternalValue::Array(internal_arr)
                         }
                         FieldValue::Map(map) => {
-                            let json_obj: serde_json::Map<String, serde_json::Value> = map
+                            let internal_map: HashMap<String, InternalValue> = map
                                 .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_json(v)))
+                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
                                 .collect();
-                            serde_json::Value::Object(json_obj)
+                            InternalValue::Object(internal_map)
                         }
                         FieldValue::Struct(fields) => {
-                            let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                            let internal_map: HashMap<String, InternalValue> = fields
                                 .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_json(v)))
+                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
                                 .collect();
-                            serde_json::Value::Object(json_obj)
+                            InternalValue::Object(internal_map)
                         }
                     };
-                    (k, json_value)
+                    (k, internal_value)
                 })
                 .collect();
 
@@ -343,9 +336,9 @@ impl StreamExecutionEngine {
                     query: None,
                 })?;
 
-            // Send result to output channel
+            // Send result to output channel (non-async send for unbounded channel)
             self.output_sender
-                .send(json_result)
+                .send(internal_result)
                 .map_err(|_| SqlError::ExecutionError {
                     message: "Failed to send result to output channel".to_string(),
                     query: None,
@@ -503,6 +496,7 @@ impl StreamExecutionEngine {
                 fields,
                 where_clause,
                 joins,
+                having,
                 limit,
                 ..
             } => {
@@ -572,6 +566,22 @@ impl StreamExecutionEngine {
                                 .clone();
                             result_fields.insert(field_name, value);
                         }
+                    }
+                }
+
+                // Apply HAVING clause on the result fields
+                if let Some(having_expr) = having {
+                    // Create a temporary record with the result fields to evaluate HAVING
+                    let result_record = StreamRecord {
+                        fields: result_fields.clone(),
+                        timestamp: joined_record.timestamp,
+                        offset: joined_record.offset,
+                        partition: joined_record.partition,
+                        headers: joined_record.headers.clone(),
+                    };
+
+                    if !self.evaluate_expression(having_expr, &result_record)? {
+                        return Ok(None);
                     }
                 }
 
@@ -973,6 +983,14 @@ impl StreamExecutionEngine {
                     let val = self.evaluate_expression(expr, record)?;
                     Ok(!val)
                 }
+                UnaryOperator::IsNull => {
+                    let val = self.evaluate_expression_value(expr, record)?;
+                    Ok(matches!(val, FieldValue::Null))
+                }
+                UnaryOperator::IsNotNull => {
+                    let val = self.evaluate_expression_value(expr, record)?;
+                    Ok(!matches!(val, FieldValue::Null))
+                }
                 _ => Err(SqlError::ExecutionError {
                     message: "Unsupported unary operator for boolean expression".to_string(),
                     query: None,
@@ -998,6 +1016,14 @@ impl StreamExecutionEngine {
                 Err(SqlError::TypeError {
                     expected: "boolean".to_string(),
                     actual: "function result".to_string(),
+                    value: None,
+                })
+            }
+            Expr::WindowFunction { .. } => {
+                // For now, treat window function results as non-boolean
+                Err(SqlError::TypeError {
+                    expected: "boolean".to_string(),
+                    actual: "window function result".to_string(),
                     value: None,
                 })
             }
@@ -1050,11 +1076,17 @@ impl StreamExecutionEngine {
                 LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 LiteralValue::Null => Ok(FieldValue::Null),
-                LiteralValue::Interval { .. } => Err(SqlError::TypeError {
-                    expected: "basic type".to_string(),
-                    actual: "interval".to_string(),
-                    value: None,
-                }),
+                LiteralValue::Interval { value, unit } => {
+                    // Convert INTERVAL to milliseconds for internal representation
+                    let millis = match unit {
+                        TimeUnit::Millisecond => *value,
+                        TimeUnit::Second => *value * 1000,
+                        TimeUnit::Minute => *value * 60 * 1000,
+                        TimeUnit::Hour => *value * 60 * 60 * 1000,
+                        TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
+                    };
+                    Ok(FieldValue::Integer(millis))
+                }
             },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = self.evaluate_expression_value(left, record)?;
@@ -1106,6 +1138,11 @@ impl StreamExecutionEngine {
                 }
             }
             Expr::Function { name, args } => self.evaluate_function(name, args, record),
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => self.evaluate_window_function(function_name, args, over_clause, record),
         }
     }
 
@@ -1115,6 +1152,7 @@ impl StreamExecutionEngine {
             Expr::Literal(_) => "literal".to_string(),
             Expr::BinaryOp { .. } => "expression".to_string(),
             Expr::Function { name, .. } => name.clone(),
+            Expr::WindowFunction { function_name, .. } => function_name.clone(),
             _ => "expression".to_string(),
         }
     }
@@ -1167,6 +1205,46 @@ impl StreamExecutionEngine {
         };
 
         Ok(op(left_num, right_num))
+    }
+
+    fn compare_values_for_min(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<bool, SqlError> {
+        match (left, right) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a < b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a < b),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) < *b),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a < (*b as f64)),
+            (FieldValue::String(a), FieldValue::String(b)) => Ok(a < b),
+            (FieldValue::Null, _) => Ok(false), // NULL is not less than anything
+            (_, FieldValue::Null) => Ok(true),  // anything is less than NULL
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot compare incompatible types for LEAST".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn compare_values_for_max(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<bool, SqlError> {
+        match (left, right) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a > b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a > b),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) > *b),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a > (*b as f64)),
+            (FieldValue::String(a), FieldValue::String(b)) => Ok(a > b),
+            (FieldValue::Null, _) => Ok(false), // NULL is not greater than anything
+            (_, FieldValue::Null) => Ok(true),  // anything is greater than NULL
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot compare incompatible types for GREATEST".to_string(),
+                query: None,
+            }),
+        }
     }
 
     pub fn add_values(
@@ -1277,6 +1355,56 @@ impl StreamExecutionEngine {
         }
     }
 
+    /// Evaluate window functions like LAG, LEAD, ROW_NUMBER with OVER clause
+    fn evaluate_window_function(
+        &self,
+        function_name: &str,
+        args: &[Expr],
+        over_clause: &OverClause,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        match function_name.to_uppercase().as_str() {
+            "LAG" => {
+                if args.len() != 1 && args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LAG requires 1 or 2 arguments (expression, [offset])".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For now, return NULL since we need to implement proper window state management
+                // TODO: Implement proper LAG function with partition buffering
+                warn!("LAG window function called but not fully implemented yet - returning NULL");
+                Ok(FieldValue::Null)
+            }
+            "LEAD" => {
+                if args.len() != 1 && args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LEAD requires 1 or 2 arguments (expression, [offset])"
+                            .to_string(),
+                        query: None,
+                    });
+                }
+
+                // For now, return NULL since we need to implement proper window state management
+                warn!("LEAD window function called but not fully implemented yet - returning NULL");
+                Ok(FieldValue::Null)
+            }
+            "ROW_NUMBER" => {
+                // ROW_NUMBER() OVER (...)
+                // For now, return 1 since we need to implement proper window state management
+                warn!(
+                    "ROW_NUMBER window function called but not fully implemented yet - returning 1"
+                );
+                Ok(FieldValue::Integer(1))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: format!("Unsupported window function: {}", function_name),
+                query: None,
+            }),
+        }
+    }
+
     fn evaluate_function(
         &self,
         name: &str,
@@ -1302,6 +1430,69 @@ impl StreamExecutionEngine {
                     });
                 }
                 self.evaluate_expression_value(&args[0], record)
+            }
+            "LISTAGG" => {
+                // LISTAGG(expression, delimiter) or LISTAGG(DISTINCT expression, delimiter)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "LISTAGG requires 2 arguments: LISTAGG(expression, delimiter) or LISTAGG(DISTINCT expression, delimiter)".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For streaming, we can only aggregate the current record
+                // In a real implementation, this would need windowing or group by support
+                let value_expr = if args.len() == 3 {
+                    // Handle LISTAGG(DISTINCT expression, delimiter) case
+                    // args[0] would be the DISTINCT keyword (but we simplify this for now)
+                    &args[1]
+                } else {
+                    // Handle LISTAGG(expression, delimiter) case
+                    &args[0]
+                };
+
+                let delimiter_expr = &args[args.len() - 1]; // Last argument is always delimiter
+
+                let value = self.evaluate_expression_value(value_expr, record)?;
+                let delimiter = self.evaluate_expression_value(delimiter_expr, record)?;
+
+                match (value, delimiter) {
+                    (FieldValue::String(val), FieldValue::String(_delim)) => {
+                        // For single record, just return the value
+                        // In real streaming aggregation, this would collect values with delimiter
+                        Ok(FieldValue::String(val))
+                    }
+                    (FieldValue::Array(arr), FieldValue::String(delim)) => {
+                        // If the input is an array, concatenate all string values
+                        let string_vals: Result<Vec<String>, _> = arr
+                            .iter()
+                            .map(|v| match v {
+                                FieldValue::String(s) => Ok(s.clone()),
+                                FieldValue::Integer(i) => Ok(i.to_string()),
+                                FieldValue::Float(f) => Ok(f.to_string()),
+                                FieldValue::Boolean(b) => Ok(b.to_string()),
+                                FieldValue::Null => Ok("".to_string()),
+                                _ => Err(SqlError::ExecutionError {
+                                    message: "LISTAGG array elements must be convertible to string"
+                                        .to_string(),
+                                    query: None,
+                                }),
+                            })
+                            .collect();
+
+                        match string_vals {
+                            Ok(vals) => Ok(FieldValue::String(vals.join(&delim))),
+                            Err(e) => Err(e),
+                        }
+                    }
+                    (FieldValue::Null, _) => Ok(FieldValue::String("".to_string())),
+                    _ => Err(SqlError::ExecutionError {
+                        message:
+                            "LISTAGG requires string or array first argument and string delimiter"
+                                .to_string(),
+                        query: None,
+                    }),
+                }
             }
             "HEADER" => {
                 if args.len() != 1 {
@@ -1630,8 +1821,9 @@ impl StreamExecutionEngine {
                 match value {
                     FieldValue::Integer(i) => Ok(FieldValue::Integer(i.abs())),
                     FieldValue::Float(f) => Ok(FieldValue::Float(f.abs())),
+                    FieldValue::Null => Ok(FieldValue::Null),
                     _ => Err(SqlError::ExecutionError {
-                        message: "ABS requires numeric argument".to_string(),
+                        message: "ABS can only be applied to numeric values".to_string(),
                         query: None,
                     }),
                 }
@@ -2131,6 +2323,126 @@ impl StreamExecutionEngine {
                     Ok(value1)
                 }
             }
+            "DATEDIFF" => {
+                if args.len() != 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "DATEDIFF requires exactly 3 arguments: DATEDIFF(unit, start_date, end_date)".to_string(),
+                        query: None,
+                    });
+                }
+                let unit_val = self.evaluate_expression_value(&args[0], record)?;
+                let start_val = self.evaluate_expression_value(&args[1], record)?;
+                let end_val = self.evaluate_expression_value(&args[2], record)?;
+
+                match (unit_val, start_val, end_val) {
+                    (
+                        FieldValue::String(unit),
+                        FieldValue::Integer(start_ts),
+                        FieldValue::Integer(end_ts),
+                    ) => {
+                        use chrono::{TimeZone, Utc};
+
+                        let start_dt =
+                            Utc.timestamp_millis_opt(start_ts).single().ok_or_else(|| {
+                                SqlError::ExecutionError {
+                                    message: format!("Invalid start timestamp: {}", start_ts),
+                                    query: None,
+                                }
+                            })?;
+
+                        let end_dt =
+                            Utc.timestamp_millis_opt(end_ts).single().ok_or_else(|| {
+                                SqlError::ExecutionError {
+                                    message: format!("Invalid end timestamp: {}", end_ts),
+                                    query: None,
+                                }
+                            })?;
+
+                        let diff_ms = end_dt.timestamp_millis() - start_dt.timestamp_millis();
+
+                        let result = match unit.to_lowercase().as_str() {
+                            "milliseconds" | "ms" => diff_ms,
+                            "seconds" | "second" => diff_ms / 1000,
+                            "minutes" | "minute" => diff_ms / (1000 * 60),
+                            "hours" | "hour" => diff_ms / (1000 * 60 * 60),
+                            "days" | "day" => diff_ms / (1000 * 60 * 60 * 24),
+                            _ => {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "Unsupported DATEDIFF unit: {}. Supported units: milliseconds, seconds, minutes, hours, days",
+                                        unit
+                                    ),
+                                    query: None,
+                                });
+                            }
+                        };
+
+                        Ok(FieldValue::Integer(result))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "DATEDIFF requires string unit and integer timestamps".to_string(),
+                        query: None,
+                    }),
+                }
+            }
+            "POSITION" => {
+                // POSITION(substring IN string) or POSITION(substring IN string FROM start_position)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: "POSITION requires 2 or 3 arguments: POSITION(substring, string [, start_position])".to_string(),
+                        query: None,
+                    });
+                }
+                let substring_val = self.evaluate_expression_value(&args[0], record)?;
+                let string_val = self.evaluate_expression_value(&args[1], record)?;
+                let start_pos = if args.len() == 3 {
+                    match self.evaluate_expression_value(&args[2], record)? {
+                        FieldValue::Integer(pos) => pos.max(1) as usize, // SQL positions are 1-based, minimum 1
+                        _ => {
+                            return Err(SqlError::ExecutionError {
+                                message: "POSITION start position must be an integer".to_string(),
+                                query: None,
+                            });
+                        }
+                    }
+                } else {
+                    1 // Start from position 1 (1-based indexing)
+                };
+
+                match (substring_val, string_val) {
+                    (FieldValue::String(substring), FieldValue::String(string)) => {
+                        if substring.is_empty() {
+                            // Empty substring is found at position 1
+                            Ok(FieldValue::Integer(start_pos as i64))
+                        } else {
+                            // Convert to char arrays to handle Unicode properly
+                            let string_chars: Vec<char> = string.chars().collect();
+                            let substring_chars: Vec<char> = substring.chars().collect();
+
+                            // Search starting from the specified position (convert from 1-based to 0-based)
+                            let search_start =
+                                (start_pos.saturating_sub(1)).min(string_chars.len());
+
+                            // Find the substring
+                            if let Some(pos) = string_chars[search_start..]
+                                .windows(substring_chars.len())
+                                .position(|window| window == substring_chars.as_slice())
+                            {
+                                // Convert back to 1-based indexing and add the offset
+                                Ok(FieldValue::Integer((search_start + pos + 1) as i64))
+                            } else {
+                                // Substring not found
+                                Ok(FieldValue::Integer(0))
+                            }
+                        }
+                    }
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                    _ => Err(SqlError::ExecutionError {
+                        message: "POSITION requires string arguments".to_string(),
+                        query: None,
+                    }),
+                }
+            }
             // Array Functions
             "ARRAY" => {
                 // ARRAY[value1, value2, ...] - creates an array
@@ -2259,6 +2571,56 @@ impl StreamExecutionEngine {
                     fields.insert(format!("field_{}", i + 1), value);
                 }
                 Ok(FieldValue::Struct(fields))
+            }
+            "LEAST" => {
+                if args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: "LEAST requires at least one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                // Evaluate all arguments
+                let mut values: Vec<FieldValue> = args
+                    .iter()
+                    .map(|arg| self.evaluate_expression_value(arg, record))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Apply type promotion (integers to floats if any float is present)
+                values = self.promote_numeric_type(&values);
+
+                let mut min_val = values[0].clone();
+                for val in &values[1..] {
+                    if self.compare_values_for_min(val, &min_val)? {
+                        min_val = val.clone();
+                    }
+                }
+                Ok(min_val)
+            }
+            "GREATEST" => {
+                if args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: "GREATEST requires at least one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                // Evaluate all arguments
+                let mut values: Vec<FieldValue> = args
+                    .iter()
+                    .map(|arg| self.evaluate_expression_value(arg, record))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Apply type promotion (integers to floats if any float is present)
+                values = self.promote_numeric_type(&values);
+
+                let mut max_val = values[0].clone();
+                for val in &values[1..] {
+                    if self.compare_values_for_max(val, &max_val)? {
+                        max_val = val.clone();
+                    }
+                }
+                Ok(max_val)
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unknown function {}", name),
@@ -2427,36 +2789,34 @@ impl StreamExecutionEngine {
         self.message_sender.clone()
     }
 
-    // Helper method to convert FieldValue to JSON recursively
-    fn field_value_to_json(&self, value: FieldValue) -> serde_json::Value {
+    /// Convert FieldValue to InternalValue for pluggable serialization
+    fn field_value_to_internal(&self, value: FieldValue) -> InternalValue {
         match value {
-            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
-            FieldValue::Float(f) => {
-                serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or(0.into()))
-            }
-            FieldValue::String(s) => serde_json::Value::String(s),
-            FieldValue::Boolean(b) => serde_json::Value::Bool(b),
-            FieldValue::Null => serde_json::Value::Null,
+            FieldValue::Integer(i) => InternalValue::Integer(i),
+            FieldValue::Float(f) => InternalValue::Number(f),
+            FieldValue::String(s) => InternalValue::String(s),
+            FieldValue::Boolean(b) => InternalValue::Boolean(b),
+            FieldValue::Null => InternalValue::Null,
             FieldValue::Array(arr) => {
-                let json_arr: Vec<serde_json::Value> = arr
+                let internal_arr: Vec<InternalValue> = arr
                     .into_iter()
-                    .map(|item| self.field_value_to_json(item))
+                    .map(|item| self.field_value_to_internal(item))
                     .collect();
-                serde_json::Value::Array(json_arr)
+                InternalValue::Array(internal_arr)
             }
             FieldValue::Map(map) => {
-                let json_obj: serde_json::Map<String, serde_json::Value> = map
+                let internal_map: HashMap<String, InternalValue> = map
                     .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_json(v)))
+                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
                     .collect();
-                serde_json::Value::Object(json_obj)
+                InternalValue::Object(internal_map)
             }
             FieldValue::Struct(fields) => {
-                let json_obj: serde_json::Map<String, serde_json::Value> = fields
+                let internal_map: HashMap<String, InternalValue> = fields
                     .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_json(v)))
+                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
                     .collect();
-                serde_json::Value::Object(json_obj)
+                InternalValue::Object(internal_map)
             }
         }
     }
@@ -2891,5 +3251,47 @@ impl StreamExecutionEngine {
             partition: left.partition,
             headers: left.headers.clone(),
         })
+    }
+
+    /// Convert InternalValue to FieldValue for pluggable serialization
+    fn internal_to_field_value(&self, value: InternalValue) -> FieldValue {
+        match value {
+            InternalValue::Integer(i) => FieldValue::Integer(i),
+            InternalValue::Number(f) => FieldValue::Float(f),
+            InternalValue::String(s) => FieldValue::String(s),
+            InternalValue::Boolean(b) => FieldValue::Boolean(b),
+            InternalValue::Null => FieldValue::Null,
+            InternalValue::Array(arr) => {
+                let field_arr: Vec<FieldValue> = arr
+                    .into_iter()
+                    .map(|item| self.internal_to_field_value(item))
+                    .collect();
+                FieldValue::Array(field_arr)
+            }
+            InternalValue::Object(map) => {
+                let field_map: HashMap<String, FieldValue> = map
+                    .into_iter()
+                    .map(|(k, v)| (k, self.internal_to_field_value(v)))
+                    .collect();
+                FieldValue::Map(field_map)
+            }
+        }
+    }
+
+    /// Promote integer to float if any of the values is a float (SQL type promotion)
+    fn promote_numeric_type(&self, values: &[FieldValue]) -> Vec<FieldValue> {
+        let has_float = values.iter().any(|v| matches!(v, FieldValue::Float(_)));
+
+        if has_float {
+            values
+                .iter()
+                .map(|v| match v {
+                    FieldValue::Integer(i) => FieldValue::Float(*i as f64),
+                    other => other.clone(),
+                })
+                .collect()
+        } else {
+            values.to_vec()
+        }
     }
 }

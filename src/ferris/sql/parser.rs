@@ -228,6 +228,29 @@ enum TokenType {
     On,     // ON
     Within, // WITHIN
 
+    // Time Keywords
+    Interval, // INTERVAL
+
+    // Conditional Keywords
+    Case, // CASE
+    When, // WHEN
+    Then, // THEN
+    Else, // ELSE
+    End,  // END
+    Is,   // IS (for IS NULL, IS NOT NULL)
+
+    // Window Frame Keywords
+    Rows,      // ROWS
+    Range,     // RANGE
+    Between,   // BETWEEN
+    And,       // AND
+    Preceding, // PRECEDING
+    Following, // FOLLOWING
+    Current,   // CURRENT
+    Row,       // ROW
+    Unbounded, // UNBOUNDED
+    Over,      // OVER
+
     // Special
     Eof, // End of input
 }
@@ -315,6 +338,23 @@ impl StreamingSqlParser {
         keywords.insert("OUTER".to_string(), TokenType::Outer);
         keywords.insert("ON".to_string(), TokenType::On);
         keywords.insert("WITHIN".to_string(), TokenType::Within);
+        keywords.insert("INTERVAL".to_string(), TokenType::Interval);
+        keywords.insert("CASE".to_string(), TokenType::Case);
+        keywords.insert("WHEN".to_string(), TokenType::When);
+        keywords.insert("THEN".to_string(), TokenType::Then);
+        keywords.insert("ELSE".to_string(), TokenType::Else);
+        keywords.insert("END".to_string(), TokenType::End);
+        keywords.insert("IS".to_string(), TokenType::Is);
+        keywords.insert("ROWS".to_string(), TokenType::Rows);
+        keywords.insert("RANGE".to_string(), TokenType::Range);
+        keywords.insert("BETWEEN".to_string(), TokenType::Between);
+        keywords.insert("AND".to_string(), TokenType::And);
+        keywords.insert("PRECEDING".to_string(), TokenType::Preceding);
+        keywords.insert("FOLLOWING".to_string(), TokenType::Following);
+        keywords.insert("CURRENT".to_string(), TokenType::Current);
+        keywords.insert("ROW".to_string(), TokenType::Row);
+        keywords.insert("UNBOUNDED".to_string(), TokenType::Unbounded);
+        keywords.insert("OVER".to_string(), TokenType::Over);
         keywords.insert("NULL".to_string(), TokenType::Null);
 
         Self { keywords }
@@ -476,6 +516,14 @@ impl StreamingSqlParser {
                         tokens.push(Token {
                             token_type: TokenType::LessThanOrEqual,
                             value: "<=".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else if let Some(&'>') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::NotEqual,
+                            value: "<>".to_string(),
                             position: position - 1,
                         });
                         chars.next();
@@ -954,26 +1002,58 @@ impl TokenParser {
                 | TokenType::GreaterThan
                 | TokenType::LessThanOrEqual
                 | TokenType::GreaterThanOrEqual
+                | TokenType::Is
         ) {
             let op_token = self.current_token().clone();
             self.advance();
-            let right = self.parse_additive()?;
 
-            let op = match op_token.token_type {
-                TokenType::Equal => BinaryOperator::Equal,
-                TokenType::NotEqual => BinaryOperator::NotEqual,
-                TokenType::LessThan => BinaryOperator::LessThan,
-                TokenType::GreaterThan => BinaryOperator::GreaterThan,
-                TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
-                TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
-                _ => unreachable!(),
-            };
+            if op_token.token_type == TokenType::Is {
+                // Handle IS NULL or IS NOT NULL
+                if self.current_token().value.to_uppercase() == "NOT" {
+                    self.advance(); // consume NOT
+                    if self.current_token().value.to_uppercase() == "NULL" {
+                        self.advance(); // consume NULL
+                        left = Expr::UnaryOp {
+                            op: UnaryOperator::IsNotNull,
+                            expr: Box::new(left),
+                        };
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected NULL after IS NOT".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                } else if self.current_token().value.to_uppercase() == "NULL" {
+                    self.advance(); // consume NULL
+                    left = Expr::UnaryOp {
+                        op: UnaryOperator::IsNull,
+                        expr: Box::new(left),
+                    };
+                } else {
+                    return Err(SqlError::ParseError {
+                        message: "Expected NULL after IS".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            } else {
+                let right = self.parse_additive()?;
 
-            left = Expr::BinaryOp {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
-            };
+                let op = match op_token.token_type {
+                    TokenType::Equal => BinaryOperator::Equal,
+                    TokenType::NotEqual => BinaryOperator::NotEqual,
+                    TokenType::LessThan => BinaryOperator::LessThan,
+                    TokenType::GreaterThan => BinaryOperator::GreaterThan,
+                    TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
+                    TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
+                    _ => unreachable!(),
+                };
+
+                left = Expr::BinaryOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            }
         }
 
         Ok(left)
@@ -1037,6 +1117,23 @@ impl TokenParser {
         let token = self.current_token().clone();
         match token.token_type {
             TokenType::Identifier => {
+                // Special handling for boolean literals and null
+                match token.value.to_uppercase().as_str() {
+                    "TRUE" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Boolean(true)));
+                    }
+                    "FALSE" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Boolean(false)));
+                    }
+                    "NULL" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Null));
+                    }
+                    _ => {}
+                }
+
                 // Special handling for CURRENT_TIMESTAMP (no parentheses required)
                 if token.value.to_uppercase() == "CURRENT_TIMESTAMP" {
                     self.advance();
@@ -1071,10 +1168,22 @@ impl TokenParser {
                     }
 
                     self.expect(TokenType::RightParen)?;
-                    Ok(Expr::Function {
-                        name: token.value,
-                        args,
-                    })
+
+                    // Check for OVER clause (window functions)
+                    if self.current_token().token_type == TokenType::Over {
+                        self.advance(); // consume OVER
+                        let over_clause = self.parse_over_clause()?;
+                        Ok(Expr::WindowFunction {
+                            function_name: token.value,
+                            args,
+                            over_clause,
+                        })
+                    } else {
+                        Ok(Expr::Function {
+                            name: token.value,
+                            args,
+                        })
+                    }
                 } else if self.current_token().token_type == TokenType::Dot {
                     self.advance();
                     // Allow keywords to be used as field names in qualified expressions
@@ -1148,10 +1257,22 @@ impl TokenParser {
                     }
 
                     self.expect(TokenType::RightParen)?;
-                    Ok(Expr::Function {
-                        name: function_name,
-                        args,
-                    })
+
+                    // Check for OVER clause (window functions)
+                    if self.current_token().token_type == TokenType::Over {
+                        self.advance(); // consume OVER
+                        let over_clause = self.parse_over_clause()?;
+                        Ok(Expr::WindowFunction {
+                            function_name,
+                            args,
+                            over_clause,
+                        })
+                    } else {
+                        Ok(Expr::Function {
+                            name: function_name,
+                            args,
+                        })
+                    }
                 } else {
                     // This keyword is being used as a column name
                     let column_name = token.value;
@@ -1180,6 +1301,60 @@ impl TokenParser {
                 self.advance();
                 Ok(Expr::Literal(LiteralValue::Null))
             }
+            TokenType::Interval => {
+                self.advance(); // consume INTERVAL
+
+                // Parse the value (could be a string literal or number)
+                let value_token = self.current_token().clone();
+                let value_str = match value_token.token_type {
+                    TokenType::String | TokenType::Number => {
+                        self.advance();
+                        value_token.value
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: "Expected string or number after INTERVAL".to_string(),
+                            position: Some(value_token.position),
+                        });
+                    }
+                };
+
+                // Parse the value as integer
+                let value = value_str.parse::<i64>().map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid interval value: {}", value_str),
+                    position: Some(value_token.position),
+                })?;
+
+                // Parse the time unit
+                let unit_token = self.current_token().clone();
+                if unit_token.token_type != TokenType::Identifier {
+                    return Err(SqlError::ParseError {
+                        message: "Expected time unit after INTERVAL value".to_string(),
+                        position: Some(unit_token.position),
+                    });
+                }
+
+                let unit = match unit_token.value.to_uppercase().as_str() {
+                    "MILLISECOND" | "MILLISECONDS" => TimeUnit::Millisecond,
+                    "SECOND" | "SECONDS" => TimeUnit::Second,
+                    "MINUTE" | "MINUTES" => TimeUnit::Minute,
+                    "HOUR" | "HOURS" => TimeUnit::Hour,
+                    "DAY" | "DAYS" => TimeUnit::Day,
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!("Invalid time unit: {}", unit_token.value),
+                            position: Some(unit_token.position),
+                        });
+                    }
+                };
+
+                self.advance(); // consume time unit
+                Ok(Expr::Literal(LiteralValue::Interval { value, unit }))
+            }
+            TokenType::Case => {
+                self.advance(); // consume CASE
+                self.parse_case_expression()
+            }
             TokenType::LeftParen => {
                 self.advance();
                 let expr = self.parse_expression()?;
@@ -1191,6 +1366,42 @@ impl TokenParser {
                 position: Some(token.position),
             }),
         }
+    }
+
+    fn parse_case_expression(&mut self) -> Result<Expr, SqlError> {
+        let mut when_clauses = Vec::new();
+
+        // Parse WHEN clauses
+        while self.current_token().token_type == TokenType::When {
+            self.advance(); // consume WHEN
+            let condition = self.parse_expression()?;
+            self.expect(TokenType::Then)?;
+            let result = self.parse_expression()?;
+            when_clauses.push((condition, result));
+        }
+
+        if when_clauses.is_empty() {
+            return Err(SqlError::ParseError {
+                message: "CASE expression must have at least one WHEN clause".to_string(),
+                position: Some(self.current_token().position),
+            });
+        }
+
+        // Parse optional ELSE clause
+        let else_clause = if self.current_token().token_type == TokenType::Else {
+            self.advance(); // consume ELSE
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+
+        // Expect END
+        self.expect(TokenType::End)?;
+
+        Ok(Expr::Case {
+            when_clauses,
+            else_clause,
+        })
     }
 
     fn parse_window_spec(&mut self) -> Result<WindowSpec, SqlError> {
@@ -1904,6 +2115,171 @@ impl TokenParser {
             TokenType::Create => self.parse_create(),
             _ => Err(SqlError::ParseError {
                 message: "Expected SELECT or CREATE statement in START QUERY".to_string(),
+                position: Some(self.current_token().position),
+            }),
+        }
+    }
+
+    /// Parse OVER clause for window functions
+    /// Syntax: OVER (PARTITION BY col1, col2 ORDER BY col3 ROWS BETWEEN ... AND ...)
+    fn parse_over_clause(&mut self) -> Result<OverClause, SqlError> {
+        self.expect(TokenType::LeftParen)?;
+
+        let mut partition_by = Vec::new();
+        let mut order_by = Vec::new();
+        let mut window_frame = None;
+
+        // Parse PARTITION BY clause (optional)
+        if self.current_token().value.to_uppercase() == "PARTITION" {
+            self.advance(); // consume PARTITION
+            self.expect_keyword("BY")?;
+
+            loop {
+                let column = self.expect(TokenType::Identifier)?.value;
+                partition_by.push(column);
+
+                if self.current_token().token_type == TokenType::Comma {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Parse ORDER BY clause (optional)
+        if self.current_token().token_type == TokenType::OrderBy {
+            self.advance(); // consume ORDER
+            self.expect_keyword("BY")?;
+
+            loop {
+                let column_name = self.expect(TokenType::Identifier)?.value;
+                let expr = Expr::Column(column_name);
+                let direction = if self.current_token().token_type == TokenType::Asc {
+                    self.advance();
+                    OrderDirection::Asc
+                } else if self.current_token().token_type == TokenType::Desc {
+                    self.advance();
+                    OrderDirection::Desc
+                } else {
+                    OrderDirection::Asc // Default
+                };
+
+                order_by.push(OrderByExpr { expr, direction });
+
+                if self.current_token().token_type == TokenType::Comma {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Parse window frame clause (optional)
+        if self.current_token().token_type == TokenType::Rows
+            || self.current_token().token_type == TokenType::Range
+        {
+            window_frame = Some(self.parse_window_frame()?);
+        }
+
+        self.expect(TokenType::RightParen)?;
+
+        Ok(OverClause {
+            partition_by,
+            order_by,
+            window_frame,
+        })
+    }
+
+    /// Parse window frame specification: ROWS/RANGE BETWEEN ... AND ...
+    fn parse_window_frame(&mut self) -> Result<WindowFrame, SqlError> {
+        // Parse frame type (ROWS or RANGE)
+        let frame_type = match self.current_token().token_type {
+            TokenType::Rows => {
+                self.advance();
+                FrameType::Rows
+            }
+            TokenType::Range => {
+                self.advance();
+                FrameType::Range
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected ROWS or RANGE in window frame".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        };
+
+        self.expect(TokenType::Between)?;
+
+        // Parse start bound
+        let start_bound = self.parse_frame_bound()?;
+
+        self.expect(TokenType::And)?;
+
+        // Parse end bound
+        let end_bound = Some(self.parse_frame_bound()?);
+
+        Ok(WindowFrame {
+            frame_type,
+            start_bound,
+            end_bound,
+        })
+    }
+
+    /// Parse frame bound: UNBOUNDED PRECEDING/FOLLOWING, n PRECEDING/FOLLOWING, CURRENT ROW
+    fn parse_frame_bound(&mut self) -> Result<FrameBound, SqlError> {
+        match self.current_token().token_type {
+            TokenType::Unbounded => {
+                self.advance(); // consume UNBOUNDED
+                match self.current_token().token_type {
+                    TokenType::Preceding => {
+                        self.advance();
+                        Ok(FrameBound::UnboundedPreceding)
+                    }
+                    TokenType::Following => {
+                        self.advance();
+                        Ok(FrameBound::UnboundedFollowing)
+                    }
+                    _ => Err(SqlError::ParseError {
+                        message: "Expected PRECEDING or FOLLOWING after UNBOUNDED".to_string(),
+                        position: Some(self.current_token().position),
+                    }),
+                }
+            }
+            TokenType::Current => {
+                self.advance(); // consume CURRENT
+                self.expect(TokenType::Row)?;
+                Ok(FrameBound::CurrentRow)
+            }
+            TokenType::Number => {
+                let offset_str = self.current_token().value.clone();
+                let offset = offset_str
+                    .parse::<u64>()
+                    .map_err(|_| SqlError::ParseError {
+                        message: format!("Invalid numeric offset: {}", offset_str),
+                        position: Some(self.current_token().position),
+                    })?;
+                self.advance(); // consume number
+
+                match self.current_token().token_type {
+                    TokenType::Preceding => {
+                        self.advance();
+                        Ok(FrameBound::Preceding(offset))
+                    }
+                    TokenType::Following => {
+                        self.advance();
+                        Ok(FrameBound::Following(offset))
+                    }
+                    _ => Err(SqlError::ParseError {
+                        message: "Expected PRECEDING or FOLLOWING after numeric offset".to_string(),
+                        position: Some(self.current_token().position),
+                    }),
+                }
+            }
+            _ => Err(SqlError::ParseError {
+                message: "Expected UNBOUNDED, CURRENT, or numeric offset in frame bound"
+                    .to_string(),
                 position: Some(self.current_token().position),
             }),
         }

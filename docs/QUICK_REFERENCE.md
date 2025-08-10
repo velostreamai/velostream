@@ -47,7 +47,7 @@ let consumer = KafkaConsumer::<String, MyData, _, _>::new(
     JsonSerializer,
 )?;
 
-let message = consumer.poll_message(Duration::from_secs(5)).await?;
+let message = consumer.poll(Duration::from_secs(5)).await?;
 println!("Key: {:?}", message.key());
 println!("Value: {:?}", message.value());
 println!("Headers: {:?}", message.headers());
@@ -92,7 +92,7 @@ message.into_parts()   // (Option<K>, V, Headers)
 
 ```rust
 // Polling
-while let Ok(message) = consumer.poll_message(timeout).await {
+while let Ok(message) = consumer.poll(timeout).await {
     // Process message with headers
 }
 
@@ -122,7 +122,7 @@ consumer.stream()
 
 - **[Basic Headers](../examples/headers_example.rs)**
 - **[Consumer with Headers](../examples/consumer_with_headers.rs)**
-- **[Integration Tests](../tests/ferris/kafka/kafka_integration_test.rs)**
+- **[Integration Tests](../tests/integration/kafka_integration_test.rs)**
 
 ## Key Points
 

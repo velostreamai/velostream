@@ -1,0 +1,239 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sql-config
+  namespace: ferris-sql
+data:
+  sql-config.yaml: |
+    kafka:
+      brokers: "kafka:9092"
+      security_protocol: "PLAINTEXT"
+      group_id: "ferris-sql-k8s"
+      client_id: "ferris-sql"
+    
+    server:
+      port: 8080
+      host: "0.0.0.0"
+      max_connections: 100
+      request_timeout_ms: 30000
+    
+    sql:
+      max_memory_mb: 1024
+      worker_threads: 4
+      query_timeout_ms: 60000
+      max_result_rows: 10000
+    
+    logging:
+      level: "info"
+      format: "json"
+    
+    jobs:
+      max_concurrent_jobs: 20
+      job_timeout_ms: 300000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ferris-sql-single
+  namespace: ferris-sql
+  labels:
+    app: ferris-sql-single
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ferris-sql-single
+  template:
+    metadata:
+      labels:
+        app: ferris-sql-single
+    spec:
+      containers:
+      - name: ferris-sql
+        image: ferris-sql:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: api
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: RUST_LOG
+          value: "info"
+        - name: KAFKA_BROKERS
+          value: "kafka:9092"
+        command: ["ferris-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-single-k8s"]
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: config
+          mountPath: /app/sql-config.yaml
+          subPath: sql-config.yaml
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+        livenessProbe:
+          exec:
+            command: ["ferris-sql", "--help"]
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: config
+        configMap:
+          name: sql-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: sql-data-pvc
+      - name: logs
+        emptyDir: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ferris-sql-multi
+  namespace: ferris-sql
+  labels:
+    app: ferris-sql-multi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ferris-sql-multi
+  template:
+    metadata:
+      labels:
+        app: ferris-sql-multi
+    spec:
+      containers:
+      - name: ferris-sql-multi
+        image: ferris-sql-multi:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: api
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: RUST_LOG
+          value: "info"
+        - name: KAFKA_BROKERS
+          value: "kafka:9092"
+        command: ["ferris-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-multi-k8s", "--max-jobs", "50"]
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: config
+          mountPath: /app/sql-config.yaml
+          subPath: sql-config.yaml
+        - name: examples
+          mountPath: /app/examples
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+        livenessProbe:
+          exec:
+            command: ["ferris-sql-multi", "--help"]
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+      volumes:
+      - name: config
+        configMap:
+          name: sql-config
+      - name: examples
+        configMap:
+          name: sql-examples
+      - name: data
+        persistentVolumeClaim:
+          claimName: multi-sql-data-pvc
+      - name: logs
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ferris-sql-single
+  namespace: ferris-sql
+spec:
+  selector:
+    app: ferris-sql-single
+  ports:
+  - name: api
+    port: 8080
+    targetPort: 8080
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ferris-sql-multi
+  namespace: ferris-sql
+spec:
+  selector:
+    app: ferris-sql-multi
+  ports:
+  - name: api
+    port: 8080
+    targetPort: 8080
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sql-data-pvc
+  namespace: ferris-sql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: multi-sql-data-pvc
+  namespace: ferris-sql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

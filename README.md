@@ -16,6 +16,7 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
 * **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, and real-time analytics
 * **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
+* **Management CLI:** Built-in CLI tool for monitoring, health checks, and production management
 * **Builder Patterns:** Ergonomic APIs for creating producers and consumers
 * **Robust Error Handling:** Comprehensive error types with proper error propagation
 
@@ -50,7 +51,7 @@ let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
 )?;
 
 // Poll for messages - returns Message<K, V> with headers
-let message = consumer.poll_message(Duration::from_secs(5)).await?;
+let message = consumer.poll(Duration::from_secs(5)).await?;
 println!("Key: {:?}", message.key());
 println!("Value: {:?}", message.value());
 println!("Headers: {:?}", message.headers());
@@ -80,7 +81,7 @@ let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
 )?;
 
 // Poll for messages with full metadata access
-let message = consumer.poll_message(Duration::from_secs(5)).await?;
+let message = consumer.poll(Duration::from_secs(5)).await?;
 
 // Access all metadata at once
 println!("{}", message.metadata_string());
@@ -155,17 +156,25 @@ for (key, value) in headers.iter() {
 - **[Latency Performance Test](examples/latency_performance_test.rs)** - Performance testing with metadata tracking
 
 ### Test Suite Examples
-- **[Builder Pattern Tests](tests/ferris/kafka/builder_pattern_test.rs)** - Comprehensive builder pattern test suite (16 tests)
-- **[Error Handling Tests](tests/ferris/kafka/error_handling_test.rs)** - Error scenarios and edge cases (12 tests)
-- **[Serialization Tests](tests/ferris/kafka/serialization_unit_test.rs)** - JSON serialization validation (7 tests)
-- **[Integration Tests](tests/ferris/kafka/kafka_integration_test.rs)** - Complete test suite including headers functionality
-- **[Performance Tests](tests/ferris/kafka/kafka_performance_test.rs)** - Performance benchmarks and load testing
-- **[Advanced Tests](tests/ferris/kafka/kafka_advanced_test.rs)** - Advanced patterns and edge cases
+
+#### Unit Tests
+- **[Builder Pattern Tests](tests/unit/builder_pattern_test.rs)** - Comprehensive builder pattern test suite
+- **[Error Handling Tests](tests/unit/error_handling_test.rs)** - Error scenarios and edge cases
+- **[Serialization Tests](tests/unit/serialization_unit_test.rs)** - JSON serialization validation
+- **[Message Metadata Tests](tests/unit/message_metadata_test.rs)** - Message metadata functionality
+- **[Headers Edge Cases](tests/unit/headers_edge_cases_test.rs)** - Advanced headers testing
+
+#### Integration Tests  
+- **[Kafka Integration Tests](tests/integration/kafka_integration_test.rs)** - Complete test suite including headers functionality
+- **[Kafka Advanced Tests](tests/integration/kafka_advanced_test.rs)** - Advanced patterns and edge cases
+- **[Transaction Tests](tests/integration/transaction_test.rs)** - Transactional producer/consumer patterns
+- **[KTable Tests](tests/integration/ktable_test.rs)** - KTable functionality testing
+- **[Failure Recovery Tests](tests/integration/failure_recovery_test.rs)** - Network partition and retry logic
 
 ### Shared Test Infrastructure
-- **[Test Messages](tests/ferris/kafka/test_messages.rs)** - Unified message types for testing
-- **[Test Utils](tests/ferris/kafka/test_utils.rs)** - Shared utilities and helper functions
-- **[Common Imports](tests/ferris/kafka/common.rs)** - Consolidated imports for all tests
+- **[Test Messages](tests/unit/test_messages.rs)** - Unified message types for testing
+- **[Test Utils](tests/unit/test_utils.rs)** - Shared utilities and helper functions
+- **[Common Imports](tests/unit/common.rs)** - Consolidated imports for all tests
 
 ## 🚀 Quick Start
 
@@ -240,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     consumer.subscribe(&["orders"])?;
 
     loop {
-        match consumer.poll_message(Duration::from_secs(1)).await {
+        match consumer.poll(Duration::from_secs(1)).await {
             Ok(message) => {
                 println!("Received order: {:?}", message.value());
                 
@@ -271,17 +280,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
     
-    // Parse and execute streaming SQL with JOINs
+    // Parse and execute advanced streaming SQL with JOINs, functions, and aggregation
     let query = "
         SELECT 
             o.order_id,
             o.customer_id,
             o.amount,
             c.customer_name,
-            c.tier
+            c.tier,
+            DATEDIFF('hours', o.created_at, NOW()) as hours_old,
+            POSITION('@', c.email) as email_at_pos,
+            LISTAGG(p.product_name, ', ') as products
         FROM orders o
         INNER JOIN customers c ON o.customer_id = c.customer_id
+        LEFT JOIN order_products p ON o.order_id = p.order_id
         WHERE o.amount > 100.0
+        GROUP BY o.order_id, o.customer_id, o.amount, c.customer_name, c.tier, o.created_at, c.email
+        HAVING COUNT(p.product_id) > 1
     ";
     
     let parsed_query = parser.parse(query)?;
@@ -293,12 +308,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 🛠️ FerrisStreams CLI
+
+FerrisStreams includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
+
+### Features
+- **Health Monitoring**: Real-time health checks of all FerrisStreams components
+- **Job Management**: Monitor SQL jobs, data generators, and streaming tasks
+- **Kafka Monitoring**: Topic inspection, consumer group monitoring, and cluster health
+- **Remote Support**: Connect to production servers via HTTP APIs
+- **Real-time Dashboards**: Live monitoring with auto-refresh capabilities
+
+### Quick Start
+```bash
+# Build the CLI (creates convenient symlink)
+./demo/trading/build_cli.sh
+
+# Local monitoring
+./ferris-cli health
+./ferris-cli status --verbose
+./ferris-cli jobs --sql --topics
+
+# Remote production monitoring
+./ferris-cli --remote --sql-host prod-server.com health
+./ferris-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+```
+
+### Available Commands
+- `health` - Quick health check of all components
+- `status` - Comprehensive system status with optional real-time monitoring
+- `jobs` - Detailed job and task information (SQL, generators, topics)
+- `kafka` - Kafka cluster and topic monitoring
+- `sql` - SQL server information and job details
+- `docker` - Docker container status
+- `processes` - Process information
+
+### Connection Options
+```bash
+--sql-host <HOST>          # SQL server host (default: localhost)
+--sql-port <PORT>          # SQL server port (default: 8080)
+--kafka-brokers <BROKERS>  # Kafka brokers (default: localhost:9092)
+--remote                   # Remote mode - skip local Docker/process checks
+```
+
+See [CLI_USAGE.md](demo/trading/CLI_USAGE.md) for comprehensive documentation.
+
 ## 🔄 Message Processing Patterns
 
 ### 1. Polling Pattern
 ```rust
 // Traditional polling approach
-while let Ok(message) = consumer.poll_message(timeout).await {
+while let Ok(message) = consumer.poll(timeout).await {
     let (key, value, headers) = message.into_parts();
     // Process message...
 }
@@ -411,9 +471,9 @@ cargo test test_performance            # Performance benchmarks
 ### Test Structure
 
 The test suite has been consolidated to eliminate duplication:
-- **Shared Messages**: `tests/ferris/kafka/test_messages.rs` - Unified message types
-- **Shared Utilities**: `tests/ferris/kafka/test_utils.rs` - Common test helpers
-- **Common Imports**: `tests/ferris/kafka/common.rs` - Single import module
+- **Shared Messages**: `tests/unit/test_messages.rs` - Unified message types
+- **Shared Utilities**: `tests/unit/test_utils.rs` - Common test helpers
+- **Common Imports**: `tests/unit/common.rs` - Single import module
 - **35+ Tests**: Covering builder patterns, error handling, serialization, and integration scenarios
 
 ### Current Test Status ✅

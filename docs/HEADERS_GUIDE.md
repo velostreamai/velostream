@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     consumer.subscribe(&["orders"])?;
 
     loop {
-        match consumer.poll_message(Duration::from_secs(5)).await {
+        match consumer.poll(Duration::from_secs(5)).await {
             Ok(message) => {
                 // Access all three components
                 println!("Key: {:?}", message.key());
@@ -314,7 +314,7 @@ struct EnrichedEvent {
 
 ```rust
 // Pattern 1: Reference access (borrowing)
-let message = consumer.poll_message(timeout).await?;
+let message = consumer.poll(timeout).await?;
 println!("Key: {:?}", message.key());
 println!("Value: {:?}", message.value());
 println!("Headers: {:?}", message.headers());
@@ -341,7 +341,7 @@ let headers = message.into_headers();  // Take just the headers
    - Shows all access patterns and processing methods
    - Production-ready patterns
 
-3. **[Integration Test](../tests/ferris/kafka/kafka_integration_test.rs)**
+3. **[Integration Test](../tests/integration/kafka_integration_test.rs)**
    - `test_headers_functionality` - Complete test case
    - Validates headers round-trip functionality
 
@@ -372,7 +372,7 @@ let headers = Headers::new()
 producer.send(Some(&key), &event, headers, None).await?;
 
 // Consumer extracts tracing context
-if let Ok(message) = consumer.poll_message(timeout).await {
+if let Ok(message) = consumer.poll(timeout).await {
     let trace_context = TraceContext {
         trace_id: message.headers().get("trace-id").unwrap_or("unknown"),
         span_id: message.headers().get("span-id").unwrap_or("unknown"),

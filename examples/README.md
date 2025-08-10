@@ -327,9 +327,9 @@ cargo run --example ktable_example -- --populate
 
 After working through these examples:
 
-1. **Explore the test suite** in `tests/ferris/kafka/` for more advanced patterns
+1. **Explore the test suite** in `tests/unit/` and `tests/integration/` for more advanced patterns
 2. **Read the documentation** in `docs/` for detailed guides
-3. **Check out the shared test infrastructure** in `tests/ferris/kafka/`:
+3. **Check out the shared test infrastructure** in `tests/unit/`:
    - `test_messages.rs` - Common message types
    - `test_utils.rs` - Shared utilities
    - `common.rs` - Consolidated imports
@@ -348,7 +348,7 @@ Found an issue or want to improve an example? Contributions are welcome!
 - **[Main README](../README.md)** - Project overview and installation
 - **[Headers Guide](../docs/HEADERS_GUIDE.md)** - Comprehensive headers documentation
 - **[Builder Pattern Guide](../docs/BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
-- **[Test Suite](../tests/ferris/kafka/)** - Advanced patterns and edge cases
+- **[Test Suite](../tests/)** - Advanced patterns and edge cases
 
 ---
 

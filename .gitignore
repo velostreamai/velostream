@@ -1,1 +1,4 @@
 /target
+
+# Claude Code CLI cache and session data
+.claude/
