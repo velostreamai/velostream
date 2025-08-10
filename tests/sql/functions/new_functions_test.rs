@@ -69,8 +69,17 @@ async fn execute_query(
     // Convert StreamRecord to HashMap<String, InternalValue>
     let internal_record = convert_stream_record_to_internal(&record);
 
-    // Execute the query with internal record
-    engine.execute(&parsed_query, internal_record).await?;
+    // Execute the query with internal record, including metadata
+    engine
+        .execute_with_metadata(
+            &parsed_query,
+            internal_record,
+            record.headers,
+            Some(record.timestamp),
+            Some(record.offset),
+            Some(record.partition),
+        )
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -551,7 +560,7 @@ async fn test_position_function() {
         InternalValue::Integer(val) => *val,
         _ => panic!("Expected integer result for POSITION"),
     };
-    assert_eq!(t_pos, 6); // Position of 't' in "Test Product" (case-sensitive, lowercase 't' in "Product")
+    assert_eq!(t_pos, 4); // Position of 't' in "Test Product" (case-sensitive, first lowercase 't' in "Test")
 
     // Test POSITION when substring not found
     let results =

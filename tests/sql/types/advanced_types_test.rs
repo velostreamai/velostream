@@ -4,6 +4,7 @@
 Comprehensive test suite for ARRAY, MAP, and STRUCT data types and their operations.
 */
 
+use ferrisstreams::ferris::serialization::SerializationFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -56,47 +57,28 @@ async fn execute_query(
     query: &str,
 ) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(
-        tx,
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
-    );
+    let serialization_format =
+        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_with_advanced_types();
 
-    // Convert StreamRecord to HashMap<String, InternalValue> for the engine
-    let internal_record: HashMap<String, ferrisstreams::ferris::serialization::InternalValue> =
-        record
-            .fields
-            .into_iter()
-            .map(|(k, v)| {
-                let internal_val = match v {
-                    ferrisstreams::ferris::sql::execution::FieldValue::Integer(i) => {
-                        ferrisstreams::ferris::serialization::InternalValue::Integer(i)
-                    }
-                    ferrisstreams::ferris::sql::execution::FieldValue::Float(f) => {
-                        ferrisstreams::ferris::serialization::InternalValue::Number(f)
-                    }
-                    ferrisstreams::ferris::sql::execution::FieldValue::String(s) => {
-                        ferrisstreams::ferris::serialization::InternalValue::String(s)
-                    }
-                    ferrisstreams::ferris::sql::execution::FieldValue::Boolean(b) => {
-                        ferrisstreams::ferris::serialization::InternalValue::Boolean(b)
-                    }
-                    ferrisstreams::ferris::sql::execution::FieldValue::Null => {
-                        ferrisstreams::ferris::serialization::InternalValue::Null
-                    }
-                    _ => ferrisstreams::ferris::serialization::InternalValue::String(format!(
-                        "{:?}",
-                        v
-                    )),
-                };
-                (k, internal_val)
-            })
-            .collect();
+    // Convert StreamRecord to HashMap<String, InternalValue> using proper serialization
+    let internal_record = serialization_format.to_execution_format(&record.fields)?;
 
-    engine.execute(&parsed_query, internal_record).await?;
+    // Execute the query with internal record, including metadata
+    engine
+        .execute_with_metadata(
+            &parsed_query,
+            internal_record,
+            record.headers,
+            Some(record.timestamp),
+            Some(record.offset),
+            Some(record.partition),
+        )
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -297,7 +279,7 @@ async fn test_complex_expressions() {
 
     // Test array contains with expression
     let results = execute_query(
-        "SELECT ARRAY_CONTAINS(ARRAY('a', 'b', 'c'), UPPER('a')) as expr_contains FROM test_stream",
+        "SELECT ARRAY_CONTAINS(ARRAY('a', 'b', 'c'), LOWER('A')) as expr_contains FROM test_stream",
     )
     .await
     .unwrap();

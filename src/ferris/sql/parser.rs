@@ -237,6 +237,7 @@ enum TokenType {
     Then, // THEN
     Else, // ELSE
     End,  // END
+    Is,   // IS (for IS NULL, IS NOT NULL)
 
     // Window Frame Keywords
     Rows,      // ROWS
@@ -343,6 +344,7 @@ impl StreamingSqlParser {
         keywords.insert("THEN".to_string(), TokenType::Then);
         keywords.insert("ELSE".to_string(), TokenType::Else);
         keywords.insert("END".to_string(), TokenType::End);
+        keywords.insert("IS".to_string(), TokenType::Is);
         keywords.insert("ROWS".to_string(), TokenType::Rows);
         keywords.insert("RANGE".to_string(), TokenType::Range);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
@@ -514,6 +516,14 @@ impl StreamingSqlParser {
                         tokens.push(Token {
                             token_type: TokenType::LessThanOrEqual,
                             value: "<=".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else if let Some(&'>') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::NotEqual,
+                            value: "<>".to_string(),
                             position: position - 1,
                         });
                         chars.next();
@@ -992,26 +1002,58 @@ impl TokenParser {
                 | TokenType::GreaterThan
                 | TokenType::LessThanOrEqual
                 | TokenType::GreaterThanOrEqual
+                | TokenType::Is
         ) {
             let op_token = self.current_token().clone();
             self.advance();
-            let right = self.parse_additive()?;
 
-            let op = match op_token.token_type {
-                TokenType::Equal => BinaryOperator::Equal,
-                TokenType::NotEqual => BinaryOperator::NotEqual,
-                TokenType::LessThan => BinaryOperator::LessThan,
-                TokenType::GreaterThan => BinaryOperator::GreaterThan,
-                TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
-                TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
-                _ => unreachable!(),
-            };
+            if op_token.token_type == TokenType::Is {
+                // Handle IS NULL or IS NOT NULL
+                if self.current_token().value.to_uppercase() == "NOT" {
+                    self.advance(); // consume NOT
+                    if self.current_token().value.to_uppercase() == "NULL" {
+                        self.advance(); // consume NULL
+                        left = Expr::UnaryOp {
+                            op: UnaryOperator::IsNotNull,
+                            expr: Box::new(left),
+                        };
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected NULL after IS NOT".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                } else if self.current_token().value.to_uppercase() == "NULL" {
+                    self.advance(); // consume NULL
+                    left = Expr::UnaryOp {
+                        op: UnaryOperator::IsNull,
+                        expr: Box::new(left),
+                    };
+                } else {
+                    return Err(SqlError::ParseError {
+                        message: "Expected NULL after IS".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            } else {
+                let right = self.parse_additive()?;
 
-            left = Expr::BinaryOp {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
-            };
+                let op = match op_token.token_type {
+                    TokenType::Equal => BinaryOperator::Equal,
+                    TokenType::NotEqual => BinaryOperator::NotEqual,
+                    TokenType::LessThan => BinaryOperator::LessThan,
+                    TokenType::GreaterThan => BinaryOperator::GreaterThan,
+                    TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
+                    TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
+                    _ => unreachable!(),
+                };
+
+                left = Expr::BinaryOp {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            }
         }
 
         Ok(left)
@@ -1075,6 +1117,23 @@ impl TokenParser {
         let token = self.current_token().clone();
         match token.token_type {
             TokenType::Identifier => {
+                // Special handling for boolean literals and null
+                match token.value.to_uppercase().as_str() {
+                    "TRUE" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Boolean(true)));
+                    }
+                    "FALSE" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Boolean(false)));
+                    }
+                    "NULL" => {
+                        self.advance();
+                        return Ok(Expr::Literal(LiteralValue::Null));
+                    }
+                    _ => {}
+                }
+
                 // Special handling for CURRENT_TIMESTAMP (no parentheses required)
                 if token.value.to_uppercase() == "CURRENT_TIMESTAMP" {
                     self.advance();

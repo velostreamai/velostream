@@ -273,46 +273,7 @@ impl StreamExecutionEngine {
             fields: record
                 .into_iter()
                 .map(|(k, v)| {
-                    let field_value = match v {
-                        InternalValue::Integer(i) => FieldValue::Integer(i),
-                        InternalValue::Number(f) => FieldValue::Float(f),
-                        InternalValue::String(s) => FieldValue::String(s),
-                        InternalValue::Boolean(b) => FieldValue::Boolean(b),
-                        InternalValue::Null => FieldValue::Null,
-                        InternalValue::Array(arr) => {
-                            // Convert InternalValue array to FieldValue array
-                            let field_arr: Vec<FieldValue> = arr
-                                .into_iter()
-                                .map(|item| match item {
-                                    InternalValue::Integer(i) => FieldValue::Integer(i),
-                                    InternalValue::Number(f) => FieldValue::Float(f),
-                                    InternalValue::String(s) => FieldValue::String(s),
-                                    InternalValue::Boolean(b) => FieldValue::Boolean(b),
-                                    InternalValue::Null => FieldValue::Null,
-                                    _ => FieldValue::String(format!("{:?}", item)),
-                                })
-                                .collect();
-                            FieldValue::Array(field_arr)
-                        }
-                        InternalValue::Object(map) => {
-                            // Convert InternalValue map to FieldValue map
-                            let field_map: HashMap<String, FieldValue> = map
-                                .into_iter()
-                                .map(|(key, value)| {
-                                    let field_val = match value {
-                                        InternalValue::Integer(i) => FieldValue::Integer(i),
-                                        InternalValue::Number(f) => FieldValue::Float(f),
-                                        InternalValue::String(s) => FieldValue::String(s),
-                                        InternalValue::Boolean(b) => FieldValue::Boolean(b),
-                                        InternalValue::Null => FieldValue::Null,
-                                        _ => FieldValue::String(format!("{:?}", value)),
-                                    };
-                                    (key, field_val)
-                                })
-                                .collect();
-                            FieldValue::Map(field_map)
-                        }
-                    };
+                    let field_value = self.internal_to_field_value(v);
                     (k, field_value)
                 })
                 .collect(),
@@ -1019,6 +980,14 @@ impl StreamExecutionEngine {
                 UnaryOperator::Not => {
                     let val = self.evaluate_expression(expr, record)?;
                     Ok(!val)
+                }
+                UnaryOperator::IsNull => {
+                    let val = self.evaluate_expression_value(expr, record)?;
+                    Ok(matches!(val, FieldValue::Null))
+                }
+                UnaryOperator::IsNotNull => {
+                    let val = self.evaluate_expression_value(expr, record)?;
+                    Ok(!matches!(val, FieldValue::Null))
                 }
                 _ => Err(SqlError::ExecutionError {
                     message: "Unsupported unary operator for boolean expression".to_string(),
@@ -2609,11 +2578,19 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                let mut min_val = self.evaluate_expression_value(&args[0], record)?;
-                for arg in &args[1..] {
-                    let val = self.evaluate_expression_value(arg, record)?;
-                    if self.compare_values_for_min(&val, &min_val)? {
-                        min_val = val;
+                // Evaluate all arguments
+                let mut values: Vec<FieldValue> = args
+                    .iter()
+                    .map(|arg| self.evaluate_expression_value(arg, record))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Apply type promotion (integers to floats if any float is present)
+                values = self.promote_numeric_type(&values);
+
+                let mut min_val = values[0].clone();
+                for val in &values[1..] {
+                    if self.compare_values_for_min(val, &min_val)? {
+                        min_val = val.clone();
                     }
                 }
                 Ok(min_val)
@@ -2626,11 +2603,19 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                let mut max_val = self.evaluate_expression_value(&args[0], record)?;
-                for arg in &args[1..] {
-                    let val = self.evaluate_expression_value(arg, record)?;
-                    if self.compare_values_for_max(&val, &max_val)? {
-                        max_val = val;
+                // Evaluate all arguments
+                let mut values: Vec<FieldValue> = args
+                    .iter()
+                    .map(|arg| self.evaluate_expression_value(arg, record))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Apply type promotion (integers to floats if any float is present)
+                values = self.promote_numeric_type(&values);
+
+                let mut max_val = values[0].clone();
+                for val in &values[1..] {
+                    if self.compare_values_for_max(val, &max_val)? {
+                        max_val = val.clone();
                     }
                 }
                 Ok(max_val)
@@ -3264,5 +3249,47 @@ impl StreamExecutionEngine {
             partition: left.partition,
             headers: left.headers.clone(),
         })
+    }
+
+    /// Convert InternalValue to FieldValue for pluggable serialization
+    fn internal_to_field_value(&self, value: InternalValue) -> FieldValue {
+        match value {
+            InternalValue::Integer(i) => FieldValue::Integer(i),
+            InternalValue::Number(f) => FieldValue::Float(f),
+            InternalValue::String(s) => FieldValue::String(s),
+            InternalValue::Boolean(b) => FieldValue::Boolean(b),
+            InternalValue::Null => FieldValue::Null,
+            InternalValue::Array(arr) => {
+                let field_arr: Vec<FieldValue> = arr
+                    .into_iter()
+                    .map(|item| self.internal_to_field_value(item))
+                    .collect();
+                FieldValue::Array(field_arr)
+            }
+            InternalValue::Object(map) => {
+                let field_map: HashMap<String, FieldValue> = map
+                    .into_iter()
+                    .map(|(k, v)| (k, self.internal_to_field_value(v)))
+                    .collect();
+                FieldValue::Map(field_map)
+            }
+        }
+    }
+
+    /// Promote integer to float if any of the values is a float (SQL type promotion)
+    fn promote_numeric_type(&self, values: &[FieldValue]) -> Vec<FieldValue> {
+        let has_float = values.iter().any(|v| matches!(v, FieldValue::Float(_)));
+
+        if has_float {
+            values
+                .iter()
+                .map(|v| match v {
+                    FieldValue::Integer(i) => FieldValue::Float(*i as f64),
+                    other => other.clone(),
+                })
+                .collect()
+        } else {
+            values.to_vec()
+        }
     }
 }

@@ -63,8 +63,17 @@ async fn execute_query(
     // Convert StreamRecord to HashMap<String, InternalValue>
     let internal_record = convert_stream_record_to_internal(&record);
 
-    // Execute the query with internal record
-    engine.execute(&parsed_query, internal_record).await?;
+    // Execute the query with internal record, including metadata
+    engine
+        .execute_with_metadata(
+            &parsed_query,
+            internal_record,
+            record.headers,
+            Some(record.timestamp),
+            Some(record.offset),
+            Some(record.partition),
+        )
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
