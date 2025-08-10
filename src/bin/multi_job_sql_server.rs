@@ -637,47 +637,80 @@ async fn deploy_sql_application_from_file(
     default_topic: Option<String>,
     no_monitor: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Deploying SQL application from file: {}", file_path);
+    println!("Starting deployment from file: {}", file_path);
 
     // Read the SQL application file
-    let content = fs::read_to_string(&file_path)?;
+    println!("Reading SQL file: {}", file_path);
+    let content = fs::read_to_string(&file_path).map_err(|e| {
+        let error_msg = format!("Failed to read SQL file '{}': {}", file_path, e);
+        println!("ERROR: {}", error_msg);
+        eprintln!("ERROR: {}", error_msg);
+        e
+    })?;
+    println!("Successfully read {} bytes from file", content.len());
 
     // Parse the SQL application
+    println!("Parsing SQL application...");
     let app_parser = SqlApplicationParser::new();
-    let app = app_parser.parse_application(&content)?;
-
-    info!(
-        "Parsed SQL application '{}' version '{}' with {} statements",
+    let app = app_parser.parse_application(&content).map_err(|e| {
+        let error_msg = format!("Failed to parse SQL application: {}", e);
+        println!("ERROR: {}", error_msg);
+        eprintln!("ERROR: {}", error_msg);
+        e
+    })?;
+    println!(
+        "Successfully parsed application: {} v{} with {} statements",
         app.metadata.name,
         app.metadata.version,
         app.statements.len()
     );
 
+    // Keep logging for server operations, but rely on println! for deployment output
+
     // Create a temporary server instance for deployment
+    println!(
+        "Creating multi-job server with brokers: {}, group_id: {}",
+        brokers, group_id
+    );
     let server = MultiJobSqlServer::new(brokers, group_id, 100); // High limit for app deployment
 
     // Deploy the application
+    println!(
+        "Deploying application with {} statements...",
+        app.statements.len()
+    );
     let deployed_jobs = server
         .deploy_sql_application(app.clone(), default_topic)
-        .await?;
+        .await
+        .map_err(|e| {
+            let error_msg = format!("Failed to deploy SQL application: {}", e);
+            println!("ERROR: {}", error_msg);
+            eprintln!("ERROR: {}", error_msg);
+            e
+        })?;
+    println!(
+        "Deployment completed. Jobs deployed: {}",
+        deployed_jobs.len()
+    );
 
-    info!("SQL application deployment completed!");
-    info!(
+    // Output results to stdout for integration tests
+    println!("SQL application deployment completed!");
+    println!(
         "Application: {} v{}",
         app.metadata.name, app.metadata.version
     );
-    info!("Deployed {} jobs: {:?}", deployed_jobs.len(), deployed_jobs);
+    println!("Deployed {} jobs: {:?}", deployed_jobs.len(), deployed_jobs);
 
     if let Some(description) = &app.metadata.description {
-        info!("Description: {}", description);
+        println!("Description: {}", description);
     }
 
     if let Some(author) = &app.metadata.author {
-        info!("Author: {}", author);
+        println!("Author: {}", author);
     }
 
     if no_monitor {
-        info!("Deployment completed. Jobs are running in the background.");
+        println!("Deployment completed. Jobs are running in the background.");
         return Ok(());
     }
 

@@ -130,12 +130,16 @@ async fn test_multi_job_server_deploy_all_jobs() {
         format!("./target/release/{}", binary_name)
     };
 
+    println!("🔍 Checking for binary at: {}", binary_path);
+
     // Check and build binary if needed
     if !std::path::Path::new(&binary_path).exists() {
         println!("🔨 Building binary...");
         let build_args = if std::env::var("CI").is_ok() {
+            println!("CI environment detected - building debug binary");
             vec!["build", "--bin", binary_name]
         } else {
+            println!("Local environment - building release binary");
             vec!["build", "--release", "--bin", binary_name]
         };
 
@@ -149,16 +153,53 @@ async fn test_multi_job_server_deploy_all_jobs() {
             panic!("Failed to build binary: {}", error);
         }
         println!("✅ Binary built successfully");
+    } else {
+        println!("✅ Binary already exists");
+    }
+
+    // Verify binary is executable
+    println!("🔍 Verifying binary permissions and testing execution...");
+    let version_output = Command::new(&binary_path).args(&["--version"]).output();
+
+    match version_output {
+        Ok(output) => {
+            if output.status.success() {
+                println!("✅ Binary is executable");
+            } else {
+                println!(
+                    "❌ Binary exists but failed to run --version: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+        Err(e) => {
+            println!("❌ Failed to execute binary: {}", e);
+        }
     }
 
     println!("🧪 Testing multi-job SQL server deployment...");
 
     // Create a temporary SQL file
+    println!("📝 Creating temporary SQL file...");
     let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
     temp_file
         .write_all(TEST_SQL_APP.as_bytes())
         .expect("Failed to write to temp file");
+    temp_file.flush().expect("Failed to flush temp file");
     let temp_path = temp_file.path();
+
+    println!("📁 Temp file created at: {}", temp_path.display());
+    println!(
+        "📏 Temp file size: {} bytes",
+        std::fs::metadata(&temp_path).unwrap().len()
+    );
+
+    // Verify temp file is readable
+    let temp_content = std::fs::read_to_string(&temp_path).expect("Failed to read temp file");
+    println!(
+        "✅ Temp file is readable, contains {} bytes",
+        temp_content.len()
+    );
 
     // Start a test multi-job server
     println!("🚀 Starting multi-job SQL server for test...");
@@ -184,6 +225,13 @@ async fn test_multi_job_server_deploy_all_jobs() {
     // Deploy the SQL application
     println!("📊 Deploying test SQL application...");
 
+    println!("🚀 Executing deployment command...");
+    println!(
+        "Command: {} deploy-app --file {} --brokers localhost:9092 --no-monitor",
+        binary_path,
+        temp_path.display()
+    );
+
     let deploy_output = Command::new(&binary_path)
         .args(&[
             "deploy-app",
@@ -194,7 +242,13 @@ async fn test_multi_job_server_deploy_all_jobs() {
             "--no-monitor",
         ])
         .output()
-        .expect("Failed to execute deploy-app command");
+        .map_err(|e| {
+            panic!(
+                "Failed to execute deploy-app command: {}. Binary path: {}",
+                e, binary_path
+            );
+        })
+        .unwrap();
 
     if !deploy_output.status.success() {
         let stderr = String::from_utf8_lossy(&deploy_output.stderr);
@@ -202,11 +256,14 @@ async fn test_multi_job_server_deploy_all_jobs() {
     }
 
     let stdout = String::from_utf8_lossy(&deploy_output.stdout);
-    println!("Deploy output: {}", stdout);
+    let stderr = String::from_utf8_lossy(&deploy_output.stderr);
+    println!("Deploy stdout: {}", stdout);
+    println!("Deploy stderr: {}", stderr);
 
     // Parse the deployment output to verify all jobs were deployed
-    // Look for lines like "Deployed X jobs: [...]"
-    let deployed_jobs_count = if let Some(line) = stdout
+    // Look for lines like "Deployed X jobs: [...]" in both stdout and stderr
+    let combined_output = format!("{}\n{}", stdout, stderr);
+    let deployed_jobs_count = if let Some(line) = combined_output
         .lines()
         .find(|line| line.contains("Deployed") && line.contains("jobs:"))
     {
@@ -223,8 +280,8 @@ async fn test_multi_job_server_deploy_all_jobs() {
     // Verify all 5 jobs were deployed
     assert_eq!(
         deployed_jobs_count, 5,
-        "❌ Expected 5 jobs to be deployed, but only {} were deployed. Output: {}",
-        deployed_jobs_count, stdout
+        "❌ Expected 5 jobs to be deployed, but only {} were deployed. Combined output: {}",
+        deployed_jobs_count, combined_output
     );
 
     println!("✅ All 5 jobs successfully deployed!");
