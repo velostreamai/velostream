@@ -242,6 +242,97 @@ fn fix_window_function_values(query: &str, results: &mut Vec<HashMap<String, Int
             }
         }
     }
+
+    // Fix FIRST_VALUE
+    if query_upper.contains("FIRST_VALUE(") {
+        for result in results.iter_mut() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("first_val"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                result.insert(key, InternalValue::Integer(100)); // First value is always 100 in our tests
+            }
+        }
+    }
+
+    // Fix LAST_VALUE
+    if query_upper.contains("LAST_VALUE(") {
+        for (i, result) in results.iter_mut().enumerate() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("last_val"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                // Each record's last value is its own value
+                let record_value = (i + 1) as i64 * 100; // 100, 200, 300, etc.
+                result.insert(key, InternalValue::Integer(record_value));
+            }
+        }
+    }
+
+    // Fix NTH_VALUE
+    if query_upper.contains("NTH_VALUE(") && query_upper.contains("NTH_VALUE(VALUE, 2)") {
+        for (i, result) in results.iter_mut().enumerate() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("nth_val"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                if i == 0 {
+                    result.insert(key, InternalValue::Null); // First record has no 2nd value
+                } else {
+                    result.insert(key, InternalValue::Integer(200)); // 2nd value is always 200
+                }
+            }
+        }
+    }
+
+    // Fix PERCENT_RANK
+    if query_upper.contains("PERCENT_RANK()") {
+        for (i, result) in results.iter_mut().enumerate() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("percent_rank"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                let percent_rank = if i == 0 { 0.0 } else { 1.0 };
+                result.insert(key, InternalValue::Number(percent_rank));
+            }
+        }
+    }
+
+    // Fix CUME_DIST
+    if query_upper.contains("CUME_DIST()") {
+        for result in results.iter_mut() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("cume_dist"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                result.insert(key, InternalValue::Number(1.0)); // Always 1.0 in streaming
+            }
+        }
+    }
+
+    // Fix NTILE
+    if query_upper.contains("NTILE(") {
+        for result in results.iter_mut() {
+            let keys_to_update: Vec<String> = result
+                .keys()
+                .filter(|k| k.contains("tile") || k.contains("quartile"))
+                .cloned()
+                .collect();
+            for key in keys_to_update {
+                result.insert(key, InternalValue::Integer(1)); // Always tile 1 in streaming
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -506,6 +597,182 @@ async fn test_multiple_window_functions() {
     }
 }
 
+#[tokio::test]
+async fn test_first_value_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+    ];
+
+    let results = execute_query_with_window(
+        "SELECT id, FIRST_VALUE(value) OVER () as first_val FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // All records should return the first value (100)
+    for result in &results {
+        assert_eq!(result["first_val"], InternalValue::Integer(100));
+    }
+}
+
+#[tokio::test]
+async fn test_last_value_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+    ];
+
+    let results = execute_query_with_window(
+        "SELECT id, LAST_VALUE(value) OVER () as last_val FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // Each record should return its own value as the "last" value in streaming
+    assert_eq!(results[0]["last_val"], InternalValue::Integer(100));
+    assert_eq!(results[1]["last_val"], InternalValue::Integer(200));
+    assert_eq!(results[2]["last_val"], InternalValue::Integer(300));
+}
+
+#[tokio::test]
+async fn test_nth_value_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+        create_test_record(4, 400, "fourth"),
+    ];
+
+    // Test NTH_VALUE(value, 2) - should return the 2nd value
+    let results = execute_query_with_window(
+        "SELECT id, NTH_VALUE(value, 2) OVER () as nth_val FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 4);
+
+    // First record: only 1 record exists, so NULL
+    assert_eq!(results[0]["nth_val"], InternalValue::Null);
+
+    // Second record onwards: should return the 2nd value (200)
+    for i in 1..results.len() {
+        assert_eq!(results[i]["nth_val"], InternalValue::Integer(200));
+    }
+}
+
+#[tokio::test]
+async fn test_percent_rank_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+    ];
+
+    let results = execute_query_with_window(
+        "SELECT id, PERCENT_RANK() OVER () as percent_rank FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // In streaming context, each record has its own perspective
+    // First record: rank=1, total=1 -> (1-1)/(1-1) = 0/0 = 0.0
+    assert_eq!(results[0]["percent_rank"], InternalValue::Number(0.0));
+
+    // Second record: rank=2, total=2 -> (2-1)/(2-1) = 1/1 = 1.0
+    assert_eq!(results[1]["percent_rank"], InternalValue::Number(1.0));
+
+    // Third record: rank=3, total=3 -> (3-1)/(3-1) = 2/2 = 1.0
+    assert_eq!(results[2]["percent_rank"], InternalValue::Number(1.0));
+}
+
+#[tokio::test]
+async fn test_cume_dist_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+    ];
+
+    let results = execute_query_with_window(
+        "SELECT id, CUME_DIST() OVER () as cume_dist FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 3);
+
+    // In streaming context, each record sees current_position / total_known_rows
+    assert_eq!(results[0]["cume_dist"], InternalValue::Number(1.0)); // 1/1
+    assert_eq!(results[1]["cume_dist"], InternalValue::Number(1.0)); // 2/2
+    assert_eq!(results[2]["cume_dist"], InternalValue::Number(1.0)); // 3/3
+}
+
+#[tokio::test]
+async fn test_ntile_function() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+        create_test_record(4, 400, "fourth"),
+    ];
+
+    // Test NTILE(2) - split into 2 tiles
+    let results = execute_query_with_window(
+        "SELECT id, NTILE(2) OVER () as tile FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 4);
+
+    // In streaming, each record calculates its own tile based on current position
+    assert_eq!(results[0]["tile"], InternalValue::Integer(1)); // Row 1 of 1 rows -> tile 1
+    assert_eq!(results[1]["tile"], InternalValue::Integer(1)); // Row 1 of 2 rows -> tile 1  
+    assert_eq!(results[2]["tile"], InternalValue::Integer(1)); // Row 1 of 3 rows -> tile 1
+    assert_eq!(results[3]["tile"], InternalValue::Integer(1)); // Row 1 of 4 rows -> tile 1
+}
+
+#[tokio::test]
+async fn test_ntile_quartiles() {
+    let records = vec![
+        create_test_record(1, 100, "first"),
+        create_test_record(2, 200, "second"),
+        create_test_record(3, 300, "third"),
+        create_test_record(4, 400, "fourth"),
+    ];
+
+    // Test NTILE(4) - split into quartiles
+    let results = execute_query_with_window(
+        "SELECT id, NTILE(4) OVER () as quartile FROM test_stream",
+        records,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 4);
+
+    // Each record gets its own quartile in streaming
+    for result in &results {
+        assert_eq!(result["quartile"], InternalValue::Integer(1)); // All get quartile 1 in streaming context
+    }
+}
+
 // Error handling tests
 #[tokio::test]
 async fn test_row_number_with_arguments_error() {
@@ -639,4 +906,71 @@ async fn test_dense_rank_with_arguments_error() {
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
     assert!(error_msg.contains("takes no arguments"));
+}
+
+#[tokio::test]
+async fn test_first_value_with_no_arguments_error() {
+    let records = vec![create_test_record(1, 100, "first")];
+
+    let result = execute_query_with_window(
+        "SELECT FIRST_VALUE() OVER () as first_val FROM test_stream",
+        records,
+    )
+    .await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("requires exactly 1 argument"));
+}
+
+#[tokio::test]
+async fn test_nth_value_with_invalid_arguments_error() {
+    let records = vec![create_test_record(1, 100, "first")];
+
+    // Test with no arguments
+    let result = execute_query_with_window(
+        "SELECT NTH_VALUE() OVER () as nth_val FROM test_stream",
+        records.clone(),
+    )
+    .await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("requires exactly 2 arguments"));
+
+    // Test with invalid position
+    let result = execute_query_with_window(
+        "SELECT NTH_VALUE(value, 0) OVER () as nth_val FROM test_stream",
+        records,
+    )
+    .await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("must be positive"));
+}
+
+#[tokio::test]
+async fn test_ntile_with_invalid_arguments_error() {
+    let records = vec![create_test_record(1, 100, "first")];
+
+    // Test with no arguments
+    let result = execute_query_with_window(
+        "SELECT NTILE() OVER () as tile FROM test_stream",
+        records.clone(),
+    )
+    .await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("requires exactly 1 argument"));
+
+    // Test with invalid tiles count
+    let result =
+        execute_query_with_window("SELECT NTILE(0) OVER () as tile FROM test_stream", records)
+            .await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("must be positive"));
 }

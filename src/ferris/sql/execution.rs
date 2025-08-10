@@ -1623,9 +1623,191 @@ impl StreamExecutionEngine {
                 }
                 Ok(FieldValue::Integer(rank as i64))
             }
+            "FIRST_VALUE" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "FIRST_VALUE function requires exactly 1 argument (expression), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("FIRST_VALUE(expression)".to_string()),
+                    });
+                }
+
+                // Return the value from the first record in the window buffer
+                if !window_buffer.is_empty() {
+                    self.evaluate_expression_value(&args[0], &window_buffer[0])
+                } else {
+                    // If buffer is empty, evaluate against current record
+                    self.evaluate_expression_value(&args[0], record)
+                }
+            }
+            "LAST_VALUE" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "LAST_VALUE function requires exactly 1 argument (expression), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("LAST_VALUE(expression)".to_string()),
+                    });
+                }
+
+                // Return the value from the last record in the window buffer (current record)
+                self.evaluate_expression_value(&args[0], record)
+            }
+            "NTH_VALUE" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "NTH_VALUE function requires exactly 2 arguments (expression, n), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("NTH_VALUE(expression, n)".to_string()),
+                    });
+                }
+
+                // Parse the nth position
+                let nth = match self.evaluate_expression_value(&args[1], record)? {
+                    FieldValue::Integer(n) => {
+                        if n <= 0 {
+                            return Err(SqlError::ExecutionError {
+                                message: format!("NTH_VALUE position must be positive, got {}", n),
+                                query: Some(format!("NTH_VALUE(expression, {})", n)),
+                            });
+                        }
+                        n as usize
+                    }
+                    FieldValue::Null => {
+                        return Err(SqlError::ExecutionError {
+                            message: "NTH_VALUE position cannot be NULL".to_string(),
+                            query: Some("NTH_VALUE(expression, NULL)".to_string()),
+                        });
+                    }
+                    other => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "NTH_VALUE position must be an integer, got {}",
+                                other.type_name()
+                            ),
+                            query: Some(format!(
+                                "NTH_VALUE(expression, {})",
+                                other.type_name().to_lowercase()
+                            )),
+                        });
+                    }
+                };
+
+                // Get the nth record from the window buffer (1-indexed)
+                let total_records = window_buffer.len() + 1; // +1 for current record
+                if nth <= total_records {
+                    if nth <= window_buffer.len() {
+                        // nth record is in the buffer
+                        self.evaluate_expression_value(&args[0], &window_buffer[nth - 1])
+                    } else {
+                        // nth record is the current record
+                        self.evaluate_expression_value(&args[0], record)
+                    }
+                } else {
+                    // nth record doesn't exist
+                    Ok(FieldValue::Null)
+                }
+            }
+            "PERCENT_RANK" => {
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "PERCENT_RANK function takes no arguments, but {} were provided",
+                            args.len()
+                        ),
+                        query: Some(format!("PERCENT_RANK({} arguments)", args.len())),
+                    });
+                }
+
+                // PERCENT_RANK() = (rank - 1) / (total_rows - 1)
+                // For streaming, we use current position in buffer
+                let current_rank = window_buffer.len() + 1;
+                let total_rows = current_rank; // In streaming, we only know current position
+
+                if total_rows <= 1 {
+                    Ok(FieldValue::Float(0.0))
+                } else {
+                    let percent_rank = (current_rank - 1) as f64 / (total_rows - 1) as f64;
+                    Ok(FieldValue::Float(percent_rank))
+                }
+            }
+            "CUME_DIST" => {
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "CUME_DIST function takes no arguments, but {} were provided",
+                            args.len()
+                        ),
+                        query: Some(format!("CUME_DIST({} arguments)", args.len())),
+                    });
+                }
+
+                // CUME_DIST() = number_of_rows_with_values_<=_current_row / total_rows
+                // For streaming, we approximate this as current_position / total_known_rows
+                let current_position = window_buffer.len() + 1;
+                let total_known_rows = current_position;
+
+                let cume_dist = current_position as f64 / total_known_rows as f64;
+                Ok(FieldValue::Float(cume_dist))
+            }
+            "NTILE" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "NTILE function requires exactly 1 argument (n), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("NTILE(n)".to_string()),
+                    });
+                }
+
+                // Parse the number of tiles
+                let tiles = match self.evaluate_expression_value(&args[0], record)? {
+                    FieldValue::Integer(n) => {
+                        if n <= 0 {
+                            return Err(SqlError::ExecutionError {
+                                message: format!("NTILE tiles count must be positive, got {}", n),
+                                query: Some(format!("NTILE({})", n)),
+                            });
+                        }
+                        n
+                    }
+                    FieldValue::Null => {
+                        return Err(SqlError::ExecutionError {
+                            message: "NTILE tiles count cannot be NULL".to_string(),
+                            query: Some("NTILE(NULL)".to_string()),
+                        });
+                    }
+                    other => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "NTILE tiles count must be an integer, got {}",
+                                other.type_name()
+                            ),
+                            query: Some(format!("NTILE({})", other.type_name().to_lowercase())),
+                        });
+                    }
+                };
+
+                // Calculate which tile the current row belongs to
+                let current_row = window_buffer.len() + 1;
+                let total_rows = current_row; // In streaming, we only know current position
+
+                // Calculate tile number (1-indexed)
+                let rows_per_tile = (total_rows as f64 / tiles as f64).ceil() as i64;
+                let tile_number = ((current_row - 1) as i64 / rows_per_tile) + 1;
+                let tile_number = tile_number.min(tiles); // Ensure we don't exceed max tiles
+
+                Ok(FieldValue::Integer(tile_number))
+            }
             other => Err(SqlError::ExecutionError {
                 message: format!(
-                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK",
+                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE",
                     other
                 ),
                 query: Some(format!("{}(...) OVER (...)", other)),
