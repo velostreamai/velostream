@@ -52,24 +52,26 @@ The execution engine follows an event-driven architecture:
 ```rust,no_run
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create parser and execution engine
     let parser = StreamingSqlParser::new();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
 
     // Execute a simple SELECT query
     let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
 
-    // Create test record
+    // Create test record using InternalValue types
     let mut record = HashMap::new();
-    record.insert("customer_id".to_string(), Value::String("123".to_string()));
-    record.insert("amount".to_string(), Value::Number(serde_json::Number::from(150)));
+    record.insert("customer_id".to_string(), InternalValue::String("123".to_string()));
+    record.insert("amount".to_string(), InternalValue::Number(150.0));
 
     engine.execute(&query, record).await?;
 
