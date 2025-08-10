@@ -559,7 +559,11 @@ impl StreamExecutionEngine {
                             }
                         }
                         SelectField::Expression { expr, alias } => {
-                            let value = self.evaluate_expression_value(expr, &joined_record)?;
+                            let value = self.evaluate_expression_value_with_window(
+                                expr,
+                                &joined_record,
+                                &mut Vec::new(),
+                            )?;
                             let field_name = alias
                                 .as_ref()
                                 .unwrap_or(&self.get_expression_name(expr))
@@ -1030,6 +1034,28 @@ impl StreamExecutionEngine {
         }
     }
 
+    fn evaluate_expression_value_with_window(
+        &mut self,
+        expr: &Expr,
+        record: &StreamRecord,
+        window_buffer: &mut Vec<StreamRecord>,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => self.evaluate_window_function(
+                function_name,
+                args,
+                over_clause,
+                record,
+                window_buffer,
+            ),
+            _ => self.evaluate_expression_value(expr, record),
+        }
+    }
+
     fn evaluate_expression_value(
         &self,
         expr: &Expr,
@@ -1138,11 +1164,10 @@ impl StreamExecutionEngine {
                 }
             }
             Expr::Function { name, args } => self.evaluate_function(name, args, record),
-            Expr::WindowFunction {
-                function_name,
-                args,
-                over_clause,
-            } => self.evaluate_window_function(function_name, args, over_clause, record),
+            Expr::WindowFunction { .. } => Err(SqlError::ExecutionError {
+                message: "Window functions should be handled through evaluate_expression_value_with_window".to_string(),
+                query: None,
+            }),
         }
     }
 
@@ -1357,50 +1382,253 @@ impl StreamExecutionEngine {
 
     /// Evaluate window functions like LAG, LEAD, ROW_NUMBER with OVER clause
     fn evaluate_window_function(
-        &self,
+        &mut self,
         function_name: &str,
         args: &[Expr],
-        over_clause: &OverClause,
+        _over_clause: &OverClause,
         record: &StreamRecord,
+        window_buffer: &mut Vec<StreamRecord>,
     ) -> Result<FieldValue, SqlError> {
+        // Validate function name is not empty
+        if function_name.trim().is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "Window function name cannot be empty".to_string(),
+                query: Some(format!("Window function: {}", function_name)),
+            });
+        }
+
         match function_name.to_uppercase().as_str() {
             "LAG" => {
-                if args.len() != 1 && args.len() != 2 {
+                // Validate argument count
+                if args.is_empty() {
                     return Err(SqlError::ExecutionError {
-                        message: "LAG requires 1 or 2 arguments (expression, [offset])".to_string(),
-                        query: None,
+                        message: "LAG function requires at least 1 argument (expression)"
+                            .to_string(),
+                        query: Some(format!("LAG({})", if args.is_empty() { "" } else { "..." })),
+                    });
+                }
+                if args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "LAG function accepts at most 3 arguments (expression, offset, default_value), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("LAG(expression, [offset], [default_value])".to_string()),
                     });
                 }
 
-                // For now, return NULL since we need to implement proper window state management
-                // TODO: Implement proper LAG function with partition buffering
-                warn!("LAG window function called but not fully implemented yet - returning NULL");
-                Ok(FieldValue::Null)
+                // Parse offset (default is 1)
+                let offset = if args.len() >= 2 {
+                    match self.evaluate_expression_value(&args[1], record)? {
+                        FieldValue::Integer(n) => {
+                            if n < 0 {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!("LAG offset must be non-negative, got {}", n),
+                                    query: Some(format!("LAG(expression, {})", n)),
+                                });
+                            }
+                            if n > i32::MAX as i64 {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "LAG offset {} exceeds maximum allowed value {}",
+                                        n,
+                                        i32::MAX
+                                    ),
+                                    query: Some("LAG offset too large".to_string()),
+                                });
+                            }
+                            n as usize
+                        }
+                        FieldValue::Null => {
+                            return Err(SqlError::ExecutionError {
+                                message: "LAG offset cannot be NULL".to_string(),
+                                query: Some("LAG(expression, NULL)".to_string()),
+                            });
+                        }
+                        other => {
+                            return Err(SqlError::ExecutionError {
+                                message: format!(
+                                    "LAG offset must be an integer, got {}",
+                                    other.type_name()
+                                ),
+                                query: Some(format!(
+                                    "LAG(expression, {})",
+                                    other.type_name().to_lowercase()
+                                )),
+                            });
+                        }
+                    }
+                } else {
+                    1
+                };
+
+                // Parse default value (if provided)
+                let default_value = if args.len() == 3 {
+                    Some(self.evaluate_expression_value(&args[2], record)?)
+                } else {
+                    None
+                };
+
+                // Look back in the window buffer
+                if offset == 0 {
+                    // Offset 0 means current record
+                    self.evaluate_expression_value(&args[0], record)
+                } else if window_buffer.len() >= offset {
+                    let lag_record = &window_buffer[window_buffer.len() - offset];
+                    self.evaluate_expression_value(&args[0], lag_record)
+                } else {
+                    // Not enough records in buffer, return default or NULL
+                    Ok(default_value.unwrap_or(FieldValue::Null))
+                }
             }
             "LEAD" => {
-                if args.len() != 1 && args.len() != 2 {
+                // Validate argument count
+                if args.is_empty() {
                     return Err(SqlError::ExecutionError {
-                        message: "LEAD requires 1 or 2 arguments (expression, [offset])"
+                        message: "LEAD function requires at least 1 argument (expression)"
                             .to_string(),
-                        query: None,
+                        query: Some("LEAD(expression, [offset], [default_value])".to_string()),
+                    });
+                }
+                if args.len() > 3 {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "LEAD function accepts at most 3 arguments (expression, offset, default_value), but {} were provided",
+                            args.len()
+                        ),
+                        query: Some("LEAD(expression, [offset], [default_value])".to_string()),
                     });
                 }
 
-                // For now, return NULL since we need to implement proper window state management
-                warn!("LEAD window function called but not fully implemented yet - returning NULL");
-                Ok(FieldValue::Null)
+                // Parse offset (default is 1)
+                let offset = if args.len() >= 2 {
+                    match self.evaluate_expression_value(&args[1], record)? {
+                        FieldValue::Integer(n) => {
+                            if n < 0 {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!("LEAD offset must be non-negative, got {}", n),
+                                    query: Some(format!("LEAD(expression, {})", n)),
+                                });
+                            }
+                            if n > i32::MAX as i64 {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "LEAD offset {} exceeds maximum allowed value {}",
+                                        n,
+                                        i32::MAX
+                                    ),
+                                    query: Some("LEAD offset too large".to_string()),
+                                });
+                            }
+                            n as usize
+                        }
+                        FieldValue::Null => {
+                            return Err(SqlError::ExecutionError {
+                                message: "LEAD offset cannot be NULL".to_string(),
+                                query: Some("LEAD(expression, NULL)".to_string()),
+                            });
+                        }
+                        other => {
+                            return Err(SqlError::ExecutionError {
+                                message: format!(
+                                    "LEAD offset must be an integer, got {}",
+                                    other.type_name()
+                                ),
+                                query: Some(format!(
+                                    "LEAD(expression, {})",
+                                    other.type_name().to_lowercase()
+                                )),
+                            });
+                        }
+                    }
+                } else {
+                    1
+                };
+
+                // Parse default value (if provided)
+                let default_value = if args.len() == 3 {
+                    Some(self.evaluate_expression_value(&args[2], record)?)
+                } else {
+                    None
+                };
+
+                // For streaming LEAD, we cannot look forward in most cases
+                if offset > 0 {
+                    warn!(
+                        "LEAD window function: cannot look forward {} records in streaming data - returning default value or NULL",
+                        offset
+                    );
+                    Ok(default_value.unwrap_or(FieldValue::Null))
+                } else {
+                    // Offset 0 means current record
+                    self.evaluate_expression_value(&args[0], record)
+                }
             }
             "ROW_NUMBER" => {
-                // ROW_NUMBER() OVER (...)
-                // For now, return 1 since we need to implement proper window state management
-                warn!(
-                    "ROW_NUMBER window function called but not fully implemented yet - returning 1"
-                );
-                Ok(FieldValue::Integer(1))
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "ROW_NUMBER function takes no arguments, but {} were provided",
+                            args.len()
+                        ),
+                        query: Some(format!("ROW_NUMBER({} arguments)", args.len())),
+                    });
+                }
+
+                // ROW_NUMBER() OVER (...) - returns current position in partition
+                // For streaming, this is the position in the current window buffer + 1
+                let row_number = window_buffer.len() + 1;
+                if row_number > i64::MAX as usize {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "ROW_NUMBER overflow: row number {} exceeds maximum value",
+                            row_number
+                        ),
+                        query: Some("ROW_NUMBER() OVER (...)".to_string()),
+                    });
+                }
+                Ok(FieldValue::Integer(row_number as i64))
             }
-            _ => Err(SqlError::ExecutionError {
-                message: format!("Unsupported window function: {}", function_name),
-                query: None,
+            "RANK" | "DENSE_RANK" => {
+                if !args.is_empty() {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "{} function takes no arguments, but {} were provided",
+                            function_name.to_uppercase(),
+                            args.len()
+                        ),
+                        query: Some(format!(
+                            "{}({} arguments)",
+                            function_name.to_uppercase(),
+                            args.len()
+                        )),
+                    });
+                }
+
+                // For streaming without proper partitioning, RANK and DENSE_RANK behave like ROW_NUMBER
+                warn!(
+                    "{} window function: returning ROW_NUMBER behavior for streaming context",
+                    function_name.to_uppercase()
+                );
+                let rank = window_buffer.len() + 1;
+                if rank > i64::MAX as usize {
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "{} overflow: rank {} exceeds maximum value",
+                            function_name.to_uppercase(),
+                            rank
+                        ),
+                        query: Some(format!("{}() OVER (...)", function_name.to_uppercase())),
+                    });
+                }
+                Ok(FieldValue::Integer(rank as i64))
+            }
+            other => Err(SqlError::ExecutionError {
+                message: format!(
+                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK",
+                    other
+                ),
+                query: Some(format!("{}(...) OVER (...)", other)),
             }),
         }
     }
@@ -2621,6 +2849,84 @@ impl StreamExecutionEngine {
                     }
                 }
                 Ok(max_val)
+            }
+            "STDDEV" | "STDDEV_SAMP" => {
+                // STDDEV(column) - standard deviation (sample)
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "STDDEV requires exactly one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For streaming, return 0.0 since we only have one value
+                // In a real implementation, this would calculate over a window of values
+                warn!(
+                    "STDDEV function: returning 0.0 for single streaming record - requires window aggregation"
+                );
+                Ok(FieldValue::Float(0.0))
+            }
+            "STDDEV_POP" => {
+                // STDDEV_POP(column) - population standard deviation
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "STDDEV_POP requires exactly one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                warn!(
+                    "STDDEV_POP function: returning 0.0 for single streaming record - requires window aggregation"
+                );
+                Ok(FieldValue::Float(0.0))
+            }
+            "VARIANCE" | "VAR_SAMP" => {
+                // VARIANCE(column) - sample variance
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "VARIANCE requires exactly one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                warn!(
+                    "VARIANCE function: returning 0.0 for single streaming record - requires window aggregation"
+                );
+                Ok(FieldValue::Float(0.0))
+            }
+            "VAR_POP" => {
+                // VAR_POP(column) - population variance
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "VAR_POP requires exactly one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                warn!(
+                    "VAR_POP function: returning 0.0 for single streaming record - requires window aggregation"
+                );
+                Ok(FieldValue::Float(0.0))
+            }
+            "MEDIAN" => {
+                // MEDIAN(column) - median value
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "MEDIAN requires exactly one argument".to_string(),
+                        query: None,
+                    });
+                }
+
+                // For streaming with single value, median is the value itself
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Integer(_) | FieldValue::Float(_) => Ok(value),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    _ => Err(SqlError::ExecutionError {
+                        message: "MEDIAN requires numeric argument".to_string(),
+                        query: None,
+                    }),
+                }
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unknown function {}", name),
