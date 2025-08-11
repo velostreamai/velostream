@@ -14,7 +14,9 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Asynchronous Processing:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O
 * **Flexible Serialization:** Modular `serde` framework with JSON support and extensible traits for custom formats
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
-* **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, and real-time analytics
+* **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, statistical functions, and real-time analytics
+* **Window Functions:** Complete support for LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE
+* **Statistical Functions:** Advanced analytics with STDDEV, VARIANCE, MEDIAN functions
 * **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
 * **Management CLI:** Built-in CLI tool for monitoring, health checks, and production management
 * **Builder Patterns:** Ergonomic APIs for creating producers and consumers
@@ -280,7 +282,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
     
-    // Parse and execute advanced streaming SQL with JOINs, functions, and aggregation
+    // Parse and execute advanced streaming SQL with JOINs, window functions, and statistical analytics
     let query = "
         SELECT 
             o.order_id,
@@ -288,6 +290,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             o.amount,
             c.customer_name,
             c.tier,
+            -- Window functions for analytics
+            ROW_NUMBER() OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as order_sequence,
+            LAG(o.amount, 1) OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as prev_order_amount,
+            FIRST_VALUE(o.amount) OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as first_order_amount,
+            PERCENT_RANK() OVER (ORDER BY o.amount) as amount_percentile,
+            -- Statistical functions
+            STDDEV(o.amount) OVER (PARTITION BY c.tier) as tier_amount_stddev,
+            MEDIAN(o.amount) OVER (PARTITION BY c.tier) as tier_median_amount,
+            -- Other functions
             DATEDIFF('hours', o.created_at, NOW()) as hours_old,
             POSITION('@', c.email) as email_at_pos,
             LISTAGG(p.product_name, ', ') as products
@@ -417,6 +428,8 @@ let high_priority: Vec<_> = consumer.stream()
 - ✅ Comprehensive error handling
 - ✅ JSON serialization support
 - ✅ **SQL Streaming Engine** with comprehensive SQL support
+- ✅ **Window Functions** - Complete set of 11 window functions (LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE)
+- ✅ **Statistical Functions** - Advanced analytics functions (STDDEV, VARIANCE, MEDIAN with variants)
 - ✅ **JOIN Operations** - All JOIN types (INNER, LEFT, RIGHT, FULL OUTER)
 - ✅ **Windowed JOINs** for temporal correlation in streaming data
 - ✅ **Stream-Table JOINs** optimized for reference data lookups

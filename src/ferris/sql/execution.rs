@@ -141,6 +141,19 @@ pub struct StreamRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct HeaderMutation {
+    pub operation: HeaderOperation,
+    pub key: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum HeaderOperation {
+    Set,
+    Remove,
+}
+
+#[derive(Debug, Clone)]
 pub enum FieldValue {
     Integer(i64),
     Float(f64),
@@ -592,12 +605,38 @@ impl StreamExecutionEngine {
                 // Increment record count for successful processing
                 self.record_count += 1;
 
+                // Apply header mutations (if any were collected during expression evaluation)
+                let mut final_headers = joined_record.headers.clone();
+
+                // For now, create a simplified approach - we'll collect header mutations from expressions
+                // when they contain SET_HEADER or REMOVE_HEADER calls
+                let mut header_mutations = Vec::new();
+                self.collect_header_mutations_from_fields(
+                    fields,
+                    &joined_record,
+                    &mut header_mutations,
+                )?;
+
+                // Apply collected header mutations
+                for mutation in header_mutations {
+                    match mutation.operation {
+                        HeaderOperation::Set => {
+                            if let Some(value) = mutation.value {
+                                final_headers.insert(mutation.key, value);
+                            }
+                        }
+                        HeaderOperation::Remove => {
+                            final_headers.remove(&mutation.key);
+                        }
+                    }
+                }
+
                 Ok(Some(StreamRecord {
                     fields: result_fields,
                     timestamp: joined_record.timestamp,
                     offset: joined_record.offset,
                     partition: joined_record.partition,
-                    headers: joined_record.headers.clone(),
+                    headers: final_headers,
                 }))
             }
             StreamingQuery::CreateStream {
@@ -1820,6 +1859,17 @@ impl StreamExecutionEngine {
         name: &str,
         args: &[Expr],
         record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        let mut header_mutations = Vec::new();
+        self.evaluate_function_with_mutations(name, args, record, &mut header_mutations)
+    }
+
+    fn evaluate_function_with_mutations(
+        &self,
+        name: &str,
+        args: &[Expr],
+        record: &StreamRecord,
+        header_mutations: &mut Vec<HeaderMutation>,
     ) -> Result<FieldValue, SqlError> {
         match name.to_uppercase().as_str() {
             "COUNT" => Ok(FieldValue::Integer(1)), // Simplified for streaming
@@ -3110,6 +3160,82 @@ impl StreamExecutionEngine {
                     }),
                 }
             }
+            "SET_HEADER" => {
+                if args.len() != 2 {
+                    return Err(SqlError::ExecutionError {
+                        message: "SET_HEADER requires exactly two arguments (key, value)"
+                            .to_string(),
+                        query: None,
+                    });
+                }
+                let key_value = self.evaluate_expression_value(&args[0], record)?;
+                let value_field = self.evaluate_expression_value(&args[1], record)?;
+
+                // Convert key to string representation
+                let key = match key_value {
+                    FieldValue::String(s) => s,
+                    FieldValue::Integer(i) => i.to_string(),
+                    FieldValue::Float(f) => f.to_string(),
+                    FieldValue::Boolean(b) => b.to_string(),
+                    FieldValue::Null => "null".to_string(),
+                    _ => format!("{:?}", key_value),
+                };
+
+                // Convert value to string representation
+                let value = match value_field {
+                    FieldValue::String(s) => s,
+                    FieldValue::Integer(i) => i.to_string(),
+                    FieldValue::Float(f) => f.to_string(),
+                    FieldValue::Boolean(b) => b.to_string(),
+                    FieldValue::Null => "null".to_string(),
+                    _ => format!("{:?}", value_field),
+                };
+
+                // Record the header mutation
+                header_mutations.push(HeaderMutation {
+                    operation: HeaderOperation::Set,
+                    key: key.clone(),
+                    value: Some(value.clone()),
+                });
+
+                // Return the value that was set
+                Ok(FieldValue::String(value))
+            }
+            "REMOVE_HEADER" => {
+                if args.len() != 1 {
+                    return Err(SqlError::ExecutionError {
+                        message: "REMOVE_HEADER requires exactly one argument (key)".to_string(),
+                        query: None,
+                    });
+                }
+                let key_value = self.evaluate_expression_value(&args[0], record)?;
+
+                // Convert key to string representation
+                let key = match key_value {
+                    FieldValue::String(s) => s,
+                    FieldValue::Integer(i) => i.to_string(),
+                    FieldValue::Float(f) => f.to_string(),
+                    FieldValue::Boolean(b) => b.to_string(),
+                    FieldValue::Null => "null".to_string(),
+                    _ => format!("{:?}", key_value),
+                };
+
+                // Get the existing header value before removing it
+                let existing_value = record.headers.get(&key).cloned();
+
+                // Record the header mutation
+                header_mutations.push(HeaderMutation {
+                    operation: HeaderOperation::Remove,
+                    key: key.clone(),
+                    value: None,
+                });
+
+                // Return the value that was removed (or NULL if it didn't exist)
+                match existing_value {
+                    Some(value) => Ok(FieldValue::String(value)),
+                    None => Ok(FieldValue::Null),
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unknown function {}", name),
                 query: None,
@@ -3781,5 +3907,75 @@ impl StreamExecutionEngine {
         } else {
             values.to_vec()
         }
+    }
+
+    fn collect_header_mutations_from_fields(
+        &self,
+        fields: &[SelectField],
+        record: &StreamRecord,
+        header_mutations: &mut Vec<HeaderMutation>,
+    ) -> Result<(), SqlError> {
+        for field in fields {
+            match field {
+                SelectField::Expression { expr, .. } => {
+                    self.collect_header_mutations_from_expr(expr, record, header_mutations)?;
+                }
+                _ => {} // Other field types don't contain expressions that can mutate headers
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_header_mutations_from_expr(
+        &self,
+        expr: &Expr,
+        record: &StreamRecord,
+        header_mutations: &mut Vec<HeaderMutation>,
+    ) -> Result<(), SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                let function_name = name.to_uppercase();
+                if function_name == "SET_HEADER" || function_name == "REMOVE_HEADER" {
+                    // Evaluate the function with header mutations
+                    self.evaluate_function_with_mutations(
+                        &function_name,
+                        args,
+                        record,
+                        header_mutations,
+                    )?;
+                }
+
+                // Also check arguments for nested header function calls
+                for arg in args {
+                    self.collect_header_mutations_from_expr(arg, record, header_mutations)?;
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.collect_header_mutations_from_expr(left, record, header_mutations)?;
+                self.collect_header_mutations_from_expr(right, record, header_mutations)?;
+            }
+            Expr::UnaryOp { expr, .. } => {
+                self.collect_header_mutations_from_expr(expr, record, header_mutations)?;
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                for (condition, result) in when_clauses {
+                    self.collect_header_mutations_from_expr(condition, record, header_mutations)?;
+                    self.collect_header_mutations_from_expr(result, record, header_mutations)?;
+                }
+                if let Some(else_expr) = else_clause {
+                    self.collect_header_mutations_from_expr(else_expr, record, header_mutations)?;
+                }
+            }
+            Expr::WindowFunction { args, .. } => {
+                for arg in args {
+                    self.collect_header_mutations_from_expr(arg, record, header_mutations)?;
+                }
+            }
+            _ => {} // Other expression types don't contain function calls
+        }
+        Ok(())
     }
 }
