@@ -10,6 +10,8 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
 2. [JOIN Operations](#join-operations)
 3. [Job Lifecycle Management](#job-lifecycle-management)
 4. [Built-in Functions](#built-in-functions)
+   - [Window Functions](#window-functions)
+   - [Statistical Functions](#statistical-functions)
    - [Aggregate Functions](#aggregate-functions)
    - [Math Functions](#math-functions)
    - [String Functions](#string-functions)
@@ -420,6 +422,348 @@ HAVING COUNT(*) > 5;
 ```
 
 ## Built-in Functions
+
+### Window Functions
+
+Window functions perform calculations across a set of rows related to the current row using OVER clauses. FerrisStreams supports the complete set of standard SQL window functions with streaming-aware semantics.
+
+#### Available Window Functions
+
+**Ranking Functions:**
+- `ROW_NUMBER()` - Assigns unique sequential integers to rows within each partition
+- `RANK()` - Assigns ranks with gaps for tied values
+- `DENSE_RANK()` - Assigns ranks without gaps for tied values
+- `PERCENT_RANK()` - Calculates the percentile rank of a row within the partition
+
+**Value Access Functions:**
+- `LAG(expr [, offset [, default]])` - Accesses previous row values
+- `LEAD(expr [, offset [, default]])` - Accesses following row values
+- `FIRST_VALUE(expr)` - Returns the first value in the partition
+- `LAST_VALUE(expr)` - Returns the last value in the current partition frame
+- `NTH_VALUE(expr, n)` - Returns the nth value in the partition (1-indexed)
+
+**Distribution Functions:**
+- `CUME_DIST()` - Calculates the cumulative distribution of a row
+- `NTILE(n)` - Divides the partition into n buckets and assigns bucket numbers
+
+#### Basic Window Function Examples
+
+```sql
+-- ROW_NUMBER: Sequential numbering within partitions
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date) as order_sequence
+FROM orders;
+
+-- RANK and DENSE_RANK: Ranking with and without gaps
+SELECT 
+    customer_id,
+    amount,
+    RANK() OVER (ORDER BY amount DESC) as amount_rank,
+    DENSE_RANK() OVER (ORDER BY amount DESC) as amount_dense_rank
+FROM orders;
+
+-- PERCENT_RANK: Percentile ranking
+SELECT 
+    customer_id,
+    amount,
+    PERCENT_RANK() OVER (ORDER BY amount) as amount_percentile
+FROM orders;
+```
+
+#### LAG and LEAD Functions
+
+```sql
+-- LAG: Access previous row values
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    LAG(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_amount,
+    LAG(amount, 2) OVER (PARTITION BY customer_id ORDER BY order_date) as amount_2_orders_ago,
+    LAG(amount, 1, 0) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_amount_with_default
+FROM orders;
+
+-- LEAD: Access following row values (returns NULL in streaming context)
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    LEAD(amount, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as next_amount,
+    LEAD(amount, 1, -999) OVER (PARTITION BY customer_id ORDER BY order_date) as next_with_default
+FROM orders;
+```
+
+#### Value Access Functions
+
+```sql
+-- FIRST_VALUE and LAST_VALUE: Access boundary values
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    FIRST_VALUE(amount) OVER (PARTITION BY customer_id ORDER BY order_date) as first_order_amount,
+    LAST_VALUE(amount) OVER (PARTITION BY customer_id ORDER BY order_date 
+                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as current_last_amount
+FROM orders;
+
+-- NTH_VALUE: Access specific position values
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    NTH_VALUE(amount, 2) OVER (PARTITION BY customer_id ORDER BY order_date) as second_order_amount,
+    NTH_VALUE(amount, 3) OVER (PARTITION BY customer_id ORDER BY order_date) as third_order_amount
+FROM orders;
+```
+
+#### Distribution Functions
+
+```sql
+-- CUME_DIST: Cumulative distribution
+SELECT 
+    customer_id,
+    amount,
+    CUME_DIST() OVER (ORDER BY amount) as cumulative_distribution,
+    CUME_DIST() OVER (PARTITION BY customer_tier ORDER BY amount) as tier_distribution
+FROM orders;
+
+-- NTILE: Divide into buckets
+SELECT 
+    customer_id,
+    amount,
+    NTILE(4) OVER (ORDER BY amount) as quartile,
+    NTILE(10) OVER (ORDER BY amount) as decile,
+    NTILE(100) OVER (ORDER BY amount) as percentile
+FROM orders;
+```
+
+#### Advanced Window Function Patterns
+
+```sql
+-- Customer behavior analysis
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    -- Order sequence and gaps
+    ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date) as order_number,
+    LAG(order_date, 1) OVER (PARTITION BY customer_id ORDER BY order_date) as prev_order_date,
+    -- Running analytics
+    SUM(amount) OVER (PARTITION BY customer_id ORDER BY order_date 
+                      ROWS UNBOUNDED PRECEDING) as customer_lifetime_value,
+    AVG(amount) OVER (PARTITION BY customer_id ORDER BY order_date 
+                      ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as recent_avg_order,
+    -- Comparative analysis
+    amount / FIRST_VALUE(amount) OVER (PARTITION BY customer_id ORDER BY order_date) as vs_first_order_ratio,
+    RANK() OVER (PARTITION BY customer_id ORDER BY amount DESC) as customer_order_rank
+FROM orders;
+
+-- Streaming analytics with time-based analysis
+SELECT 
+    device_id,
+    reading_timestamp,
+    temperature,
+    -- Sequential analysis
+    LAG(temperature, 1) OVER (PARTITION BY device_id ORDER BY reading_timestamp) as prev_temp,
+    temperature - LAG(temperature, 1) OVER (PARTITION BY device_id ORDER BY reading_timestamp) as temp_change,
+    -- Ranking and percentiles
+    PERCENT_RANK() OVER (ORDER BY temperature) as temp_percentile,
+    NTILE(5) OVER (ORDER BY temperature) as temp_quintile,
+    -- Boundary analysis
+    FIRST_VALUE(temperature) OVER (PARTITION BY device_id ORDER BY reading_timestamp) as session_start_temp,
+    LAST_VALUE(temperature) OVER (PARTITION BY device_id ORDER BY reading_timestamp 
+                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as current_last_temp
+FROM sensor_readings;
+```
+
+#### Streaming Considerations
+
+In streaming contexts, window functions behave differently than in batch processing:
+
+1. **LAG functions** work normally, accessing previous values within partitions
+2. **LEAD functions** typically return NULL or default values since future data isn't available
+3. **FIRST_VALUE** returns the first value seen in the current partition
+4. **LAST_VALUE** returns the most recent value in the streaming window
+5. **RANK/DENSE_RANK** provide relative ranking within the current data
+6. **PERCENT_RANK/CUME_DIST** calculate percentiles based on currently available data
+7. **NTILE** distributes current data into buckets
+
+### Statistical Functions
+
+FerrisStreams provides advanced statistical functions for data analysis and scientific computing. These functions work with numeric data and provide various statistical measures.
+
+#### Available Statistical Functions
+
+**Standard Deviation Functions:**
+- `STDDEV(expr)` - Standard deviation (sample)
+- `STDDEV_SAMP(expr)` - Sample standard deviation (same as STDDEV)
+- `STDDEV_POP(expr)` - Population standard deviation
+
+**Variance Functions:**
+- `VARIANCE(expr)` - Variance (sample)
+- `VAR_SAMP(expr)` - Sample variance (same as VARIANCE)
+- `VAR_POP(expr)` - Population variance
+
+**Central Tendency:**
+- `MEDIAN(expr)` - Median value (middle value or average of two middle values)
+
+#### Statistical Function Examples
+
+```sql
+-- Basic statistical analysis
+SELECT 
+    product_category,
+    COUNT(*) as sample_size,
+    AVG(price) as mean_price,
+    MEDIAN(price) as median_price,
+    STDDEV(price) as price_stddev,
+    VARIANCE(price) as price_variance
+FROM products
+GROUP BY product_category
+HAVING COUNT(*) > 10;
+
+-- Population vs Sample statistics
+SELECT 
+    region,
+    -- Sample statistics (for sample data)
+    STDDEV_SAMP(revenue) as sample_stddev,
+    VAR_SAMP(revenue) as sample_variance,
+    -- Population statistics (for complete data)
+    STDDEV_POP(revenue) as population_stddev,
+    VAR_POP(revenue) as population_variance,
+    -- Central tendency
+    MEDIAN(revenue) as median_revenue
+FROM sales_data
+GROUP BY region;
+```
+
+#### Window Functions with Statistical Analysis
+
+```sql
+-- Rolling statistical analysis
+SELECT 
+    order_date,
+    daily_revenue,
+    -- Rolling statistics over 7-day window
+    STDDEV(daily_revenue) OVER (
+        ORDER BY order_date 
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) as rolling_7day_stddev,
+    VARIANCE(daily_revenue) OVER (
+        ORDER BY order_date 
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) as rolling_7day_variance,
+    MEDIAN(daily_revenue) OVER (
+        ORDER BY order_date 
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) as rolling_7day_median
+FROM (
+    SELECT 
+        DATE(order_timestamp) as order_date,
+        SUM(amount) as daily_revenue
+    FROM orders
+    GROUP BY DATE(order_timestamp)
+) daily_sales;
+
+-- Statistical analysis by segments
+SELECT 
+    customer_tier,
+    product_category,
+    -- Segment statistics
+    COUNT(*) as order_count,
+    AVG(amount) as mean_amount,
+    MEDIAN(amount) as median_amount,
+    STDDEV(amount) as amount_stddev,
+    VARIANCE(amount) as amount_variance,
+    -- Distribution analysis
+    MIN(amount) as min_amount,
+    MAX(amount) as max_amount,
+    (MAX(amount) - MIN(amount)) as range_amount
+FROM orders
+WHERE order_date >= NOW() - INTERVAL '30' DAYS
+GROUP BY customer_tier, product_category
+HAVING COUNT(*) >= 20;  -- Sufficient sample size
+```
+
+#### Advanced Statistical Patterns
+
+```sql
+-- Anomaly detection using statistical functions
+SELECT 
+    device_id,
+    reading_timestamp,
+    temperature,
+    -- Statistical context
+    AVG(temperature) OVER (PARTITION BY device_id) as device_mean_temp,
+    STDDEV(temperature) OVER (PARTITION BY device_id) as device_stddev_temp,
+    MEDIAN(temperature) OVER (PARTITION BY device_id) as device_median_temp,
+    -- Z-score for outlier detection
+    ABS(temperature - AVG(temperature) OVER (PARTITION BY device_id)) / 
+        STDDEV(temperature) OVER (PARTITION BY device_id) as z_score,
+    -- Anomaly classification
+    CASE 
+        WHEN ABS(temperature - AVG(temperature) OVER (PARTITION BY device_id)) / 
+             STDDEV(temperature) OVER (PARTITION BY device_id) > 2 THEN 'OUTLIER'
+        WHEN ABS(temperature - MEDIAN(temperature) OVER (PARTITION BY device_id)) > 
+             1.5 * STDDEV(temperature) OVER (PARTITION BY device_id) THEN 'MODERATE_DEVIATION'
+        ELSE 'NORMAL'
+    END as anomaly_status
+FROM sensor_readings
+WHERE reading_timestamp >= NOW() - INTERVAL '24' HOURS;
+
+-- Quality control with statistical process control
+SELECT 
+    production_line,
+    measurement_time,
+    measurement_value,
+    -- Control limits (using 3-sigma rule)
+    AVG(measurement_value) OVER (PARTITION BY production_line) as process_mean,
+    AVG(measurement_value) OVER (PARTITION BY production_line) + 
+        3 * STDDEV(measurement_value) OVER (PARTITION BY production_line) as upper_control_limit,
+    AVG(measurement_value) OVER (PARTITION BY production_line) - 
+        3 * STDDEV(measurement_value) OVER (PARTITION BY production_line) as lower_control_limit,
+    -- Process capability
+    STDDEV(measurement_value) OVER (PARTITION BY production_line) as process_variation,
+    -- Alert status
+    CASE 
+        WHEN measurement_value > AVG(measurement_value) OVER (PARTITION BY production_line) + 
+                                3 * STDDEV(measurement_value) OVER (PARTITION BY production_line) THEN 'OUT_OF_CONTROL_HIGH'
+        WHEN measurement_value < AVG(measurement_value) OVER (PARTITION BY production_line) - 
+                                3 * STDDEV(measurement_value) OVER (PARTITION BY production_line) THEN 'OUT_OF_CONTROL_LOW'
+        ELSE 'IN_CONTROL'
+    END as control_status
+FROM quality_measurements;
+```
+
+#### Statistical Function Error Handling
+
+```sql
+-- Safe statistical calculations with error handling
+SELECT 
+    product_category,
+    COUNT(*) as sample_count,
+    -- Handle insufficient data
+    CASE 
+        WHEN COUNT(*) > 1 THEN STDDEV(price)
+        ELSE NULL
+    END as price_stddev,
+    CASE 
+        WHEN COUNT(*) > 0 THEN MEDIAN(price)
+        ELSE NULL
+    END as median_price,
+    -- Coefficient of variation (CV)
+    CASE 
+        WHEN AVG(price) > 0 AND COUNT(*) > 1 THEN 
+            STDDEV(price) / AVG(price) * 100
+        ELSE NULL
+    END as coefficient_of_variation_pct
+FROM products
+WHERE price IS NOT NULL
+GROUP BY product_category;
+```
 
 ### Aggregate Functions
 
@@ -1052,6 +1396,10 @@ WHERE _partition = 0;
 
 ### Header Functions
 
+FerrisStreams provides comprehensive header manipulation capabilities, allowing you to both read from and write to Kafka message headers during stream processing.
+
+#### Reading Header Functions
+
 ```sql
 -- Access message headers
 SELECT 
@@ -1066,6 +1414,158 @@ SELECT
     order_id,
     HEADER_KEYS() as all_header_keys
 FROM orders;
+```
+
+#### Writing Header Functions
+
+```sql
+-- Set headers with static values
+SELECT 
+    order_id,
+    SET_HEADER('processed_by', 'ferris-streams') as status,
+    SET_HEADER('processing_timestamp', NOW()) as timestamp_set,
+    SET_HEADER('version', '1.0.0') as version_result
+FROM orders;
+
+-- Set headers with field values
+SELECT 
+    order_id,
+    customer_id,
+    SET_HEADER('customer_tier', customer_tier) as tier_set,
+    SET_HEADER('order_amount', amount) as amount_set
+FROM orders;
+
+-- Remove headers
+SELECT 
+    order_id,
+    REMOVE_HEADER('temporary_flag') as removed_value,
+    REMOVE_HEADER('old_trace_id') as old_trace
+FROM orders;
+
+-- Complex header operations
+SELECT 
+    order_id,
+    -- Set computed headers
+    SET_HEADER('order_summary', CONCAT('Order ', order_id, ' for $', amount)) as summary,
+    SET_HEADER('processing_tier', 
+        CASE 
+            WHEN amount > 1000 THEN 'priority'
+            WHEN amount > 100 THEN 'standard'
+            ELSE 'basic'
+        END
+    ) as tier_result,
+    -- Clean up old headers
+    REMOVE_HEADER('temp_status') as temp_removed,
+    -- Conditional header setting
+    CASE 
+        WHEN customer_tier = 'VIP' THEN SET_HEADER('priority_processing', 'true')
+        ELSE NULL
+    END as priority_set
+FROM orders;
+```
+
+#### Header Function Behavior
+
+**SET_HEADER(key, value)**
+- Converts both key and value to strings automatically
+- Returns the string value that was set
+- Overwrites existing headers with the same key
+- Handles all data types: integers, floats, booleans, NULL values
+
+**REMOVE_HEADER(key)**
+- Converts the key to string automatically
+- Returns the original header value if it existed, NULL if it didn't
+- Safe to call on non-existent headers
+
+#### Advanced Header Manipulation Patterns
+
+```sql
+-- Audit trail with headers
+SELECT 
+    transaction_id,
+    amount,
+    SET_HEADER('audit_user', user_id) as audit_user_set,
+    SET_HEADER('audit_timestamp', DATE_FORMAT(NOW(), '%Y-%m-%d %H:%M:%S')) as audit_time_set,
+    SET_HEADER('audit_operation', 'PROCESSED') as audit_op_set,
+    -- Remove temporary processing flags
+    REMOVE_HEADER('temp_lock') as lock_removed,
+    REMOVE_HEADER('processing_flag') as flag_removed
+FROM financial_transactions;
+
+-- Data lineage tracking
+SELECT 
+    record_id,
+    -- Track processing pipeline
+    SET_HEADER('pipeline_stage', 'enrichment') as stage_set,
+    SET_HEADER('source_topic', 'raw_events') as source_set,
+    SET_HEADER('transformation_version', '2.1.0') as version_set,
+    -- Preserve original trace
+    COALESCE(HEADER('original_trace_id'), SET_HEADER('original_trace_id', HEADER('trace_id'))) as trace_preserved
+FROM event_stream;
+
+-- Error handling and monitoring
+SELECT 
+    message_id,
+    CASE 
+        WHEN validation_error IS NOT NULL THEN 
+            SET_HEADER('error_details', validation_error)
+        ELSE 
+            REMOVE_HEADER('error_details')
+    END as error_handling,
+    SET_HEADER('processing_status', 
+        CASE 
+            WHEN validation_error IS NOT NULL THEN 'FAILED'
+            ELSE 'SUCCESS'
+        END
+    ) as status_set
+FROM message_validation_results;
+
+-- Multi-tenant header management
+SELECT 
+    tenant_id,
+    user_id,
+    -- Set tenant context
+    SET_HEADER('tenant_id', tenant_id) as tenant_set,
+    SET_HEADER('tenant_region', tenant_config.region) as region_set,
+    -- Remove sensitive information
+    REMOVE_HEADER('internal_user_id') as internal_removed,
+    REMOVE_HEADER('debug_info') as debug_removed
+FROM user_events
+JOIN tenant_configs ON user_events.tenant_id = tenant_configs.tenant_id;
+```
+
+#### Integration with Other Functions
+
+Header functions work seamlessly with all other SQL functions:
+
+```sql
+-- With string functions
+SELECT 
+    order_id,
+    SET_HEADER('upper_status', UPPER(order_status)) as upper_status,
+    SET_HEADER('order_summary', CONCAT('Order #', order_id, ' - ', LEFT(description, 50))) as summary
+FROM orders;
+
+-- With mathematical functions
+SELECT 
+    sensor_id,
+    temperature,
+    SET_HEADER('temp_rounded', ROUND(temperature, 1)) as temp_rounded,
+    SET_HEADER('temp_alert', 
+        CASE 
+            WHEN ABS(temperature - 20) > 5 THEN 'ANOMALY'
+            ELSE 'NORMAL'
+        END
+    ) as alert_set
+FROM sensor_readings;
+
+-- With date/time functions
+SELECT 
+    event_id,
+    SET_HEADER('processed_date', DATE_FORMAT(NOW(), '%Y-%m-%d')) as date_set,
+    SET_HEADER('processing_hour', EXTRACT('HOUR', NOW())) as hour_set,
+    SET_HEADER('age_minutes', DATEDIFF('minutes', _timestamp, NOW())) as age_set
+FROM events;
 ```
 
 ## Window Operations
@@ -1627,6 +2127,28 @@ FROM events;
 
 ## Complete Function Reference
 
+### Window Functions (11 functions)
+- `ROW_NUMBER()` - Assigns unique sequential integers to rows within each partition
+- `RANK()` - Assigns ranks with gaps for tied values
+- `DENSE_RANK()` - Assigns ranks without gaps for tied values
+- `PERCENT_RANK()` - Calculates the percentile rank of a row within the partition
+- `LAG(expr [, offset [, default]])` - Accesses previous row values
+- `LEAD(expr [, offset [, default]])` - Accesses following row values
+- `FIRST_VALUE(expr)` - Returns the first value in the partition
+- `LAST_VALUE(expr)` - Returns the last value in the current partition frame
+- `NTH_VALUE(expr, n)` - Returns the nth value in the partition (1-indexed)
+- `CUME_DIST()` - Calculates the cumulative distribution of a row
+- `NTILE(n)` - Divides the partition into n buckets and assigns bucket numbers
+
+### Statistical Functions (7 functions)
+- `STDDEV(expr)` - Standard deviation (sample)
+- `STDDEV_SAMP(expr)` - Sample standard deviation (same as STDDEV)
+- `STDDEV_POP(expr)` - Population standard deviation
+- `VARIANCE(expr)` - Variance (sample)
+- `VAR_SAMP(expr)` - Sample variance (same as VARIANCE)
+- `VAR_POP(expr)` - Population variance
+- `MEDIAN(expr)` - Median value (middle value or average of two middle values)
+
 ### Math Functions (7 functions)
 - `ABS(number)` - Absolute value
 - `ROUND(number[, precision])` - Round to specified decimal places
@@ -1678,16 +2200,30 @@ FROM events;
 - `JSON_VALUE(json_string, path)` - Extract scalar value from JSON
 - `JSON_EXTRACT(json_string, path)` - Extract value/object from JSON
 
-### Header Functions (3 functions)
+### Header Functions (5 functions)
 - `HEADER(key)` - Get Kafka message header value
 - `HAS_HEADER(key)` - Check if header exists
 - `HEADER_KEYS()` - Get comma-separated list of header keys
+- `SET_HEADER(key, value)` - Set Kafka message header value
+- `REMOVE_HEADER(key)` - Remove Kafka message header
 
 ### System Columns (3 columns)
 - `_timestamp` - Kafka message timestamp
 - `_offset` - Kafka message offset
 - `_partition` - Kafka partition number
 
-**Total: 45 functions + 3 system columns**
+**Total: 65 functions + 3 system columns**
+
+### Function Categories Summary
+- **Window Functions:** 11 functions for row-by-row analysis
+- **Statistical Functions:** 7 functions for advanced analytics  
+- **Math Functions:** 7 functions for numeric operations
+- **String Functions:** 12 functions for text processing
+- **Date/Time Functions:** 5 functions for temporal operations
+- **Utility Functions:** 6 functions for data manipulation
+- **Aggregate Functions:** 7 functions for group operations
+- **JSON Functions:** 2 functions for JSON processing
+- **Header Functions:** 5 functions for message metadata
+- **System Columns:** 3 columns for Kafka metadata
 
 This reference guide covers all currently implemented SQL features in FerrisStreams. For the latest updates and additional examples, refer to the test suite and feature documentation.
