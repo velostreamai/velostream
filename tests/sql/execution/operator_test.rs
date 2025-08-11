@@ -243,3 +243,328 @@ async fn test_like_operator_edge_cases() {
     let got_output = rx.try_recv().is_ok();
     assert_eq!(got_output, true);
 }
+
+// =============================================================================
+// IN/NOT IN OPERATOR TESTS
+// =============================================================================
+
+#[tokio::test]
+async fn test_in_operator_basic() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+
+    // Create test record
+    let mut record = HashMap::new();
+    record.insert("id".to_string(), InternalValue::Integer(2));
+    record.insert(
+        "name".to_string(),
+        InternalValue::String("test".to_string()),
+    );
+    record.insert("amount".to_string(), InternalValue::Number(150.0));
+
+    // Test cases for IN operator
+    let test_cases = vec![
+        // Integer IN tests
+        ("id IN (1, 2, 3)", true),  // Matches
+        ("id IN (4, 5, 6)", false), // No match
+        ("id IN (2)", true),        // Single value match
+        ("id IN (1)", false),       // Single value no match
+        // String IN tests
+        ("name IN ('test', 'foo', 'bar')", true), // Matches
+        ("name IN ('hello', 'world')", false),    // No match
+        ("name IN ('test')", true),               // Single string match
+        // Float IN tests
+        ("amount IN (100.0, 150.0, 200.0)", true), // Matches
+        ("amount IN (99.9, 199.9)", false),        // No match
+        ("amount IN (150.0)", true),               // Single float match
+        // Mixed type IN tests (should work with type conversion)
+        ("id IN (1, 2.0, 3)", true), // Int in mixed list
+    ];
+
+    for (query_str, expected) in test_cases {
+        let query = StreamingQuery::Select {
+            fields: vec![SelectField::Expression {
+                expr: Expr::Column("id".to_string()), // Just select id to have some output
+                alias: None,
+            }],
+            from: StreamSource::Stream("test".to_string()),
+            where_clause: Some(Expr::BinaryOp {
+                left: Box::new(match query_str.split(" IN ").next().unwrap() {
+                    "id" => Expr::Column("id".to_string()),
+                    "name" => Expr::Column("name".to_string()),
+                    "amount" => Expr::Column("amount".to_string()),
+                    _ => Expr::Column("id".to_string()),
+                }),
+                op: BinaryOperator::In,
+                right: Box::new(parse_in_list(query_str.split(" IN ").nth(1).unwrap())),
+            }),
+            joins: None,
+            group_by: None,
+            having: None,
+            window: None,
+            order_by: None,
+            limit: None,
+        };
+
+        let result = engine.execute(&query, record.clone()).await;
+        assert!(
+            result.is_ok(),
+            "IN operator evaluation failed for query: {}",
+            query_str
+        );
+
+        // Check if we got output (indicates match)
+        let got_output = rx.try_recv().is_ok();
+        assert_eq!(got_output, expected, "Query '{}' failed", query_str);
+    }
+}
+
+#[tokio::test]
+async fn test_not_in_operator_basic() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+
+    // Create test record
+    let mut record = HashMap::new();
+    record.insert("id".to_string(), InternalValue::Integer(2));
+    record.insert(
+        "name".to_string(),
+        InternalValue::String("test".to_string()),
+    );
+
+    // Test NOT IN operator - opposite of IN results
+    let test_cases = vec![
+        ("id NOT IN (1, 2, 3)", false), // Does not match (value IS in list)
+        ("id NOT IN (4, 5, 6)", true),  // Matches (value is NOT in list)
+        ("id NOT IN (2)", false),       // Does not match (value IS in list)
+        ("id NOT IN (1)", true),        // Matches (value is NOT in list)
+        ("name NOT IN ('test', 'foo')", false), // Does not match
+        ("name NOT IN ('hello', 'world')", true), // Matches
+    ];
+
+    for (query_desc, expected) in test_cases {
+        let parts: Vec<&str> = query_desc.split(" NOT IN ").collect();
+        let column = parts[0];
+        let list_str = parts[1];
+
+        let query = StreamingQuery::Select {
+            fields: vec![SelectField::Expression {
+                expr: Expr::Column("id".to_string()),
+                alias: None,
+            }],
+            from: StreamSource::Stream("test".to_string()),
+            where_clause: Some(Expr::BinaryOp {
+                left: Box::new(Expr::Column(column.to_string())),
+                op: BinaryOperator::NotIn,
+                right: Box::new(parse_in_list(list_str)),
+            }),
+            joins: None,
+            group_by: None,
+            having: None,
+            window: None,
+            order_by: None,
+            limit: None,
+        };
+
+        let result = engine.execute(&query, record.clone()).await;
+        assert!(
+            result.is_ok(),
+            "NOT IN operator evaluation failed for query: {}",
+            query_desc
+        );
+
+        let got_output = rx.try_recv().is_ok();
+        assert_eq!(got_output, expected, "Query '{}' failed", query_desc);
+    }
+}
+
+#[tokio::test]
+async fn test_in_operator_with_null_values() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+
+    // Create test record with NULL value
+    let mut record = HashMap::new();
+    record.insert("id".to_string(), InternalValue::Integer(1));
+    record.insert("nullable_field".to_string(), InternalValue::Null);
+
+    // Test NULL IN list (should never match)
+    let query = StreamingQuery::Select {
+        fields: vec![SelectField::Expression {
+            expr: Expr::Column("id".to_string()),
+            alias: None,
+        }],
+        from: StreamSource::Stream("test".to_string()),
+        where_clause: Some(Expr::BinaryOp {
+            left: Box::new(Expr::Column("nullable_field".to_string())),
+            op: BinaryOperator::In,
+            right: Box::new(Expr::List(vec![
+                Expr::Literal(LiteralValue::Integer(1)),
+                Expr::Literal(LiteralValue::String("test".to_string())),
+                Expr::Literal(LiteralValue::Null),
+            ])),
+        }),
+        joins: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+    };
+
+    let result = engine.execute(&query, record.clone()).await;
+    assert!(result.is_ok());
+
+    // NULL IN anything should not match
+    let got_output = rx.try_recv().is_ok();
+    assert_eq!(got_output, false, "NULL IN list should not match");
+
+    // Test NOT IN with NULL - should also not match
+    let query_not_in = StreamingQuery::Select {
+        fields: vec![SelectField::Expression {
+            expr: Expr::Column("id".to_string()),
+            alias: None,
+        }],
+        from: StreamSource::Stream("test".to_string()),
+        where_clause: Some(Expr::BinaryOp {
+            left: Box::new(Expr::Column("nullable_field".to_string())),
+            op: BinaryOperator::NotIn,
+            right: Box::new(Expr::List(vec![
+                Expr::Literal(LiteralValue::Integer(1)),
+                Expr::Literal(LiteralValue::String("test".to_string())),
+            ])),
+        }),
+        joins: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+    };
+
+    let result_not_in = engine.execute(&query_not_in, record).await;
+    assert!(result_not_in.is_ok());
+
+    // NULL NOT IN anything should also not match
+    let got_output_not_in = rx.try_recv().is_ok();
+    assert_eq!(
+        got_output_not_in, false,
+        "NULL NOT IN list should not match"
+    );
+}
+
+#[tokio::test]
+async fn test_in_operator_edge_cases() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let serialization_format = Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+
+    // Create test record
+    let mut record = HashMap::new();
+    record.insert("id".to_string(), InternalValue::Integer(5));
+    record.insert(
+        "name".to_string(),
+        InternalValue::String("hello".to_string()),
+    );
+
+    // Test empty list (should never match)
+    // Note: This might not be parseable, but if it is, should never match
+
+    // Test large list
+    let large_list = (1..=100)
+        .map(|i| Expr::Literal(LiteralValue::Integer(i)))
+        .collect();
+    let query_large = StreamingQuery::Select {
+        fields: vec![SelectField::Expression {
+            expr: Expr::Column("id".to_string()),
+            alias: None,
+        }],
+        from: StreamSource::Stream("test".to_string()),
+        where_clause: Some(Expr::BinaryOp {
+            left: Box::new(Expr::Column("id".to_string())),
+            op: BinaryOperator::In,
+            right: Box::new(Expr::List(large_list)),
+        }),
+        joins: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+    };
+
+    let result_large = engine.execute(&query_large, record.clone()).await;
+    assert!(result_large.is_ok());
+
+    // Should match since 5 is in 1..=100
+    let got_output_large = rx.try_recv().is_ok();
+    assert_eq!(got_output_large, true, "Large list should match");
+
+    // Test with duplicate values in list (should still work)
+    let query_duplicates = StreamingQuery::Select {
+        fields: vec![SelectField::Expression {
+            expr: Expr::Column("id".to_string()),
+            alias: None,
+        }],
+        from: StreamSource::Stream("test".to_string()),
+        where_clause: Some(Expr::BinaryOp {
+            left: Box::new(Expr::Column("id".to_string())),
+            op: BinaryOperator::In,
+            right: Box::new(Expr::List(vec![
+                Expr::Literal(LiteralValue::Integer(5)),
+                Expr::Literal(LiteralValue::Integer(5)),
+                Expr::Literal(LiteralValue::Integer(5)),
+            ])),
+        }),
+        joins: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+    };
+
+    let result_duplicates = engine.execute(&query_duplicates, record).await;
+    assert!(result_duplicates.is_ok());
+
+    // Should match
+    let got_output_duplicates = rx.try_recv().is_ok();
+    assert_eq!(
+        got_output_duplicates, true,
+        "Duplicate values in list should still match"
+    );
+}
+
+// Helper function to parse simple IN lists for testing
+// This is a simplified parser just for testing - the real parser handles this
+fn parse_in_list(list_str: &str) -> Expr {
+    // Remove parentheses and split by comma
+    let inner = list_str
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')');
+    let items: Vec<Expr> = inner
+        .split(',')
+        .map(|item| {
+            let trimmed = item.trim();
+            if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
+                // String literal
+                let content = &trimmed[1..trimmed.len() - 1];
+                Expr::Literal(LiteralValue::String(content.to_string()))
+            } else if trimmed.contains('.') {
+                // Float literal
+                let value: f64 = trimmed.parse().expect("Invalid float in test");
+                Expr::Literal(LiteralValue::Float(value))
+            } else {
+                // Integer literal
+                let value: i64 = trimmed.parse().expect("Invalid integer in test");
+                Expr::Literal(LiteralValue::Integer(value))
+            }
+        })
+        .collect();
+
+    Expr::List(items)
+}

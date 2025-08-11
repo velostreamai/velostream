@@ -1048,10 +1048,34 @@ impl StreamExecutionEngine {
                         _ => unreachable!(), // This case is already handled by the match arm
                     }
                 }
-                BinaryOperator::In | BinaryOperator::NotIn => Err(SqlError::ExecutionError {
-                    message: "Set operators not yet implemented".to_string(),
-                    query: None,
-                }),
+                BinaryOperator::In | BinaryOperator::NotIn => {
+                    // Handle IN/NOT IN operators
+                    let left_val = self.evaluate_expression_value(left, record)?;
+
+                    if let Expr::List(list_items) = right.as_ref() {
+                        let mut matches = false;
+
+                        for item_expr in list_items {
+                            let item_val = self.evaluate_expression_value(item_expr, record)?;
+                            if self.values_equal(&left_val, &item_val) {
+                                matches = true;
+                                break;
+                            }
+                        }
+
+                        match op {
+                            BinaryOperator::In => Ok(matches),
+                            BinaryOperator::NotIn => Ok(!matches),
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        Err(SqlError::ExecutionError {
+                            message: "IN/NOT IN operator requires a list on the right side"
+                                .to_string(),
+                            query: None,
+                        })
+                    }
+                }
                 BinaryOperator::Add
                 | BinaryOperator::Subtract
                 | BinaryOperator::Multiply
@@ -1110,6 +1134,11 @@ impl StreamExecutionEngine {
                     value: None,
                 })
             }
+            Expr::List(_) => Err(SqlError::TypeError {
+                expected: "boolean".to_string(),
+                actual: "list expression".to_string(),
+                value: None,
+            }),
         }
     }
 
@@ -1214,13 +1243,15 @@ impl StreamExecutionEngine {
                     }
                     BinaryOperator::Like
                     | BinaryOperator::NotLike
-                    | BinaryOperator::In
-                    | BinaryOperator::NotIn
                     | BinaryOperator::And
                     | BinaryOperator::Or => Err(SqlError::ExecutionError {
                         message: "Operator not supported in value context".to_string(),
                         query: None,
                     }),
+                    BinaryOperator::In | BinaryOperator::NotIn => {
+                        let result = self.evaluate_comparison(left, right, record, op)?;
+                        Ok(FieldValue::Boolean(result))
+                    }
                 }
             }
             Expr::UnaryOp { op: _, expr: _ } => Err(SqlError::ExecutionError {
@@ -1247,6 +1278,10 @@ impl StreamExecutionEngine {
                 message: "Window functions should be handled through evaluate_expression_value_with_window".to_string(),
                 query: None,
             }),
+            Expr::List(_) => Err(SqlError::ExecutionError {
+                message: "List expressions can only be used with IN/NOT IN operators".to_string(),
+                query: None,
+            }),
         }
     }
 
@@ -1257,6 +1292,7 @@ impl StreamExecutionEngine {
             Expr::BinaryOp { .. } => "expression".to_string(),
             Expr::Function { name, .. } => name.clone(),
             Expr::WindowFunction { function_name, .. } => function_name.clone(),
+            Expr::List(_) => "list".to_string(),
             _ => "expression".to_string(),
         }
     }
