@@ -112,6 +112,10 @@ pub struct StreamExecutionEngine {
     record_count: u64,
 }
 
+// =============================================================================
+// CORE DATA TYPES AND STRUCTURES
+// =============================================================================
+
 #[derive(Debug)]
 pub enum ExecutionMessage {
     StartJob {
@@ -238,6 +242,10 @@ struct WindowState {
     buffer: Vec<StreamRecord>,
     last_emit: i64,
 }
+
+// =============================================================================
+// MAIN EXECUTION ENGINE IMPLEMENTATION
+// =============================================================================
 
 impl StreamExecutionEngine {
     pub fn new(
@@ -922,6 +930,10 @@ impl StreamExecutionEngine {
         }
     }
 
+    // =============================================================================
+    // EXPRESSION EVALUATION FUNCTIONS
+    // =============================================================================
+
     fn evaluate_expression(&self, expr: &Expr, record: &StreamRecord) -> Result<bool, SqlError> {
         match expr {
             Expr::Column(name) => {
@@ -1004,10 +1016,38 @@ impl StreamExecutionEngine {
                     message: "Logical operators should be handled at parse time".to_string(),
                     query: None,
                 }),
-                BinaryOperator::Like | BinaryOperator::NotLike => Err(SqlError::ExecutionError {
-                    message: "String comparison operators not yet implemented".to_string(),
-                    query: None,
-                }),
+                BinaryOperator::Like | BinaryOperator::NotLike => {
+                    let left_val = self.evaluate_expression_value(left, record)?;
+                    let right_val = self.evaluate_expression_value(right, record)?;
+
+                    // Extract string values
+                    let (value, pattern) = match (left_val, right_val) {
+                        (FieldValue::String(value), FieldValue::String(pattern)) => {
+                            (value, pattern)
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                            // NULL in LIKE comparisons returns NULL (false in boolean context)
+                            return Ok(false);
+                        }
+                        _ => {
+                            return Err(SqlError::TypeError {
+                                expected: "string".to_string(),
+                                actual: "non-string".to_string(),
+                                value: None,
+                            });
+                        }
+                    };
+
+                    // Apply pattern matching
+                    let matches = self.match_pattern(&value, &pattern);
+
+                    // Return result (negated for NOT LIKE)
+                    match op {
+                        BinaryOperator::Like => Ok(matches),
+                        BinaryOperator::NotLike => Ok(!matches),
+                        _ => unreachable!(), // This case is already handled by the match arm
+                    }
+                }
                 BinaryOperator::In | BinaryOperator::NotIn => Err(SqlError::ExecutionError {
                     message: "Set operators not yet implemented".to_string(),
                     query: None,
@@ -1245,6 +1285,74 @@ impl StreamExecutionEngine {
         }
     }
 
+    /// Matches a string against a SQL LIKE pattern
+    ///
+    /// SQL LIKE patterns:
+    /// - '%' matches any sequence of characters (including none)
+    /// - '_' matches any single character
+    /// - Any other character matches itself
+    fn match_pattern(&self, value: &str, pattern: &str) -> bool {
+        self.match_pattern_recursive(value, pattern, 0, 0)
+    }
+
+    /// Recursive helper for pattern matching
+    fn match_pattern_recursive(
+        &self,
+        value: &str,
+        pattern: &str,
+        value_pos: usize,
+        pattern_pos: usize,
+    ) -> bool {
+        let value_chars: Vec<char> = value.chars().collect();
+        let pattern_chars: Vec<char> = pattern.chars().collect();
+
+        // If we've reached the end of the pattern, we're done only if we've also reached the end of the value
+        if pattern_pos >= pattern_chars.len() {
+            return value_pos >= value_chars.len();
+        }
+
+        // Check for wildcard '%' which can match 0 or more characters
+        if pattern_chars[pattern_pos] == '%' {
+            // Try to match 0 characters (skip the %)
+            if self.match_pattern_recursive(value, pattern, value_pos, pattern_pos + 1) {
+                return true;
+            }
+
+            // Try to match 1 or more characters
+            // We only need to try this if we haven't reached the end of the value
+            if value_pos < value_chars.len() {
+                return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos);
+            }
+        }
+        // Check for single character wildcard '_'
+        else if pattern_chars[pattern_pos] == '_' {
+            // Must have a character to match
+            if value_pos >= value_chars.len() {
+                return false;
+            }
+
+            // Match any single character and continue
+            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
+        }
+        // Regular character match
+        else {
+            // Must have a character to match
+            if value_pos >= value_chars.len() {
+                return false;
+            }
+
+            // Characters must match
+            if pattern_chars[pattern_pos] != value_chars[value_pos] {
+                return false;
+            }
+
+            // Continue matching
+            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
+        }
+
+        false
+    }
+
     fn compare_values<F>(
         &self,
         left: &FieldValue,
@@ -1418,6 +1526,10 @@ impl StreamExecutionEngine {
             }),
         }
     }
+
+    // =============================================================================
+    // WINDOW FUNCTIONS
+    // =============================================================================
 
     /// Evaluate window functions like LAG, LEAD, ROW_NUMBER with OVER clause
     fn evaluate_window_function(
@@ -3908,6 +4020,10 @@ impl StreamExecutionEngine {
             values.to_vec()
         }
     }
+
+    // =============================================================================
+    // HEADER MUTATION FUNCTIONS
+    // =============================================================================
 
     fn collect_header_mutations_from_fields(
         &self,
