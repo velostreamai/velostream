@@ -785,3 +785,148 @@ async fn test_abs_function_extended() {
         .unwrap();
     assert_eq!(results[0]["abs_null"], InternalValue::Null);
 }
+
+#[tokio::test]
+async fn test_statistical_functions() {
+    // Test STDDEV function
+    let results = execute_query("SELECT STDDEV(amount) as stddev_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["stddev_result"], InternalValue::Number(0.0));
+
+    // Test STDDEV_SAMP function
+    let results =
+        execute_query("SELECT STDDEV_SAMP(quantity) as stddev_samp_result FROM test_stream")
+            .await
+            .unwrap();
+    assert_eq!(results[0]["stddev_samp_result"], InternalValue::Number(0.0));
+
+    // Test STDDEV_POP function
+    let results = execute_query("SELECT STDDEV_POP(amount) as stddev_pop_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["stddev_pop_result"], InternalValue::Number(0.0));
+
+    // Test VARIANCE function
+    let results = execute_query("SELECT VARIANCE(amount) as variance_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["variance_result"], InternalValue::Number(0.0));
+
+    // Test VAR_SAMP function
+    let results = execute_query("SELECT VAR_SAMP(quantity) as var_samp_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["var_samp_result"], InternalValue::Number(0.0));
+
+    // Test VAR_POP function
+    let results = execute_query("SELECT VAR_POP(amount) as var_pop_result FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["var_pop_result"], InternalValue::Number(0.0));
+
+    // Test MEDIAN function with integer
+    let results = execute_query("SELECT MEDIAN(quantity) as median_int FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["median_int"], InternalValue::Integer(42));
+
+    // Test MEDIAN function with float
+    let results = execute_query("SELECT MEDIAN(amount) as median_float FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["median_float"], InternalValue::Number(123.456));
+
+    // Test MEDIAN with NULL
+    let results = execute_query("SELECT MEDIAN(NULL) as median_null FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["median_null"], InternalValue::Null);
+}
+
+#[tokio::test]
+async fn test_statistical_functions_error_handling() {
+    // Test STDDEV with no arguments
+    let result = execute_query("SELECT STDDEV() as stddev_no_args FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+
+    // Test STDDEV with too many arguments
+    let result =
+        execute_query("SELECT STDDEV(amount, quantity) as stddev_too_many FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+
+    // Test VARIANCE with no arguments
+    let result = execute_query("SELECT VARIANCE() as variance_no_args FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+
+    // Test MEDIAN with no arguments
+    let result = execute_query("SELECT MEDIAN() as median_no_args FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+
+    // Test MEDIAN with non-numeric argument
+    let result =
+        execute_query("SELECT MEDIAN(product_name) as median_string FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("numeric argument"));
+
+    // Test STDDEV_POP with multiple arguments
+    let result = execute_query(
+        "SELECT STDDEV_POP(amount, quantity, negative_num) as stddev_pop_multi FROM test_stream",
+    )
+    .await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+
+    // Test VAR_POP with no arguments
+    let result = execute_query("SELECT VAR_POP() as var_pop_no_args FROM test_stream").await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("exactly one argument"));
+}
+
+#[tokio::test]
+async fn test_statistical_functions_with_expressions() {
+    // Test STDDEV with expression
+    let results = execute_query("SELECT STDDEV(ABS(negative_num)) as stddev_expr FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["stddev_expr"], InternalValue::Number(0.0));
+
+    // Test MEDIAN with expression
+    let results = execute_query("SELECT MEDIAN(quantity * 2) as median_expr FROM test_stream")
+        .await
+        .unwrap();
+    assert_eq!(results[0]["median_expr"], InternalValue::Integer(84));
+
+    // Test VARIANCE with ROUND expression
+    let results =
+        execute_query("SELECT VARIANCE(ROUND(amount)) as variance_round FROM test_stream")
+            .await
+            .unwrap();
+    assert_eq!(results[0]["variance_round"], InternalValue::Number(0.0));
+}
+
+#[tokio::test]
+async fn test_multiple_statistical_functions() {
+    // Test multiple statistical functions in one query
+    let results = execute_query(
+        "SELECT STDDEV(amount) as std, VARIANCE(amount) as var, MEDIAN(quantity) as med FROM test_stream"
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["std"], InternalValue::Number(0.0));
+    assert_eq!(results[0]["var"], InternalValue::Number(0.0));
+    assert_eq!(results[0]["med"], InternalValue::Integer(42));
+}

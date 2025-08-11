@@ -1361,6 +1361,27 @@ impl TokenParser {
                 self.expect(TokenType::RightParen)?;
                 Ok(expr)
             }
+            TokenType::Minus => {
+                self.advance(); // consume '-'
+                let expr = self.parse_primary()?;
+                match expr {
+                    Expr::Literal(LiteralValue::Integer(n)) => {
+                        Ok(Expr::Literal(LiteralValue::Integer(-n)))
+                    }
+                    Expr::Literal(LiteralValue::Float(f)) => {
+                        Ok(Expr::Literal(LiteralValue::Float(-f)))
+                    }
+                    _ => {
+                        // For non-literal expressions, we could create a unary minus expression
+                        // For now, just handle the common case of negative literals
+                        Err(SqlError::ParseError {
+                            message: "Minus operator only supported for numeric literals"
+                                .to_string(),
+                            position: Some(token.position),
+                        })
+                    }
+                }
+            }
             _ => Err(SqlError::ParseError {
                 message: format!("Unexpected token in expression: {:?}", token.token_type),
                 position: Some(token.position),
