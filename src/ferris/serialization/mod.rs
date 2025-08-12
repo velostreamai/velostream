@@ -346,6 +346,11 @@ fn field_value_to_json(field_value: &FieldValue) -> Result<serde_json::Value, Se
             }),
         FieldValue::Boolean(b) => Ok(serde_json::Value::Bool(*b)),
         FieldValue::Null => Ok(serde_json::Value::Null),
+        FieldValue::Date(d) => Ok(serde_json::Value::String(d.format("%Y-%m-%d").to_string())),
+        FieldValue::Timestamp(ts) => Ok(serde_json::Value::String(
+            ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        )),
+        FieldValue::Decimal(dec) => Ok(serde_json::Value::String(dec.to_string())),
         FieldValue::Array(arr) => {
             let json_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_json).collect();
             Ok(serde_json::Value::Array(json_arr?))
@@ -402,6 +407,11 @@ fn field_value_to_internal(field_value: &FieldValue) -> Result<InternalValue, Se
         FieldValue::Float(f) => Ok(InternalValue::Number(*f)),
         FieldValue::Boolean(b) => Ok(InternalValue::Boolean(*b)),
         FieldValue::Null => Ok(InternalValue::Null),
+        FieldValue::Date(d) => Ok(InternalValue::String(d.format("%Y-%m-%d").to_string())),
+        FieldValue::Timestamp(ts) => Ok(InternalValue::String(
+            ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        )),
+        FieldValue::Decimal(dec) => Ok(InternalValue::String(dec.to_string())),
         FieldValue::Array(arr) => {
             let internal_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_internal).collect();
             Ok(InternalValue::Array(internal_arr?))
@@ -613,6 +623,11 @@ fn field_value_to_avro(
         FieldValue::Float(f) => Ok(Value::Double(*f)),
         FieldValue::Boolean(b) => Ok(Value::Boolean(*b)),
         FieldValue::Null => Ok(Value::Null),
+        FieldValue::Date(d) => Ok(Value::String(d.format("%Y-%m-%d").to_string())),
+        FieldValue::Timestamp(ts) => Ok(Value::String(
+            ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        )),
+        FieldValue::Decimal(dec) => Ok(Value::String(dec.to_string())),
         FieldValue::Array(arr) => {
             let avro_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_avro).collect();
             Ok(Value::Array(avro_arr?))

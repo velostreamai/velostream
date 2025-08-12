@@ -24,7 +24,8 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
 6. [System Columns](#system-columns)
 7. [Window Operations](#window-operations)
 8. [Schema Management](#schema-management)
-9. [Examples](#examples)
+9. [Type Conversion](#type-conversion)
+10. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -2502,7 +2503,7 @@ FROM events;
 ### Utility Functions (6 functions)
 - `COALESCE(value1, value2, ...)` - Return first non-null value
 - `NULLIF(value1, value2)` - Return null if values are equal
-- `CAST(value, type)` - Type conversion
+- `CAST(value, type)` - Type conversion (see [Type Conversion](#type-conversion) for details)
 - `TIMESTAMP()` - Current record processing timestamp
 - `SPLIT(string, delimiter)` - Split string (returns first part)
 - `JOIN(delimiter, str1, str2, ...)` - Join strings with delimiter
@@ -2550,5 +2551,159 @@ FROM events;
 - **Header Functions:** 5 functions for message metadata
 - **Set Operations:** 2 operators for list membership testing
 - **System Columns:** 3 columns for Kafka metadata
+
+## Type Conversion
+
+### Overview
+
+The `CAST(value, type)` function provides comprehensive type conversion capabilities for transforming data between different types during stream processing. FerrisStreams supports conversions between all built-in data types with intelligent handling of edge cases.
+
+### Supported Data Types
+
+#### Core Types
+- **INTEGER** (alias: **INT**) - 64-bit signed integer
+- **FLOAT** (alias: **DOUBLE**) - 64-bit floating point number  
+- **STRING** (aliases: **VARCHAR**, **TEXT**) - UTF-8 encoded text
+- **BOOLEAN** (alias: **BOOL**) - True/false value
+
+#### Extended Types (New)
+- **DATE** - Date values (YYYY-MM-DD format)
+- **TIMESTAMP** (alias: **DATETIME**) - Date and time values (YYYY-MM-DD HH:MM:SS[.nnn] format)
+- **DECIMAL** (alias: **NUMERIC**) - High-precision decimal numbers
+
+### Type Conversion Matrix
+
+| From\To | INTEGER | FLOAT | STRING | BOOLEAN | DATE | TIMESTAMP | DECIMAL |
+|---------|---------|-------|--------|---------|------|-----------|---------|
+| **INTEGER** | ✓ | ✓ | ✓ | ✓ | ❌ | Unix¹ | ✓ |
+| **FLOAT** | ✓² | ✓ | ✓ | ✓ | ❌ | ❌ | ✓ |
+| **STRING** | Parse | Parse | ✓ | Parse | Parse | Parse | Parse |
+| **BOOLEAN** | 0/1 | 0.0/1.0 | ✓ | ✓ | ❌ | ❌ | 0/1 |
+| **DATE** | ❌ | ❌ | ✓ | ❌ | ✓ | ✓³ | ❌ |
+| **TIMESTAMP** | ❌ | ❌ | ✓ | ❌ | ✓⁴ | ✓ | ❌ |
+| **DECIMAL** | ✓² | ✓ | ✓ | ❌ | ❌ | ❌ | ✓ |
+| **NULL** | NULL | NULL | "NULL"⁵ | NULL | NULL | NULL | NULL |
+
+**Legend:**
+- ✓ = Direct conversion supported
+- ❌ = Not supported (returns error)  
+- Parse = Attempts to parse string representation
+- ¹ Unix timestamp (seconds since epoch) → TIMESTAMP
+- ² Truncation occurs (fractional part discarded)
+- ³ Date + 00:00:00 time
+- ⁴ Date part only
+- ⁵ Special case: NULL → STRING returns "NULL" string
+
+### Date and Time Parsing
+
+#### DATE Format Support
+```sql
+-- Supported date formats
+CAST('2023-12-25', 'DATE')     -- YYYY-MM-DD (preferred)
+CAST('2023/12/25', 'DATE')     -- YYYY/MM/DD  
+CAST('12/25/2023', 'DATE')     -- MM/DD/YYYY
+CAST('25-12-2023', 'DATE')     -- DD-MM-YYYY
+```
+
+#### TIMESTAMP Format Support
+```sql
+-- Supported timestamp formats
+CAST('2023-12-25 14:30:45', 'TIMESTAMP')      -- Standard format
+CAST('2023-12-25 14:30:45.123', 'TIMESTAMP')  -- With milliseconds
+CAST('2023-12-25T14:30:45', 'TIMESTAMP')      -- ISO 8601
+CAST('2023-12-25T14:30:45.123', 'TIMESTAMP')  -- ISO 8601 with ms
+CAST('2023/12/25 14:30:45', 'TIMESTAMP')      -- Alternative separator
+CAST('2023-12-25', 'TIMESTAMP')               -- Date only (adds 00:00:00)
+
+-- Unix timestamp conversion
+CAST(1640995200, 'TIMESTAMP')                 -- Unix seconds → TIMESTAMP
+```
+
+### Decimal Precision
+
+The DECIMAL type supports high-precision arithmetic suitable for financial calculations:
+
+```sql
+-- Precise decimal calculations
+CAST('123.456789012345', 'DECIMAL')           -- High precision
+CAST(42, 'DECIMAL')                           -- Integer → Decimal  
+CAST(3.14159, 'DECIMAL')                      -- Float → Decimal
+CAST(true, 'DECIMAL')                         -- Boolean → 1 or 0
+```
+
+### Practical Examples
+
+#### JSON Data Processing
+```sql
+-- Extract and convert JSON values
+SELECT 
+    JSON_VALUE(payload, '$.user_id') as user_id_str,
+    CAST(JSON_VALUE(payload, '$.user_id'), 'INTEGER') as user_id,
+    CAST(JSON_VALUE(payload, '$.amount'), 'DECIMAL') as precise_amount,
+    CAST(JSON_VALUE(payload, '$.created_at'), 'TIMESTAMP') as created_timestamp
+FROM events;
+```
+
+#### Data Validation and Cleaning
+```sql
+-- Convert and validate data types
+SELECT
+    order_id,
+    CASE 
+        WHEN amount_str ~ '^[0-9]+\.[0-9]+$' 
+        THEN CAST(amount_str, 'DECIMAL')
+        ELSE CAST('0.00', 'DECIMAL')
+    END as validated_amount,
+    CAST(COALESCE(created_date, '1970-01-01'), 'DATE') as safe_date
+FROM raw_orders;
+```
+
+#### Time-based Analytics
+```sql
+-- Date/time conversions for analytics
+SELECT 
+    customer_id,
+    CAST(order_date_str, 'DATE') as order_date,
+    CAST(order_timestamp_str, 'TIMESTAMP') as order_timestamp,
+    CAST(CAST(order_timestamp_str, 'TIMESTAMP'), 'DATE') as derived_date
+FROM customer_orders;
+```
+
+#### Financial Calculations
+```sql
+-- Precise decimal arithmetic for financial data
+SELECT
+    transaction_id,
+    CAST(amount, 'DECIMAL') as amount_decimal,
+    CAST(tax_rate, 'DECIMAL') as tax_rate_decimal,
+    CAST(amount, 'DECIMAL') * CAST(tax_rate, 'DECIMAL') as tax_amount
+FROM financial_transactions;
+```
+
+### Error Handling
+
+Type conversion failures result in SQL errors with descriptive messages:
+
+```sql
+-- These will generate errors:
+CAST('invalid-number', 'INTEGER')           -- "Cannot cast 'invalid-number' to INTEGER"
+CAST('2023-13-45', 'DATE')                  -- "Cannot cast '2023-13-45' to DATE"
+CAST({}, 'INTEGER')                         -- "Cannot cast MAP to INTEGER"
+```
+
+### Performance Considerations
+
+1. **Date/Time Parsing**: Multiple format attempts may impact performance for large volumes
+2. **Decimal Precision**: High-precision arithmetic is slower than native float operations
+3. **String Conversions**: Generally fast, but large strings may impact memory usage
+4. **Type Checking**: Runtime type validation adds minimal overhead
+
+### Best Practices
+
+1. **Use appropriate precision**: Choose DECIMAL only when precision is critical
+2. **Validate inputs**: Check string formats before conversion when possible
+3. **Handle NULLs**: Use COALESCE for NULL handling in conversions
+4. **Cache conversions**: Avoid repeated CAST operations on the same values
+5. **Error handling**: Wrap CAST operations in CASE statements for graceful error handling
 
 This reference guide covers all currently implemented SQL features in FerrisStreams. For the latest updates and additional examples, refer to the test suite and feature documentation.

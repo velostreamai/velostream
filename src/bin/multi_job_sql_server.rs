@@ -271,6 +271,13 @@ impl MultiJobSqlServer {
                                 FieldValue::Float(f) => InternalValue::Number(*f),
                                 FieldValue::Boolean(b) => InternalValue::Boolean(*b),
                                 FieldValue::Null => InternalValue::Null,
+                                FieldValue::Date(d) => {
+                                    InternalValue::String(d.format("%Y-%m-%d").to_string())
+                                }
+                                FieldValue::Timestamp(ts) => InternalValue::String(
+                                    ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                                ),
+                                FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
                                 FieldValue::Array(arr) => {
                                     let internal_arr: Vec<InternalValue> = arr
                                         .iter()
