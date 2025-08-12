@@ -10,6 +10,11 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[Simplified Kafka API](SIMPLIFIED_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](HEADERS_GUIDE.md)** - Working with Kafka message headers
 
+### Serialization System
+- **[Serialization Guide](SERIALIZATION_GUIDE.md)** - Complete guide to serialization formats (JSON, Avro, Protobuf)
+- **[Serialization Quick Reference](SERIALIZATION_QUICK_REFERENCE.md)** - Quick reference for serialization patterns
+- **[Serialization Migration Guide](SERIALIZATION_MIGRATION_GUIDE.md)** - Migration from old hardcoded JSON system
+
 ### SQL Streaming
 - **[SQL Reference Guide](SQL_REFERENCE_GUIDE.md)** - Complete SQL syntax and function reference
 - **[JOIN Operations Guide](JOIN_OPERATIONS_GUIDE.md)** - Comprehensive guide to JOIN operations and windowed JOINs
