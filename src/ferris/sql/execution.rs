@@ -157,7 +157,7 @@ pub enum HeaderOperation {
     Remove,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Integer(i64),
     Float(f64),
