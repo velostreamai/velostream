@@ -1093,7 +1093,11 @@ impl StreamExecutionEngine {
                             BinaryOperator::NotIn => Ok(!matches),
                             _ => unreachable!(),
                         }
-                    } else if let Expr::Subquery { query, subquery_type } = right.as_ref() {
+                    } else if let Expr::Subquery {
+                        query,
+                        subquery_type,
+                    } = right.as_ref()
+                    {
                         // Handle IN/NOT IN with subqueries
                         match subquery_type {
                             crate::ferris::sql::ast::SubqueryType::In | crate::ferris::sql::ast::SubqueryType::NotIn => {
@@ -1111,8 +1115,9 @@ impl StreamExecutionEngine {
                         }
                     } else {
                         Err(SqlError::ExecutionError {
-                            message: "IN/NOT IN operator requires a list or subquery on the right side"
-                                .to_string(),
+                            message:
+                                "IN/NOT IN operator requires a list or subquery on the right side"
+                                    .to_string(),
                             query: None,
                         })
                     }
@@ -1180,7 +1185,10 @@ impl StreamExecutionEngine {
                 actual: "list expression".to_string(),
                 value: None,
             }),
-            Expr::Subquery { query, subquery_type } => {
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
                 // Convert subquery result to boolean for conditional contexts
                 let result = self.evaluate_subquery(query, subquery_type, record)?;
                 match result {
@@ -4387,7 +4395,7 @@ impl StreamExecutionEngine {
         _record: &StreamRecord,
     ) -> Result<FieldValue, SqlError> {
         use crate::ferris::sql::ast::SubqueryType;
-        
+
         match subquery_type {
             SubqueryType::Scalar => {
                 // Scalar subquery: should return a single value
@@ -4421,45 +4429,56 @@ impl StreamExecutionEngine {
                 self.execute_any_all_subquery(query, true)
             }
             SubqueryType::All => {
-                // ALL subquery: used with comparison operators  
+                // ALL subquery: used with comparison operators
                 self.execute_any_all_subquery(query, false)
             }
         }
     }
 
     /// Execute a scalar subquery that returns a single value
-    fn execute_scalar_subquery(&self, _query: &crate::ferris::sql::StreamingQuery) -> Result<FieldValue, SqlError> {
+    fn execute_scalar_subquery(
+        &self,
+        _query: &crate::ferris::sql::StreamingQuery,
+    ) -> Result<FieldValue, SqlError> {
         // For streaming context, scalar subqueries need special handling
         // In a real implementation, this would:
         // 1. Execute the subquery against the current state
         // 2. Ensure it returns exactly one row with one column
         // 3. Return that value
-        
+
         // For now, we'll simulate with a mock implementation
         // In production, this would involve actual query execution
         log::debug!("Executing scalar subquery (mock implementation)");
-        
+
         // Return a mock value - in production this would be the actual result
         Ok(FieldValue::Integer(1))
     }
 
     /// Execute an EXISTS subquery
-    fn execute_exists_subquery(&self, _query: &crate::ferris::sql::StreamingQuery) -> Result<FieldValue, SqlError> {
+    fn execute_exists_subquery(
+        &self,
+        _query: &crate::ferris::sql::StreamingQuery,
+    ) -> Result<FieldValue, SqlError> {
         // In production, this would execute the subquery and check if any rows exist
         log::debug!("Executing EXISTS subquery (mock implementation)");
-        
+
         // For now, return a mock result
         // In production, this would be based on actual query execution
         Ok(FieldValue::Boolean(true))
     }
 
     /// Execute ANY/ALL subquery
-    fn execute_any_all_subquery(&self, _query: &crate::ferris::sql::StreamingQuery, is_any: bool) -> Result<FieldValue, SqlError> {
-        log::debug!("Executing {}/{} subquery (mock implementation)", 
-            if is_any { "ANY" } else { "ALL" }, 
+    fn execute_any_all_subquery(
+        &self,
+        _query: &crate::ferris::sql::StreamingQuery,
+        is_any: bool,
+    ) -> Result<FieldValue, SqlError> {
+        log::debug!(
+            "Executing {}/{} subquery (mock implementation)",
+            if is_any { "ANY" } else { "ALL" },
             if is_any { "SOME" } else { "ALL" }
         );
-        
+
         // In production, this would execute the subquery and return the appropriate result
         // For ANY: return true if any value satisfies the condition
         // For ALL: return true if all values satisfy the condition
@@ -4467,21 +4486,28 @@ impl StreamExecutionEngine {
     }
 
     /// Evaluate an IN subquery - check if a value exists in the subquery result set
-    fn evaluate_in_subquery(&self, value: &FieldValue, _query: &crate::ferris::sql::StreamingQuery) -> Result<bool, SqlError> {
+    fn evaluate_in_subquery(
+        &self,
+        value: &FieldValue,
+        _query: &crate::ferris::sql::StreamingQuery,
+    ) -> Result<bool, SqlError> {
         // In production, this would:
         // 1. Execute the subquery to get a result set
         // 2. Check if the given value exists in that result set
         // 3. Return true/false accordingly
-        
-        log::debug!("Executing IN subquery for value {:?} (mock implementation)", value);
-        
+
+        log::debug!(
+            "Executing IN subquery for value {:?} (mock implementation)",
+            value
+        );
+
         // For now, simulate with mock logic
         // In production, this would execute the actual subquery
         match value {
             FieldValue::Integer(n) => Ok(*n > 0), // Mock: positive numbers are "in" the subquery
             FieldValue::String(s) => Ok(!s.is_empty()), // Mock: non-empty strings are "in" the subquery
-            FieldValue::Boolean(b) => Ok(*b), // Mock: true values are "in" the subquery
-            FieldValue::Null => Ok(false), // NULL is never "in" a subquery
+            FieldValue::Boolean(b) => Ok(*b),           // Mock: true values are "in" the subquery
+            FieldValue::Null => Ok(false),              // NULL is never "in" a subquery
             _ => Ok(false), // Other types are not "in" the subquery by default
         }
     }

@@ -232,17 +232,17 @@ enum TokenType {
     Interval, // INTERVAL
 
     // Conditional Keywords
-    Case, // CASE
-    When, // WHEN
-    Then, // THEN
-    Else, // ELSE
-    End,  // END
-    Is,   // IS (for IS NULL, IS NOT NULL)
-    In,   // IN (for IN operator)
-    Not,  // NOT (for NOT IN, IS NOT NULL, etc.)
+    Case,   // CASE
+    When,   // WHEN
+    Then,   // THEN
+    Else,   // ELSE
+    End,    // END
+    Is,     // IS (for IS NULL, IS NOT NULL)
+    In,     // IN (for IN operator)
+    Not,    // NOT (for NOT IN, IS NOT NULL, etc.)
     Exists, // EXISTS (for EXISTS subqueries)
-    Any,  // ANY (for ANY subqueries)
-    All,  // ALL (for ALL subqueries)
+    Any,    // ANY (for ANY subqueries)
+    All,    // ALL (for ALL subqueries)
 
     // Window Frame Keywords
     Rows,      // ROWS
@@ -1501,7 +1501,7 @@ impl TokenParser {
             }
             TokenType::LeftParen => {
                 self.advance();
-                
+
                 // Check if this is a subquery (SELECT statement in parentheses)
                 if self.current_token().token_type == TokenType::Select {
                     let subquery = self.parse_select()?;

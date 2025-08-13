@@ -19,7 +19,10 @@ use tokio::sync::mpsc;
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(42));
-    fields.insert("name".to_string(), FieldValue::String("test_record".to_string()));
+    fields.insert(
+        "name".to_string(),
+        FieldValue::String("test_record".to_string()),
+    );
     fields.insert("amount".to_string(), FieldValue::Float(123.45));
     fields.insert("active".to_string(), FieldValue::Boolean(true));
 
@@ -90,17 +93,17 @@ async fn test_scalar_subquery_parsing() {
     // Test that scalar subqueries can be parsed correctly
     let query = "SELECT id, (SELECT 100) as config_value FROM test_stream";
     let result = execute_subquery_test(query).await;
-    
+
     // Should parse successfully (the mock implementation returns 1 for scalar subqueries)
     assert!(result.is_ok(), "Scalar subquery should parse and execute");
-    
+
     let results = result.unwrap();
     assert_eq!(results.len(), 1);
-    
+
     // Verify the record contains the original fields plus the subquery result
     assert!(results[0].contains_key("id"));
     assert!(results[0].contains_key("config_value"));
-    
+
     // Mock implementation should return 1 for scalar subqueries
     assert_eq!(results[0]["config_value"], InternalValue::Integer(1));
 }
@@ -108,11 +111,12 @@ async fn test_scalar_subquery_parsing() {
 #[tokio::test]
 async fn test_exists_subquery() {
     // Test EXISTS subquery functionality
-    let query = "SELECT id, name FROM test_stream WHERE EXISTS (SELECT 1 FROM config WHERE active = true)";
+    let query =
+        "SELECT id, name FROM test_stream WHERE EXISTS (SELECT 1 FROM config WHERE active = true)";
     let result = execute_subquery_test(query).await;
-    
+
     assert!(result.is_ok(), "EXISTS subquery should parse and execute");
-    
+
     let results = result.unwrap();
     // Mock implementation returns true for EXISTS, so record should be included
     assert_eq!(results.len(), 1);
@@ -125,13 +129,20 @@ async fn test_not_exists_subquery() {
     // Test NOT EXISTS subquery functionality
     let query = "SELECT id, name FROM test_stream WHERE NOT EXISTS (SELECT 1 FROM config WHERE active = false)";
     let result = execute_subquery_test(query).await;
-    
-    assert!(result.is_ok(), "NOT EXISTS subquery should parse and execute");
-    
+
+    assert!(
+        result.is_ok(),
+        "NOT EXISTS subquery should parse and execute"
+    );
+
     let results = result.unwrap();
     // Mock implementation returns true for EXISTS, so NOT EXISTS returns false
     // This means the WHERE condition fails and no records should be returned
-    assert_eq!(results.len(), 0, "NOT EXISTS should filter out the record with mock implementation");
+    assert_eq!(
+        results.len(),
+        0,
+        "NOT EXISTS should filter out the record with mock implementation"
+    );
 }
 
 #[tokio::test]
@@ -139,9 +150,9 @@ async fn test_in_subquery_with_positive_value() {
     // Test IN subquery with a positive integer (mock returns true for positive integers)
     let query = "SELECT id, name FROM test_stream WHERE id IN (SELECT valid_id FROM config)";
     let result = execute_subquery_test(query).await;
-    
+
     assert!(result.is_ok(), "IN subquery should parse and execute");
-    
+
     let results = result.unwrap();
     // Mock implementation returns true for positive integers in IN subqueries
     // Since id = 42 (positive), it should match
@@ -154,13 +165,17 @@ async fn test_not_in_subquery() {
     // Test NOT IN subquery functionality
     let query = "SELECT id, name FROM test_stream WHERE id NOT IN (SELECT blocked_id FROM config)";
     let result = execute_subquery_test(query).await;
-    
+
     assert!(result.is_ok(), "NOT IN subquery should parse and execute");
-    
+
     let results = result.unwrap();
     // Mock implementation returns true for positive integers in IN subqueries
     // So NOT IN would return false for positive integers, filtering out the record
-    assert_eq!(results.len(), 0, "NOT IN should filter out positive integers with mock implementation");
+    assert_eq!(
+        results.len(),
+        0,
+        "NOT IN should filter out positive integers with mock implementation"
+    );
 }
 
 #[tokio::test]
@@ -175,19 +190,19 @@ async fn test_complex_subquery_in_select() {
         FROM test_stream 
         WHERE EXISTS (SELECT 1 FROM active_configs WHERE config_name = 'production')
     "#;
-    
+
     let result = execute_subquery_test(query).await;
     assert!(result.is_ok(), "Complex subquery should parse and execute");
-    
+
     let results = result.unwrap();
     assert_eq!(results.len(), 1);
-    
+
     // Verify all expected fields are present
     assert!(results[0].contains_key("id"));
     assert!(results[0].contains_key("name"));
     assert!(results[0].contains_key("config_type"));
     assert!(results[0].contains_key("max_limit"));
-    
+
     // Verify subquery results (mock implementations)
     assert_eq!(results[0]["config_type"], InternalValue::Integer(1)); // Scalar subquery mock
     assert_eq!(results[0]["max_limit"], InternalValue::Integer(1)); // Scalar subquery mock
@@ -202,10 +217,10 @@ async fn test_nested_subqueries() {
             (SELECT (SELECT 'nested') as inner_config) as outer_config
         FROM test_stream
     "#;
-    
+
     let result = execute_subquery_test(query).await;
     assert!(result.is_ok(), "Nested subqueries should parse and execute");
-    
+
     let results = result.unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].contains_key("outer_config"));
@@ -216,14 +231,20 @@ async fn test_subquery_with_string_field() {
     // Test IN subquery with string field (should return true for non-empty strings)
     let query = "SELECT id, name FROM test_stream WHERE name IN (SELECT valid_name FROM config)";
     let result = execute_subquery_test(query).await;
-    
-    assert!(result.is_ok(), "String IN subquery should parse and execute");
-    
+
+    assert!(
+        result.is_ok(),
+        "String IN subquery should parse and execute"
+    );
+
     let results = result.unwrap();
     // Mock implementation returns true for non-empty strings
     // Since name = "test_record" (non-empty), it should match
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["name"], InternalValue::String("test_record".to_string()));
+    assert_eq!(
+        results[0]["name"],
+        InternalValue::String("test_record".to_string())
+    );
 }
 
 #[tokio::test]
@@ -231,9 +252,12 @@ async fn test_subquery_with_boolean_field() {
     // Test IN subquery with boolean field (should return true for true values)
     let query = "SELECT id, active FROM test_stream WHERE active IN (SELECT enabled FROM config)";
     let result = execute_subquery_test(query).await;
-    
-    assert!(result.is_ok(), "Boolean IN subquery should parse and execute");
-    
+
+    assert!(
+        result.is_ok(),
+        "Boolean IN subquery should parse and execute"
+    );
+
     let results = result.unwrap();
     // Mock implementation returns the boolean value itself for IN subqueries
     // Since active = true, it should match
@@ -250,7 +274,7 @@ async fn test_subquery_error_handling() {
         // Invalid nested structure
         "SELECT id FROM test_stream WHERE id IN (SELECT WHERE active = true)",
     ];
-    
+
     for query in invalid_queries {
         let result = execute_subquery_test(query).await;
         assert!(result.is_err(), "Query '{}' should fail to parse", query);
@@ -261,16 +285,32 @@ async fn test_subquery_error_handling() {
 async fn test_subquery_types_comprehensive() {
     // Test all subquery types are recognized by the parser
     let queries = vec![
-        ("EXISTS", "SELECT id FROM test WHERE EXISTS (SELECT 1 FROM config)"),
-        ("NOT EXISTS", "SELECT id FROM test WHERE NOT EXISTS (SELECT 1 FROM config)"),
-        ("IN", "SELECT id FROM test WHERE id IN (SELECT id FROM config)"),
-        ("NOT IN", "SELECT id FROM test WHERE id NOT IN (SELECT id FROM config)"),
+        (
+            "EXISTS",
+            "SELECT id FROM test WHERE EXISTS (SELECT 1 FROM config)",
+        ),
+        (
+            "NOT EXISTS",
+            "SELECT id FROM test WHERE NOT EXISTS (SELECT 1 FROM config)",
+        ),
+        (
+            "IN",
+            "SELECT id FROM test WHERE id IN (SELECT id FROM config)",
+        ),
+        (
+            "NOT IN",
+            "SELECT id FROM test WHERE id NOT IN (SELECT id FROM config)",
+        ),
         ("Scalar", "SELECT id, (SELECT 1) as scalar_val FROM test"),
     ];
-    
+
     for (subquery_type, query) in queries {
         let result = execute_subquery_test(query).await;
-        assert!(result.is_ok(), "{} subquery should parse successfully", subquery_type);
+        assert!(
+            result.is_ok(),
+            "{} subquery should parse successfully",
+            subquery_type
+        );
     }
 }
 
@@ -284,10 +324,13 @@ async fn test_subquery_with_multiple_conditions() {
           AND id IN (SELECT valid_id FROM config) 
           AND EXISTS (SELECT 1 FROM permissions WHERE user_id = 42)
     "#;
-    
+
     let result = execute_subquery_test(query).await;
-    assert!(result.is_ok(), "Complex conditions with subqueries should work");
-    
+    assert!(
+        result.is_ok(),
+        "Complex conditions with subqueries should work"
+    );
+
     let results = result.unwrap();
     // All conditions should pass with our test data and mock implementation
     assert_eq!(results.len(), 1);
@@ -297,17 +340,17 @@ async fn test_subquery_with_multiple_conditions() {
 async fn test_parser_subquery_integration() {
     // Test that the parser correctly identifies and structures subqueries
     let parser = StreamingSqlParser::new();
-    
+
     // Test scalar subquery parsing
     let scalar_query = "SELECT (SELECT 1) as val FROM test";
     let parsed = parser.parse(scalar_query);
     assert!(parsed.is_ok(), "Scalar subquery should parse successfully");
-    
-    // Test EXISTS subquery parsing  
+
+    // Test EXISTS subquery parsing
     let exists_query = "SELECT id FROM test WHERE EXISTS (SELECT 1 FROM config)";
     let parsed = parser.parse(exists_query);
     assert!(parsed.is_ok(), "EXISTS subquery should parse successfully");
-    
+
     // Test IN subquery parsing
     let in_query = "SELECT id FROM test WHERE id IN (SELECT id FROM config)";
     let parsed = parser.parse(in_query);
