@@ -1,8 +1,14 @@
 /*!
-# Windowing Tests
+# Window Execution Engine Tests (AST Level)
 
-Tests for windowed query execution including tumbling, sliding, and session windows.
-Tests window-based aggregations and time-based processing.
+Tests for windowed query execution using pre-built AST structures.
+These tests focus on the execution engine's window processing logic without SQL parsing.
+For comprehensive end-to-end SQL window processing tests, see window_processing_test.rs.
+
+Tests covered:
+- Direct AST window execution
+- Window aggregation functions
+- Multiple window types (tumbling, sliding, session)
 */
 
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
