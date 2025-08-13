@@ -240,6 +240,9 @@ enum TokenType {
     Is,   // IS (for IS NULL, IS NOT NULL)
     In,   // IN (for IN operator)
     Not,  // NOT (for NOT IN, IS NOT NULL, etc.)
+    Exists, // EXISTS (for EXISTS subqueries)
+    Any,  // ANY (for ANY subqueries)
+    All,  // ALL (for ALL subqueries)
 
     // Window Frame Keywords
     Rows,      // ROWS
@@ -349,6 +352,9 @@ impl StreamingSqlParser {
         keywords.insert("IS".to_string(), TokenType::Is);
         keywords.insert("IN".to_string(), TokenType::In);
         keywords.insert("NOT".to_string(), TokenType::Not);
+        keywords.insert("EXISTS".to_string(), TokenType::Exists);
+        keywords.insert("ANY".to_string(), TokenType::Any);
+        keywords.insert("ALL".to_string(), TokenType::All);
         keywords.insert("ROWS".to_string(), TokenType::Rows);
         keywords.insert("RANGE".to_string(), TokenType::Range);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
@@ -1042,7 +1048,7 @@ impl TokenParser {
                     });
                 }
             } else if op_token.token_type == TokenType::In {
-                // Handle IN operator: expr IN (val1, val2, val3)
+                // Handle IN operator: expr IN (val1, val2, val3) or expr IN (SELECT ...)
                 if self.current_token().token_type != TokenType::LeftParen {
                     return Err(SqlError::ParseError {
                         message: "Expected '(' after IN".to_string(),
@@ -1051,30 +1057,45 @@ impl TokenParser {
                 }
                 self.advance(); // consume '('
 
-                let mut list_items = Vec::new();
-                loop {
-                    list_items.push(self.parse_additive()?);
+                // Check if this is a subquery
+                if self.current_token().token_type == TokenType::Select {
+                    let subquery = self.parse_select()?;
+                    self.expect(TokenType::RightParen)?;
+                    left = Expr::BinaryOp {
+                        left: Box::new(left),
+                        op: BinaryOperator::In,
+                        right: Box::new(Expr::Subquery {
+                            query: Box::new(subquery),
+                            subquery_type: crate::ferris::sql::ast::SubqueryType::In,
+                        }),
+                    };
+                } else {
+                    // Regular IN list
+                    let mut list_items = Vec::new();
+                    loop {
+                        list_items.push(self.parse_additive()?);
 
-                    if self.current_token().token_type == TokenType::Comma {
-                        self.advance(); // consume ','
-                    } else if self.current_token().token_type == TokenType::RightParen {
-                        self.advance(); // consume ')'
-                        break;
-                    } else {
-                        return Err(SqlError::ParseError {
-                            message: "Expected ',' or ')' in IN list".to_string(),
-                            position: Some(self.current_token().position),
-                        });
+                        if self.current_token().token_type == TokenType::Comma {
+                            self.advance(); // consume ','
+                        } else if self.current_token().token_type == TokenType::RightParen {
+                            self.advance(); // consume ')'
+                            break;
+                        } else {
+                            return Err(SqlError::ParseError {
+                                message: "Expected ',' or ')' in IN list".to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
                     }
-                }
 
-                left = Expr::BinaryOp {
-                    left: Box::new(left),
-                    op: BinaryOperator::In,
-                    right: Box::new(Expr::List(list_items)),
-                };
+                    left = Expr::BinaryOp {
+                        left: Box::new(left),
+                        op: BinaryOperator::In,
+                        right: Box::new(Expr::List(list_items)),
+                    };
+                }
             } else if op_token.token_type == TokenType::Not {
-                // Handle NOT IN operator: expr NOT IN (val1, val2, val3)
+                // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
                 if self.current_token().token_type != TokenType::In {
                     return Err(SqlError::ParseError {
                         message: "Expected 'IN' after 'NOT'".to_string(),
@@ -1091,28 +1112,43 @@ impl TokenParser {
                 }
                 self.advance(); // consume '('
 
-                let mut list_items = Vec::new();
-                loop {
-                    list_items.push(self.parse_additive()?);
+                // Check if this is a subquery
+                if self.current_token().token_type == TokenType::Select {
+                    let subquery = self.parse_select()?;
+                    self.expect(TokenType::RightParen)?;
+                    left = Expr::BinaryOp {
+                        left: Box::new(left),
+                        op: BinaryOperator::NotIn,
+                        right: Box::new(Expr::Subquery {
+                            query: Box::new(subquery),
+                            subquery_type: crate::ferris::sql::ast::SubqueryType::NotIn,
+                        }),
+                    };
+                } else {
+                    // Regular NOT IN list
+                    let mut list_items = Vec::new();
+                    loop {
+                        list_items.push(self.parse_additive()?);
 
-                    if self.current_token().token_type == TokenType::Comma {
-                        self.advance(); // consume ','
-                    } else if self.current_token().token_type == TokenType::RightParen {
-                        self.advance(); // consume ')'
-                        break;
-                    } else {
-                        return Err(SqlError::ParseError {
-                            message: "Expected ',' or ')' in NOT IN list".to_string(),
-                            position: Some(self.current_token().position),
-                        });
+                        if self.current_token().token_type == TokenType::Comma {
+                            self.advance(); // consume ','
+                        } else if self.current_token().token_type == TokenType::RightParen {
+                            self.advance(); // consume ')'
+                            break;
+                        } else {
+                            return Err(SqlError::ParseError {
+                                message: "Expected ',' or ')' in NOT IN list".to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
                     }
-                }
 
-                left = Expr::BinaryOp {
-                    left: Box::new(left),
-                    op: BinaryOperator::NotIn,
-                    right: Box::new(Expr::List(list_items)),
-                };
+                    left = Expr::BinaryOp {
+                        left: Box::new(left),
+                        op: BinaryOperator::NotIn,
+                        right: Box::new(Expr::List(list_items)),
+                    };
+                }
             } else {
                 let right = self.parse_additive()?;
 
@@ -1433,11 +1469,54 @@ impl TokenParser {
                 self.advance(); // consume CASE
                 self.parse_case_expression()
             }
+            TokenType::Exists => {
+                self.advance(); // consume EXISTS
+                self.expect(TokenType::LeftParen)?;
+                let subquery = self.parse_select()?;
+                self.expect(TokenType::RightParen)?;
+                Ok(Expr::Subquery {
+                    query: Box::new(subquery),
+                    subquery_type: crate::ferris::sql::ast::SubqueryType::Exists,
+                })
+            }
+            TokenType::Not => {
+                self.advance(); // consume NOT
+                if self.current_token().token_type == TokenType::Exists {
+                    self.advance(); // consume EXISTS
+                    self.expect(TokenType::LeftParen)?;
+                    let subquery = self.parse_select()?;
+                    self.expect(TokenType::RightParen)?;
+                    Ok(Expr::Subquery {
+                        query: Box::new(subquery),
+                        subquery_type: crate::ferris::sql::ast::SubqueryType::NotExists,
+                    })
+                } else {
+                    // Other NOT expressions (like NOT column_name)
+                    let expr = self.parse_primary()?;
+                    Ok(Expr::UnaryOp {
+                        op: crate::ferris::sql::ast::UnaryOperator::Not,
+                        expr: Box::new(expr),
+                    })
+                }
+            }
             TokenType::LeftParen => {
                 self.advance();
-                let expr = self.parse_expression()?;
-                self.expect(TokenType::RightParen)?;
-                Ok(expr)
+                
+                // Check if this is a subquery (SELECT statement in parentheses)
+                if self.current_token().token_type == TokenType::Select {
+                    let subquery = self.parse_select()?;
+                    self.expect(TokenType::RightParen)?;
+                    // This is a scalar subquery
+                    Ok(Expr::Subquery {
+                        query: Box::new(subquery),
+                        subquery_type: crate::ferris::sql::ast::SubqueryType::Scalar,
+                    })
+                } else {
+                    // Regular parenthesized expression
+                    let expr = self.parse_expression()?;
+                    self.expect(TokenType::RightParen)?;
+                    Ok(expr)
+                }
             }
             TokenType::Minus => {
                 self.advance(); // consume '-'

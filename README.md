@@ -14,7 +14,7 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Asynchronous Processing:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O
 * **Flexible Serialization:** Pluggable serialization system with JSON (always available), Avro (schema-based with evolution), and Protocol Buffers (high-performance) support
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
-* **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, statistical functions, and real-time analytics
+* **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, subqueries, windowing, statistical functions, and real-time analytics
 * **Window Functions:** Complete support for LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE
 * **Statistical Functions:** Advanced analytics with STDDEV, VARIANCE, MEDIAN functions
 * **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
@@ -282,7 +282,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
     
-    // Parse and execute advanced streaming SQL with JOINs, window functions, and statistical analytics
+    // Parse and execute advanced streaming SQL with JOINs, subqueries, window functions, and statistical analytics
     let query = "
         SELECT 
             o.order_id,
@@ -435,6 +435,7 @@ let high_priority: Vec<_> = consumer.stream()
 - ✅ **JOIN Operations** - All JOIN types (INNER, LEFT, RIGHT, FULL OUTER)
 - ✅ **Windowed JOINs** for temporal correlation in streaming data
 - ✅ **Stream-Table JOINs** optimized for reference data lookups
+- ✅ **Subqueries** - Complete support for scalar, EXISTS, IN, ANY/ALL subqueries
 
 ### Planned Features 🔄
 - **Advanced Stream Processing:**

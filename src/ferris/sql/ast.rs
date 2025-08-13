@@ -449,6 +449,30 @@ pub enum Expr {
     },
     /// List expressions for IN operators: (expr1, expr2, expr3)
     List(Vec<Expr>),
+    /// Subquery expressions for complex SQL operations
+    Subquery {
+        query: Box<StreamingQuery>,
+        subquery_type: SubqueryType,
+    },
+}
+
+/// Types of subquery expressions
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubqueryType {
+    /// Scalar subquery: SELECT (SELECT max_price FROM products) as max_p FROM orders
+    Scalar,
+    /// EXISTS subquery: WHERE EXISTS (SELECT 1 FROM table WHERE condition)  
+    Exists,
+    /// NOT EXISTS subquery: WHERE NOT EXISTS (SELECT 1 FROM table WHERE condition)
+    NotExists,
+    /// IN subquery: WHERE column IN (SELECT column FROM table WHERE condition)
+    In,
+    /// NOT IN subquery: WHERE column NOT IN (SELECT column FROM table WHERE condition)
+    NotIn,
+    /// ANY/SOME subquery: WHERE column = ANY (SELECT column FROM table)
+    Any,
+    /// ALL subquery: WHERE column > ALL (SELECT column FROM table)
+    All,
 }
 
 /// Literal values in SQL
@@ -679,6 +703,11 @@ impl Expr {
                     columns.extend(item.get_columns());
                 }
                 columns
+            }
+            Expr::Subquery { query, .. } => {
+                // Subqueries can reference columns from the outer query scope
+                // For now, we'll include columns from the subquery itself
+                query.get_columns()
             }
         }
     }
