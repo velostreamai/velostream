@@ -362,13 +362,13 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+        let _engine = StreamExecutionEngine::new(tx, serialization_format);
 
         // Create test headers
-        let headers: HashMap<String, String> = HashMap::new();
+        let _headers: HashMap<String, String> = HashMap::new();
 
         // Test HEADER with no arguments - should error at execution
-        let parser = StreamingSqlParser::new();
+        let _parser = StreamingSqlParser::new();
 
         // We can't easily test this without modifying the parser to allow invalid function calls
         // The parser will catch most syntax errors, but execution errors would happen at runtime

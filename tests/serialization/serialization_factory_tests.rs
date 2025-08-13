@@ -4,7 +4,7 @@
 Tests for the SerializationFormatFactory and general serialization functionality.
 */
 
-use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationFormatFactory};
+use ferrisstreams::ferris::serialization::SerializationFormatFactory;
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 

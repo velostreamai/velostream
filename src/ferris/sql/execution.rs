@@ -426,7 +426,7 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
-    async fn start_query_execution(
+    pub async fn start_query_execution(
         &mut self,
         query_id: String,
         query: StreamingQuery,
@@ -463,7 +463,7 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
-    async fn process_stream_record(
+    pub async fn process_stream_record(
         &mut self,
         stream_name: &str,
         record: StreamRecord,
@@ -486,20 +486,93 @@ impl StreamExecutionEngine {
             })
             .collect();
 
-        // Process each query
+        // Process each query - use windowed processing if the query has a window
         let mut results = Vec::new();
         for (query_id, query) in matching_queries {
-            if let Some(result) = self.apply_query(&query, &record)? {
-                results.push((query_id, result));
+            let result = if let StreamingQuery::Select {
+                window: Some(_), ..
+            } = &query
+            {
+                // Use windowed processing for queries with window specifications
+                self.process_windowed_query(&query_id, &query, &record)?
+            } else {
+                // Use regular processing for non-windowed queries
+                self.apply_query(&query, &record)?
+            };
+
+            if let Some(result_record) = result {
+                results.push((query_id, result_record));
             }
         }
 
-        for (query_id, result) in results {
-            // Send result downstream
-            let _ = self
-                .message_sender
-                .send(ExecutionMessage::QueryResult { query_id, result })
-                .await;
+        for (_query_id, result) in results {
+            // Convert StreamRecord to HashMap<String, InternalValue> and send to output channel
+            let output_record: HashMap<String, InternalValue> = result
+                .fields
+                .into_iter()
+                .map(|(k, v)| {
+                    let internal_val = match v {
+                        FieldValue::Integer(i) => InternalValue::Integer(i),
+                        FieldValue::Float(f) => InternalValue::Number(f),
+                        FieldValue::String(s) => InternalValue::String(s),
+                        FieldValue::Boolean(b) => InternalValue::Boolean(b),
+                        FieldValue::Null => InternalValue::Null,
+                        _ => InternalValue::String(format!("{:?}", v)),
+                    };
+                    (k, internal_val)
+                })
+                .collect();
+
+            // Send result to output channel (used by tests and external consumers)
+            let _ = self.output_sender.send(output_record);
+        }
+        Ok(())
+    }
+
+    /// Flush any pending window results by processing a final trigger record  
+    pub async fn flush_windows(&mut self) -> Result<(), SqlError> {
+        // Create a trigger record with a very high timestamp to force window emission
+        let trigger_record = StreamRecord {
+            fields: HashMap::new(),
+            timestamp: i64::MAX, // Far future timestamp
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+
+        // Process the trigger for all active queries to flush any pending windows
+        let active_query_ids: Vec<String> = self.active_queries.keys().cloned().collect();
+        for query_id in active_query_ids {
+            if let Some(execution) = self.active_queries.get(&query_id) {
+                let query = execution.query.clone();
+                if let StreamingQuery::Select {
+                    window: Some(_), ..
+                } = &query
+                {
+                    // Only flush windowed queries
+                    let result = self.process_windowed_query(&query_id, &query, &trigger_record)?;
+                    if let Some(result_record) = result {
+                        // Send the flushed result
+                        let output_record: HashMap<String, InternalValue> = result_record
+                            .fields
+                            .into_iter()
+                            .map(|(k, v)| {
+                                let internal_val = match v {
+                                    FieldValue::Integer(i) => InternalValue::Integer(i),
+                                    FieldValue::Float(f) => InternalValue::Number(f),
+                                    FieldValue::String(s) => InternalValue::String(s),
+                                    FieldValue::Boolean(b) => InternalValue::Boolean(b),
+                                    FieldValue::Null => InternalValue::Null,
+                                    _ => InternalValue::String(format!("{:?}", v)),
+                                };
+                                (k, internal_val)
+                            })
+                            .collect();
+
+                        let _ = self.output_sender.send(output_record);
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -4509,6 +4582,519 @@ impl StreamExecutionEngine {
             FieldValue::Boolean(b) => Ok(*b),           // Mock: true values are "in" the subquery
             FieldValue::Null => Ok(false),              // NULL is never "in" a subquery
             _ => Ok(false), // Other types are not "in" the subquery by default
+        }
+    }
+
+    // =============================================================================
+    // WINDOW PROCESSING IMPLEMENTATION
+    // =============================================================================
+
+    /// Extract event time from record using specified time column or default timestamp
+    fn extract_event_time(&self, record: &StreamRecord, time_column: Option<&str>) -> i64 {
+        Self::extract_event_time_static(record, time_column)
+    }
+
+    /// Static version of extract_event_time that doesn't borrow self
+    fn extract_event_time_static(record: &StreamRecord, time_column: Option<&str>) -> i64 {
+        if let Some(column_name) = time_column {
+            // Extract time from specified column
+            if let Some(field_value) = record.fields.get(column_name) {
+                match field_value {
+                    FieldValue::Integer(ts) => *ts,
+                    FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
+                    FieldValue::String(s) => {
+                        // Try to parse as timestamp
+                        s.parse::<i64>().unwrap_or(record.timestamp)
+                    }
+                    _ => record.timestamp, // Fallback to record timestamp
+                }
+            } else {
+                record.timestamp // Column not found, use record timestamp
+            }
+        } else {
+            record.timestamp // Use record timestamp (processing time)
+        }
+    }
+
+    /// Align timestamp to window boundary for tumbling windows
+    fn align_to_window_boundary(&self, timestamp: i64, window_size_ms: i64) -> i64 {
+        (timestamp / window_size_ms) * window_size_ms
+    }
+
+    /// Check if window should emit based on window specification and current time
+    fn should_emit_window(
+        &self,
+        window_state: &WindowState,
+        current_time: i64,
+        _time_column: Option<&str>,
+    ) -> bool {
+        match &window_state.window_spec {
+            WindowSpec::Tumbling { size, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let current_window_start =
+                    self.align_to_window_boundary(current_time, window_size_ms);
+
+                // For tumbling windows, only emit when:
+                // 1. This is the first window (last_emit == 0) AND we have the first record past window size
+                // 2. We've crossed into a new window boundary
+                if window_state.last_emit == 0 {
+                    // First window - only emit if we have records past the first window boundary
+                    current_time >= window_size_ms
+                } else {
+                    // Subsequent windows - emit when we cross window boundaries
+                    current_window_start > window_state.last_emit
+                }
+            }
+            WindowSpec::Sliding { advance, .. } => {
+                let advance_ms = advance.as_millis() as i64;
+                current_time >= window_state.last_emit + advance_ms
+            }
+            WindowSpec::Session { gap, .. } => {
+                let gap_ms = gap.as_millis() as i64;
+                // Session window emits when gap timeout is exceeded
+                current_time >= window_state.last_emit + gap_ms
+            }
+        }
+    }
+
+    /// Process windowed query with proper aggregation
+    fn process_windowed_query(
+        &mut self,
+        query_id: &str,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        if let StreamingQuery::Select { window, .. } = query {
+            if let Some(window_spec) = window {
+                // Extract event time first (before mutable borrow)
+                let event_time = self.extract_event_time(record, window_spec.time_column());
+
+                // Add record to buffer first
+                if let Some(execution) = self.active_queries.get_mut(query_id) {
+                    if let Some(state) = execution.window_state.as_mut() {
+                        state.buffer.push(record.clone());
+                    }
+                }
+
+                // Check if window should emit (separate borrow)
+                let should_emit = if let Some(execution) = self.active_queries.get(query_id) {
+                    if let Some(state) = &execution.window_state {
+                        self.should_emit_window(state, event_time, window_spec.time_column())
+                    } else {
+                        false
+                    }
+                } else {
+                    return Ok(None);
+                };
+
+                if should_emit {
+                    // Get window state information needed for filtering
+                    let (last_emit_time, buffer) =
+                        if let Some(execution) = self.active_queries.get(query_id) {
+                            if let Some(state) = &execution.window_state {
+                                (state.last_emit, state.buffer.clone())
+                            } else {
+                                (0, Vec::new())
+                            }
+                        } else {
+                            (0, Vec::new())
+                        };
+
+                    // Filter buffer for current window
+                    let windowed_buffer = match window_spec {
+                        WindowSpec::Tumbling { size, .. } => {
+                            let window_size_ms = size.as_millis() as i64;
+                            let completed_window_start = if last_emit_time == 0 {
+                                0 // First window: 0 to window_size_ms  
+                            } else {
+                                last_emit_time
+                            };
+                            let completed_window_end = completed_window_start + window_size_ms;
+
+                            // Filter records that belong to the completed window
+                            buffer
+                                .iter()
+                                .filter(|r| {
+                                    let record_time =
+                                        self.extract_event_time(r, window_spec.time_column());
+                                    record_time >= completed_window_start
+                                        && record_time < completed_window_end
+                                })
+                                .cloned()
+                                .collect()
+                        }
+                        _ => buffer, // For other window types, use all buffered records
+                    };
+
+                    // Execute aggregation on filtered records
+                    let result = self.execute_windowed_aggregation(query, &windowed_buffer)?;
+
+                    // Update window state after aggregation
+                    if let Some(execution) = self.active_queries.get_mut(query_id) {
+                        if let Some(state) = execution.window_state.as_mut() {
+                            // Update last emit time
+                            match window_spec {
+                                WindowSpec::Tumbling { size, .. } => {
+                                    let window_size_ms = size.as_millis() as i64;
+                                    state.last_emit =
+                                        (event_time / window_size_ms) * window_size_ms;
+                                }
+                                WindowSpec::Sliding { .. } => {
+                                    state.last_emit = event_time;
+                                }
+                                WindowSpec::Session { .. } => {
+                                    state.last_emit = event_time;
+                                }
+                            }
+
+                            // Clear or adjust buffer based on window type
+                            match window_spec {
+                                WindowSpec::Tumbling { .. } => {
+                                    state.buffer.clear();
+                                }
+                                WindowSpec::Sliding { size, .. } => {
+                                    let window_size_ms = size.as_millis() as i64;
+                                    let cutoff_time = event_time - window_size_ms;
+                                    let time_column = window_spec.time_column();
+                                    state.buffer.retain(|r| {
+                                        StreamExecutionEngine::extract_event_time_static(
+                                            r,
+                                            time_column,
+                                        ) > cutoff_time
+                                    });
+                                }
+                                WindowSpec::Session { gap, .. } => {
+                                    let gap_ms = gap.as_millis() as i64;
+                                    let cutoff_time = event_time - gap_ms;
+                                    let time_column = window_spec.time_column();
+                                    state.buffer.retain(|r| {
+                                        StreamExecutionEngine::extract_event_time_static(
+                                            r,
+                                            time_column,
+                                        ) > cutoff_time
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok(Some(result));
+                }
+            }
+        }
+
+        // If window not ready, don't emit any result for windowed queries
+        Ok(None)
+    }
+
+    /// Execute aggregation on windowed records
+    fn execute_windowed_aggregation(
+        &mut self,
+        query: &StreamingQuery,
+        records: &[StreamRecord],
+    ) -> Result<StreamRecord, SqlError> {
+        if let StreamingQuery::Select {
+            fields,
+            group_by,
+            where_clause,
+            having,
+            ..
+        } = query
+        {
+            // Filter records by WHERE clause first
+            let filtered_records: Vec<&StreamRecord> = records
+                .iter()
+                .filter(|record| {
+                    if let Some(where_expr) = where_clause {
+                        self.evaluate_expression(where_expr, record)
+                            .unwrap_or(false)
+                    } else {
+                        true
+                    }
+                })
+                .collect();
+
+            if filtered_records.is_empty() {
+                return Err(SqlError::ExecutionError {
+                    message: "No records after filtering".to_string(),
+                    query: None,
+                });
+            }
+
+            // Group records if GROUP BY exists
+            let grouped_records = if let Some(_group_exprs) = group_by {
+                // For now, treat all records as one group
+                // TODO: Implement proper grouping logic
+                vec![filtered_records]
+            } else {
+                vec![filtered_records]
+            };
+
+            // Process first group (for now)
+            let group_records = &grouped_records[0];
+            let mut result_fields = HashMap::new();
+
+            // Process each field in SELECT
+            for field in fields {
+                match field {
+                    SelectField::Expression { expr, alias } => {
+                        let value = self.evaluate_aggregation_expression(expr, group_records)?;
+                        let field_name = alias
+                            .as_ref()
+                            .unwrap_or(&self.get_expression_name(expr))
+                            .clone();
+                        result_fields.insert(field_name, value);
+                    }
+                    SelectField::Column(name) => {
+                        // For window aggregations, columns should be aggregate functions or in GROUP BY
+                        if let Some(value) = group_records.first().and_then(|r| r.fields.get(name))
+                        {
+                            result_fields.insert(name.clone(), value.clone());
+                        }
+                    }
+                    SelectField::AliasedColumn { column, alias } => {
+                        if let Some(value) =
+                            group_records.first().and_then(|r| r.fields.get(column))
+                        {
+                            result_fields.insert(alias.clone(), value.clone());
+                        }
+                    }
+                    SelectField::Wildcard => {
+                        // Add all fields from first record
+                        if let Some(first_record) = group_records.first() {
+                            result_fields.extend(first_record.fields.clone());
+                        }
+                    }
+                }
+            }
+
+            // Create result record
+            let result_record = StreamRecord {
+                fields: result_fields,
+                timestamp: group_records.last().unwrap().timestamp,
+                offset: group_records.last().unwrap().offset,
+                partition: group_records.last().unwrap().partition,
+                headers: group_records.last().unwrap().headers.clone(),
+            };
+
+            // Apply HAVING clause if present
+            if let Some(having_expr) = having {
+                if !self.evaluate_expression(having_expr, &result_record)? {
+                    return Err(SqlError::ExecutionError {
+                        message: "HAVING clause not satisfied".to_string(),
+                        query: None,
+                    });
+                }
+            }
+
+            Ok(result_record)
+        } else {
+            Err(SqlError::ExecutionError {
+                message: "Invalid query type for windowed aggregation".to_string(),
+                query: None,
+            })
+        }
+    }
+
+    /// Evaluate aggregation expression on a group of records
+    fn evaluate_aggregation_expression(
+        &mut self,
+        expr: &Expr,
+        records: &[&StreamRecord],
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        if args.is_empty() {
+                            Ok(FieldValue::Integer(records.len() as i64))
+                        } else if args.len() == 1 {
+                            // COUNT(column) - count non-null values
+                            let mut count = 0i64;
+                            for record in records {
+                                let value = self.evaluate_expression_value(&args[0], record)?;
+                                if !matches!(value, FieldValue::Null) {
+                                    count += 1;
+                                }
+                            }
+                            Ok(FieldValue::Integer(count))
+                        } else {
+                            Err(SqlError::ExecutionError {
+                                message: "COUNT function requires 0 or 1 arguments".to_string(),
+                                query: None,
+                            })
+                        }
+                    }
+                    "SUM" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "SUM requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut sum = 0.0f64;
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            match value {
+                                FieldValue::Integer(n) => sum += n as f64,
+                                FieldValue::Float(f) => sum += f,
+                                FieldValue::Null => {} // Skip nulls
+                                _ => {
+                                    return Err(SqlError::ExecutionError {
+                                        message: "SUM can only be applied to numeric values"
+                                            .to_string(),
+                                        query: None,
+                                    });
+                                }
+                            }
+                        }
+                        Ok(FieldValue::Float(sum))
+                    }
+                    "AVG" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "AVG requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut sum = 0.0f64;
+                        let mut count = 0i64;
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            match value {
+                                FieldValue::Integer(n) => {
+                                    sum += n as f64;
+                                    count += 1;
+                                }
+                                FieldValue::Float(f) => {
+                                    sum += f;
+                                    count += 1;
+                                }
+                                FieldValue::Null => {} // Skip nulls
+                                _ => {
+                                    return Err(SqlError::ExecutionError {
+                                        message: "AVG can only be applied to numeric values"
+                                            .to_string(),
+                                        query: None,
+                                    });
+                                }
+                            }
+                        }
+
+                        if count > 0 {
+                            Ok(FieldValue::Float(sum / count as f64))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MIN" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "MIN requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut min_val: Option<FieldValue> = None;
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            if !matches!(value, FieldValue::Null) {
+                                if min_val.is_none()
+                                    || self
+                                        .compare_field_values(&value, min_val.as_ref().unwrap())?
+                                        < 0
+                                {
+                                    min_val = Some(value);
+                                }
+                            }
+                        }
+                        Ok(min_val.unwrap_or(FieldValue::Null))
+                    }
+                    "MAX" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "MAX requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut max_val: Option<FieldValue> = None;
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            if !matches!(value, FieldValue::Null) {
+                                if max_val.is_none()
+                                    || self
+                                        .compare_field_values(&value, max_val.as_ref().unwrap())?
+                                        > 0
+                                {
+                                    max_val = Some(value);
+                                }
+                            }
+                        }
+                        Ok(max_val.unwrap_or(FieldValue::Null))
+                    }
+                    _ => {
+                        // For non-aggregate functions, evaluate on first record
+                        if let Some(first_record) = records.first() {
+                            self.evaluate_expression_value(expr, first_record)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                }
+            }
+            _ => {
+                // For non-function expressions, evaluate on first record
+                if let Some(first_record) = records.first() {
+                    self.evaluate_expression_value(expr, first_record)
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+        }
+    }
+
+    /// Compare two field values for MIN/MAX operations
+    fn compare_field_values(&self, a: &FieldValue, b: &FieldValue) -> Result<i32, SqlError> {
+        match (a, b) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a.cmp(b) as i32),
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                if a < b {
+                    Ok(-1)
+                } else if a > b {
+                    Ok(1)
+                } else {
+                    Ok(0)
+                }
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => {
+                let a_f = *a as f64;
+                if a_f < *b {
+                    Ok(-1)
+                } else if a_f > *b {
+                    Ok(1)
+                } else {
+                    Ok(0)
+                }
+            }
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                let b_f = *b as f64;
+                if *a < b_f {
+                    Ok(-1)
+                } else if *a > b_f {
+                    Ok(1)
+                } else {
+                    Ok(0)
+                }
+            }
+            (FieldValue::String(a), FieldValue::String(b)) => Ok(a.cmp(b) as i32),
+            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => Ok(a.cmp(b) as i32),
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot compare incompatible types".to_string(),
+                query: None,
+            }),
         }
     }
 }

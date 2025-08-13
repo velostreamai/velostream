@@ -1,4 +1,4 @@
-use crate::unit::common::*;
+use super::*; // Use the re-exported items from integration::mod
 use ferrisstreams::ferris::kafka::consumer_config::IsolationLevel;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -223,8 +223,8 @@ async fn test_exactly_once_semantics() {
     );
 
     // Concurrent transactions
-    let producer1_clone = Arc::clone(&producer1);
-    let producer2_clone = Arc::clone(&producer2);
+    let producer1_clone: Arc<KafkaProducer<String, TestMessage, _, _>> = Arc::clone(&producer1);
+    let producer2_clone: Arc<KafkaProducer<String, TestMessage, _, _>> = Arc::clone(&producer2);
 
     let handle1 = tokio::spawn(async move {
         producer1_clone

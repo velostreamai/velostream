@@ -10,5 +10,5 @@ pub mod sql_integration_test;
 pub mod timeout_config_test;
 pub mod transactions_test;
 
-// Re-export common test utilities
-pub use crate::unit::common::*;
+// Re-export common test utilities from the correct path
+pub use super::unit::common::*;
