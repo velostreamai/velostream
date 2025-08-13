@@ -747,16 +747,24 @@ impl TokenParser {
 
         let fields = self.parse_select_fields()?;
 
-        self.expect(TokenType::From)?;
-        let from_stream = self.expect(TokenType::Identifier)?.value;
+        // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let from_stream = if self.current_token().token_type == TokenType::From {
+            self.advance(); // consume FROM
+            let stream_name = self.expect(TokenType::Identifier)?.value;
 
-        // Parse optional alias for FROM clause (e.g., "FROM events s")
-        let _from_alias = if self.current_token().token_type == TokenType::Identifier {
-            let alias = self.current_token().value.clone();
-            self.advance();
-            Some(alias)
+            // Parse optional alias for FROM clause (e.g., "FROM events s")
+            let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+                let alias = self.current_token().value.clone();
+                self.advance();
+                Some(alias)
+            } else {
+                None
+            };
+
+            stream_name
         } else {
-            None
+            // No FROM clause - use a dummy stream name for scalar queries
+            "".to_string()
         };
 
         // Parse JOIN clauses

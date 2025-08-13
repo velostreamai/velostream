@@ -4727,11 +4727,30 @@ impl StreamExecutionEngine {
                     };
 
                     // Execute aggregation on filtered records
-                    let result = self.execute_windowed_aggregation(query, &windowed_buffer)?;
+                    let result_option =
+                        match self.execute_windowed_aggregation(query, &windowed_buffer) {
+                            Ok(result) => Some(result),
+                            Err(SqlError::ExecutionError { message, .. })
+                                if message == "No records after filtering" =>
+                            {
+                                // If there are no records after filtering, don't emit a result
+                                None
+                            }
+                            Err(SqlError::ExecutionError { message, .. })
+                                if message == "HAVING clause not satisfied" =>
+                            {
+                                // If HAVING clause fails, don't emit a result but continue processing
+                                None
+                            }
+                            Err(e) => return Err(e),
+                        };
 
-                    // Update window state after aggregation
+                    // Update window state after aggregation (regardless of whether we have a result or not)
                     if let Some(execution) = self.active_queries.get_mut(query_id) {
                         if let Some(state) = execution.window_state.as_mut() {
+                            // Store old last_emit value for buffer cleanup
+                            let old_last_emit = state.last_emit;
+
                             // Update last emit time
                             match window_spec {
                                 WindowSpec::Tumbling { size, .. } => {
@@ -4749,8 +4768,38 @@ impl StreamExecutionEngine {
 
                             // Clear or adjust buffer based on window type
                             match window_spec {
-                                WindowSpec::Tumbling { .. } => {
-                                    state.buffer.clear();
+                                WindowSpec::Tumbling { size, .. } => {
+                                    let window_size_ms = size.as_millis() as i64;
+                                    let completed_window_start =
+                                        if old_last_emit == 0 { 0 } else { old_last_emit };
+                                    let completed_window_end =
+                                        completed_window_start + window_size_ms;
+                                    let time_column = window_spec.time_column();
+
+                                    // Only remove records that were part of the completed window
+                                    state.buffer.retain(|r| {
+                                        let record_time = if let Some(column_name) = time_column {
+                                            if let Some(field_value) = r.fields.get(column_name) {
+                                                match field_value {
+                                                    FieldValue::Integer(ts) => *ts,
+                                                    FieldValue::Timestamp(ts) => {
+                                                        ts.and_utc().timestamp_millis()
+                                                    }
+                                                    FieldValue::String(s) => {
+                                                        s.parse::<i64>().unwrap_or(r.timestamp)
+                                                    }
+                                                    _ => r.timestamp,
+                                                }
+                                            } else {
+                                                r.timestamp
+                                            }
+                                        } else {
+                                            r.timestamp
+                                        };
+                                        // Keep records that are NOT in the completed window
+                                        !(record_time >= completed_window_start
+                                            && record_time < completed_window_end)
+                                    });
                                 }
                                 WindowSpec::Sliding { size, .. } => {
                                     let window_size_ms = size.as_millis() as i64;
@@ -4778,7 +4827,7 @@ impl StreamExecutionEngine {
                         }
                     }
 
-                    return Ok(Some(result));
+                    return Ok(result_option);
                 }
             }
         }
@@ -4879,7 +4928,7 @@ impl StreamExecutionEngine {
 
             // Apply HAVING clause if present
             if let Some(having_expr) = having {
-                if !self.evaluate_expression(having_expr, &result_record)? {
+                if !self.evaluate_having_expression(having_expr, &result_record)? {
                     return Err(SqlError::ExecutionError {
                         message: "HAVING clause not satisfied".to_string(),
                         query: None,
@@ -4893,6 +4942,190 @@ impl StreamExecutionEngine {
                 message: "Invalid query type for windowed aggregation".to_string(),
                 query: None,
             })
+        }
+    }
+
+    /// Evaluate HAVING clause expression on aggregated result record
+    fn evaluate_having_expression(
+        &self,
+        expr: &Expr,
+        result_record: &StreamRecord,
+    ) -> Result<bool, SqlError> {
+        match expr {
+            Expr::BinaryOp { left, op, right } => match op {
+                BinaryOperator::Equal
+                | BinaryOperator::NotEqual
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::LessThan
+                | BinaryOperator::GreaterThanOrEqual
+                | BinaryOperator::LessThanOrEqual => {
+                    let left_val = self.evaluate_having_value(left, result_record)?;
+                    let right_val = self.evaluate_having_value(right, result_record)?;
+                    self.compare_values_for_boolean(&left_val, &right_val, op)
+                }
+                BinaryOperator::And => {
+                    let left_result = self.evaluate_having_expression(left, result_record)?;
+                    let right_result = self.evaluate_having_expression(right, result_record)?;
+                    Ok(left_result && right_result)
+                }
+                BinaryOperator::Or => {
+                    let left_result = self.evaluate_having_expression(left, result_record)?;
+                    let right_result = self.evaluate_having_expression(right, result_record)?;
+                    Ok(left_result || right_result)
+                }
+                _ => Err(SqlError::ExecutionError {
+                    message: format!("Unsupported operator in HAVING clause: {:?}", op),
+                    query: None,
+                }),
+            },
+            Expr::Function { name, args } => {
+                // Map aggregate functions to their result fields
+                let field_name = match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        if args.is_empty() {
+                            // COUNT(*) -> order_count (or similar pattern)
+                            self.find_count_field_name(result_record)?
+                        } else {
+                            // COUNT(column) -> order_count (or similar pattern)
+                            self.find_count_field_name(result_record)?
+                        }
+                    }
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported aggregate function in HAVING clause: {}",
+                                name
+                            ),
+                            query: None,
+                        });
+                    }
+                };
+
+                // Get the computed aggregate value
+                let value = result_record
+                    .fields
+                    .get(&field_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null);
+                match value {
+                    FieldValue::Boolean(b) => Ok(b),
+                    _ => Err(SqlError::TypeError {
+                        expected: "boolean".to_string(),
+                        actual: format!("{:?}", value),
+                        value: Some(format!("{:?}", value)),
+                    }),
+                }
+            }
+            _ => {
+                // For other expressions, try to evaluate as boolean using existing logic
+                self.evaluate_expression(expr, result_record)
+            }
+        }
+    }
+
+    /// Evaluate value expression in HAVING clause context
+    fn evaluate_having_value(
+        &self,
+        expr: &Expr,
+        result_record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                // Map aggregate functions to their result fields
+                let field_name = match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        if args.is_empty() {
+                            // COUNT(*) -> order_count (or similar pattern)
+                            self.find_count_field_name(result_record)?
+                        } else {
+                            // COUNT(column) -> order_count (or similar pattern)
+                            self.find_count_field_name(result_record)?
+                        }
+                    }
+                    "SUM" => {
+                        self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"])?
+                    }
+                    "AVG" => self.find_field_by_suffix(result_record, &["_avg", "_average"])?,
+                    "MIN" => self.find_field_by_suffix(result_record, &["_min", "_minimum"])?,
+                    "MAX" => self.find_field_by_suffix(result_record, &["_max", "_maximum"])?,
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported aggregate function in HAVING clause: {}",
+                                name
+                            ),
+                            query: None,
+                        });
+                    }
+                };
+
+                // Get the computed aggregate value
+                Ok(result_record
+                    .fields
+                    .get(&field_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null))
+            }
+            _ => {
+                // For other expressions, use regular value evaluation
+                self.evaluate_expression_value(expr, result_record)
+            }
+        }
+    }
+
+    /// Find COUNT field name in result record
+    fn find_count_field_name(&self, result_record: &StreamRecord) -> Result<String, SqlError> {
+        // Look for fields that end with common count patterns
+        for field_name in result_record.fields.keys() {
+            if field_name.ends_with("_count") || field_name.ends_with("count") {
+                return Ok(field_name.clone());
+            }
+        }
+
+        Err(SqlError::ExecutionError {
+            message: "No COUNT field found in aggregated result".to_string(),
+            query: None,
+        })
+    }
+
+    /// Find field by suffix patterns
+    fn find_field_by_suffix(
+        &self,
+        result_record: &StreamRecord,
+        suffixes: &[&str],
+    ) -> Result<String, SqlError> {
+        for field_name in result_record.fields.keys() {
+            for suffix in suffixes {
+                if field_name.ends_with(suffix) {
+                    return Ok(field_name.clone());
+                }
+            }
+        }
+
+        Err(SqlError::ExecutionError {
+            message: format!("No field found with suffixes: {:?}", suffixes),
+            query: None,
+        })
+    }
+
+    /// Compare values and return boolean result
+    fn compare_values_for_boolean(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+        op: &BinaryOperator,
+    ) -> Result<bool, SqlError> {
+        match op {
+            BinaryOperator::Equal => Ok(self.values_equal(left, right)),
+            BinaryOperator::NotEqual => Ok(!self.values_equal(left, right)),
+            BinaryOperator::GreaterThan => self.compare_values(left, right, |a, b| a > b),
+            BinaryOperator::LessThan => self.compare_values(left, right, |a, b| a < b),
+            BinaryOperator::GreaterThanOrEqual => self.compare_values(left, right, |a, b| a >= b),
+            BinaryOperator::LessThanOrEqual => self.compare_values(left, right, |a, b| a <= b),
+            _ => Err(SqlError::ExecutionError {
+                message: "Invalid comparison operator".to_string(),
+                query: None,
+            }),
         }
     }
 
