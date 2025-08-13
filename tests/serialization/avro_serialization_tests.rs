@@ -84,7 +84,7 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_default_format() {
-        let format = AvroFormat::default();
+        let format = AvroFormat::default_format();
         assert!(
             format.is_ok(),
             "Default Avro format creation should succeed"

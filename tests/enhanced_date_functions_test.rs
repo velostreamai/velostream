@@ -180,14 +180,14 @@ async fn test_datediff_weeks() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    // From Jan 1, 2023 to Jul 15, 2024 should be approximately 80+ weeks
+    // From Jan 1, 2023 to Jul 15, 2024 should be approximately 80 weeks (80.17 exactly)
     let week_diff = match &results[0]["week_diff"] {
         InternalValue::Integer(w) => *w,
         _ => panic!("Expected integer for week_diff"),
     };
     assert!(
-        week_diff > 80 && week_diff < 85,
-        "Week difference should be ~82 weeks, got {}",
+        week_diff >= 80 && week_diff <= 81,
+        "Week difference should be ~80 weeks, got {}",
         week_diff
     );
 }

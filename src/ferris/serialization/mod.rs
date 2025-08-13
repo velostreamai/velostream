@@ -496,7 +496,7 @@ impl AvroFormat {
     }
 
     /// Create a default Avro format with generic record schema
-    pub fn default() -> Result<Self, SerializationError> {
+    pub fn default_format() -> Result<Self, SerializationError> {
         let schema_json = r#"
         {
             "type": "record",
@@ -541,12 +541,12 @@ impl SerializationFormat for AvroFormat {
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         use apache_avro::Reader;
 
-        let reader = Reader::with_schema(&self.reader_schema, bytes).map_err(|e| {
+        let mut reader = Reader::with_schema(&self.reader_schema, bytes).map_err(|e| {
             SerializationError::DeserializationFailed(format!("Avro reader creation failed: {}", e))
         })?;
 
         // Read first record (assuming single record per message)
-        for record_result in reader {
+        if let Some(record_result) = reader.next() {
             let avro_value = record_result.map_err(|e| {
                 SerializationError::DeserializationFailed(format!(
                     "Avro deserialization failed: {}",
@@ -718,6 +718,16 @@ where
 }
 
 #[cfg(feature = "protobuf")]
+impl<T> Default for ProtobufFormat<T>
+where
+    T: prost::Message + Default,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "protobuf")]
 impl<T> ProtobufFormat<T>
 where
     T: prost::Message + Default,
@@ -885,7 +895,7 @@ impl SerializationFormatFactory {
             "json" => Ok(Box::new(JsonFormat)),
             #[cfg(feature = "avro")]
             "avro" => {
-                let avro_format = AvroFormat::default().map_err(|e| {
+                let avro_format = AvroFormat::default_format().map_err(|e| {
                     SerializationError::FormatConversionFailed(format!(
                         "Failed to create Avro format: {}",
                         e

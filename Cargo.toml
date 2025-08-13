@@ -9,7 +9,7 @@ pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
-tokio = { version = "1.46.1", features = ["full"] }
+tokio = { version = "1.47.0", features = ["full"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 logtest = "2.0.0"
