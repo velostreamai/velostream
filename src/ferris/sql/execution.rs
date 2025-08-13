@@ -98,8 +98,11 @@ use crate::ferris::sql::ast::{
     StreamSource, StreamingQuery, TimeUnit, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use log::warn;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -111,6 +114,10 @@ pub struct StreamExecutionEngine {
     serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
 }
+
+// =============================================================================
+// CORE DATA TYPES AND STRUCTURES
+// =============================================================================
 
 #[derive(Debug)]
 pub enum ExecutionMessage {
@@ -153,13 +160,19 @@ pub enum HeaderOperation {
     Remove,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Integer(i64),
     Float(f64),
     String(String),
     Boolean(bool),
     Null,
+    /// Date type (YYYY-MM-DD)
+    Date(NaiveDate),
+    /// Timestamp type (YYYY-MM-DD HH:MM:SS[.nnn])
+    Timestamp(NaiveDateTime),
+    /// Decimal type for precise arithmetic
+    Decimal(Decimal),
     /// Array of values - all elements must be the same type
     Array(Vec<FieldValue>),
     /// Map of key-value pairs - keys must be strings
@@ -177,6 +190,9 @@ impl FieldValue {
             FieldValue::String(_) => "STRING",
             FieldValue::Boolean(_) => "BOOLEAN",
             FieldValue::Null => "NULL",
+            FieldValue::Date(_) => "DATE",
+            FieldValue::Timestamp(_) => "TIMESTAMP",
+            FieldValue::Decimal(_) => "DECIMAL",
             FieldValue::Array(_) => "ARRAY",
             FieldValue::Map(_) => "MAP",
             FieldValue::Struct(_) => "STRUCT",
@@ -185,7 +201,10 @@ impl FieldValue {
 
     /// Check if this value is numeric
     pub fn is_numeric(&self) -> bool {
-        matches!(self, FieldValue::Integer(_) | FieldValue::Float(_))
+        matches!(
+            self,
+            FieldValue::Integer(_) | FieldValue::Float(_) | FieldValue::Decimal(_)
+        )
     }
 
     /// Convert to string representation for display
@@ -196,6 +215,9 @@ impl FieldValue {
             FieldValue::String(s) => s.clone(),
             FieldValue::Boolean(b) => b.to_string(),
             FieldValue::Null => "NULL".to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Decimal(dec) => dec.to_string(),
             FieldValue::Array(arr) => {
                 let elements: Vec<String> = arr.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", elements.join(", "))
@@ -238,6 +260,10 @@ struct WindowState {
     buffer: Vec<StreamRecord>,
     last_emit: i64,
 }
+
+// =============================================================================
+// MAIN EXECUTION ENGINE IMPLEMENTATION
+// =============================================================================
 
 impl StreamExecutionEngine {
     pub fn new(
@@ -311,6 +337,13 @@ impl StreamExecutionEngine {
                         FieldValue::String(s) => InternalValue::String(s),
                         FieldValue::Boolean(b) => InternalValue::Boolean(b),
                         FieldValue::Null => InternalValue::Null,
+                        FieldValue::Date(d) => {
+                            InternalValue::String(d.format("%Y-%m-%d").to_string())
+                        }
+                        FieldValue::Timestamp(ts) => {
+                            InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+                        }
+                        FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
                         FieldValue::Array(arr) => {
                             let internal_arr: Vec<InternalValue> = arr
                                 .into_iter()
@@ -922,6 +955,10 @@ impl StreamExecutionEngine {
         }
     }
 
+    // =============================================================================
+    // EXPRESSION EVALUATION FUNCTIONS
+    // =============================================================================
+
     fn evaluate_expression(&self, expr: &Expr, record: &StreamRecord) -> Result<bool, SqlError> {
         match expr {
             Expr::Column(name) => {
@@ -1004,14 +1041,66 @@ impl StreamExecutionEngine {
                     message: "Logical operators should be handled at parse time".to_string(),
                     query: None,
                 }),
-                BinaryOperator::Like | BinaryOperator::NotLike => Err(SqlError::ExecutionError {
-                    message: "String comparison operators not yet implemented".to_string(),
-                    query: None,
-                }),
-                BinaryOperator::In | BinaryOperator::NotIn => Err(SqlError::ExecutionError {
-                    message: "Set operators not yet implemented".to_string(),
-                    query: None,
-                }),
+                BinaryOperator::Like | BinaryOperator::NotLike => {
+                    let left_val = self.evaluate_expression_value(left, record)?;
+                    let right_val = self.evaluate_expression_value(right, record)?;
+
+                    // Extract string values
+                    let (value, pattern) = match (left_val, right_val) {
+                        (FieldValue::String(value), FieldValue::String(pattern)) => {
+                            (value, pattern)
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                            // NULL in LIKE comparisons returns NULL (false in boolean context)
+                            return Ok(false);
+                        }
+                        _ => {
+                            return Err(SqlError::TypeError {
+                                expected: "string".to_string(),
+                                actual: "non-string".to_string(),
+                                value: None,
+                            });
+                        }
+                    };
+
+                    // Apply pattern matching
+                    let matches = self.match_pattern(&value, &pattern);
+
+                    // Return result (negated for NOT LIKE)
+                    match op {
+                        BinaryOperator::Like => Ok(matches),
+                        BinaryOperator::NotLike => Ok(!matches),
+                        _ => unreachable!(), // This case is already handled by the match arm
+                    }
+                }
+                BinaryOperator::In | BinaryOperator::NotIn => {
+                    // Handle IN/NOT IN operators
+                    let left_val = self.evaluate_expression_value(left, record)?;
+
+                    if let Expr::List(list_items) = right.as_ref() {
+                        let mut matches = false;
+
+                        for item_expr in list_items {
+                            let item_val = self.evaluate_expression_value(item_expr, record)?;
+                            if self.values_equal(&left_val, &item_val) {
+                                matches = true;
+                                break;
+                            }
+                        }
+
+                        match op {
+                            BinaryOperator::In => Ok(matches),
+                            BinaryOperator::NotIn => Ok(!matches),
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        Err(SqlError::ExecutionError {
+                            message: "IN/NOT IN operator requires a list on the right side"
+                                .to_string(),
+                            query: None,
+                        })
+                    }
+                }
                 BinaryOperator::Add
                 | BinaryOperator::Subtract
                 | BinaryOperator::Multiply
@@ -1070,6 +1159,11 @@ impl StreamExecutionEngine {
                     value: None,
                 })
             }
+            Expr::List(_) => Err(SqlError::TypeError {
+                expected: "boolean".to_string(),
+                actual: "list expression".to_string(),
+                value: None,
+            }),
         }
     }
 
@@ -1174,13 +1268,15 @@ impl StreamExecutionEngine {
                     }
                     BinaryOperator::Like
                     | BinaryOperator::NotLike
-                    | BinaryOperator::In
-                    | BinaryOperator::NotIn
                     | BinaryOperator::And
                     | BinaryOperator::Or => Err(SqlError::ExecutionError {
                         message: "Operator not supported in value context".to_string(),
                         query: None,
                     }),
+                    BinaryOperator::In | BinaryOperator::NotIn => {
+                        let result = self.evaluate_comparison(left, right, record, op)?;
+                        Ok(FieldValue::Boolean(result))
+                    }
                 }
             }
             Expr::UnaryOp { op: _, expr: _ } => Err(SqlError::ExecutionError {
@@ -1207,6 +1303,10 @@ impl StreamExecutionEngine {
                 message: "Window functions should be handled through evaluate_expression_value_with_window".to_string(),
                 query: None,
             }),
+            Expr::List(_) => Err(SqlError::ExecutionError {
+                message: "List expressions can only be used with IN/NOT IN operators".to_string(),
+                query: None,
+            }),
         }
     }
 
@@ -1217,6 +1317,7 @@ impl StreamExecutionEngine {
             Expr::BinaryOp { .. } => "expression".to_string(),
             Expr::Function { name, .. } => name.clone(),
             Expr::WindowFunction { function_name, .. } => function_name.clone(),
+            Expr::List(_) => "list".to_string(),
             _ => "expression".to_string(),
         }
     }
@@ -1243,6 +1344,74 @@ impl StreamExecutionEngine {
             }
             _ => false,
         }
+    }
+
+    /// Matches a string against a SQL LIKE pattern
+    ///
+    /// SQL LIKE patterns:
+    /// - '%' matches any sequence of characters (including none)
+    /// - '_' matches any single character
+    /// - Any other character matches itself
+    fn match_pattern(&self, value: &str, pattern: &str) -> bool {
+        self.match_pattern_recursive(value, pattern, 0, 0)
+    }
+
+    /// Recursive helper for pattern matching
+    fn match_pattern_recursive(
+        &self,
+        value: &str,
+        pattern: &str,
+        value_pos: usize,
+        pattern_pos: usize,
+    ) -> bool {
+        let value_chars: Vec<char> = value.chars().collect();
+        let pattern_chars: Vec<char> = pattern.chars().collect();
+
+        // If we've reached the end of the pattern, we're done only if we've also reached the end of the value
+        if pattern_pos >= pattern_chars.len() {
+            return value_pos >= value_chars.len();
+        }
+
+        // Check for wildcard '%' which can match 0 or more characters
+        if pattern_chars[pattern_pos] == '%' {
+            // Try to match 0 characters (skip the %)
+            if self.match_pattern_recursive(value, pattern, value_pos, pattern_pos + 1) {
+                return true;
+            }
+
+            // Try to match 1 or more characters
+            // We only need to try this if we haven't reached the end of the value
+            if value_pos < value_chars.len() {
+                return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos);
+            }
+        }
+        // Check for single character wildcard '_'
+        else if pattern_chars[pattern_pos] == '_' {
+            // Must have a character to match
+            if value_pos >= value_chars.len() {
+                return false;
+            }
+
+            // Match any single character and continue
+            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
+        }
+        // Regular character match
+        else {
+            // Must have a character to match
+            if value_pos >= value_chars.len() {
+                return false;
+            }
+
+            // Characters must match
+            if pattern_chars[pattern_pos] != value_chars[value_pos] {
+                return false;
+            }
+
+            // Continue matching
+            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
+        }
+
+        false
     }
 
     fn compare_values<F>(
@@ -1418,6 +1587,10 @@ impl StreamExecutionEngine {
             }),
         }
     }
+
+    // =============================================================================
+    // WINDOW FUNCTIONS
+    // =============================================================================
 
     /// Evaluate window functions like LAG, LEAD, ROW_NUMBER with OVER clause
     fn evaluate_window_function(
@@ -2159,9 +2332,12 @@ impl StreamExecutionEngine {
                         FieldValue::Float(f) => f.to_string(),
                         FieldValue::Boolean(b) => b.to_string(),
                         FieldValue::Null => "NULL".to_string(),
-                        FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                            val.to_display_string()
-                        }
+                        FieldValue::Date(_)
+                        | FieldValue::Timestamp(_)
+                        | FieldValue::Decimal(_)
+                        | FieldValue::Array(_)
+                        | FieldValue::Map(_)
+                        | FieldValue::Struct(_) => val.to_display_string(),
                     };
                     parts.push(str_val);
                 }
@@ -2263,7 +2439,12 @@ impl StreamExecutionEngine {
                     FieldValue::Float(f) => Ok(FieldValue::String(f.to_string())),
                     FieldValue::Boolean(b) => Ok(FieldValue::String(b.to_string())),
                     FieldValue::Null => Ok(FieldValue::Null),
-                    FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
+                    FieldValue::Date(_)
+                    | FieldValue::Timestamp(_)
+                    | FieldValue::Decimal(_)
+                    | FieldValue::Array(_)
+                    | FieldValue::Map(_)
+                    | FieldValue::Struct(_) => {
                         // JSON_VALUE should return string representation of complex types
                         Ok(FieldValue::String("COMPLEX_TYPE".to_string()))
                     }
@@ -2464,9 +2645,12 @@ impl StreamExecutionEngine {
                         FieldValue::Float(f) => f.to_string(),
                         FieldValue::Boolean(b) => b.to_string(),
                         FieldValue::Null => continue, // Skip null values in CONCAT
-                        FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                            value.to_display_string()
-                        }
+                        FieldValue::Date(_)
+                        | FieldValue::Timestamp(_)
+                        | FieldValue::Decimal(_)
+                        | FieldValue::Array(_)
+                        | FieldValue::Map(_)
+                        | FieldValue::Struct(_) => value.to_display_string(),
                     };
                     result.push_str(&str_val);
                 }
@@ -2737,9 +2921,33 @@ impl StreamExecutionEngine {
                             "SECOND" => dt.second() as i64,
                             "DOW" | "DAYOFWEEK" => dt.weekday().num_days_from_sunday() as i64,
                             "DOY" | "DAYOFYEAR" => dt.ordinal() as i64,
+                            "EPOCH" => dt.timestamp(), // Unix timestamp in seconds
+                            "WEEK" => {
+                                // ISO week number (1-53)
+                                dt.iso_week().week() as i64
+                            }
+                            "QUARTER" => {
+                                // Quarter (1-4) based on month
+                                ((dt.month() - 1) / 3 + 1) as i64
+                            }
+                            "MILLISECOND" | "MILLISECONDS" => {
+                                // Millisecond component (0-999)
+                                dt.timestamp_subsec_millis() as i64
+                            }
+                            "MICROSECOND" | "MICROSECONDS" => {
+                                // Microsecond component (0-999999)
+                                dt.timestamp_subsec_micros() as i64
+                            }
+                            "NANOSECOND" | "NANOSECONDS" => {
+                                // Nanosecond component (0-999999999)
+                                dt.timestamp_subsec_nanos() as i64
+                            }
                             _ => {
                                 return Err(SqlError::ExecutionError {
-                                    message: format!("Unsupported EXTRACT part: {}", part),
+                                    message: format!(
+                                        "Unsupported EXTRACT part: {}. Supported parts: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, DOW, DOY, EPOCH, WEEK, QUARTER, MILLISECOND, MICROSECOND, NANOSECOND",
+                                        part
+                                    ),
                                     query: None,
                                 });
                             }
@@ -2826,10 +3034,48 @@ impl StreamExecutionEngine {
                             "minutes" | "minute" => diff_ms / (1000 * 60),
                             "hours" | "hour" => diff_ms / (1000 * 60 * 60),
                             "days" | "day" => diff_ms / (1000 * 60 * 60 * 24),
+                            "weeks" | "week" => diff_ms / (1000 * 60 * 60 * 24 * 7),
+                            "months" | "month" => {
+                                // Use more accurate month calculation
+                                use chrono::Datelike;
+                                let years_diff = end_dt.year() - start_dt.year();
+                                let months_diff = end_dt.month() as i32 - start_dt.month() as i32;
+                                let total_months = years_diff * 12 + months_diff;
+
+                                // Adjust if end day is before start day in the month
+                                if end_dt.day() < start_dt.day() {
+                                    total_months as i64 - 1
+                                } else {
+                                    total_months as i64
+                                }
+                            }
+                            "quarters" | "quarter" => {
+                                // Calculate quarter difference
+                                use chrono::Datelike;
+                                let start_quarter = ((start_dt.month() - 1) / 3 + 1) as i32;
+                                let end_quarter = ((end_dt.month() - 1) / 3 + 1) as i32;
+                                let years_diff = end_dt.year() - start_dt.year();
+                                let quarters_diff = end_quarter - start_quarter;
+                                (years_diff * 4 + quarters_diff) as i64
+                            }
+                            "years" | "year" => {
+                                // Calculate year difference
+                                use chrono::Datelike;
+                                let mut years_diff = end_dt.year() - start_dt.year();
+
+                                // Adjust if end date hasn't reached the anniversary yet
+                                if end_dt.month() < start_dt.month()
+                                    || (end_dt.month() == start_dt.month()
+                                        && end_dt.day() < start_dt.day())
+                                {
+                                    years_diff -= 1;
+                                }
+                                years_diff as i64
+                            }
                             _ => {
                                 return Err(SqlError::ExecutionError {
                                     message: format!(
-                                        "Unsupported DATEDIFF unit: {}. Supported units: milliseconds, seconds, minutes, hours, days",
+                                        "Unsupported DATEDIFF unit: {}. Supported units: milliseconds, seconds, minutes, hours, days, weeks, months, quarters, years",
                                         unit
                                     ),
                                     query: None,
@@ -3322,7 +3568,7 @@ impl StreamExecutionEngine {
         }
     }
 
-    fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
+    pub fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
         match target_type {
             "INTEGER" | "INT" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
@@ -3334,13 +3580,26 @@ impl StreamExecutionEngine {
                     }
                 }),
                 FieldValue::Boolean(b) => Ok(FieldValue::Integer(if b { 1 } else { 0 })),
-                FieldValue::Null => Ok(FieldValue::Null),
-                FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                    Err(SqlError::ExecutionError {
-                        message: format!("Cannot cast {} to INTEGER", value.type_name()),
-                        query: None,
-                    })
+                FieldValue::Decimal(d) => {
+                    // Convert decimal to integer, truncating fractional part
+                    let int_part = d.trunc();
+                    match int_part.to_string().parse::<i64>() {
+                        Ok(i) => Ok(FieldValue::Integer(i)),
+                        Err(_) => Err(SqlError::ExecutionError {
+                            message: format!("Cannot cast DECIMAL {} to INTEGER", d),
+                            query: None,
+                        }),
+                    }
                 }
+                FieldValue::Null => Ok(FieldValue::Null),
+                FieldValue::Date(_)
+                | FieldValue::Timestamp(_)
+                | FieldValue::Array(_)
+                | FieldValue::Map(_)
+                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                    message: format!("Cannot cast {} to INTEGER", value.type_name()),
+                    query: None,
+                }),
             },
             "FLOAT" | "DOUBLE" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::Float(i as f64)),
@@ -3354,13 +3613,25 @@ impl StreamExecutionEngine {
                         })
                 }
                 FieldValue::Boolean(b) => Ok(FieldValue::Float(if b { 1.0 } else { 0.0 })),
-                FieldValue::Null => Ok(FieldValue::Null),
-                FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                    Err(SqlError::ExecutionError {
-                        message: format!("Cannot cast {} to FLOAT", value.type_name()),
-                        query: None,
-                    })
+                FieldValue::Decimal(d) => {
+                    // Convert decimal to float
+                    match d.to_string().parse::<f64>() {
+                        Ok(f) => Ok(FieldValue::Float(f)),
+                        Err(_) => Err(SqlError::ExecutionError {
+                            message: format!("Cannot cast DECIMAL {} to FLOAT", d),
+                            query: None,
+                        }),
+                    }
                 }
+                FieldValue::Null => Ok(FieldValue::Null),
+                FieldValue::Date(_)
+                | FieldValue::Timestamp(_)
+                | FieldValue::Array(_)
+                | FieldValue::Map(_)
+                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                    message: format!("Cannot cast {} to FLOAT", value.type_name()),
+                    query: None,
+                }),
             },
             "STRING" | "VARCHAR" | "TEXT" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::String(i.to_string())),
@@ -3368,9 +3639,12 @@ impl StreamExecutionEngine {
                 FieldValue::String(s) => Ok(FieldValue::String(s)),
                 FieldValue::Boolean(b) => Ok(FieldValue::String(b.to_string())),
                 FieldValue::Null => Ok(FieldValue::String("NULL".to_string())),
-                FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                    Ok(FieldValue::String(value.to_display_string()))
-                }
+                FieldValue::Date(_)
+                | FieldValue::Timestamp(_)
+                | FieldValue::Decimal(_)
+                | FieldValue::Array(_)
+                | FieldValue::Map(_)
+                | FieldValue::Struct(_) => Ok(FieldValue::String(value.to_display_string())),
             },
             "BOOLEAN" | "BOOL" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::Boolean(i != 0)),
@@ -3385,13 +3659,101 @@ impl StreamExecutionEngine {
                 },
                 FieldValue::Boolean(b) => Ok(FieldValue::Boolean(b)),
                 FieldValue::Null => Ok(FieldValue::Null),
-                FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
-                    Err(SqlError::ExecutionError {
-                        message: format!("Cannot cast {} to BOOLEAN", value.type_name()),
-                        query: None,
-                    })
-                }
+                FieldValue::Date(_)
+                | FieldValue::Timestamp(_)
+                | FieldValue::Decimal(_)
+                | FieldValue::Array(_)
+                | FieldValue::Map(_)
+                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                    message: format!("Cannot cast {} to BOOLEAN", value.type_name()),
+                    query: None,
+                }),
             },
+            "DATE" => match value {
+                FieldValue::Date(d) => Ok(FieldValue::Date(d)),
+                FieldValue::String(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                    .or_else(|_| NaiveDate::parse_from_str(&s, "%Y/%m/%d"))
+                    .or_else(|_| NaiveDate::parse_from_str(&s, "%m/%d/%Y"))
+                    .or_else(|_| NaiveDate::parse_from_str(&s, "%d-%m-%Y"))
+                    .map(FieldValue::Date)
+                    .map_err(|_| SqlError::ExecutionError {
+                        message: format!(
+                            "Cannot cast '{}' to DATE. Expected format: YYYY-MM-DD",
+                            s
+                        ),
+                        query: None,
+                    }),
+                FieldValue::Timestamp(ts) => Ok(FieldValue::Date(ts.date())),
+                FieldValue::Null => Ok(FieldValue::Null),
+                _ => Err(SqlError::ExecutionError {
+                    message: format!("Cannot cast {} to DATE", value.type_name()),
+                    query: None,
+                }),
+            },
+            "TIMESTAMP" | "DATETIME" => match value {
+                FieldValue::Timestamp(ts) => Ok(FieldValue::Timestamp(ts)),
+                FieldValue::Date(d) => Ok(FieldValue::Timestamp(d.and_hms_opt(0, 0, 0).unwrap())),
+                FieldValue::String(s) => {
+                    // Try various timestamp formats
+                    NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                        .or_else(|_| NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.3f"))
+                        .or_else(|_| NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S"))
+                        .or_else(|_| NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.3f"))
+                        .or_else(|_| NaiveDateTime::parse_from_str(&s, "%Y/%m/%d %H:%M:%S"))
+                        .or_else(|_| {
+                            // Try parsing as date only and add time
+                            NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                        })
+                        .map(FieldValue::Timestamp)
+                        .map_err(|_| SqlError::ExecutionError {
+                            message: format!("Cannot cast '{}' to TIMESTAMP. Expected format: YYYY-MM-DD HH:MM:SS", s),
+                            query: None,
+                        })
+                }
+                FieldValue::Integer(i) => {
+                    // Treat as Unix timestamp (seconds)
+                    let dt =
+                        DateTime::from_timestamp(i, 0).ok_or_else(|| SqlError::ExecutionError {
+                            message: format!("Invalid Unix timestamp: {}", i),
+                            query: None,
+                        })?;
+                    Ok(FieldValue::Timestamp(dt.naive_utc()))
+                }
+                FieldValue::Null => Ok(FieldValue::Null),
+                _ => Err(SqlError::ExecutionError {
+                    message: format!("Cannot cast {} to TIMESTAMP", value.type_name()),
+                    query: None,
+                }),
+            },
+            "DECIMAL" | "NUMERIC" => {
+                match value {
+                    FieldValue::Decimal(d) => Ok(FieldValue::Decimal(d)),
+                    FieldValue::Integer(i) => Ok(FieldValue::Decimal(Decimal::from(i))),
+                    FieldValue::Float(f) => Decimal::from_str(&f.to_string())
+                        .map(FieldValue::Decimal)
+                        .map_err(|_| SqlError::ExecutionError {
+                            message: format!("Cannot cast float {} to DECIMAL", f),
+                            query: None,
+                        }),
+                    FieldValue::String(s) => Decimal::from_str(&s)
+                        .map(FieldValue::Decimal)
+                        .map_err(|_| SqlError::ExecutionError {
+                            message: format!("Cannot cast '{}' to DECIMAL", s),
+                            query: None,
+                        }),
+                    FieldValue::Boolean(b) => Ok(FieldValue::Decimal(if b {
+                        Decimal::ONE
+                    } else {
+                        Decimal::ZERO
+                    })),
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!("Cannot cast {} to DECIMAL", value.type_name()),
+                        query: None,
+                    }),
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported cast target type: {}", target_type),
                 query: None,
@@ -3411,6 +3773,11 @@ impl StreamExecutionEngine {
             FieldValue::String(s) => InternalValue::String(s),
             FieldValue::Boolean(b) => InternalValue::Boolean(b),
             FieldValue::Null => InternalValue::Null,
+            FieldValue::Date(d) => InternalValue::String(d.format("%Y-%m-%d").to_string()),
+            FieldValue::Timestamp(ts) => {
+                InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+            }
+            FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
             FieldValue::Array(arr) => {
                 let internal_arr: Vec<InternalValue> = arr
                     .into_iter()
@@ -3908,6 +4275,10 @@ impl StreamExecutionEngine {
             values.to_vec()
         }
     }
+
+    // =============================================================================
+    // HEADER MUTATION FUNCTIONS
+    // =============================================================================
 
     fn collect_header_mutations_from_fields(
         &self,

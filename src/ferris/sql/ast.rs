@@ -447,6 +447,8 @@ pub enum Expr {
         when_clauses: Vec<(Expr, Expr)>, // (condition, result)
         else_clause: Option<Box<Expr>>,
     },
+    /// List expressions for IN operators: (expr1, expr2, expr3)
+    List(Vec<Expr>),
 }
 
 /// Literal values in SQL
@@ -668,6 +670,13 @@ impl Expr {
                 columns.extend(over_clause.partition_by.clone());
                 for order_expr in &over_clause.order_by {
                     columns.extend(order_expr.expr.get_columns());
+                }
+                columns
+            }
+            Expr::List(items) => {
+                let mut columns = Vec::new();
+                for item in items {
+                    columns.extend(item.get_columns());
                 }
                 columns
             }

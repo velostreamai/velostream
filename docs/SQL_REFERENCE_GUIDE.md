@@ -19,11 +19,13 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
    - [Utility Functions](#utility-functions)
    - [CASE WHEN Expressions](#case-when-expressions)
    - [INTERVAL Arithmetic](#interval-arithmetic)
+   - [Set Operations (IN/NOT IN)](#set-operations-in-not-in)
 5. [JSON Processing](#json-processing)
 6. [System Columns](#system-columns)
 7. [Window Operations](#window-operations)
 8. [Schema Management](#schema-management)
-9. [Examples](#examples)
+9. [Type Conversion](#type-conversion)
+10. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -1298,6 +1300,325 @@ SELECT
 FROM scheduled_events;
 ```
 
+### Set Operations (IN/NOT IN)
+
+Set operations allow you to test whether a value exists within a specified list of values. FerrisStreams supports comprehensive IN and NOT IN operators with proper handling of different data types, NULL values, and streaming semantics.
+
+#### Basic IN Operator Usage
+
+The IN operator tests whether a value exists in a list of specified values. It returns true if the value matches any item in the list.
+
+```sql
+-- Basic IN operator with integers
+SELECT 
+    order_id,
+    customer_id,
+    status
+FROM orders
+WHERE status IN ('pending', 'processing', 'shipped');
+
+-- IN operator with numeric values
+SELECT 
+    product_id,
+    price,
+    category_id
+FROM products
+WHERE category_id IN (1, 2, 3, 5, 8);
+
+-- IN operator with mixed numeric types
+SELECT 
+    customer_id,
+    order_amount
+FROM orders
+WHERE customer_id IN (100, 200.0, 300);  -- Handles type conversion
+```
+
+#### Basic NOT IN Operator Usage
+
+The NOT IN operator tests whether a value does not exist in the specified list. It returns true if the value doesn't match any item in the list.
+
+```sql
+-- NOT IN operator with strings
+SELECT 
+    customer_id,
+    account_status
+FROM customers
+WHERE account_status NOT IN ('suspended', 'closed', 'inactive');
+
+-- NOT IN operator excluding specific IDs
+SELECT 
+    order_id,
+    customer_id,
+    amount
+FROM orders
+WHERE customer_id NOT IN (999, 1000, 1001);  -- Exclude test customers
+
+-- NOT IN with product categories
+SELECT 
+    product_id,
+    product_name,
+    category
+FROM products
+WHERE category NOT IN ('discontinued', 'seasonal');
+```
+
+#### Advanced IN/NOT IN Patterns
+
+```sql
+-- Complex filtering with IN/NOT IN
+SELECT 
+    customer_id,
+    order_date,
+    amount,
+    status,
+    payment_method
+FROM orders
+WHERE status IN ('confirmed', 'shipped', 'delivered')
+  AND payment_method NOT IN ('cash', 'check')
+  AND amount NOT IN (0.0, 0.01);  -- Exclude zero and test amounts
+
+-- IN/NOT IN with calculated values
+SELECT 
+    device_id,
+    temperature,
+    humidity,
+    ROUND(temperature) as temp_rounded
+FROM sensor_readings
+WHERE ROUND(temperature) IN (20, 21, 22, 23, 24)  -- Comfortable temperature range
+  AND ROUND(humidity) NOT IN (0, 100);  -- Exclude extreme values
+
+-- Multi-level filtering with IN/NOT IN
+SELECT 
+    user_id,
+    session_id,
+    page_url,
+    action_type
+FROM user_actions
+WHERE action_type IN ('click', 'view', 'purchase')
+  AND EXTRACT('HOUR', action_timestamp) IN (9, 10, 11, 14, 15, 16)  -- Business hours
+  AND user_id NOT IN (
+      -- Exclude admin and test users
+      0, 999, 1000, 9999
+  );
+```
+
+#### IN/NOT IN with Streaming Data
+
+```sql
+-- Real-time filtering with IN/NOT IN
+SELECT 
+    event_id,
+    user_id,
+    event_type,
+    _timestamp as kafka_timestamp
+FROM streaming_events
+WHERE event_type IN ('login', 'purchase', 'logout')
+  AND user_id NOT IN (0, -1, 999999);  -- Exclude system users
+
+-- Windowed aggregation with IN/NOT IN filtering
+SELECT 
+    product_category,
+    COUNT(*) as sales_count,
+    AVG(amount) as avg_sale_amount
+FROM sales_events
+WHERE product_category IN ('electronics', 'clothing', 'books')
+  AND customer_tier NOT IN ('test', 'internal')
+GROUP BY product_category
+WINDOW TUMBLING(5m);
+
+-- Event correlation with IN/NOT IN
+SELECT 
+    user_id,
+    COUNT(*) as critical_events,
+    LISTAGG(event_type, ', ') as event_types
+FROM security_events
+WHERE severity IN ('high', 'critical')
+  AND event_type NOT IN ('normal_login', 'routine_check')
+GROUP BY user_id
+HAVING COUNT(*) > 3;
+```
+
+#### NULL Handling with IN/NOT IN
+
+IN and NOT IN operators have special behavior with NULL values:
+
+```sql
+-- NULL handling examples
+SELECT 
+    customer_id,
+    preferred_contact_method,
+    CASE 
+        WHEN preferred_contact_method IN ('email', 'sms', 'phone') THEN 'has_preference'
+        WHEN preferred_contact_method IS NULL THEN 'no_preference'
+        ELSE 'other'
+    END as contact_category
+FROM customers;
+
+-- Safe NOT IN with potential NULL values
+SELECT 
+    order_id,
+    special_instructions
+FROM orders
+WHERE special_instructions IS NOT NULL 
+  AND special_instructions NOT IN ('', 'none', 'N/A');
+```
+
+**Important NULL Behavior:**
+- `NULL IN (1, 2, 3)` returns `NULL` (not `false`)
+- `NULL NOT IN (1, 2, 3)` returns `NULL` (not `true`)  
+- `1 IN (1, NULL, 3)` returns `true`
+- `2 IN (1, NULL, 3)` returns `NULL` (unknown due to NULL presence)
+- `4 NOT IN (1, NULL, 3)` returns `NULL` (unknown due to NULL presence)
+
+#### Performance and Best Practices
+
+```sql
+-- Efficient IN operator usage
+SELECT 
+    customer_id,
+    order_date,
+    amount
+FROM orders
+WHERE customer_id IN (
+    -- Use specific, known values for best performance
+    12345, 12346, 12347, 12348, 12349
+);
+
+-- Combine with early filtering
+SELECT 
+    event_id,
+    user_id,
+    event_data
+FROM user_events
+WHERE _timestamp > (NOW() - INTERVAL '1' HOUR)  -- Filter by time first
+  AND event_type IN ('purchase', 'signup', 'upgrade');  -- Then by type
+
+-- Large lists - consider performance implications
+SELECT 
+    product_id,
+    sku,
+    availability_status
+FROM inventory
+WHERE product_id IN (
+    -- For very large lists (100+ items), consider alternative approaches
+    1001, 1002, 1003, /* ... many more items ... */ 9998, 9999
+);
+```
+
+#### Common Use Cases
+
+**1. Status Filtering**
+```sql
+-- Filter active orders
+SELECT * FROM orders 
+WHERE status IN ('pending', 'confirmed', 'processing', 'shipped');
+
+-- Exclude problematic states
+SELECT * FROM user_sessions
+WHERE session_status NOT IN ('expired', 'invalid', 'terminated');
+```
+
+**2. Category/Type Filtering**
+```sql
+-- Include specific product categories
+SELECT * FROM products
+WHERE category IN ('electronics', 'computers', 'mobile_devices');
+
+-- Exclude sensitive event types
+SELECT * FROM audit_logs
+WHERE event_type NOT IN ('password_change', 'security_token', 'admin_action');
+```
+
+**3. ID-based Filtering**
+```sql
+-- VIP customer processing
+SELECT * FROM orders
+WHERE customer_id IN (1001, 1002, 1003, 1004, 1005);
+
+-- Exclude test/system accounts
+SELECT * FROM user_activity
+WHERE user_id NOT IN (0, 999, 9999, 99999);
+```
+
+**4. Numeric Range Simulation**
+```sql
+-- Business hours (simulate BETWEEN with IN)
+SELECT * FROM transactions
+WHERE EXTRACT('HOUR', transaction_time) IN (9, 10, 11, 12, 13, 14, 15, 16, 17);
+
+-- Weekend processing
+SELECT * FROM scheduled_tasks
+WHERE EXTRACT('DOW', scheduled_time) NOT IN (0, 6);  -- Exclude Sunday(0) and Saturday(6)
+```
+
+**5. Complex Business Logic**
+```sql
+-- Multi-criteria product filtering
+SELECT 
+    product_id,
+    product_name,
+    price,
+    category,
+    brand
+FROM products
+WHERE category IN ('premium', 'luxury', 'professional')
+  AND brand NOT IN ('generic', 'unknown')
+  AND ROUND(price) NOT IN (0, 1);  -- Exclude pricing errors
+```
+
+#### Error Handling and Edge Cases
+
+```sql
+-- Handle empty results gracefully
+SELECT 
+    order_id,
+    status,
+    CASE 
+        WHEN status IN ('completed', 'delivered') THEN 'fulfilled'
+        WHEN status IN ('pending', 'processing') THEN 'active'
+        WHEN status NOT IN ('cancelled', 'failed') THEN 'other'
+        ELSE 'problematic'
+    END as order_state
+FROM orders;
+
+-- Type-safe IN operations
+SELECT 
+    user_id,
+    age,
+    membership_level
+FROM users
+WHERE CAST(age, 'INTEGER') IN (18, 21, 25, 30, 35)
+  AND membership_level IN ('gold', 'platinum', 'diamond');
+```
+
+#### Streaming Analytics with IN/NOT IN
+
+```sql
+-- Real-time KPI monitoring
+SELECT 
+    metric_name,
+    metric_value,
+    alert_threshold,
+    _timestamp
+FROM system_metrics
+WHERE metric_name IN ('cpu_usage', 'memory_usage', 'disk_usage')
+  AND metric_value NOT IN (0, -1)  -- Exclude invalid readings
+  AND metric_value > alert_threshold;
+
+-- Multi-tenant filtering
+SELECT 
+    tenant_id,
+    user_id,
+    action_type,
+    resource_accessed
+FROM tenant_activity
+WHERE tenant_id IN ('tenant_1', 'tenant_2', 'tenant_3')
+  AND action_type NOT IN ('heartbeat', 'health_check')
+  AND resource_accessed IN ('api', 'dashboard', 'reports');
+```
+
+The IN and NOT IN operators provide powerful and flexible filtering capabilities for streaming SQL queries, supporting complex business logic while maintaining high performance in real-time data processing scenarios.
+
 ## JSON Processing
 
 ### JSON Extraction Functions
@@ -2182,7 +2503,7 @@ FROM events;
 ### Utility Functions (6 functions)
 - `COALESCE(value1, value2, ...)` - Return first non-null value
 - `NULLIF(value1, value2)` - Return null if values are equal
-- `CAST(value, type)` - Type conversion
+- `CAST(value, type)` - Type conversion (see [Type Conversion](#type-conversion) for details)
 - `TIMESTAMP()` - Current record processing timestamp
 - `SPLIT(string, delimiter)` - Split string (returns first part)
 - `JOIN(delimiter, str1, str2, ...)` - Join strings with delimiter
@@ -2207,12 +2528,16 @@ FROM events;
 - `SET_HEADER(key, value)` - Set Kafka message header value
 - `REMOVE_HEADER(key)` - Remove Kafka message header
 
+### Set Operations (2 operators)
+- `IN (value1, value2, ...)` - Test if value exists in list
+- `NOT IN (value1, value2, ...)` - Test if value does not exist in list
+
 ### System Columns (3 columns)
 - `_timestamp` - Kafka message timestamp
 - `_offset` - Kafka message offset
 - `_partition` - Kafka partition number
 
-**Total: 65 functions + 3 system columns**
+**Total: 67 functions/operators + 3 system columns**
 
 ### Function Categories Summary
 - **Window Functions:** 11 functions for row-by-row analysis
@@ -2224,6 +2549,161 @@ FROM events;
 - **Aggregate Functions:** 7 functions for group operations
 - **JSON Functions:** 2 functions for JSON processing
 - **Header Functions:** 5 functions for message metadata
+- **Set Operations:** 2 operators for list membership testing
 - **System Columns:** 3 columns for Kafka metadata
+
+## Type Conversion
+
+### Overview
+
+The `CAST(value, type)` function provides comprehensive type conversion capabilities for transforming data between different types during stream processing. FerrisStreams supports conversions between all built-in data types with intelligent handling of edge cases.
+
+### Supported Data Types
+
+#### Core Types
+- **INTEGER** (alias: **INT**) - 64-bit signed integer
+- **FLOAT** (alias: **DOUBLE**) - 64-bit floating point number  
+- **STRING** (aliases: **VARCHAR**, **TEXT**) - UTF-8 encoded text
+- **BOOLEAN** (alias: **BOOL**) - True/false value
+
+#### Extended Types (New)
+- **DATE** - Date values (YYYY-MM-DD format)
+- **TIMESTAMP** (alias: **DATETIME**) - Date and time values (YYYY-MM-DD HH:MM:SS[.nnn] format)
+- **DECIMAL** (alias: **NUMERIC**) - High-precision decimal numbers
+
+### Type Conversion Matrix
+
+| From\To | INTEGER | FLOAT | STRING | BOOLEAN | DATE | TIMESTAMP | DECIMAL |
+|---------|---------|-------|--------|---------|------|-----------|---------|
+| **INTEGER** | ✓ | ✓ | ✓ | ✓ | ❌ | Unix¹ | ✓ |
+| **FLOAT** | ✓² | ✓ | ✓ | ✓ | ❌ | ❌ | ✓ |
+| **STRING** | Parse | Parse | ✓ | Parse | Parse | Parse | Parse |
+| **BOOLEAN** | 0/1 | 0.0/1.0 | ✓ | ✓ | ❌ | ❌ | 0/1 |
+| **DATE** | ❌ | ❌ | ✓ | ❌ | ✓ | ✓³ | ❌ |
+| **TIMESTAMP** | ❌ | ❌ | ✓ | ❌ | ✓⁴ | ✓ | ❌ |
+| **DECIMAL** | ✓² | ✓ | ✓ | ❌ | ❌ | ❌ | ✓ |
+| **NULL** | NULL | NULL | "NULL"⁵ | NULL | NULL | NULL | NULL |
+
+**Legend:**
+- ✓ = Direct conversion supported
+- ❌ = Not supported (returns error)  
+- Parse = Attempts to parse string representation
+- ¹ Unix timestamp (seconds since epoch) → TIMESTAMP
+- ² Truncation occurs (fractional part discarded)
+- ³ Date + 00:00:00 time
+- ⁴ Date part only
+- ⁵ Special case: NULL → STRING returns "NULL" string
+
+### Date and Time Parsing
+
+#### DATE Format Support
+```sql
+-- Supported date formats
+CAST('2023-12-25', 'DATE')     -- YYYY-MM-DD (preferred)
+CAST('2023/12/25', 'DATE')     -- YYYY/MM/DD  
+CAST('12/25/2023', 'DATE')     -- MM/DD/YYYY
+CAST('25-12-2023', 'DATE')     -- DD-MM-YYYY
+```
+
+#### TIMESTAMP Format Support
+```sql
+-- Supported timestamp formats
+CAST('2023-12-25 14:30:45', 'TIMESTAMP')      -- Standard format
+CAST('2023-12-25 14:30:45.123', 'TIMESTAMP')  -- With milliseconds
+CAST('2023-12-25T14:30:45', 'TIMESTAMP')      -- ISO 8601
+CAST('2023-12-25T14:30:45.123', 'TIMESTAMP')  -- ISO 8601 with ms
+CAST('2023/12/25 14:30:45', 'TIMESTAMP')      -- Alternative separator
+CAST('2023-12-25', 'TIMESTAMP')               -- Date only (adds 00:00:00)
+
+-- Unix timestamp conversion
+CAST(1640995200, 'TIMESTAMP')                 -- Unix seconds → TIMESTAMP
+```
+
+### Decimal Precision
+
+The DECIMAL type supports high-precision arithmetic suitable for financial calculations:
+
+```sql
+-- Precise decimal calculations
+CAST('123.456789012345', 'DECIMAL')           -- High precision
+CAST(42, 'DECIMAL')                           -- Integer → Decimal  
+CAST(3.14159, 'DECIMAL')                      -- Float → Decimal
+CAST(true, 'DECIMAL')                         -- Boolean → 1 or 0
+```
+
+### Practical Examples
+
+#### JSON Data Processing
+```sql
+-- Extract and convert JSON values
+SELECT 
+    JSON_VALUE(payload, '$.user_id') as user_id_str,
+    CAST(JSON_VALUE(payload, '$.user_id'), 'INTEGER') as user_id,
+    CAST(JSON_VALUE(payload, '$.amount'), 'DECIMAL') as precise_amount,
+    CAST(JSON_VALUE(payload, '$.created_at'), 'TIMESTAMP') as created_timestamp
+FROM events;
+```
+
+#### Data Validation and Cleaning
+```sql
+-- Convert and validate data types
+SELECT
+    order_id,
+    CASE 
+        WHEN amount_str ~ '^[0-9]+\.[0-9]+$' 
+        THEN CAST(amount_str, 'DECIMAL')
+        ELSE CAST('0.00', 'DECIMAL')
+    END as validated_amount,
+    CAST(COALESCE(created_date, '1970-01-01'), 'DATE') as safe_date
+FROM raw_orders;
+```
+
+#### Time-based Analytics
+```sql
+-- Date/time conversions for analytics
+SELECT 
+    customer_id,
+    CAST(order_date_str, 'DATE') as order_date,
+    CAST(order_timestamp_str, 'TIMESTAMP') as order_timestamp,
+    CAST(CAST(order_timestamp_str, 'TIMESTAMP'), 'DATE') as derived_date
+FROM customer_orders;
+```
+
+#### Financial Calculations
+```sql
+-- Precise decimal arithmetic for financial data
+SELECT
+    transaction_id,
+    CAST(amount, 'DECIMAL') as amount_decimal,
+    CAST(tax_rate, 'DECIMAL') as tax_rate_decimal,
+    CAST(amount, 'DECIMAL') * CAST(tax_rate, 'DECIMAL') as tax_amount
+FROM financial_transactions;
+```
+
+### Error Handling
+
+Type conversion failures result in SQL errors with descriptive messages:
+
+```sql
+-- These will generate errors:
+CAST('invalid-number', 'INTEGER')           -- "Cannot cast 'invalid-number' to INTEGER"
+CAST('2023-13-45', 'DATE')                  -- "Cannot cast '2023-13-45' to DATE"
+CAST({}, 'INTEGER')                         -- "Cannot cast MAP to INTEGER"
+```
+
+### Performance Considerations
+
+1. **Date/Time Parsing**: Multiple format attempts may impact performance for large volumes
+2. **Decimal Precision**: High-precision arithmetic is slower than native float operations
+3. **String Conversions**: Generally fast, but large strings may impact memory usage
+4. **Type Checking**: Runtime type validation adds minimal overhead
+
+### Best Practices
+
+1. **Use appropriate precision**: Choose DECIMAL only when precision is critical
+2. **Validate inputs**: Check string formats before conversion when possible
+3. **Handle NULLs**: Use COALESCE for NULL handling in conversions
+4. **Cache conversions**: Avoid repeated CAST operations on the same values
+5. **Error handling**: Wrap CAST operations in CASE statements for graceful error handling
 
 This reference guide covers all currently implemented SQL features in FerrisStreams. For the latest updates and additional examples, refer to the test suite and feature documentation.

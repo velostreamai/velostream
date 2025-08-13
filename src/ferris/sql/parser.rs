@@ -238,6 +238,8 @@ enum TokenType {
     Else, // ELSE
     End,  // END
     Is,   // IS (for IS NULL, IS NOT NULL)
+    In,   // IN (for IN operator)
+    Not,  // NOT (for NOT IN, IS NOT NULL, etc.)
 
     // Window Frame Keywords
     Rows,      // ROWS
@@ -345,6 +347,8 @@ impl StreamingSqlParser {
         keywords.insert("ELSE".to_string(), TokenType::Else);
         keywords.insert("END".to_string(), TokenType::End);
         keywords.insert("IS".to_string(), TokenType::Is);
+        keywords.insert("IN".to_string(), TokenType::In);
+        keywords.insert("NOT".to_string(), TokenType::Not);
         keywords.insert("ROWS".to_string(), TokenType::Rows);
         keywords.insert("RANGE".to_string(), TokenType::Range);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
@@ -1003,6 +1007,8 @@ impl TokenParser {
                 | TokenType::LessThanOrEqual
                 | TokenType::GreaterThanOrEqual
                 | TokenType::Is
+                | TokenType::In
+                | TokenType::Not
         ) {
             let op_token = self.current_token().clone();
             self.advance();
@@ -1035,6 +1041,78 @@ impl TokenParser {
                         position: Some(self.current_token().position),
                     });
                 }
+            } else if op_token.token_type == TokenType::In {
+                // Handle IN operator: expr IN (val1, val2, val3)
+                if self.current_token().token_type != TokenType::LeftParen {
+                    return Err(SqlError::ParseError {
+                        message: "Expected '(' after IN".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+                self.advance(); // consume '('
+
+                let mut list_items = Vec::new();
+                loop {
+                    list_items.push(self.parse_additive()?);
+
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance(); // consume ','
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        self.advance(); // consume ')'
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected ',' or ')' in IN list".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                left = Expr::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::In,
+                    right: Box::new(Expr::List(list_items)),
+                };
+            } else if op_token.token_type == TokenType::Not {
+                // Handle NOT IN operator: expr NOT IN (val1, val2, val3)
+                if self.current_token().token_type != TokenType::In {
+                    return Err(SqlError::ParseError {
+                        message: "Expected 'IN' after 'NOT'".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+                self.advance(); // consume 'IN'
+
+                if self.current_token().token_type != TokenType::LeftParen {
+                    return Err(SqlError::ParseError {
+                        message: "Expected '(' after NOT IN".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+                self.advance(); // consume '('
+
+                let mut list_items = Vec::new();
+                loop {
+                    list_items.push(self.parse_additive()?);
+
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance(); // consume ','
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        self.advance(); // consume ')'
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected ',' or ')' in NOT IN list".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                left = Expr::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::NotIn,
+                    right: Box::new(Expr::List(list_items)),
+                };
             } else {
                 let right = self.parse_additive()?;
 

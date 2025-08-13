@@ -12,7 +12,7 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Rich Headers Support:** Custom `Headers` type with clean API for message metadata
 * **Complete Message Metadata:** Access to partition, offset, and timestamp
 * **Asynchronous Processing:** Built on `rdkafka` & `tokio` for efficient, non-blocking I/O
-* **Flexible Serialization:** Modular `serde` framework with JSON support and extensible traits for custom formats
+* **Flexible Serialization:** Pluggable serialization system with JSON (always available), Avro (schema-based with evolution), and Protocol Buffers (high-performance) support
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
 * **SQL Streaming Engine:** Comprehensive SQL support with JOIN operations, windowing, statistical functions, and real-time analytics
 * **Window Functions:** Complete support for LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE
@@ -413,9 +413,11 @@ let high_priority: Vec<_> = consumer.stream()
 - **`Headers`** - Custom headers type with HashMap backing
 
 ### Serialization
-- **`JsonSerializer`** - Built-in JSON serialization support
-- **`Serializer<T>`** - Trait for custom serialization implementations
-- **Extensible** - Support for Avro, Protobuf, and custom formats
+- **`JsonFormat`** - Built-in JSON serialization (always available)
+- **`AvroFormat`** - Schema-based Avro serialization with evolution support (feature: `avro`)
+- **`ProtobufFormat`** - High-performance Protocol Buffers serialization (feature: `protobuf`)
+- **`SerializationFormat`** - Trait for implementing custom formats
+- **`SerializationFormatFactory`** - Factory for creating format instances
 
 ## 🚀 Roadmap
 
@@ -426,7 +428,7 @@ let high_priority: Vec<_> = consumer.stream()
 - ✅ Stream-based consumption with implicit deserialization
 - ✅ Builder patterns for ergonomic configuration
 - ✅ Comprehensive error handling
-- ✅ JSON serialization support
+- ✅ **Multiple Serialization Formats** - JSON (default), Avro (schema evolution), Protocol Buffers (high performance)
 - ✅ **SQL Streaming Engine** with comprehensive SQL support
 - ✅ **Window Functions** - Complete set of 11 window functions (LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE)
 - ✅ **Statistical Functions** - Advanced analytics functions (STDDEV, VARIANCE, MEDIAN with variants)
