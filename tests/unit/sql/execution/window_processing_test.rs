@@ -73,7 +73,7 @@ async fn execute_windowed_test(
             Ok(_) => {}
             Err(e) => {
                 // Check if it's the specific error we want to handle
-                if let Some(err_str) = e
+                if let Some(_err_str) = e
                     .to_string()
                     .to_lowercase()
                     .find("no records after filtering")
@@ -96,7 +96,7 @@ async fn execute_windowed_test(
         Ok(_) => {}
         Err(e) => {
             // Check if it's the specific error we want to handle
-            if let Some(err_str) = e
+            if let Some(_err_str) = e
                 .to_string()
                 .to_lowercase()
                 .find("no records after filtering")

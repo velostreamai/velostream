@@ -639,6 +639,7 @@ async fn process_kafka_message(
 }
 
 /// Convert JSON value to StreamRecord format
+#[allow(dead_code)]
 fn json_to_stream_record(json: Value) -> Result<StreamRecord, SqlError> {
     let mut fields = HashMap::new();
 

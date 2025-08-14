@@ -35,14 +35,14 @@ impl ClientConfigBuilder {
     /// Set request timeout
     pub fn request_timeout(mut self, timeout: Duration) -> Self {
         self.config
-            .set("request.timeout.ms", &timeout.as_millis().to_string());
+            .set("request.timeout.ms", timeout.as_millis().to_string());
         self
     }
 
     /// Set retry backoff
     pub fn retry_backoff(mut self, backoff: Duration) -> Self {
         self.config
-            .set("retry.backoff.ms", &backoff.as_millis().to_string());
+            .set("retry.backoff.ms", backoff.as_millis().to_string());
         self
     }
 
@@ -86,7 +86,7 @@ mod tests {
         let mut custom_config = HashMap::new();
         custom_config.insert("security.protocol".to_string(), "SSL".to_string());
 
-        let config = ClientConfigBuilder::new()
+        let _config = ClientConfigBuilder::new()
             .bootstrap_servers("localhost:9092")
             .client_id(Some("test-client"))
             .request_timeout(Duration::from_secs(30))
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_client_config_builder_optional_fields() {
-        let config = ClientConfigBuilder::new()
+        let _config = ClientConfigBuilder::new()
             .bootstrap_servers("localhost:9092")
             .client_id(None) // Should not set client.id
             .build();

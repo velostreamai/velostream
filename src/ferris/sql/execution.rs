@@ -111,7 +111,7 @@ pub struct StreamExecutionEngine {
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
     output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
-    serialization_format: Arc<dyn SerializationFormat>,
+    _serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
 }
 
@@ -247,6 +247,7 @@ pub struct QueryExecution {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ExecutionState {
     Running,
     Paused,
@@ -268,7 +269,7 @@ struct WindowState {
 impl StreamExecutionEngine {
     pub fn new(
         output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
-        serialization_format: Arc<dyn SerializationFormat>,
+        _serialization_format: Arc<dyn SerializationFormat>,
     ) -> Self {
         let (message_sender, receiver) = mpsc::channel(1000);
         Self {
@@ -276,7 +277,7 @@ impl StreamExecutionEngine {
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
-            serialization_format,
+            _serialization_format,
             record_count: 0,
         }
     }
@@ -4096,6 +4097,7 @@ impl StreamExecutionEngine {
 
     /// Optimized stream-table JOIN processing
     /// Tables are materialized views with key-based lookups, streams are continuous data
+    #[allow(dead_code)]
     fn process_stream_table_join(
         &self,
         stream_record: &StreamRecord,
@@ -4169,6 +4171,7 @@ impl StreamExecutionEngine {
     }
 
     /// Create mock table record for stream-table JOIN optimization
+    #[allow(dead_code)]
     fn create_mock_table_record(
         &self,
         table_name: &str,

@@ -32,7 +32,7 @@ fn create_mock_record() -> ferrisstreams::ferris::sql::execution::StreamRecord {
 #[tokio::test]
 async fn test_cast_to_date_from_string() {
     let engine = create_test_engine();
-    let record = create_mock_record();
+    let _record = create_mock_record();
 
     // Test various date string formats
     let test_cases = vec![

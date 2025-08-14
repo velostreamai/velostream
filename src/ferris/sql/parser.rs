@@ -205,10 +205,11 @@ enum TokenType {
     Dot,        // . (qualified names)
 
     // Arithmetic Operators
-    Plus,     // +
-    Minus,    // -
+    Plus,  // +
+    Minus, // -
+    #[allow(dead_code)]
     Multiply, // * (when used as operator)
-    Divide,   // /
+    Divide, // /
 
     // Comparison Operators
     Equal,              // =

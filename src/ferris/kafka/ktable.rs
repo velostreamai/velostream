@@ -180,7 +180,7 @@ where
         if let Some(key) = message.key() {
             let _old_value = {
                 let state = self.state.read().unwrap();
-                state.get(&key).cloned()
+                state.get(key).cloned()
             };
 
             // Update state
@@ -234,7 +234,7 @@ where
     pub fn stats(&self) -> KTableStats {
         KTableStats {
             key_count: self.len(),
-            last_updated: self.last_updated.read().unwrap().clone(),
+            last_updated: *self.last_updated.read().unwrap(),
             topic: self.topic.clone(),
             group_id: self.group_id.clone(),
         }

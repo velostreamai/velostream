@@ -139,32 +139,32 @@ where
         client_config
             .set(
                 "message.timeout.ms",
-                &config.message_timeout.as_millis().to_string(),
+                config.message_timeout.as_millis().to_string(),
             )
             .set(
                 "delivery.timeout.ms",
-                &config.delivery_timeout.as_millis().to_string(),
+                config.delivery_timeout.as_millis().to_string(),
             )
-            .set("enable.idempotence", &config.enable_idempotence.to_string())
+            .set("enable.idempotence", config.enable_idempotence.to_string())
             .set(
                 "max.in.flight.requests.per.connection",
-                &config.max_in_flight_requests.to_string(),
+                config.max_in_flight_requests.to_string(),
             )
-            .set("retries", &config.retries.to_string())
-            .set("batch.size", &config.batch_size.to_string())
-            .set("linger.ms", &config.linger_ms.as_millis().to_string())
+            .set("retries", config.retries.to_string())
+            .set("batch.size", config.batch_size.to_string())
+            .set("linger.ms", config.linger_ms.as_millis().to_string())
             .set("compression.type", config.compression_type.as_str())
             .set("acks", config.acks.as_str())
             .set(
                 "queue.buffering.max.messages",
-                &config.buffer_memory.to_string(),
+                config.buffer_memory.to_string(),
             );
 
         // Configure transactional settings if enabled
         if let Some(ref transaction_id) = config.transactional_id {
             client_config.set("transactional.id", transaction_id).set(
                 "transaction.timeout.ms",
-                &config.transaction_timeout.as_millis().to_string(),
+                config.transaction_timeout.as_millis().to_string(),
             );
         }
 
@@ -219,25 +219,25 @@ where
         client_config
             .set(
                 "message.timeout.ms",
-                &config.message_timeout.as_millis().to_string(),
+                config.message_timeout.as_millis().to_string(),
             )
             .set(
                 "delivery.timeout.ms",
-                &config.delivery_timeout.as_millis().to_string(),
+                config.delivery_timeout.as_millis().to_string(),
             )
-            .set("enable.idempotence", &config.enable_idempotence.to_string())
+            .set("enable.idempotence", config.enable_idempotence.to_string())
             .set(
                 "max.in.flight.requests.per.connection",
-                &config.max_in_flight_requests.to_string(),
+                config.max_in_flight_requests.to_string(),
             )
-            .set("retries", &config.retries.to_string())
-            .set("batch.size", &config.batch_size.to_string())
-            .set("linger.ms", &config.linger_ms.as_millis().to_string())
+            .set("retries", config.retries.to_string())
+            .set("batch.size", config.batch_size.to_string())
+            .set("linger.ms", config.linger_ms.as_millis().to_string())
             .set("compression.type", config.compression_type.as_str())
             .set("acks", config.acks.as_str())
             .set(
                 "queue.buffering.max.messages",
-                &config.buffer_memory.to_string(),
+                config.buffer_memory.to_string(),
             );
 
         let producer: FutureProducer<C> = client_config.create_with_context(context)?;
@@ -441,7 +441,7 @@ where
     config: ProducerConfig,
     key_serializer: KS,
     value_serializer: VS,
-    context: Option<C>,
+    _context: Option<C>,
     _phantom_key: PhantomData<K>,
     _phantom_value: PhantomData<V>,
 }
@@ -462,7 +462,7 @@ where
             config: ProducerConfig::new(brokers, default_topic),
             key_serializer,
             value_serializer,
-            context: None,
+            _context: None,
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         }
@@ -474,7 +474,7 @@ where
             config,
             key_serializer,
             value_serializer,
-            context: None,
+            _context: None,
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         }
@@ -572,7 +572,7 @@ where
             config: self.config,
             key_serializer: self.key_serializer,
             value_serializer: self.value_serializer,
-            context: Some(context),
+            _context: Some(context),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         }
