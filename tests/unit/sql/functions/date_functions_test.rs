@@ -186,7 +186,7 @@ async fn test_datediff_weeks() {
         _ => panic!("Expected integer for week_diff"),
     };
     assert!(
-        week_diff >= 80 && week_diff <= 81,
+        (80..=81).contains(&week_diff),
         "Week difference should be ~80 weeks, got {}",
         week_diff
     );

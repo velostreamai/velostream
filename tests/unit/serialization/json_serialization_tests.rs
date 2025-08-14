@@ -19,7 +19,7 @@ fn create_comprehensive_test_record() -> HashMap<String, FieldValue> {
         FieldValue::String("test_value".to_string()),
     );
     record.insert("integer_field".to_string(), FieldValue::Integer(42));
-    record.insert("float_field".to_string(), FieldValue::Float(3.14159));
+    record.insert("float_field".to_string(), FieldValue::Float(PI));
     record.insert("boolean_field".to_string(), FieldValue::Boolean(true));
     record.insert("null_field".to_string(), FieldValue::Null);
 
@@ -119,7 +119,7 @@ async fn test_json_to_execution_format() {
     );
     assert_eq!(
         execution_format.get("float_field"),
-        Some(&InternalValue::Number(3.14159))
+        Some(&InternalValue::Number(PI))
     );
     assert_eq!(
         execution_format.get("boolean_field"),
@@ -154,7 +154,7 @@ async fn test_json_from_execution_format() {
         Some(&FieldValue::String("test".to_string()))
     );
     assert_eq!(record.get("test_int"), Some(&FieldValue::Integer(42)));
-    assert_eq!(record.get("test_float"), Some(&FieldValue::Float(3.14)));
+    assert_eq!(record.get("test_float"), Some(&FieldValue::Float(PI)));
     assert_eq!(record.get("test_bool"), Some(&FieldValue::Boolean(false)));
     assert_eq!(record.get("test_null"), Some(&FieldValue::Null));
 }

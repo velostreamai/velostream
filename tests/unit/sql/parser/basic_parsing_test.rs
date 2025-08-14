@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn test_numeric_literals() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse("SELECT 42, 3.14, 0 FROM orders");
+        let result = parser.parse("SELECT 42, 2.718, 0 FROM orders");
 
         assert!(result.is_ok());
         let query = result.unwrap();

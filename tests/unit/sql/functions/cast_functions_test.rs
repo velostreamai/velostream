@@ -10,6 +10,7 @@ use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -170,11 +171,11 @@ async fn test_cast_to_decimal_from_various_types() {
     assert_eq!(result.unwrap(), FieldValue::Decimal(Decimal::from(42)));
 
     // Test from Float
-    let result = engine.cast_value(FieldValue::Float(3.14159), "DECIMAL");
+    let result = engine.cast_value(FieldValue::Float(PI), "DECIMAL");
     assert!(result.is_ok(), "Should cast FLOAT to DECIMAL");
     if let Ok(FieldValue::Decimal(d)) = result {
         // Allow for some floating point precision differences
-        let expected = Decimal::from_str("3.14159").unwrap();
+        let expected = Decimal::try_from(PI).unwrap();
         let diff = (d - expected).abs();
         assert!(
             diff < Decimal::from_str("0.00001").unwrap(),
