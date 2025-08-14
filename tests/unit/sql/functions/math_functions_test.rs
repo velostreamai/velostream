@@ -188,7 +188,7 @@ async fn test_round_function() {
     match output.get("round_result") {
         Some(InternalValue::Number(f)) => {
             assert!(
-                (f - PI).abs() < 0.0001,
+                (f - 3.14).abs() < 0.0001,
                 "ROUND(PI, 2) should be close to 3.14, got {}",
                 f
             );

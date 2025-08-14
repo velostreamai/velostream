@@ -63,9 +63,15 @@ async fn test_like_operator() {
             pattern
         );
 
-        // Check if we got output (indicates match)
-        let got_output = rx.try_recv().is_ok();
-        assert_eq!(got_output, expected, "Pattern '{}' failed", pattern);
+        // Check the boolean result value
+        let output = rx.try_recv().unwrap();
+        let like_result = output.get("like_result").unwrap();
+        match like_result {
+            InternalValue::Boolean(result) => {
+                assert_eq!(*result, expected, "Pattern '{}' failed", pattern);
+            }
+            _ => panic!("Expected boolean result for LIKE operation"),
+        }
     }
 }
 
@@ -119,13 +125,15 @@ async fn test_not_like_operator() {
             pattern
         );
 
-        // Check if we got output (indicates match)
-        let got_output = rx.try_recv().is_ok();
-        assert_eq!(
-            got_output, expected,
-            "NOT LIKE pattern '{}' failed",
-            pattern
-        );
+        // Check the boolean result value
+        let output = rx.try_recv().unwrap();
+        let not_like_result = output.get("not_like_result").unwrap();
+        match not_like_result {
+            InternalValue::Boolean(result) => {
+                assert_eq!(*result, expected, "NOT LIKE pattern '{}' failed", pattern);
+            }
+            _ => panic!("Expected boolean result for NOT LIKE operation"),
+        }
     }
 }
 
@@ -186,9 +194,15 @@ async fn test_like_operator_edge_cases() {
             pattern
         );
 
-        // Check if we got output (indicates match)
-        let got_output = rx.try_recv().is_ok();
-        assert_eq!(got_output, expected, "Pattern '{}' failed", pattern);
+        // Check the boolean result value
+        let output = rx.try_recv().unwrap();
+        let like_result = output.get("like_result").unwrap();
+        match like_result {
+            InternalValue::Boolean(result) => {
+                assert_eq!(*result, expected, "Pattern '{}' failed", pattern);
+            }
+            _ => panic!("Expected boolean result for LIKE operation"),
+        }
     }
 
     // Test NULL field - should not match anything
@@ -213,9 +227,15 @@ async fn test_like_operator_edge_cases() {
 
     let result = engine.execute(&query, record.clone()).await;
     assert!(result.is_ok());
-    // NULL LIKE anything should not produce output or should produce false
-    let got_output = rx.try_recv().is_ok();
-    assert_eq!(got_output, false);
+    // NULL LIKE anything should return false
+    let output = rx.try_recv().unwrap();
+    let null_like_result = output.get("null_like_result").unwrap();
+    match null_like_result {
+        InternalValue::Boolean(result) => {
+            assert_eq!(*result, false, "NULL LIKE anything should return false");
+        }
+        _ => panic!("Expected boolean result for NULL LIKE operation"),
+    }
 
     // Test numeric field with LIKE
     let query = StreamingQuery::Select {
@@ -240,8 +260,14 @@ async fn test_like_operator_edge_cases() {
     let result = engine.execute(&query, record.clone()).await;
     assert!(result.is_ok());
     // "123" LIKE "%3" should match
-    let got_output = rx.try_recv().is_ok();
-    assert_eq!(got_output, true);
+    let output = rx.try_recv().unwrap();
+    let number_like_result = output.get("number_like_result").unwrap();
+    match number_like_result {
+        InternalValue::Boolean(result) => {
+            assert_eq!(*result, true, "\"123\" LIKE \"%3\" should match");
+        }
+        _ => panic!("Expected boolean result for number LIKE operation"),
+    }
 }
 
 // =============================================================================

@@ -604,7 +604,14 @@ fn record_to_avro_value(
 
     let mut avro_fields = Vec::new();
     for (key, field_value) in record {
-        let avro_value = field_value_to_avro(field_value)?;
+        let avro_value = match field_value {
+            FieldValue::Null => {
+                // For nullable fields in unions, wrap null in union with index 1
+                // (assuming ["string", "null"] or similar patterns where null is typically second)
+                Value::Union(1, Box::new(Value::Null))
+            }
+            _ => field_value_to_avro(field_value)?,
+        };
         avro_fields.push((key.clone(), avro_value));
     }
 

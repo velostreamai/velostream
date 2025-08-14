@@ -1018,6 +1018,53 @@ impl StreamExecutionEngine {
             BinaryOperator::LessThanOrEqual => {
                 self.compare_values(&left_val, &right_val, |a, b| a <= b)
             }
+            BinaryOperator::Like => {
+                // Extract string values
+                let (value, pattern) = match (left_val, right_val) {
+                    (FieldValue::String(value), FieldValue::String(pattern)) => (value, pattern),
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                        // NULL in LIKE comparisons returns NULL (false in boolean context)
+                        return Ok(false);
+                    }
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: "LIKE requires string operands".to_string(),
+                            query: None,
+                        });
+                    }
+                };
+
+                // Apply pattern matching
+                Ok(self.match_pattern(&value, &pattern))
+            }
+            BinaryOperator::NotLike => {
+                // Extract string values
+                let (value, pattern) = match (left_val, right_val) {
+                    (FieldValue::String(value), FieldValue::String(pattern)) => (value, pattern),
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                        // NULL in NOT LIKE comparisons returns NULL (false in boolean context)
+                        return Ok(false);
+                    }
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: "NOT LIKE requires string operands".to_string(),
+                            query: None,
+                        });
+                    }
+                };
+
+                // Apply pattern matching (negated for NOT LIKE)
+                Ok(!self.match_pattern(&value, &pattern))
+            }
+            BinaryOperator::In | BinaryOperator::NotIn => {
+                // For comparison context, we need to handle the IN operator here too
+                // This is a bit tricky because we need access to the right expression, not just its value
+                Err(SqlError::ExecutionError {
+                    message: "IN/NOT IN operators should be handled in expression context"
+                        .to_string(),
+                    query: None,
+                })
+            }
             _ => Err(SqlError::ExecutionError {
                 message: "Invalid comparison operator".to_string(),
                 query: None,
@@ -1148,19 +1195,34 @@ impl StreamExecutionEngine {
                     let left_val = self.evaluate_expression_value(left, record)?;
 
                     if let Expr::List(list_items) = right.as_ref() {
+                        // SQL IN with NULL on left side should return NULL (false)
+                        if matches!(&left_val, FieldValue::Null) {
+                            return Ok(false);
+                        }
+
                         let mut matches = false;
+                        let mut contains_null = false;
 
                         for item_expr in list_items {
                             let item_val = self.evaluate_expression_value(item_expr, record)?;
-                            if self.values_equal(&left_val, &item_val) {
+
+                            // Track if list contains NULL
+                            if matches!(&item_val, FieldValue::Null) {
+                                contains_null = true;
+                                continue;
+                            }
+
+                            if self.values_equal_with_coercion(&left_val, &item_val) {
                                 matches = true;
                                 break;
                             }
                         }
 
+                        // SQL semantics: if no match found but list contains NULL, return NULL (false)
+                        // If match found, return true regardless of NULL in list
                         match op {
                             BinaryOperator::In => Ok(matches),
-                            BinaryOperator::NotIn => Ok(!matches),
+                            BinaryOperator::NotIn => Ok(!matches && !contains_null),
                             _ => unreachable!(),
                         }
                     } else if let Expr::Subquery {
@@ -1370,9 +1432,11 @@ impl StreamExecutionEngine {
                         let result = self.evaluate_comparison(left, right, record, op)?;
                         Ok(FieldValue::Boolean(result))
                     }
-                    BinaryOperator::Like
-                    | BinaryOperator::NotLike
-                    | BinaryOperator::And
+                    BinaryOperator::Like | BinaryOperator::NotLike => {
+                        let result = self.evaluate_comparison(left, right, record, op)?;
+                        Ok(FieldValue::Boolean(result))
+                    }
+                    BinaryOperator::And
                     | BinaryOperator::Or => Err(SqlError::ExecutionError {
                         message: "Operator not supported in value context".to_string(),
                         query: None,
@@ -1449,6 +1513,49 @@ impl StreamExecutionEngine {
                     && a.iter()
                         .all(|(k, v)| b.get(k).map_or(false, |bv| self.values_equal(v, bv)))
             }
+            _ => false,
+        }
+    }
+
+    /// Compare values with numeric type coercion for IN operations
+    pub fn values_equal_with_coercion(&self, left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            // Exact type matches
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
+            (FieldValue::Float(a), FieldValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (FieldValue::String(a), FieldValue::String(b)) => a == b,
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
+
+            // Numeric coercion: Integer and Float should be comparable
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
+            (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
+
+            // Complex types (same as values_equal)
+            (FieldValue::Array(a), FieldValue::Array(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| self.values_equal_with_coercion(x, y))
+            }
+            (FieldValue::Map(a), FieldValue::Map(b)) => {
+                a.len() == b.len()
+                    && a.iter().all(|(k, v)| {
+                        b.get(k)
+                            .map_or(false, |bv| self.values_equal_with_coercion(v, bv))
+                    })
+            }
+            (FieldValue::Struct(a), FieldValue::Struct(b)) => {
+                a.len() == b.len()
+                    && a.iter().all(|(k, v)| {
+                        b.get(k)
+                            .map_or(false, |bv| self.values_equal_with_coercion(v, bv))
+                    })
+            }
+
+            // NULL values should not match anything in IN context
+            (FieldValue::Null, _) | (_, FieldValue::Null) => false,
+
+            // All other combinations don't match
             _ => false,
         }
     }
@@ -2588,6 +2695,7 @@ impl StreamExecutionEngine {
                 let precision = if args.len() == 2 {
                     match self.evaluate_expression_value(&args[1], record)? {
                         FieldValue::Integer(p) => p as i32,
+                        FieldValue::Null => return Ok(FieldValue::Null), // If precision is NULL, result is NULL
                         _ => {
                             return Err(SqlError::ExecutionError {
                                 message: "ROUND precision must be an integer".to_string(),
@@ -2600,6 +2708,7 @@ impl StreamExecutionEngine {
                 };
 
                 match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
                     FieldValue::Float(f) => {
                         let multiplier = 10_f64.powi(precision);
                         Ok(FieldValue::Float((f * multiplier).round() / multiplier))
@@ -2620,6 +2729,7 @@ impl StreamExecutionEngine {
                 }
                 let value = self.evaluate_expression_value(&args[0], record)?;
                 match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
                     FieldValue::Float(f) => Ok(FieldValue::Integer(f.ceil() as i64)),
                     FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
                     _ => Err(SqlError::ExecutionError {
@@ -2637,6 +2747,7 @@ impl StreamExecutionEngine {
                 }
                 let value = self.evaluate_expression_value(&args[0], record)?;
                 match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
                     FieldValue::Float(f) => Ok(FieldValue::Integer(f.floor() as i64)),
                     FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
                     _ => Err(SqlError::ExecutionError {
@@ -2657,6 +2768,7 @@ impl StreamExecutionEngine {
 
                 // Modern Rust 2024 pattern matching with match ergonomics
                 match (&left, &right) {
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
                     (FieldValue::Integer(a), FieldValue::Integer(b)) if *b != 0 => {
                         Ok(FieldValue::Integer(a % b))
                     }
@@ -2691,6 +2803,7 @@ impl StreamExecutionEngine {
                 let base = self.evaluate_expression_value(&args[0], record)?;
                 let exponent = self.evaluate_expression_value(&args[1], record)?;
                 match (base, exponent) {
+                    (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
                     (FieldValue::Float(b), FieldValue::Float(e)) => {
                         Ok(FieldValue::Float(b.powf(e)))
                     }
@@ -2712,6 +2825,7 @@ impl StreamExecutionEngine {
                 }
                 let value = self.evaluate_expression_value(&args[0], record)?;
                 match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
                     FieldValue::Float(f) => {
                         if f < 0.0 {
                             Err(SqlError::ExecutionError {
@@ -3438,12 +3552,22 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                // For streaming, return 0.0 since we only have one value
-                // In a real implementation, this would calculate over a window of values
-                warn!(
-                    "STDDEV function: returning 0.0 for single streaming record - requires window aggregation"
-                );
-                Ok(FieldValue::Float(0.0))
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    FieldValue::Integer(_) | FieldValue::Float(_) => {
+                        // For streaming, return 0.0 since we only have one value
+                        // In a real implementation, this would calculate over a window of values
+                        warn!(
+                            "STDDEV function: returning 0.0 for single streaming record - requires window aggregation"
+                        );
+                        Ok(FieldValue::Float(0.0))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "STDDEV requires numeric argument".to_string(),
+                        query: None,
+                    }),
+                }
             }
             "STDDEV_POP" => {
                 // STDDEV_POP(column) - population standard deviation
@@ -3454,10 +3578,20 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                warn!(
-                    "STDDEV_POP function: returning 0.0 for single streaming record - requires window aggregation"
-                );
-                Ok(FieldValue::Float(0.0))
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    FieldValue::Integer(_) | FieldValue::Float(_) => {
+                        warn!(
+                            "STDDEV_POP function: returning 0.0 for single streaming record - requires window aggregation"
+                        );
+                        Ok(FieldValue::Float(0.0))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "STDDEV_POP requires numeric argument".to_string(),
+                        query: None,
+                    }),
+                }
             }
             "VARIANCE" | "VAR_SAMP" => {
                 // VARIANCE(column) - sample variance
@@ -3468,10 +3602,20 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                warn!(
-                    "VARIANCE function: returning 0.0 for single streaming record - requires window aggregation"
-                );
-                Ok(FieldValue::Float(0.0))
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    FieldValue::Integer(_) | FieldValue::Float(_) => {
+                        warn!(
+                            "VARIANCE function: returning 0.0 for single streaming record - requires window aggregation"
+                        );
+                        Ok(FieldValue::Float(0.0))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "VARIANCE requires numeric argument".to_string(),
+                        query: None,
+                    }),
+                }
             }
             "VAR_POP" => {
                 // VAR_POP(column) - population variance
@@ -3482,10 +3626,20 @@ impl StreamExecutionEngine {
                     });
                 }
 
-                warn!(
-                    "VAR_POP function: returning 0.0 for single streaming record - requires window aggregation"
-                );
-                Ok(FieldValue::Float(0.0))
+                let value = self.evaluate_expression_value(&args[0], record)?;
+                match value {
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    FieldValue::Integer(_) | FieldValue::Float(_) => {
+                        warn!(
+                            "VAR_POP function: returning 0.0 for single streaming record - requires window aggregation"
+                        );
+                        Ok(FieldValue::Float(0.0))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: "VAR_POP requires numeric argument".to_string(),
+                        query: None,
+                    }),
+                }
             }
             "MEDIAN" => {
                 // MEDIAN(column) - median value
