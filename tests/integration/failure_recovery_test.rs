@@ -426,7 +426,7 @@ async fn test_graceful_shutdown_recovery() {
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
     // Send messages
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Shutdown test 1"),
         TestMessage::new(2, "Shutdown test 2"),
     ];

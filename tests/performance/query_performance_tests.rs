@@ -12,7 +12,7 @@ use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 fn test_query_parsing_memory_efficiency() {
     // Test that parsing many queries doesn't consume excessive memory
     let parser = StreamingSqlParser::new();
-    let queries = vec![
+    let queries = [
         "SELECT * FROM orders",
         "SELECT customer_id, amount FROM orders WHERE amount > 100",
         "SELECT COUNT(*) FROM orders WINDOW TUMBLING(5m)",
@@ -61,7 +61,7 @@ fn test_streaming_query_enum_size() {
             StreamingQuery::Show { .. },
         ) => {
             // Test that we can store them in collections without issues
-            let _queries = vec![simple_query, complex_query, show_query];
+            let _queries = [simple_query, complex_query, show_query];
         }
         _ => panic!("Unexpected query types parsed"),
     }

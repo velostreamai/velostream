@@ -47,7 +47,7 @@ async fn test_transactional_producer_commit() {
     }
 
     // Send messages within transaction
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Transaction message 1"),
         TestMessage::new(2, "Transaction message 2"),
         TestMessage::new(3, "Transaction message 3"),
@@ -132,7 +132,7 @@ async fn test_transactional_producer_abort() {
         .expect("Failed to begin transaction");
 
     // Send messages within transaction
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Aborted message 1"),
         TestMessage::new(2, "Aborted message 2"),
     ];
@@ -425,7 +425,7 @@ async fn test_exactly_once_consumer_producer_coordination() {
     .expect("Failed to create source producer");
 
     // Send source messages
-    let input_messages = vec![
+    let input_messages = [
         TestMessage::new(1, "Source message 1"),
         TestMessage::new(2, "Source message 2"),
         TestMessage::new(3, "Source message 3"),
@@ -972,7 +972,7 @@ async fn test_exactly_once_stream_with_error_handling() {
     )
     .expect("Failed to create source producer");
 
-    let input_messages = vec![
+    let input_messages = [
         TestMessage::new(1, "Good message 1"),
         TestMessage::new(2, "Bad message"), // This will trigger simulated error
         TestMessage::new(3, "Good message 2"),
