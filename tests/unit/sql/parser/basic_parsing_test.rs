@@ -178,7 +178,8 @@ mod tests {
         let parser = StreamingSqlParser::new();
         let result = parser.parse("SELECT *");
 
-        assert!(result.is_err());
+        // Parser now allows SELECT without FROM clause (e.g., SELECT 1, SELECT NOW())
+        assert!(result.is_ok());
     }
 
     #[test]

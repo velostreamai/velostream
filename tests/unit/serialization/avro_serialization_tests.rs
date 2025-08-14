@@ -301,7 +301,7 @@ mod avro_tests {
             "name": "NullRecord",
             "fields": [
                 {"name": "id", "type": "long"},
-                {"name": "optional_field", "type": ["null", "string"]},
+                {"name": "optional_field", "type": ["string", "null"]},
                 {"name": "required_field", "type": "string"}
             ]
         }

@@ -189,7 +189,7 @@ async fn test_round_function() {
         Some(InternalValue::Number(f)) => {
             assert!(
                 (f - PI).abs() < 0.0001,
-                "ROUND(3.14159, 2) should be 3.14, got {}",
+                "ROUND(PI, 2) should be close to 3.14, got {}",
                 f
             );
         }

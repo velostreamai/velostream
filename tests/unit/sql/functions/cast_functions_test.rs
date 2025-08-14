@@ -179,7 +179,7 @@ async fn test_cast_to_decimal_from_various_types() {
         let diff = (d - expected).abs();
         assert!(
             diff < Decimal::from_str("0.00001").unwrap(),
-            "Decimal should be close to 3.14159"
+            "Decimal should be close to PI"
         );
     }
 
