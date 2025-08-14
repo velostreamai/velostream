@@ -32,11 +32,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
-        profile: minimal
-        override: true
         components: rustfmt, clippy
 
     - name: Cache dependencies
@@ -98,10 +96,8 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        override: true
         components: llvm-tools-preview
 
     - name: Install cargo-llvm-cov
@@ -135,10 +131,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
 
     - name: Cache dependencies
       uses: actions/cache@v3
@@ -160,10 +153,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
@@ -179,11 +169,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install minimum supported Rust version
-      uses: actions-rs/toolchain@v1
-      with:
-        # Set to your MSRV - Rust 1.85.0 with 2024 edition
-        toolchain: 1.85.0
-        override: true
+      uses: dtolnay/rust-toolchain@1.85.0
 
     - name: Cache dependencies
       uses: actions/cache@v3

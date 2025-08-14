@@ -8,6 +8,7 @@ are properly converted to/from JSON format.
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 
 fn create_comprehensive_test_record() -> HashMap<String, FieldValue> {
     let mut record = HashMap::new();
@@ -140,7 +141,7 @@ async fn test_json_from_execution_format() {
         InternalValue::String("test".to_string()),
     );
     execution_data.insert("test_int".to_string(), InternalValue::Integer(42));
-    execution_data.insert("test_float".to_string(), InternalValue::Number(3.14));
+    execution_data.insert("test_float".to_string(), InternalValue::Number(PI));
     execution_data.insert("test_bool".to_string(), InternalValue::Boolean(false));
     execution_data.insert("test_null".to_string(), InternalValue::Null);
 

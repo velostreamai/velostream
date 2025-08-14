@@ -434,15 +434,11 @@ impl StreamExecutionEngine {
     ) -> Result<(), SqlError> {
         let window_state = match &query {
             StreamingQuery::Select { window, .. } => {
-                if let Some(window_spec) = window {
-                    Some(WindowState {
-                        window_spec: window_spec.clone(),
-                        buffer: Vec::new(),
-                        last_emit: 0,
-                    })
-                } else {
-                    None
-                }
+                window.as_ref().map(|window_spec| WindowState {
+                    window_spec: window_spec.clone(),
+                    buffer: Vec::new(),
+                    last_emit: 0,
+                })
             }
             _ => None,
         };
@@ -2986,13 +2982,7 @@ impl StreamExecutionEngine {
                         })?;
 
                         // Simple format mapping (extend as needed)
-                        let rust_format = format
-                            .replace("%Y", "%Y") // 4-digit year
-                            .replace("%m", "%m") // Month (01-12)
-                            .replace("%d", "%d") // Day (01-31)
-                            .replace("%H", "%H") // Hour (00-23)
-                            .replace("%M", "%M") // Minute (00-59)
-                            .replace("%S", "%S"); // Second (00-59)
+                        let rust_format = format;
 
                         Ok(FieldValue::String(dt.format(&rust_format).to_string()))
                     }
@@ -4400,11 +4390,8 @@ impl StreamExecutionEngine {
         header_mutations: &mut Vec<HeaderMutation>,
     ) -> Result<(), SqlError> {
         for field in fields {
-            match field {
-                SelectField::Expression { expr, .. } => {
-                    self.collect_header_mutations_from_expr(expr, record, header_mutations)?;
-                }
-                _ => {} // Other field types don't contain expressions that can mutate headers
+            if let SelectField::Expression { expr, .. } = field {
+                self.collect_header_mutations_from_expr(expr, record, header_mutations)?;
             }
         }
         Ok(())

@@ -282,7 +282,7 @@ where
     }
 
     /// Get a stream of raw Kafka messages (for advanced use cases)
-    pub fn raw_stream(&self) -> MessageStream<C> {
+    pub fn raw_stream(&self) -> MessageStream<'_, C> {
         self.consumer.stream()
     }
 

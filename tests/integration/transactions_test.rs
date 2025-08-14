@@ -783,7 +783,7 @@ async fn test_exactly_once_with_consumer_stream() {
     )
     .expect("Failed to create source producer");
 
-    let input_messages = vec![
+    let input_messages = [
         TestMessage::new(10, "Stream message A"),
         TestMessage::new(20, "Stream message B"),
         TestMessage::new(30, "Stream message C"),
