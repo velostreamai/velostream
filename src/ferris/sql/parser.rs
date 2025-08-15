@@ -1672,7 +1672,7 @@ impl TokenParser {
             TokenType::Interval => {
                 // Handle INTERVAL syntax: INTERVAL 5 MINUTES
                 self.advance(); // consume INTERVAL
-                
+
                 // Parse the value (number or string)
                 let value_token = self.current_token().clone();
                 let value_str = match value_token.token_type {
@@ -1691,7 +1691,7 @@ impl TokenParser {
                         });
                     }
                 };
-                
+
                 // Parse the time unit
                 let unit_token = self.current_token().clone();
                 if unit_token.token_type != TokenType::Identifier {
@@ -1700,10 +1700,10 @@ impl TokenParser {
                         position: Some(unit_token.position),
                     });
                 }
-                
+
                 let unit = match unit_token.value.to_uppercase().as_str() {
                     "MINUTES" | "MINUTE" => "m",
-                    "SECONDS" | "SECOND" => "s", 
+                    "SECONDS" | "SECOND" => "s",
                     "HOURS" | "HOUR" => "h",
                     "MILLISECONDS" | "MILLISECOND" => "ms",
                     _ => {
@@ -1713,7 +1713,7 @@ impl TokenParser {
                         });
                     }
                 };
-                
+
                 self.advance(); // consume time unit
                 Ok(format!("{}{}", value_str, unit))
             }

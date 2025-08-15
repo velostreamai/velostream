@@ -352,22 +352,75 @@ impl StreamExecutionEngine {
         partition: Option<i32>,
     ) -> Result<(), SqlError> {
         // Convert input record to StreamRecord
+        let mut fields_map: HashMap<String, FieldValue> = record
+            .into_iter()
+            .map(|(k, v)| {
+                let field_value = self.internal_to_field_value(v);
+                (k, field_value)
+            })
+            .collect();
+
+        // For windowed queries, try to extract event time from _timestamp field if present
+        let record_timestamp = if let StreamingQuery::Select {
+            window: Some(_), ..
+        } = query
+        {
+            if let Some(ts_field) = fields_map.get("_timestamp") {
+                match ts_field {
+                    FieldValue::Integer(ts) => *ts,
+                    FieldValue::Float(ts) => *ts as i64,
+                    _ => timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                }
+            } else {
+                timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+            }
+        } else {
+            timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+        };
+
         let stream_record = StreamRecord {
-            fields: record
-                .into_iter()
-                .map(|(k, v)| {
-                    let field_value = self.internal_to_field_value(v);
-                    (k, field_value)
-                })
-                .collect(),
-            timestamp: timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            fields: fields_map,
+            timestamp: record_timestamp,
             offset: offset.unwrap_or(0),
             partition: partition.unwrap_or(0),
             headers,
         };
 
-        // Apply query and process record
-        if let Some(result) = self.apply_query(query, &stream_record)? {
+        // Check if this is a windowed query and process accordingly
+        let result = if let StreamingQuery::Select {
+            window: Some(window_spec),
+            ..
+        } = query
+        {
+            // For windowed queries, we need to simulate the streaming execution model
+
+            // Initialize window state if needed for this query
+            let query_id = "execute_query".to_string();
+            if !self.active_queries.contains_key(&query_id) {
+                let window_state = Some(WindowState {
+                    window_spec: window_spec.clone(),
+                    buffer: Vec::new(),
+                    last_emit: 0,
+                });
+
+                let execution = QueryExecution {
+                    query: query.clone(),
+                    state: ExecutionState::Running,
+                    window_state,
+                };
+
+                self.active_queries.insert(query_id.clone(), execution);
+            }
+
+            // Process using windowed logic
+            self.process_windowed_query(&query_id, query, &stream_record)?
+        } else {
+            // Regular non-windowed processing
+            self.apply_query(query, &stream_record)?
+        };
+
+        // Process result if any
+        if let Some(result) = result {
             // Convert result to InternalValue format
             let internal_result: HashMap<String, InternalValue> = result
                 .fields
@@ -4798,6 +4851,7 @@ impl StreamExecutionEngine {
             if let Some(field_value) = record.fields.get(column_name) {
                 match field_value {
                     FieldValue::Integer(ts) => *ts,
+                    FieldValue::Float(ts) => *ts as i64,
                     FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
                     FieldValue::String(s) => {
                         // Try to parse as timestamp
@@ -4834,13 +4888,14 @@ impl StreamExecutionEngine {
                 // For tumbling windows, only emit when:
                 // 1. This is the first window (last_emit == 0) AND we have the first record past window size
                 // 2. We've crossed into a new window boundary
-                if window_state.last_emit == 0 {
+                let should_emit = if window_state.last_emit == 0 {
                     // First window - only emit if we have records past the first window boundary
                     current_time >= window_size_ms
                 } else {
                     // Subsequent windows - emit when we cross window boundaries
                     current_window_start > window_state.last_emit
-                }
+                };
+                should_emit
             }
             WindowSpec::Sliding { advance, .. } => {
                 let advance_ms = advance.as_millis() as i64;
@@ -5178,7 +5233,7 @@ impl StreamExecutionEngine {
                     let internal_value = self.field_value_to_internal(field_value.clone());
                     internal_record.insert(key.clone(), internal_value);
                 }
-                
+
                 if let Err(_) = self.output_sender.send(internal_record) {
                     // Log warning but continue - the receiver may have been dropped
                     eprintln!("Warning: Failed to send additional GROUP BY result");
@@ -5293,7 +5348,9 @@ impl StreamExecutionEngine {
                     }
                     "SUM" => {
                         // First try to find fields with common SUM suffixes
-                        if let Ok(field_name) = self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"]) {
+                        if let Ok(field_name) =
+                            self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"])
+                        {
                             field_name
                         } else {
                             // If no suffix match, look for common SUM alias names
@@ -5396,24 +5453,27 @@ impl StreamExecutionEngine {
     ) -> Result<Option<StreamRecord>, SqlError> {
         // Generate a unique key for this query's GROUP BY state
         let query_key = format!("{:p}", query as *const _);
-        
+
         // Initialize GROUP BY state if not exists
         if !self.group_states.contains_key(&query_key) {
-            self.group_states.insert(query_key.clone(), GroupByState {
-                groups: HashMap::new(),
-                group_expressions: group_exprs.to_vec(),
-                select_fields: select_fields.to_vec(),
-                having_clause: having_clause.clone(),
-            });
+            self.group_states.insert(
+                query_key.clone(),
+                GroupByState {
+                    groups: HashMap::new(),
+                    group_expressions: group_exprs.to_vec(),
+                    select_fields: select_fields.to_vec(),
+                    having_clause: having_clause.clone(),
+                },
+            );
         }
-        
+
         // Evaluate group key for this record
         let mut group_key = Vec::new();
         for group_expr in group_exprs {
             let key_value = self.evaluate_group_key_expression(group_expr, record)?;
             group_key.push(key_value);
         }
-        
+
         // Pre-compute expression names to avoid borrowing issues
         let mut field_names = Vec::new();
         for field in select_fields {
@@ -5423,72 +5483,98 @@ impl StreamExecutionEngine {
                     let field_name = alias.as_ref().map(|a| a.clone()).unwrap_or(expr_name);
                     field_names.push((field.clone(), field_name));
                 }
-                _ => field_names.push((field.clone(), String::new()))
+                _ => field_names.push((field.clone(), String::new())),
             }
         }
-        
+
         // Get or create the group state
         // Update group accumulator and compute result
         let result_record = {
             let group_state = self.group_states.get_mut(&query_key).unwrap();
-            
+
             // Create or get the group accumulator
-            let group_accumulator = group_state.groups
-                .entry(group_key.clone())
-                .or_insert_with(|| GroupAccumulator {
-                    count: 0,
-                    sums: HashMap::new(),
-                    mins: HashMap::new(),
-                    maxs: HashMap::new(),
-                    numeric_values: HashMap::new(),
-                    first_values: HashMap::new(),
-                    last_values: HashMap::new(),
-                    string_values: HashMap::new(),
-                    distinct_values: HashMap::new(),
-                    sample_record: None,
-                });
-            
+            let group_accumulator =
+                group_state
+                    .groups
+                    .entry(group_key.clone())
+                    .or_insert_with(|| GroupAccumulator {
+                        count: 0,
+                        sums: HashMap::new(),
+                        mins: HashMap::new(),
+                        maxs: HashMap::new(),
+                        numeric_values: HashMap::new(),
+                        first_values: HashMap::new(),
+                        last_values: HashMap::new(),
+                        string_values: HashMap::new(),
+                        distinct_values: HashMap::new(),
+                        sample_record: None,
+                    });
+
             // Increment count
             group_accumulator.count += 1;
-            
+
             // Set sample record if first
             if group_accumulator.sample_record.is_none() {
                 group_accumulator.sample_record = Some(record.clone());
             }
-            
+
             // Update accumulator for each SELECT field
             for (field, precomputed_name) in &field_names {
                 match field {
                     SelectField::Expression { expr, .. } => {
-                        Self::update_accumulator_for_field(group_accumulator, precomputed_name, expr, record)?;
+                        Self::update_accumulator_for_field(
+                            group_accumulator,
+                            precomputed_name,
+                            expr,
+                            record,
+                        )?;
                     }
                     SelectField::Column(name) => {
                         if let Some(field_value) = record.fields.get(name) {
-                            group_accumulator.first_values.entry(name.clone()).or_insert_with(|| field_value.clone());
-                            group_accumulator.last_values.insert(name.clone(), field_value.clone());
+                            group_accumulator
+                                .first_values
+                                .entry(name.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(name.clone(), field_value.clone());
                         }
                     }
                     SelectField::AliasedColumn { column, alias } => {
                         if let Some(field_value) = record.fields.get(column) {
-                            group_accumulator.first_values.entry(alias.clone()).or_insert_with(|| field_value.clone());
-                            group_accumulator.last_values.insert(alias.clone(), field_value.clone());
+                            group_accumulator
+                                .first_values
+                                .entry(alias.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(alias.clone(), field_value.clone());
                         }
                     }
                     SelectField::Wildcard => {
                         for (field_name, field_value) in &record.fields {
-                            group_accumulator.first_values.entry(field_name.clone()).or_insert_with(|| field_value.clone());
-                            group_accumulator.last_values.insert(field_name.clone(), field_value.clone());
+                            group_accumulator
+                                .first_values
+                                .entry(field_name.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(field_name.clone(), field_value.clone());
                         }
                     }
                 }
             }
-            
+
             // Build result fields
             let mut result_fields = HashMap::new();
             for (field, precomputed_name) in &field_names {
                 match field {
                     SelectField::Expression { expr, .. } => {
-                        let value = Self::compute_field_aggregate_value(precomputed_name, expr, group_accumulator)?;
+                        let value = Self::compute_field_aggregate_value(
+                            precomputed_name,
+                            expr,
+                            group_accumulator,
+                        )?;
                         result_fields.insert(precomputed_name.clone(), value);
                     }
                     SelectField::Column(name) => {
@@ -5522,24 +5608,40 @@ impl StreamExecutionEngine {
                     }
                 }
             }
-            
+
             // Create result record
             StreamRecord {
                 fields: result_fields,
-                timestamp: group_accumulator.sample_record.as_ref().map(|r| r.timestamp).unwrap_or(0),
-                offset: group_accumulator.sample_record.as_ref().map(|r| r.offset).unwrap_or(0),
-                partition: group_accumulator.sample_record.as_ref().map(|r| r.partition).unwrap_or(0),
-                headers: group_accumulator.sample_record.as_ref().map(|r| r.headers.clone()).unwrap_or_default(),
+                timestamp: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.timestamp)
+                    .unwrap_or(0),
+                offset: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.offset)
+                    .unwrap_or(0),
+                partition: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.partition)
+                    .unwrap_or(0),
+                headers: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.headers.clone())
+                    .unwrap_or_default(),
             }
         };
-        
+
         // Apply HAVING clause if present
         if let Some(having_expr) = having_clause {
             if !self.evaluate_having_expression(having_expr, &result_record)? {
                 return Ok(None);
             }
         }
-        
+
         Ok(Some(result_record))
     }
 
@@ -5558,10 +5660,16 @@ impl StreamExecutionEngine {
                             if let Ok(value) = Self::evaluate_expression_static(arg, record) {
                                 match value {
                                     FieldValue::Float(f) => {
-                                        *accumulator.sums.entry(field_name.to_string()).or_insert(0.0) += f;
+                                        *accumulator
+                                            .sums
+                                            .entry(field_name.to_string())
+                                            .or_insert(0.0) += f;
                                     }
                                     FieldValue::Integer(i) => {
-                                        *accumulator.sums.entry(field_name.to_string()).or_insert(0.0) += i as f64;
+                                        *accumulator
+                                            .sums
+                                            .entry(field_name.to_string())
+                                            .or_insert(0.0) += i as f64;
                                     }
                                     _ => {}
                                 }
@@ -5573,12 +5681,22 @@ impl StreamExecutionEngine {
                             if let Ok(value) = Self::evaluate_expression_static(arg, record) {
                                 if name.to_uppercase() == "MIN" {
                                     let current_min = accumulator.mins.get(field_name);
-                                    if current_min.is_none() || Self::field_value_compare_static(&value, current_min.unwrap()) == std::cmp::Ordering::Less {
+                                    if current_min.is_none()
+                                        || Self::field_value_compare_static(
+                                            &value,
+                                            current_min.unwrap(),
+                                        ) == std::cmp::Ordering::Less
+                                    {
                                         accumulator.mins.insert(field_name.to_string(), value);
                                     }
                                 } else {
                                     let current_max = accumulator.maxs.get(field_name);
-                                    if current_max.is_none() || Self::field_value_compare_static(&value, current_max.unwrap()) == std::cmp::Ordering::Greater {
+                                    if current_max.is_none()
+                                        || Self::field_value_compare_static(
+                                            &value,
+                                            current_max.unwrap(),
+                                        ) == std::cmp::Ordering::Greater
+                                    {
                                         accumulator.maxs.insert(field_name.to_string(), value);
                                     }
                                 }
@@ -5590,10 +5708,18 @@ impl StreamExecutionEngine {
                             if let Ok(value) = Self::evaluate_expression_static(arg, record) {
                                 match value {
                                     FieldValue::Float(f) => {
-                                        accumulator.numeric_values.entry(field_name.to_string()).or_insert_with(Vec::new).push(f);
+                                        accumulator
+                                            .numeric_values
+                                            .entry(field_name.to_string())
+                                            .or_insert_with(Vec::new)
+                                            .push(f);
                                     }
                                     FieldValue::Integer(i) => {
-                                        accumulator.numeric_values.entry(field_name.to_string()).or_insert_with(Vec::new).push(i as f64);
+                                        accumulator
+                                            .numeric_values
+                                            .entry(field_name.to_string())
+                                            .or_insert_with(Vec::new)
+                                            .push(i as f64);
                                     }
                                     _ => {}
                                 }
@@ -5603,8 +5729,13 @@ impl StreamExecutionEngine {
                     _ => {
                         // For non-recognized aggregates, store as first/last
                         if let Ok(value) = Self::evaluate_expression_static(expr, record) {
-                            accumulator.first_values.entry(field_name.to_string()).or_insert(value.clone());
-                            accumulator.last_values.insert(field_name.to_string(), value);
+                            accumulator
+                                .first_values
+                                .entry(field_name.to_string())
+                                .or_insert(value.clone());
+                            accumulator
+                                .last_values
+                                .insert(field_name.to_string(), value);
                         }
                     }
                 }
@@ -5612,8 +5743,13 @@ impl StreamExecutionEngine {
             _ => {
                 // Non-function expression
                 if let Ok(value) = Self::evaluate_expression_static(expr, record) {
-                    accumulator.first_values.entry(field_name.to_string()).or_insert(value.clone());
-                    accumulator.last_values.insert(field_name.to_string(), value);
+                    accumulator
+                        .first_values
+                        .entry(field_name.to_string())
+                        .or_insert(value.clone());
+                    accumulator
+                        .last_values
+                        .insert(field_name.to_string(), value);
                 }
             }
         }
@@ -5630,7 +5766,9 @@ impl StreamExecutionEngine {
             Expr::Function { name, .. } => {
                 match name.to_uppercase().as_str() {
                     "COUNT" => Ok(FieldValue::Integer(accumulator.count as i64)),
-                    "SUM" => Ok(FieldValue::Float(accumulator.sums.get(field_name).copied().unwrap_or(0.0))),
+                    "SUM" => Ok(FieldValue::Float(
+                        accumulator.sums.get(field_name).copied().unwrap_or(0.0),
+                    )),
                     "AVG" => {
                         if let Some(values) = accumulator.numeric_values.get(field_name) {
                             if values.is_empty() {
@@ -5643,101 +5781,162 @@ impl StreamExecutionEngine {
                             Ok(FieldValue::Null)
                         }
                     }
-                    "MIN" => Ok(accumulator.mins.get(field_name).cloned().unwrap_or(FieldValue::Null)),
-                    "MAX" => Ok(accumulator.maxs.get(field_name).cloned().unwrap_or(FieldValue::Null)),
+                    "MIN" => Ok(accumulator
+                        .mins
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "MAX" => Ok(accumulator
+                        .maxs
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
                     _ => {
                         // Non-aggregate function
-                        Ok(accumulator.first_values.get(field_name).cloned().unwrap_or(FieldValue::Null))
+                        Ok(accumulator
+                            .first_values
+                            .get(field_name)
+                            .cloned()
+                            .unwrap_or(FieldValue::Null))
                     }
                 }
             }
             _ => {
                 // Non-function expression
-                Ok(accumulator.first_values.get(field_name).cloned().unwrap_or(FieldValue::Null))
+                Ok(accumulator
+                    .first_values
+                    .get(field_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null))
             }
         }
     }
 
     /// Static helper for basic expression evaluation  
-    fn evaluate_expression_static(expr: &Expr, record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    fn evaluate_expression_static(
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Column(name) => {
                 // Convert from FieldValue in StreamRecord to FieldValue return type
                 Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
             }
-            Expr::Literal(literal) => {
-                match literal {
-                    LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
-                    LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
-                    LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
-                    LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
-                    LiteralValue::Null => Ok(FieldValue::Null),
-                    _ => Ok(FieldValue::Null),
-                }
-            }
+            Expr::Literal(literal) => match literal {
+                LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                LiteralValue::Null => Ok(FieldValue::Null),
+                _ => Ok(FieldValue::Null),
+            },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = Self::evaluate_expression_static(left, record)?;
                 let right_val = Self::evaluate_expression_static(right, record)?;
-                
+
                 match op {
-                    BinaryOperator::GreaterThan => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l > r)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l > r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) > *r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l > (*r as f64))),
-                            _ => Ok(FieldValue::Boolean(false)),
+                    BinaryOperator::GreaterThan => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l > r))
                         }
-                    }
-                    BinaryOperator::LessThan => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l < r)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l < r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) < *r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l < (*r as f64))),
-                            _ => Ok(FieldValue::Boolean(false)),
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l > r))
                         }
-                    }
-                    BinaryOperator::GreaterThanOrEqual => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l >= r)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l >= r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) >= *r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l >= (*r as f64))),
-                            _ => Ok(FieldValue::Boolean(false)),
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) > *r))
                         }
-                    }
-                    BinaryOperator::LessThanOrEqual => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l <= r)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l <= r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) <= *r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l <= (*r as f64))),
-                            _ => Ok(FieldValue::Boolean(false)),
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l > (*r as f64)))
                         }
-                    }
-                    BinaryOperator::Equal => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((l - r).abs() < f64::EPSILON)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l == r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(((*l as f64) - r).abs() < f64::EPSILON)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean((l - (*r as f64)).abs() < f64::EPSILON)),
-                            (FieldValue::String(l), FieldValue::String(r)) => Ok(FieldValue::Boolean(l == r)),
-                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => Ok(FieldValue::Boolean(l == r)),
-                            _ => Ok(FieldValue::Boolean(false)),
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::LessThan => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l < r))
                         }
-                    }
-                    BinaryOperator::NotEqual => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((l - r).abs() >= f64::EPSILON)),
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l != r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(((*l as f64) - r).abs() >= f64::EPSILON)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean((l - (*r as f64)).abs() >= f64::EPSILON)),
-                            (FieldValue::String(l), FieldValue::String(r)) => Ok(FieldValue::Boolean(l != r)),
-                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => Ok(FieldValue::Boolean(l != r)),
-                            _ => Ok(FieldValue::Boolean(true)),
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l < r))
                         }
-                    }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) < *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l < (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::GreaterThanOrEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l >= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l >= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) >= *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l >= (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::LessThanOrEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l <= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l <= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) <= *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l <= (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::Equal => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((l - r).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(((*l as f64) - r).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean((l - (*r as f64)).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::String(l), FieldValue::String(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::NotEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((l - r).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(((*l as f64) - r).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean((l - (*r as f64)).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::String(l), FieldValue::String(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        _ => Ok(FieldValue::Boolean(true)),
+                    },
                     _ => {
                         // For other operators, return NULL for now
                         Ok(FieldValue::Null)
@@ -5756,9 +5955,15 @@ impl StreamExecutionEngine {
     fn field_value_compare_static(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
         match (a, b) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => a
+                .partial_cmp(&(*b as f64))
+                .unwrap_or(std::cmp::Ordering::Equal),
             (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
             _ => std::cmp::Ordering::Equal,
         }
@@ -5773,43 +5978,63 @@ impl StreamExecutionEngine {
     ) -> Result<(), SqlError> {
         // Increment count
         accumulator.count += 1;
-        
+
         // Set sample record if first
         if accumulator.sample_record.is_none() {
             accumulator.sample_record = Some(record.clone());
         }
-        
+
         // Process each SELECT field to update relevant accumulators
         for field in select_fields {
             match field {
                 SelectField::Expression { expr, alias } => {
                     let expr_name = self.get_expression_name(expr);
                     let field_name = alias.as_ref().unwrap_or(&expr_name);
-                    self.update_accumulator_for_expression_inline(accumulator, field_name, expr, record)?;
+                    self.update_accumulator_for_expression_inline(
+                        accumulator,
+                        field_name,
+                        expr,
+                        record,
+                    )?;
                 }
                 SelectField::Column(name) => {
                     if let Some(field_value) = record.fields.get(name) {
                         // Update FIRST/LAST for all columns
-                        accumulator.first_values.entry(name.clone()).or_insert_with(|| field_value.clone());
-                        accumulator.last_values.insert(name.clone(), field_value.clone());
+                        accumulator
+                            .first_values
+                            .entry(name.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(name.clone(), field_value.clone());
                     }
                 }
                 SelectField::AliasedColumn { column, alias } => {
                     if let Some(field_value) = record.fields.get(column) {
-                        accumulator.first_values.entry(alias.clone()).or_insert_with(|| field_value.clone());
-                        accumulator.last_values.insert(alias.clone(), field_value.clone());
+                        accumulator
+                            .first_values
+                            .entry(alias.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(alias.clone(), field_value.clone());
                     }
                 }
                 SelectField::Wildcard => {
                     // Handle wildcard by processing all fields
                     for (field_name, field_value) in &record.fields {
-                        accumulator.first_values.entry(field_name.clone()).or_insert_with(|| field_value.clone());
-                        accumulator.last_values.insert(field_name.clone(), field_value.clone());
+                        accumulator
+                            .first_values
+                            .entry(field_name.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(field_name.clone(), field_value.clone());
                     }
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -5828,9 +6053,15 @@ impl StreamExecutionEngine {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
                             if let FieldValue::Float(f) = value {
-                                *accumulator.sums.entry(field_name.to_string()).or_insert(0.0) += f;
+                                *accumulator
+                                    .sums
+                                    .entry(field_name.to_string())
+                                    .or_insert(0.0) += f;
                             } else if let FieldValue::Integer(i) = value {
-                                *accumulator.sums.entry(field_name.to_string()).or_insert(0.0) += i as f64;
+                                *accumulator
+                                    .sums
+                                    .entry(field_name.to_string())
+                                    .or_insert(0.0) += i as f64;
                             }
                         }
                     }
@@ -5838,7 +6069,10 @@ impl StreamExecutionEngine {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
                             let current_min = accumulator.mins.get(field_name);
-                            if current_min.is_none() || self.field_value_compare(&value, current_min.unwrap()) == std::cmp::Ordering::Less {
+                            if current_min.is_none()
+                                || self.field_value_compare(&value, current_min.unwrap())
+                                    == std::cmp::Ordering::Less
+                            {
                                 accumulator.mins.insert(field_name.to_string(), value);
                             }
                         }
@@ -5847,7 +6081,10 @@ impl StreamExecutionEngine {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
                             let current_max = accumulator.maxs.get(field_name);
-                            if current_max.is_none() || self.field_value_compare(&value, current_max.unwrap()) == std::cmp::Ordering::Greater {
+                            if current_max.is_none()
+                                || self.field_value_compare(&value, current_max.unwrap())
+                                    == std::cmp::Ordering::Greater
+                            {
                                 accumulator.maxs.insert(field_name.to_string(), value);
                             }
                         }
@@ -5857,10 +6094,18 @@ impl StreamExecutionEngine {
                             let value = self.evaluate_expression_value(arg, record)?;
                             match value {
                                 FieldValue::Float(f) => {
-                                    accumulator.numeric_values.entry(field_name.to_string()).or_insert_with(Vec::new).push(f);
+                                    accumulator
+                                        .numeric_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(f);
                                 }
                                 FieldValue::Integer(i) => {
-                                    accumulator.numeric_values.entry(field_name.to_string()).or_insert_with(Vec::new).push(i as f64);
+                                    accumulator
+                                        .numeric_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(i as f64);
                                 }
                                 _ => {}
                             }
@@ -5869,20 +6114,29 @@ impl StreamExecutionEngine {
                     "FIRST" => {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
-                            accumulator.first_values.entry(field_name.to_string()).or_insert(value);
+                            accumulator
+                                .first_values
+                                .entry(field_name.to_string())
+                                .or_insert(value);
                         }
                     }
                     "LAST" => {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
-                            accumulator.last_values.insert(field_name.to_string(), value);
+                            accumulator
+                                .last_values
+                                .insert(field_name.to_string(), value);
                         }
                     }
                     "STRING_AGG" | "GROUP_CONCAT" => {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
                             if let FieldValue::String(s) = value {
-                                accumulator.string_values.entry(field_name.to_string()).or_insert_with(Vec::new).push(s);
+                                accumulator
+                                    .string_values
+                                    .entry(field_name.to_string())
+                                    .or_insert_with(Vec::new)
+                                    .push(s);
                             }
                         }
                     }
@@ -5890,25 +6144,39 @@ impl StreamExecutionEngine {
                         if let Some(arg) = args.first() {
                             let value = self.evaluate_expression_value(arg, record)?;
                             let key = self.field_value_to_group_key(&value);
-                            accumulator.distinct_values.entry(field_name.to_string()).or_insert_with(std::collections::HashSet::new).insert(key);
+                            accumulator
+                                .distinct_values
+                                .entry(field_name.to_string())
+                                .or_insert_with(std::collections::HashSet::new)
+                                .insert(key);
                         }
                     }
                     _ => {
                         // Non-aggregate function - store first/last values
                         let value = self.evaluate_expression_value(expr, record)?;
-                        accumulator.first_values.entry(field_name.to_string()).or_insert(value.clone());
-                        accumulator.last_values.insert(field_name.to_string(), value);
+                        accumulator
+                            .first_values
+                            .entry(field_name.to_string())
+                            .or_insert(value.clone());
+                        accumulator
+                            .last_values
+                            .insert(field_name.to_string(), value);
                     }
                 }
             }
             _ => {
                 // Non-function expression - store first/last values
                 let value = self.evaluate_expression_value(expr, record)?;
-                accumulator.first_values.entry(field_name.to_string()).or_insert(value.clone());
-                accumulator.last_values.insert(field_name.to_string(), value);
+                accumulator
+                    .first_values
+                    .entry(field_name.to_string())
+                    .or_insert(value.clone());
+                accumulator
+                    .last_values
+                    .insert(field_name.to_string(), value);
             }
         }
-        
+
         Ok(())
     }
 
@@ -5920,7 +6188,7 @@ impl StreamExecutionEngine {
         group_exprs: &[Expr],
     ) -> Result<HashMap<String, FieldValue>, SqlError> {
         let mut result_fields = HashMap::new();
-        
+
         // Process each SELECT field
         for field in select_fields {
             match field {
@@ -5963,7 +6231,7 @@ impl StreamExecutionEngine {
                 }
             }
         }
-        
+
         Ok(result_fields)
     }
 
@@ -5985,9 +6253,9 @@ impl StreamExecutionEngine {
                             Ok(FieldValue::Integer(accumulator.count as i64))
                         }
                     }
-                    "SUM" => {
-                        Ok(FieldValue::Float(accumulator.sums.get(field_name).copied().unwrap_or(0.0)))
-                    }
+                    "SUM" => Ok(FieldValue::Float(
+                        accumulator.sums.get(field_name).copied().unwrap_or(0.0),
+                    )),
                     "AVG" => {
                         if let Some(values) = accumulator.numeric_values.get(field_name) {
                             if values.is_empty() {
@@ -6000,21 +6268,25 @@ impl StreamExecutionEngine {
                             Ok(FieldValue::Null)
                         }
                     }
-                    "MIN" => {
-                        Ok(accumulator.mins.get(field_name).cloned().unwrap_or(FieldValue::Null))
-                    }
-                    "MAX" => {
-                        Ok(accumulator.maxs.get(field_name).cloned().unwrap_or(FieldValue::Null))
-                    }
+                    "MIN" => Ok(accumulator
+                        .mins
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "MAX" => Ok(accumulator
+                        .maxs
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
                     "STDDEV" => {
                         if let Some(values) = accumulator.numeric_values.get(field_name) {
                             if values.len() < 2 {
                                 Ok(FieldValue::Float(0.0))
                             } else {
                                 let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance = values.iter()
-                                    .map(|x| (x - mean).powi(2))
-                                    .sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64;
                                 Ok(FieldValue::Float(variance.sqrt()))
                             }
                         } else {
@@ -6027,21 +6299,25 @@ impl StreamExecutionEngine {
                                 Ok(FieldValue::Float(0.0))
                             } else {
                                 let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance = values.iter()
-                                    .map(|x| (x - mean).powi(2))
-                                    .sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64;
                                 Ok(FieldValue::Float(variance))
                             }
                         } else {
                             Ok(FieldValue::Null)
                         }
                     }
-                    "FIRST" => {
-                        Ok(accumulator.first_values.get(field_name).cloned().unwrap_or(FieldValue::Null))
-                    }
-                    "LAST" => {
-                        Ok(accumulator.last_values.get(field_name).cloned().unwrap_or(FieldValue::Null))
-                    }
+                    "FIRST" => Ok(accumulator
+                        .first_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "LAST" => Ok(accumulator
+                        .last_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
                     "STRING_AGG" | "GROUP_CONCAT" => {
                         if let Some(values) = accumulator.string_values.get(field_name) {
                             // TODO: Extract separator from second argument
@@ -6065,19 +6341,25 @@ impl StreamExecutionEngine {
                     }
                     _ => {
                         // Non-aggregate function
-                        accumulator.first_values.get(field_name).cloned().ok_or(SqlError::ExecutionError {
-                            message: format!("No value found for field {}", field_name),
-                            query: None,
-                        })
+                        accumulator.first_values.get(field_name).cloned().ok_or(
+                            SqlError::ExecutionError {
+                                message: format!("No value found for field {}", field_name),
+                                query: None,
+                            },
+                        )
                     }
                 }
             }
             _ => {
                 // Non-function expression
-                accumulator.first_values.get(field_name).cloned().ok_or(SqlError::ExecutionError {
-                    message: format!("No value found for field {}", field_name),
-                    query: None,
-                })
+                accumulator
+                    .first_values
+                    .get(field_name)
+                    .cloned()
+                    .ok_or(SqlError::ExecutionError {
+                        message: format!("No value found for field {}", field_name),
+                        query: None,
+                    })
             }
         }
     }
@@ -6086,9 +6368,15 @@ impl StreamExecutionEngine {
     fn field_value_compare(&self, a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
         match (a, b) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => a
+                .partial_cmp(&(*b as f64))
+                .unwrap_or(std::cmp::Ordering::Equal),
             (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a.cmp(b),
             (FieldValue::Date(a), FieldValue::Date(b)) => a.cmp(b),
@@ -6145,7 +6433,11 @@ impl StreamExecutionEngine {
                 let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))
             }
-            Expr::BinaryOp { left: _, op: _, right: _ } => {
+            Expr::BinaryOp {
+                left: _,
+                op: _,
+                right: _,
+            } => {
                 // Handle expressions in GROUP BY (e.g., YEAR(date) * 100 + MONTH(date))
                 let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))

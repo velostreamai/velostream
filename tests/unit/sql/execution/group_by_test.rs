@@ -1,17 +1,20 @@
-use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::sql::ast::*;
+use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<HashMap<String, InternalValue>>) {
+    fn create_test_engine() -> (
+        StreamExecutionEngine,
+        mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
+    ) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
         let engine = StreamExecutionEngine::new(sender, format);
@@ -183,12 +186,16 @@ mod tests {
         }
     }
 
-    async fn collect_results(receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>) -> Vec<HashMap<String, InternalValue>> {
+    async fn collect_results(
+        receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
+    ) -> Vec<HashMap<String, InternalValue>> {
         let mut results = Vec::new();
-        while let Ok(result) = tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
+        while let Ok(result) =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await
+        {
             match result {
                 Some(r) => results.push(r),
-                None => break
+                None => break,
             }
         }
         results
@@ -197,13 +204,15 @@ mod tests {
     // Flink-style result collection: only keep latest result per group key
     async fn collect_latest_group_results(
         receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
-        group_key_field: &str
+        group_key_field: &str,
     ) -> Vec<HashMap<String, InternalValue>> {
         let mut all_results = Vec::new();
-        while let Ok(result) = tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
+        while let Ok(result) =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await
+        {
             match result {
                 Some(r) => all_results.push(r),
-                None => break
+                None => break,
             }
         }
 
@@ -228,13 +237,15 @@ mod tests {
     // For tests with multiple group keys
     async fn collect_latest_multi_group_results(
         receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
-        group_key_fields: &[&str]
+        group_key_fields: &[&str],
     ) -> Vec<HashMap<String, InternalValue>> {
         let mut all_results = Vec::new();
-        while let Ok(result) = tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
+        while let Ok(result) =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await
+        {
             match result {
                 Some(r) => all_results.push(r),
-                None => break
+                None => break,
             }
         }
 
@@ -243,7 +254,9 @@ mod tests {
         for result in all_results {
             let mut composite_key = String::new();
             for (i, field) in group_key_fields.iter().enumerate() {
-                if i > 0 { composite_key.push(','); }
+                if i > 0 {
+                    composite_key.push(',');
+                }
                 if let Some(key_value) = result.get(*field) {
                     let key_part = match key_value {
                         InternalValue::Number(n) => n.to_string(),
@@ -339,12 +352,16 @@ mod tests {
         record3.insert("amount".to_string(), InternalValue::Number(150.0));
 
         // Test query with HAVING clause
-        let query = parser.parse("
+        let query = parser
+            .parse(
+                "
             SELECT customer_id, SUM(amount) as total
             FROM orders
             GROUP BY customer_id
             HAVING SUM(amount) > 250
-        ").unwrap();
+        ",
+            )
+            .unwrap();
 
         // Execute each record
         rt.block_on(async {
@@ -361,7 +378,7 @@ mod tests {
                 (Some(InternalValue::Number(cust_id)), Some(InternalValue::Number(sum))) => {
                     assert_eq!(*cust_id, 1.0);
                     assert_eq!(*sum, 300.0);
-                },
+                }
                 _ => panic!("Expected customer_id and total in results"),
             }
         });
@@ -387,7 +404,9 @@ mod tests {
         record3.insert("amount".to_string(), InternalValue::Number(300.0));
 
         // Test query with multiple aggregations
-        let query = parser.parse("
+        let query = parser
+            .parse(
+                "
             SELECT
                 customer_id,
                 COUNT(*) as count,
@@ -396,7 +415,9 @@ mod tests {
                 MAX(amount) as max_amount
             FROM orders
             GROUP BY customer_id
-        ").unwrap();
+        ",
+            )
+            .unwrap();
 
         // Execute each record
         rt.block_on(async {
@@ -410,29 +431,29 @@ mod tests {
             let result = &results[0];
             // Verify multiple aggregation results
             assert_eq!(result.len(), 5);
-            
+
             // Check count (can be Integer or Number)
             match result.get("count") {
                 Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
                 Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
                 _ => panic!("Expected count to be present as Integer or Number"),
             }
-            
+
             // Check other aggregates
             match (
                 result.get("avg_amount"),
                 result.get("min_amount"),
-                result.get("max_amount")
+                result.get("max_amount"),
             ) {
                 (
                     Some(InternalValue::Number(avg)),
                     Some(InternalValue::Number(min)),
-                    Some(InternalValue::Number(max))
+                    Some(InternalValue::Number(max)),
                 ) => {
                     assert_eq!(*avg, 200.0);
                     assert_eq!(*min, 100.0);
                     assert_eq!(*max, 300.0);
-                },
+                }
                 _ => panic!("Expected avg, min, max aggregation results to be present as Numbers"),
             }
         });
@@ -461,20 +482,27 @@ mod tests {
         record3.insert("_timestamp".to_string(), InternalValue::Number(360000.0)); // 6 minutes
 
         // Test windowed GROUP BY
-        let query = parser.parse("
+        let query = parser
+            .parse(
+                "
             SELECT
                 customer_id,
                 SUM(amount) as window_total
             FROM orders
             GROUP BY customer_id
             WINDOW TUMBLING(INTERVAL 5 MINUTES)
-        ").unwrap();
+        ",
+            )
+            .unwrap();
 
         // Execute each record
         rt.block_on(async {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+
+            // Flush any remaining windows to ensure all results are emitted
+            engine.flush_windows().await.unwrap();
 
             let results = collect_results(&mut receiver).await;
             assert_eq!(results.len(), 2); // Should have results for each window
@@ -520,14 +548,18 @@ mod tests {
         record2.insert("is_prime".to_string(), InternalValue::Boolean(false));
 
         // Test query that groups by a boolean condition
-        let query = parser.parse("
+        let query = parser
+            .parse(
+                "
             SELECT
                 (amount > 150) as high_value,
                 COUNT(*) as count,
                 SUM(amount) as total
             FROM orders
             GROUP BY amount > 150
-        ").unwrap();
+        ",
+            )
+            .unwrap();
 
         rt.block_on(async {
             // Execute each record
@@ -539,25 +571,27 @@ mod tests {
             assert_eq!(results.len(), 2); // Should have two groups: true and false
 
             // Find low value group (amount <= 150)
-            let low_value = results.iter().find(|r|
-                matches!(r.get("high_value"), Some(InternalValue::Boolean(false)))
-            ).expect("Should have results for low value group");
+            let low_value = results
+                .iter()
+                .find(|r| matches!(r.get("high_value"), Some(InternalValue::Boolean(false))))
+                .expect("Should have results for low value group");
 
             // Find high value group (amount > 150)
-            let high_value = results.iter().find(|r|
-                matches!(r.get("high_value"), Some(InternalValue::Boolean(true)))
-            ).expect("Should have results for high value group");
+            let high_value = results
+                .iter()
+                .find(|r| matches!(r.get("high_value"), Some(InternalValue::Boolean(true))))
+                .expect("Should have results for high value group");
 
             // Verify low value group
             match (low_value.get("count"), low_value.get("total")) {
                 (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1);
                     assert_eq!(*total, 100.0);
-                },
+                }
                 (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1.0);
                     assert_eq!(*total, 100.0);
-                },
+                }
                 _ => panic!("Expected numeric results for low value group"),
             }
 
@@ -566,11 +600,11 @@ mod tests {
                 (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1);
                     assert_eq!(*total, 200.0);
-                },
+                }
                 (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1.0);
                     assert_eq!(*total, 200.0);
-                },
+                }
                 _ => panic!("Expected numeric results for high value group"),
             }
         });

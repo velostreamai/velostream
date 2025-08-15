@@ -6,11 +6,11 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 
 **Goal**: Implement comprehensive GROUP BY operations with streaming semantics following Apache Flink's emission model.
 
-**Current Status**: 10/11 tests passing (91% success rate) - Core functionality complete, test coverage needs expansion.
+**Current Status**: 11/11 tests passing (100% success rate) - Core functionality complete, windowing working, test coverage needs expansion.
 
 ## Progress Summary
 
-### ✅ Completed Tasks (7/16)
+### ✅ Completed Tasks (8/16)
 
 1. **Research Flink's GROUP BY emission model** ✅
    - Studied Flink's continuous emission strategy with retraction semantics
@@ -43,13 +43,14 @@ This document tracks the progress and remaining work for the GROUP BY implementa
    - Fixed parsing for `WINDOW TUMBLING(INTERVAL 5 MINUTES)` syntax
    - Added proper time unit conversion (MINUTES→m, SECONDS→s, etc.)
 
-### ❌ Pending Tasks (9/16)
+8. **Fix windowed GROUP BY test (test_group_by_with_window)** ✅
+   - Fixed execute method to properly route windowed queries through windowed processing pipeline
+   - Added FieldValue::Float support in extract_event_time for proper timestamp handling
+   - Enhanced window state initialization for direct execute() calls
+   - Added window flushing in tests to ensure all windows are emitted
+   - **Result**: 11/11 tests passing (100% success rate), Flink-style windowing working correctly
 
-#### **Bug Fixes**
-8. **Fix windowed GROUP BY test (test_group_by_with_window)** 🔧
-   - **Issue**: Test expects 2 results but gets 3
-   - **Root Cause**: Windowing implementation emits more results than expected (separate from GROUP BY logic)
-   - **Priority**: Medium (doesn't affect core GROUP BY functionality)
+### ❌ Pending Tasks (8/16)
 
 #### **Core Function Testing** 
 9. **Add tests for missing aggregate functions** 🧪 **HIGH PRIORITY**
@@ -157,16 +158,16 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 
 ## Success Metrics
 
-- **Current**: 10/11 tests passing (91%)
-- **Target**: 25+ tests with 100% core functionality coverage
+- **Current**: 11/11 tests passing (100%) ✅
+- **Target**: 25+ tests with 100% core functionality coverage  
 - **Production Ready**: All error scenarios handled, comprehensive edge case testing
 
 ## Notes
 
-- GROUP BY core functionality is **production-ready** for most streaming SQL use cases
-- Current test failures are in windowing integration, not core GROUP BY logic
+- GROUP BY core functionality is **production-ready** for most streaming SQL use cases ✅
+- Windowing integration is now working correctly with Flink-style semantics ✅  
 - Test expansion is the main blocker for full production confidence
-- Documentation is comprehensive and complete
+- Documentation is comprehensive and complete ✅
 
 ---
 
