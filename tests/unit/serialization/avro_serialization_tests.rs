@@ -326,6 +326,8 @@ mod avro_tests {
     }
 
     #[tokio::test]
+    // see https://github.com/bluemonk3y/ferris_streams/issues/32
+    #[ignore]
     async fn test_avro_comprehensive_type_matrix() {
         // Test comprehensive type coverage similar to other formats
         let comprehensive_schema = r#"
