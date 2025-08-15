@@ -113,11 +113,51 @@ pub struct StreamExecutionEngine {
     output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
     _serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
+    // Stateful GROUP BY support
+    group_states: HashMap<String, GroupByState>,
 }
 
 // =============================================================================
 // CORE DATA TYPES AND STRUCTURES
 // =============================================================================
+
+/// State for tracking GROUP BY aggregations across streaming records
+#[derive(Debug, Clone)]
+pub struct GroupByState {
+    /// Map of group keys to their accumulated state
+    groups: HashMap<Vec<String>, GroupAccumulator>,
+    /// The GROUP BY expressions for this state
+    group_expressions: Vec<Expr>,
+    /// The SELECT fields to compute for each group
+    select_fields: Vec<SelectField>,
+    /// Optional HAVING clause
+    having_clause: Option<Expr>,
+}
+
+/// Accumulator for a single group's aggregate state
+#[derive(Debug, Clone)]
+pub struct GroupAccumulator {
+    /// Count of records in this group
+    count: u64,
+    /// Sum values for SUM() aggregates (field_name -> sum)
+    sums: HashMap<String, f64>,
+    /// Values for MIN() aggregates (field_name -> min_value)
+    mins: HashMap<String, FieldValue>,
+    /// Values for MAX() aggregates (field_name -> max_value)
+    maxs: HashMap<String, FieldValue>,
+    /// Values for statistical aggregates (field_name -> [values])
+    numeric_values: HashMap<String, Vec<f64>>,
+    /// First values for FIRST() aggregates
+    first_values: HashMap<String, FieldValue>,
+    /// Last values for LAST() aggregates (updated on each record)
+    last_values: HashMap<String, FieldValue>,
+    /// String values for STRING_AGG
+    string_values: HashMap<String, Vec<String>>,
+    /// Distinct values for COUNT_DISTINCT
+    distinct_values: HashMap<String, std::collections::HashSet<String>>,
+    /// Sample record for non-aggregate fields (takes first record's values)
+    sample_record: Option<StreamRecord>,
+}
 
 #[derive(Debug)]
 pub enum ExecutionMessage {
@@ -279,6 +319,7 @@ impl StreamExecutionEngine {
             output_sender,
             _serialization_format,
             record_count: 0,
+            group_states: HashMap::new(),
         }
     }
 
@@ -4872,7 +4913,7 @@ impl StreamExecutionEngine {
 
                     // Execute aggregation on filtered records
                     let result_option =
-                        match self.execute_windowed_aggregation(query, &windowed_buffer) {
+                        match self.execute_windowed_aggregation_impl(query, &windowed_buffer) {
                             Ok(result) => Some(result),
                             Err(SqlError::ExecutionError { message, .. })
                                 if message == "No records after filtering" =>
@@ -4981,7 +5022,17 @@ impl StreamExecutionEngine {
     }
 
     /// Execute aggregation on windowed records
-    fn execute_windowed_aggregation(
+    #[cfg(test)]
+    pub fn execute_windowed_aggregation(
+        &mut self,
+        query: &StreamingQuery,
+        records: &[StreamRecord],
+    ) -> Result<StreamRecord, SqlError> {
+        self.execute_windowed_aggregation_impl(query, records)
+    }
+
+    /// Execute aggregation on windowed records (internal implementation)
+    fn execute_windowed_aggregation_impl(
         &mut self,
         query: &StreamingQuery,
         records: &[StreamRecord],
@@ -5109,7 +5160,14 @@ impl StreamExecutionEngine {
 
             // Emit additional results through the channel
             for additional_result in all_results.iter().skip(1) {
-                if let Err(_) = self.result_sender.send(additional_result.clone()) {
+                // Convert StreamRecord fields to InternalValue format
+                let mut internal_record = HashMap::new();
+                for (key, field_value) in &additional_result.fields {
+                    let internal_value = self.field_value_to_internal(field_value.clone());
+                    internal_record.insert(key.clone(), internal_value);
+                }
+                
+                if let Err(_) = self.output_sender.send(internal_record) {
                     // Log warning but continue - the receiver may have been dropped
                     eprintln!("Warning: Failed to send additional GROUP BY result");
                 }
@@ -5309,12 +5367,12 @@ impl StreamExecutionEngine {
     }
 
     /// Group records by GROUP BY expressions
-    fn group_records(
+    fn group_records<'a>(
         &mut self,
-        records: Vec<&StreamRecord>,
+        records: Vec<&'a StreamRecord>,
         group_exprs: &[Expr],
-    ) -> Result<Vec<Vec<&StreamRecord>>, SqlError> {
-        let mut groups: HashMap<Vec<String>, Vec<&StreamRecord>> = HashMap::new();
+    ) -> Result<Vec<Vec<&'a StreamRecord>>, SqlError> {
+        let mut groups: HashMap<Vec<String>, Vec<&'a StreamRecord>> = HashMap::new();
 
         for record in records {
             let mut group_key = Vec::new();
@@ -5351,12 +5409,12 @@ impl StreamExecutionEngine {
                 }
             }
             Expr::Literal(literal) => Ok(self.literal_to_group_key(literal)),
-            Expr::Function { name, args } => {
+            Expr::Function { name: _, args: _ } => {
                 // Handle function calls in GROUP BY (e.g., DATE(timestamp))
                 let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))
             }
-            Expr::BinaryOp { left, op, right } => {
+            Expr::BinaryOp { left: _, op: _, right: _ } => {
                 // Handle expressions in GROUP BY (e.g., YEAR(date) * 100 + MONTH(date))
                 let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))

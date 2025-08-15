@@ -7,8 +7,9 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
 ## Table of Contents
 
 1. [Basic Query Syntax](#basic-query-syntax)
-2. [JOIN Operations](#join-operations)
-3. [Job Lifecycle Management](#job-lifecycle-management)
+2. [GROUP BY Operations](#group-by-operations)
+3. [JOIN Operations](#join-operations)
+4. [Job Lifecycle Management](#job-lifecycle-management)
 4. [Built-in Functions](#built-in-functions)
    - [Window Functions](#window-functions)
    - [Statistical Functions](#statistical-functions)
@@ -80,6 +81,82 @@ SELECT
 FROM orders
 GROUP BY customer_id;
 ```
+
+## GROUP BY Operations
+
+FerrisStreams provides comprehensive GROUP BY functionality for data aggregation with streaming semantics. All standard SQL aggregate functions are supported along with streaming-specific optimizations.
+
+### Basic Grouping
+
+```sql
+-- Count orders per customer
+SELECT customer_id, COUNT(*) as order_count
+FROM orders 
+GROUP BY customer_id;
+
+-- Sum amounts by category with multiple aggregates
+SELECT 
+    category,
+    COUNT(*) as count,
+    SUM(amount) as total,
+    AVG(amount) as average,
+    MIN(amount) as minimum,
+    MAX(amount) as maximum
+FROM transactions 
+GROUP BY category;
+```
+
+### Multiple Column Grouping
+
+```sql
+-- Group by customer and status
+SELECT customer_id, order_status, COUNT(*) as count, SUM(amount) as total
+FROM orders 
+GROUP BY customer_id, order_status;
+```
+
+### Expression-based Grouping
+
+```sql
+-- Time-based grouping
+SELECT 
+    YEAR(order_date) as year,
+    MONTH(order_date) as month,
+    COUNT(*) as monthly_orders
+FROM orders 
+GROUP BY YEAR(order_date), MONTH(order_date);
+```
+
+### HAVING Clause
+
+Filter groups based on aggregate conditions:
+
+```sql
+-- High-value customers only
+SELECT customer_id, SUM(amount) as total_spent
+FROM orders 
+GROUP BY customer_id 
+HAVING SUM(amount) > 1000;
+```
+
+### Supported Aggregate Functions
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `COUNT(*)` | Count all rows | `COUNT(*)` |
+| `COUNT(column)` | Count non-null values | `COUNT(amount)` |
+| `COUNT_DISTINCT(column)` | Count unique values | `COUNT_DISTINCT(product_id)` |
+| `SUM(column)` | Sum numeric values | `SUM(amount)` |
+| `AVG(column)` | Average of numeric values | `AVG(price)` |
+| `MIN(column)` | Minimum value | `MIN(order_date)` |
+| `MAX(column)` | Maximum value | `MAX(order_date)` |
+| `STDDEV(column)` | Standard deviation | `STDDEV(amount)` |
+| `VARIANCE(column)` | Variance | `VARIANCE(amount)` |
+| `FIRST(column)` | First value in group | `FIRST(status)` |
+| `LAST(column)` | Last value in group | `LAST(status)` |
+| `STRING_AGG(column, sep)` | Concatenate strings | `STRING_AGG(name, ', ')` |
+
+For detailed GROUP BY documentation and examples, see: [GROUP BY Reference](SQL_REFERENCE_GROUP_BY.md)
 
 ## JOIN Operations
 
