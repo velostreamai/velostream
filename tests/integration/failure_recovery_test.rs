@@ -1,4 +1,4 @@
-use crate::unit::common::*;
+use super::*; // Use the re-exported items from integration::mod
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::{Duration, sleep, timeout};
@@ -426,7 +426,7 @@ async fn test_graceful_shutdown_recovery() {
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
     // Send messages
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Shutdown test 1"),
         TestMessage::new(2, "Shutdown test 2"),
     ];

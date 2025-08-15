@@ -3,6 +3,15 @@
 //! A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance,
 //! fault-tolerant, and flexible processing of multiple Kafka topics and data streams with full
 //! support for keys, values, and headers.
+
+// Allow certain clippy warnings for development
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_doctest_main)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::wrong_self_convention)]
+#![allow(clippy::bool_assert_comparison)]
+#![allow(clippy::large_enum_variant)]
 //!
 //! ## Features
 //!

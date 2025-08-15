@@ -178,7 +178,8 @@ mod tests {
         let parser = StreamingSqlParser::new();
         let result = parser.parse("SELECT *");
 
-        assert!(result.is_err());
+        // Parser now allows SELECT without FROM clause (e.g., SELECT 1, SELECT NOW())
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -206,7 +207,7 @@ mod tests {
     #[test]
     fn test_numeric_literals() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse("SELECT 42, 3.14, 0 FROM orders");
+        let result = parser.parse("SELECT 42, 2.718, 0 FROM orders");
 
         assert!(result.is_ok());
         let query = result.unwrap();

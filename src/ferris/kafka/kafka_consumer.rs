@@ -137,23 +137,23 @@ where
         client_config
             .set("group.id", &config.group_id)
             .set("auto.offset.reset", config.auto_offset_reset.as_str())
-            .set("enable.auto.commit", &config.enable_auto_commit.to_string())
+            .set("enable.auto.commit", config.enable_auto_commit.to_string())
             .set(
                 "auto.commit.interval.ms",
-                &config.auto_commit_interval.as_millis().to_string(),
+                config.auto_commit_interval.as_millis().to_string(),
             )
             .set(
                 "session.timeout.ms",
-                &config.session_timeout.as_millis().to_string(),
+                config.session_timeout.as_millis().to_string(),
             )
             .set(
                 "heartbeat.interval.ms",
-                &config.heartbeat_interval.as_millis().to_string(),
+                config.heartbeat_interval.as_millis().to_string(),
             )
-            .set("fetch.min.bytes", &config.fetch_min_bytes.to_string())
+            .set("fetch.min.bytes", config.fetch_min_bytes.to_string())
             .set(
                 "fetch.message.max.bytes",
-                &config.max_partition_fetch_bytes.to_string(),
+                config.max_partition_fetch_bytes.to_string(),
             )
             .set("isolation.level", config.isolation_level.as_str());
 
@@ -282,7 +282,7 @@ where
     }
 
     /// Get a stream of raw Kafka messages (for advanced use cases)
-    pub fn raw_stream(&self) -> MessageStream<C> {
+    pub fn raw_stream(&self) -> MessageStream<'_, C> {
         self.consumer.stream()
     }
 
@@ -433,6 +433,7 @@ where
 
 /// Metadata associated with a Kafka message
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MessageMetadata {
     pub key: Option<String>,
     pub partition: i32,
@@ -451,7 +452,7 @@ where
     group_id: String,
     key_serializer: KS,
     value_serializer: VS,
-    context: Option<C>,
+    _context: Option<C>,
     _phantom_key: PhantomData<K>,
     _phantom_value: PhantomData<V>,
 }
@@ -468,7 +469,7 @@ where
             group_id: group_id.to_string(),
             key_serializer,
             value_serializer,
-            context: None,
+            _context: None,
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         }
@@ -501,7 +502,7 @@ where
             group_id: self.group_id,
             key_serializer: self.key_serializer,
             value_serializer: self.value_serializer,
-            context: Some(context),
+            _context: Some(context),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
         }

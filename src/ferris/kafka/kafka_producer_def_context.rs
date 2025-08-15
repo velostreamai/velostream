@@ -23,11 +23,17 @@ impl LoggingProducerContext {
     }
 }
 
-impl LoggingProducerContext {
-    pub fn default() -> Self {
+impl Default for LoggingProducerContext {
+    fn default() -> Self {
         LoggingProducerContext {
             last_delivery: std::sync::Mutex::new(None),
         }
+    }
+}
+
+impl LoggingProducerContext {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

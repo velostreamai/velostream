@@ -12,30 +12,28 @@ use crate::ferris::kafka::headers::Headers;
 /// ```rust,no_run
 /// use ferrisstreams::ferris::kafka::{Message, Headers};
 ///
-/// fn main() {
-///     let message = Message::new(
-///         Some("key".to_string()),
-///         "value".to_string(),
-///         Headers::new(),
-///         0, // partition
-///         100, // offset
-///         None // timestamp
-///     );
-///     
-///     // Access by reference (borrowing)
-///     println!("Key: {:?}", message.key());
-///     println!("Value: {}", message.value());
-///     println!("Headers: {:?}", message.headers());
+/// let message = Message::new(
+///     Some("key".to_string()),
+///     "value".to_string(),
+///     Headers::new(),
+///     0, // partition
+///     100, // offset
+///     None // timestamp
+/// );
 ///
-///     // Check for specific headers
-///     if let Some(source) = message.headers().get("source") {
-///         println!("Message originated from: {}", source);
-///     }
+/// // Access by reference (borrowing)
+/// println!("Key: {:?}", message.key());
+/// println!("Value: {}", message.value());
+/// println!("Headers: {:?}", message.headers());
 ///
-///     // Consume the message (take ownership)
-///     let (key, value, headers) = message.into_parts();
-///     // Now you own the key, value, and headers
+/// // Check for specific headers
+/// if let Some(source) = message.headers().get("source") {
+///     println!("Message originated from: {}", source);
 /// }
+///
+/// // Consume the message (take ownership)
+/// let (key, value, headers) = message.into_parts();
+/// // Now you own the key, value, and headers
 /// ```
 ///
 /// See the [consumer with headers example](https://github.com/your-repo/examples/consumer_with_headers.rs)

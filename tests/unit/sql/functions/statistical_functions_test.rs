@@ -18,13 +18,14 @@ use ferrisstreams::ferris::sql::ast::{
 };
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn create_test_record() -> HashMap<String, InternalValue> {
     let mut record = HashMap::new();
     record.insert("value_int".to_string(), InternalValue::Integer(42));
-    record.insert("value_float".to_string(), InternalValue::Number(3.14));
+    record.insert("value_float".to_string(), InternalValue::Number(PI));
     record.insert("negative_value".to_string(), InternalValue::Integer(-10));
     record.insert("zero_value".to_string(), InternalValue::Integer(0));
     record.insert("null_value".to_string(), InternalValue::Null);
@@ -214,7 +215,7 @@ async fn test_median_function() {
     let test_cases = vec![
         // (column_name, expected_type, expected_value)
         ("value_int", "integer", 42.0),
-        ("value_float", "float", 3.14),
+        ("value_float", "float", PI),
         ("negative_value", "integer", -10.0),
         ("zero_value", "integer", 0.0),
         ("large_value", "float", 1000.5),

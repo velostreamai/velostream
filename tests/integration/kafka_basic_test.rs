@@ -1,4 +1,4 @@
-use crate::unit::common::*;
+use super::*; // Use the re-exported items from integration::mod
 use futures::StreamExt;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -571,7 +571,7 @@ async fn test_consumer_stream() {
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
     // Send a few test messages
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Stream message 1"),
         TestMessage::new(2, "Stream message 2"),
         TestMessage::new(3, "Stream message 3"),
@@ -663,7 +663,7 @@ async fn test_fluent_consumer_style() {
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
     // Send test messages
-    let messages = vec![
+    let messages = [
         TestMessage::new(1, "Fluent message 1"),
         TestMessage::new(2, "Fluent message 2"),
         TestMessage::new(3, "Fluent message 3"),

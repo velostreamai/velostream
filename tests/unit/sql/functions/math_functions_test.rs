@@ -11,6 +11,7 @@ use ferrisstreams::ferris::sql::ast::{
 };
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -18,7 +19,7 @@ fn create_test_record() -> HashMap<String, InternalValue> {
     let mut record = HashMap::new();
     record.insert("positive_int".to_string(), InternalValue::Integer(42));
     record.insert("negative_int".to_string(), InternalValue::Integer(-15));
-    record.insert("positive_float".to_string(), InternalValue::Number(3.14159));
+    record.insert("positive_float".to_string(), InternalValue::Number(PI));
     record.insert("negative_float".to_string(), InternalValue::Number(-2.5));
     record.insert("zero_int".to_string(), InternalValue::Integer(0));
     record.insert("zero_float".to_string(), InternalValue::Number(0.0));
@@ -36,7 +37,7 @@ async fn test_abs_function() {
         // (column_name, expected_result)
         ("positive_int", 42.0),
         ("negative_int", 15.0),
-        ("positive_float", 3.14159),
+        ("positive_float", PI),
         ("negative_float", 2.5),
         ("zero_int", 0.0),
         ("zero_float", 0.0),
@@ -118,6 +119,7 @@ async fn test_abs_function() {
 }
 
 #[tokio::test]
+#[allow(clippy::approx_constant)]
 async fn test_round_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
@@ -163,7 +165,7 @@ async fn test_round_function() {
             expr: Expr::Function {
                 name: "ROUND".to_string(),
                 args: vec![
-                    Expr::Literal(LiteralValue::Float(3.14159)),
+                    Expr::Literal(LiteralValue::Float(PI)),
                     Expr::Literal(LiteralValue::Integer(2)),
                 ],
             },
@@ -188,7 +190,7 @@ async fn test_round_function() {
         Some(InternalValue::Number(f)) => {
             assert!(
                 (f - 3.14).abs() < 0.0001,
-                "ROUND(3.14159, 2) should be 3.14, got {}",
+                "ROUND(PI, 2) should be close to 3.14, got {}",
                 f
             );
         }

@@ -148,34 +148,24 @@ where
         from_json(bytes)
     }
 
-    fn serialize_async(
-        &self,
-        value: &T,
-    ) -> impl std::future::Future<Output = Result<Vec<u8>, SerializationError>> + Send
+    async fn serialize_async(&self, value: &T) -> Result<Vec<u8>, SerializationError>
     where
         Self: std::marker::Sync,
     {
-        async move {
-            // For large JSON objects, we could spawn this on a thread pool
-            // For now, just call the sync version
-            tokio::task::yield_now().await; // Yield to allow other tasks to run
-            self.serialize_sync(value)
-        }
+        // For large JSON objects, we could spawn this on a thread pool
+        // For now, just call the sync version
+        tokio::task::yield_now().await; // Yield to allow other tasks to run
+        self.serialize_sync(value)
     }
 
-    fn deserialize_async(
-        &self,
-        bytes: &[u8],
-    ) -> impl std::future::Future<Output = Result<T, SerializationError>> + Send
+    async fn deserialize_async(&self, bytes: &[u8]) -> Result<T, SerializationError>
     where
         Self: std::marker::Sync,
     {
-        async move {
-            // For large JSON parsing, we could spawn this on a thread pool
-            // For now, just call the sync version
-            tokio::task::yield_now().await; // Yield to allow other tasks to run
-            self.deserialize_sync(bytes)
-        }
+        // For large JSON parsing, we could spawn this on a thread pool
+        // For now, just call the sync version
+        tokio::task::yield_now().await; // Yield to allow other tasks to run
+        self.deserialize_sync(bytes)
     }
 }
 
@@ -274,6 +264,12 @@ pub fn from_proto<T>(_bytes: &[u8]) -> Result<T, SerializationError> {
 pub struct ProtoSerializer<T: Message + Default>(std::marker::PhantomData<T>);
 
 #[cfg(feature = "protobuf")]
+impl<T: Message + Default> Default for ProtoSerializer<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Message + Default> ProtoSerializer<T> {
     pub fn new() -> Self {
         Self(std::marker::PhantomData)

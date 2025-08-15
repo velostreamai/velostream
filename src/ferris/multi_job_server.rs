@@ -178,7 +178,7 @@ impl MultiJobSqlServer {
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
         *counter += 1;
-        let group_id = format!("{}-job-{}-{}", self.base_group_id, name, *counter);
+        let _group_id = format!("{}-job-{}-{}", self.base_group_id, name, *counter);
         drop(counter);
 
         // Create shutdown channel
@@ -639,6 +639,7 @@ async fn process_kafka_message(
 }
 
 /// Convert JSON value to StreamRecord format
+#[allow(dead_code)]
 fn json_to_stream_record(json: Value) -> Result<StreamRecord, SqlError> {
     let mut fields = HashMap::new();
 

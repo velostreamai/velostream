@@ -243,10 +243,10 @@ mod tests {
                 let function_names: Vec<String> = fields
                     .iter()
                     .filter_map(|field| match field {
-                        SelectField::Expression { expr, .. } => match expr {
-                            Expr::Function { name, .. } => Some(name.to_uppercase()),
-                            _ => None,
-                        },
+                        SelectField::Expression {
+                            expr: Expr::Function { name, .. },
+                            ..
+                        } => Some(name.to_uppercase()),
                         _ => None,
                     })
                     .collect();

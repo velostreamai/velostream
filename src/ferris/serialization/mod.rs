@@ -71,7 +71,7 @@
 //! # }
 //! ```
 
-use crate::ferris::sql::{FieldValue, SqlError};
+pub use crate::ferris::sql::{FieldValue, SqlError};
 use std::collections::HashMap;
 
 /// Trait for pluggable serialization formats
@@ -496,7 +496,7 @@ impl AvroFormat {
     }
 
     /// Create a default Avro format with generic record schema
-    pub fn default() -> Result<Self, SerializationError> {
+    pub fn default_format() -> Result<Self, SerializationError> {
         let schema_json = r#"
         {
             "type": "record",
@@ -541,12 +541,12 @@ impl SerializationFormat for AvroFormat {
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         use apache_avro::Reader;
 
-        let reader = Reader::with_schema(&self.reader_schema, bytes).map_err(|e| {
+        let mut reader = Reader::with_schema(&self.reader_schema, bytes).map_err(|e| {
             SerializationError::DeserializationFailed(format!("Avro reader creation failed: {}", e))
         })?;
 
         // Read first record (assuming single record per message)
-        for record_result in reader {
+        if let Some(record_result) = reader.next() {
             let avro_value = record_result.map_err(|e| {
                 SerializationError::DeserializationFailed(format!(
                     "Avro deserialization failed: {}",
@@ -604,7 +604,14 @@ fn record_to_avro_value(
 
     let mut avro_fields = Vec::new();
     for (key, field_value) in record {
-        let avro_value = field_value_to_avro(field_value)?;
+        let avro_value = match field_value {
+            FieldValue::Null => {
+                // For nullable fields in unions, wrap null in union with index 1
+                // (assuming ["string", "null"] or similar patterns where null is typically second)
+                Value::Union(1, Box::new(Value::Null))
+            }
+            _ => field_value_to_avro(field_value)?,
+        };
         avro_fields.push((key.clone(), avro_value));
     }
 
@@ -715,6 +722,16 @@ where
     T: prost::Message + Default,
 {
     _phantom: std::marker::PhantomData<T>,
+}
+
+#[cfg(feature = "protobuf")]
+impl<T> Default for ProtobufFormat<T>
+where
+    T: prost::Message + Default,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(feature = "protobuf")]
@@ -885,7 +902,7 @@ impl SerializationFormatFactory {
             "json" => Ok(Box::new(JsonFormat)),
             #[cfg(feature = "avro")]
             "avro" => {
-                let avro_format = AvroFormat::default().map_err(|e| {
+                let avro_format = AvroFormat::default_format().map_err(|e| {
                     SerializationError::FormatConversionFailed(format!(
                         "Failed to create Avro format: {}",
                         e
