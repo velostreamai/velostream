@@ -7,50 +7,21 @@ and schema evolution scenarios.
 
 #[cfg(feature = "avro")]
 mod avro_tests {
+    use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{
         AvroFormat, SerializationFormat, SerializationFormatFactory,
     };
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
 
-    fn create_simple_test_record() -> HashMap<String, FieldValue> {
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(123));
-        record.insert(
-            "name".to_string(),
-            FieldValue::String("John Doe".to_string()),
-        );
-        record.insert("age".to_string(), FieldValue::Integer(30));
-        record.insert("active".to_string(), FieldValue::Boolean(true));
-        record.insert("score".to_string(), FieldValue::Float(95.5));
-        record
-    }
-
-    fn create_user_schema() -> &'static str {
-        r#"
-        {
-            "type": "record",
-            "name": "User",
-            "fields": [
-                {"name": "id", "type": "long"},
-                {"name": "name", "type": "string"},
-                {"name": "age", "type": "long"},
-                {"name": "active", "type": "boolean"},
-                {"name": "score", "type": "double"}
-            ]
-        }
-        "#
-    }
-
     fn create_evolved_schema() -> &'static str {
         r#"
         {
             "type": "record",
-            "name": "User",
+            "name": "BasicRecord",
             "fields": [
                 {"name": "id", "type": "long"},
                 {"name": "name", "type": "string"},
-                {"name": "age", "type": "long"},
                 {"name": "active", "type": "boolean"},
                 {"name": "score", "type": "double"},
                 {"name": "email", "type": ["null", "string"], "default": null}
@@ -61,7 +32,7 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_format_creation() {
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema);
         assert!(
             format.is_ok(),
@@ -93,53 +64,22 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_serialization_round_trip() {
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
-        let record = create_simple_test_record();
+        let record = create_basic_test_record();
 
-        // Serialize to bytes
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Avro serialization should succeed");
-        assert!(
-            !serialized.is_empty(),
-            "Serialized data should not be empty"
-        );
-
-        // Deserialize back to record
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Avro deserialization should succeed");
-
-        // Verify core fields (Avro might reorder or transform slightly)
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
-        assert_eq!(
-            deserialized.get("name"),
-            Some(&FieldValue::String("John Doe".to_string()))
-        );
-        assert_eq!(deserialized.get("age"), Some(&FieldValue::Integer(30)));
-        assert_eq!(deserialized.get("active"), Some(&FieldValue::Boolean(true)));
-
-        // Float comparison with tolerance
-        if let Some(FieldValue::Float(score)) = deserialized.get("score") {
-            assert!(
-                (score - 95.5).abs() < 0.001,
-                "Score should be approximately 95.5"
-            );
-        } else {
-            panic!("Score field should be present and be a float");
-        }
+        test_serialization_round_trip(&format, &record).expect("Avro round trip should succeed");
     }
 
     #[tokio::test]
     async fn test_avro_schema_evolution() {
-        let writer_schema = create_user_schema();
+        let writer_schema = create_basic_avro_schema();
         let reader_schema = create_evolved_schema();
 
         let format = AvroFormat::with_schemas(writer_schema, reader_schema)
             .expect("Should create Avro format with schema evolution");
 
-        let record = create_simple_test_record();
+        let record = create_basic_test_record();
         let serialized = format
             .serialize_record(&record)
             .expect("Schema evolution serialization should succeed");
@@ -152,32 +92,26 @@ mod avro_tests {
         assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
         assert_eq!(
             deserialized.get("name"),
-            Some(&FieldValue::String("John Doe".to_string()))
+            Some(&FieldValue::String("Test User".to_string()))
         );
+        assert_eq!(deserialized.get("active"), Some(&FieldValue::Boolean(true)));
     }
 
     #[tokio::test]
     async fn test_avro_to_execution_format() {
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
-        let record = create_simple_test_record();
+        let record = create_basic_test_record();
 
-        let execution_format = format
-            .to_execution_format(&record)
-            .expect("Conversion to execution format should succeed");
-
-        assert!(execution_format.contains_key("id"));
-        assert!(execution_format.contains_key("name"));
-        assert!(execution_format.contains_key("age"));
-        assert!(execution_format.contains_key("active"));
-        assert!(execution_format.contains_key("score"));
+        test_execution_format_round_trip(&format, &record)
+            .expect("Execution format conversion should succeed");
     }
 
     #[tokio::test]
     async fn test_avro_from_execution_format() {
         use ferrisstreams::ferris::serialization::InternalValue;
 
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
 
         let mut execution_data = HashMap::new();
@@ -186,7 +120,6 @@ mod avro_tests {
             "name".to_string(),
             InternalValue::String("Jane Smith".to_string()),
         );
-        execution_data.insert("age".to_string(), InternalValue::Integer(25));
         execution_data.insert("active".to_string(), InternalValue::Boolean(false));
         execution_data.insert("score".to_string(), InternalValue::Number(87.3));
 
@@ -199,35 +132,15 @@ mod avro_tests {
             record.get("name"),
             Some(&FieldValue::String("Jane Smith".to_string()))
         );
-        assert_eq!(record.get("age"), Some(&FieldValue::Integer(25)));
         assert_eq!(record.get("active"), Some(&FieldValue::Boolean(false)));
         assert_eq!(record.get("score"), Some(&FieldValue::Float(87.3)));
     }
 
     #[tokio::test]
     async fn test_avro_complex_types() {
-        let complex_schema = r#"
-        {
-            "type": "record",
-            "name": "ComplexRecord",
-            "fields": [
-                {"name": "id", "type": "long"},
-                {"name": "tags", "type": {"type": "array", "items": "string"}},
-                {"name": "metadata", "type": {"type": "map", "values": "string"}},
-                {"name": "nested", "type": {
-                    "type": "record",
-                    "name": "NestedRecord",
-                    "fields": [
-                        {"name": "value", "type": "string"},
-                        {"name": "count", "type": "long"}
-                    ]
-                }}
-            ]
-        }
-        "#;
-
+        let schema = create_complex_avro_schema();
         let format =
-            AvroFormat::new(complex_schema).expect("Should create Avro format with complex schema");
+            AvroFormat::new(schema).expect("Should create Avro format with complex schema");
 
         let mut nested_fields = HashMap::new();
         nested_fields.insert(
@@ -252,30 +165,8 @@ mod avro_tests {
         record.insert("metadata".to_string(), FieldValue::Map(metadata));
         record.insert("nested".to_string(), FieldValue::Struct(nested_fields));
 
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Complex type serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Complex type deserialization should succeed");
-
-        // Verify basic field
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(789)));
-
-        // Verify array field exists
-        assert!(deserialized.contains_key("tags"), "Tags field should exist");
-
-        // Verify map field exists
-        assert!(
-            deserialized.contains_key("metadata"),
-            "Metadata field should exist"
-        );
-
-        // Verify nested record exists
-        assert!(
-            deserialized.contains_key("nested"),
-            "Nested field should exist"
-        );
+        test_serialization_round_trip(&format, &record)
+            .expect("Complex type round trip should succeed");
     }
 
     #[tokio::test]
@@ -286,7 +177,7 @@ mod avro_tests {
         assert_eq!(format.format_name(), "Avro");
 
         // Test with custom schema
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let custom_format = SerializationFormatFactory::create_avro_format(schema)
             .expect("Should create custom Avro format");
 
@@ -295,47 +186,17 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_null_handling() {
-        let null_schema = r#"
-        {
-            "type": "record",
-            "name": "NullRecord",
-            "fields": [
-                {"name": "id", "type": "long"},
-                {"name": "optional_field", "type": ["string", "null"]},
-                {"name": "required_field", "type": "string"}
-            ]
-        }
-        "#;
+        let schema = create_null_avro_schema();
+        let format = AvroFormat::new(schema).expect("Should create Avro format with null schema");
+        let record = create_null_test_record();
 
-        let format =
-            AvroFormat::new(null_schema).expect("Should create Avro format with null schema");
-
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(123));
-        record.insert("optional_field".to_string(), FieldValue::Null);
-        record.insert(
-            "required_field".to_string(),
-            FieldValue::String("required".to_string()),
-        );
-
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Null field serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Null field deserialization should succeed");
-
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
-        assert_eq!(deserialized.get("optional_field"), Some(&FieldValue::Null));
-        assert_eq!(
-            deserialized.get("required_field"),
-            Some(&FieldValue::String("required".to_string()))
-        );
+        test_serialization_round_trip(&format, &record)
+            .expect("Null handling round trip should succeed");
     }
 
     #[tokio::test]
     async fn test_avro_error_handling() {
-        let schema = create_user_schema();
+        let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
 
         // Test with invalid binary data
@@ -355,6 +216,183 @@ mod avro_tests {
 
         // This might succeed due to Avro's flexible type handling, so we don't assert failure
         let _result = format.serialize_record(&incompatible_record);
+    }
+
+    #[tokio::test]
+    async fn test_avro_empty_record() {
+        // Schema for empty record
+        let empty_schema = r#"
+        {
+            "type": "record",
+            "name": "EmptyRecord",
+            "fields": []
+        }
+        "#;
+
+        let format =
+            AvroFormat::new(empty_schema).expect("Should create Avro format for empty record");
+        let empty_record = HashMap::new();
+
+        test_serialization_round_trip(&format, &empty_record)
+            .expect("Empty record round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_avro_unicode_strings() {
+        // Schema for unicode strings
+        let unicode_schema = r#"
+        {
+            "type": "record",
+            "name": "UnicodeRecord",
+            "fields": [
+                {"name": "unicode_field", "type": "string"},
+                {"name": "emoji_field", "type": "string"}
+            ]
+        }
+        "#;
+
+        let format =
+            AvroFormat::new(unicode_schema).expect("Should create Avro format for unicode");
+
+        let mut record = HashMap::new();
+        record.insert(
+            "unicode_field".to_string(),
+            FieldValue::String("Hello 世界 🌍 café".to_string()),
+        );
+        record.insert(
+            "emoji_field".to_string(),
+            FieldValue::String("🚀🔥💻⚡️".to_string()),
+        );
+
+        test_serialization_round_trip(&format, &record).expect("Unicode round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_avro_large_numbers() {
+        // Schema for large numbers
+        let large_number_schema = r#"
+        {
+            "type": "record",
+            "name": "LargeNumberRecord",
+            "fields": [
+                {"name": "large_int", "type": "long"},
+                {"name": "small_int", "type": "long"},
+                {"name": "large_float", "type": "double"},
+                {"name": "small_float", "type": "double"}
+            ]
+        }
+        "#;
+
+        let format = AvroFormat::new(large_number_schema)
+            .expect("Should create Avro format for large numbers");
+
+        let mut record = HashMap::new();
+        record.insert("large_int".to_string(), FieldValue::Integer(i64::MAX));
+        record.insert("small_int".to_string(), FieldValue::Integer(i64::MIN));
+        record.insert("large_float".to_string(), FieldValue::Float(f64::MAX));
+        record.insert("small_float".to_string(), FieldValue::Float(f64::MIN));
+
+        test_serialization_round_trip(&format, &record)
+            .expect("Large numbers round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_avro_large_data() {
+        // Schema for large data
+        let large_data_schema = r#"
+        {
+            "type": "record",
+            "name": "LargeDataRecord",
+            "fields": [
+                {"name": "large_field", "type": "string"},
+                {"name": "large_array", "type": {"type": "array", "items": "long"}}
+            ]
+        }
+        "#;
+
+        let format =
+            AvroFormat::new(large_data_schema).expect("Should create Avro format for large data");
+        let record = create_large_data_test_record();
+
+        // Only test specific fields that fit the schema
+        let mut schema_compatible_record = HashMap::new();
+        schema_compatible_record.insert("large_field".to_string(), record["large_field"].clone());
+        schema_compatible_record.insert("large_array".to_string(), record["large_array"].clone());
+
+        test_serialization_round_trip(&format, &schema_compatible_record)
+            .expect("Large data round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_avro_comprehensive_type_matrix() {
+        // Test comprehensive type coverage similar to other formats
+        let comprehensive_schema = r#"
+        {
+            "type": "record",
+            "name": "ComprehensiveRecord", 
+            "fields": [
+                {"name": "string_field", "type": "string"},
+                {"name": "integer_field", "type": "long"},
+                {"name": "float_field", "type": "double"},
+                {"name": "boolean_field", "type": "boolean"},
+                {"name": "null_field", "type": ["null", "string"]},
+                {"name": "string_array", "type": {"type": "array", "items": "string"}},
+                {"name": "mixed_array", "type": {"type": "array", "items": ["long", "double", "boolean", "null"]}},
+                {"name": "map_field", "type": {"type": "map", "values": ["string", "long"]}}
+            ]
+        }
+        "#;
+
+        let format =
+            AvroFormat::new(comprehensive_schema).expect("Should create comprehensive Avro format");
+
+        // Create comprehensive test record with Avro-compatible data
+        let mut record = HashMap::new();
+        record.insert(
+            "string_field".to_string(),
+            FieldValue::String("test_value".to_string()),
+        );
+        record.insert("integer_field".to_string(), FieldValue::Integer(42));
+        record.insert(
+            "float_field".to_string(),
+            FieldValue::Float(std::f64::consts::PI),
+        );
+        record.insert("boolean_field".to_string(), FieldValue::Boolean(true));
+        record.insert("null_field".to_string(), FieldValue::Null);
+
+        record.insert(
+            "string_array".to_string(),
+            FieldValue::Array(vec![
+                FieldValue::String("item1".to_string()),
+                FieldValue::String("item2".to_string()),
+                FieldValue::String("item3".to_string()),
+            ]),
+        );
+
+        record.insert(
+            "mixed_array".to_string(),
+            FieldValue::Array(vec![
+                FieldValue::Integer(1),
+                FieldValue::Float(2.5),
+                FieldValue::Boolean(false),
+                FieldValue::Null,
+            ]),
+        );
+
+        let mut map = HashMap::new();
+        map.insert(
+            "nested_string".to_string(),
+            FieldValue::String("nested_value".to_string()),
+        );
+        map.insert("nested_number".to_string(), FieldValue::Integer(100));
+        record.insert("map_field".to_string(), FieldValue::Map(map));
+
+        test_serialization_round_trip(&format, &record)
+            .expect("Comprehensive type matrix round trip should succeed");
+
+        // Also test execution format round trip
+        test_execution_format_round_trip(&format, &record)
+            .expect("Comprehensive execution format round trip should succeed");
     }
 }
 

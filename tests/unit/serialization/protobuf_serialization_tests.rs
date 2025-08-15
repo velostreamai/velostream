@@ -6,30 +6,12 @@ Tests for Protocol Buffers serialization format implementation.
 
 #[cfg(feature = "protobuf")]
 mod protobuf_tests {
+    use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{
         ProtobufFormat, SerializationFormat, SerializationFormatFactory,
     };
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
-
-    fn create_test_record() -> HashMap<String, FieldValue> {
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(123));
-        record.insert(
-            "name".to_string(),
-            FieldValue::String("Test User".to_string()),
-        );
-        record.insert("active".to_string(), FieldValue::Boolean(true));
-        record.insert("score".to_string(), FieldValue::Float(89.5));
-        record.insert(
-            "tags".to_string(),
-            FieldValue::Array(vec![
-                FieldValue::String("tag1".to_string()),
-                FieldValue::String("tag2".to_string()),
-            ]),
-        );
-        record
-    }
 
     #[tokio::test]
     async fn test_protobuf_format_creation() {
@@ -40,55 +22,19 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_serialization_round_trip() {
         let format = ProtobufFormat::<()>::new();
-        let record = create_test_record();
+        let record = create_basic_test_record();
 
-        // Serialize to bytes
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Protobuf serialization should succeed");
-        assert!(
-            !serialized.is_empty(),
-            "Serialized data should not be empty"
-        );
-
-        // Deserialize back to record
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Protobuf deserialization should succeed");
-
-        // Verify fields (protobuf implementation currently uses JSON underneath for generic support)
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
-        assert_eq!(
-            deserialized.get("name"),
-            Some(&FieldValue::String("Test User".to_string()))
-        );
-        assert_eq!(deserialized.get("active"), Some(&FieldValue::Boolean(true)));
-
-        // Float comparison with tolerance
-        if let Some(FieldValue::Float(score)) = deserialized.get("score") {
-            assert!(
-                (score - 89.5).abs() < 0.001,
-                "Score should be approximately 89.5"
-            );
-        } else {
-            panic!("Score field should be present and be a float");
-        }
+        test_serialization_round_trip(&format, &record)
+            .expect("Protobuf round trip should succeed");
     }
 
     #[tokio::test]
     async fn test_protobuf_to_execution_format() {
         let format = ProtobufFormat::<()>::new();
-        let record = create_test_record();
+        let record = create_basic_test_record();
 
-        let execution_format = format
-            .to_execution_format(&record)
-            .expect("Conversion to execution format should succeed");
-
-        assert!(execution_format.contains_key("id"));
-        assert!(execution_format.contains_key("name"));
-        assert!(execution_format.contains_key("active"));
-        assert!(execution_format.contains_key("score"));
-        assert!(execution_format.contains_key("tags"));
+        test_execution_format_round_trip(&format, &record)
+            .expect("Protobuf execution format round trip should succeed");
     }
 
     #[tokio::test]
@@ -122,54 +68,10 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_complex_types() {
         let format = ProtobufFormat::<()>::new();
+        let record = create_comprehensive_test_record();
 
-        let mut metadata = HashMap::new();
-        metadata.insert("version".to_string(), FieldValue::String("1.0".to_string()));
-        metadata.insert("env".to_string(), FieldValue::String("prod".to_string()));
-
-        let mut nested_struct = HashMap::new();
-        nested_struct.insert("nested_id".to_string(), FieldValue::Integer(789));
-        nested_struct.insert(
-            "nested_value".to_string(),
-            FieldValue::String("nested".to_string()),
-        );
-
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(123));
-        record.insert("metadata".to_string(), FieldValue::Map(metadata));
-        record.insert("nested".to_string(), FieldValue::Struct(nested_struct));
-        record.insert(
-            "numbers".to_string(),
-            FieldValue::Array(vec![
-                FieldValue::Integer(1),
-                FieldValue::Integer(2),
-                FieldValue::Integer(3),
-            ]),
-        );
-
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Complex type serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Complex type deserialization should succeed");
-
-        // Verify basic field
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
-
-        // Verify complex fields exist
-        assert!(
-            deserialized.contains_key("metadata"),
-            "Metadata field should exist"
-        );
-        assert!(
-            deserialized.contains_key("nested"),
-            "Nested field should exist"
-        );
-        assert!(
-            deserialized.contains_key("numbers"),
-            "Numbers array should exist"
-        );
+        test_serialization_round_trip(&format, &record)
+            .expect("Complex type round trip should succeed");
     }
 
     #[tokio::test]
@@ -186,28 +88,10 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_null_handling() {
         let format = ProtobufFormat::<()>::new();
+        let record = create_null_test_record();
 
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(123));
-        record.insert("optional_field".to_string(), FieldValue::Null);
-        record.insert(
-            "required_field".to_string(),
-            FieldValue::String("required".to_string()),
-        );
-
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Null field serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Null field deserialization should succeed");
-
-        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
-        assert_eq!(deserialized.get("optional_field"), Some(&FieldValue::Null));
-        assert_eq!(
-            deserialized.get("required_field"),
-            Some(&FieldValue::String("required".to_string()))
-        );
+        test_serialization_round_trip(&format, &record)
+            .expect("Null handling round trip should succeed");
     }
 
     #[tokio::test]
@@ -215,53 +99,17 @@ mod protobuf_tests {
         let format = ProtobufFormat::<()>::new();
         let empty_record = HashMap::new();
 
-        let serialized = format
-            .serialize_record(&empty_record)
-            .expect("Empty record serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Empty record deserialization should succeed");
-
-        assert!(
-            deserialized.is_empty(),
-            "Deserialized record should be empty"
-        );
+        test_serialization_round_trip(&format, &empty_record)
+            .expect("Empty record round trip should succeed");
     }
 
     #[tokio::test]
     async fn test_protobuf_large_data() {
         let format = ProtobufFormat::<()>::new();
+        let record = create_large_data_test_record();
 
-        let mut record = HashMap::new();
-
-        // Create large string data
-        let large_string = "x".repeat(10000);
-        record.insert(
-            "large_field".to_string(),
-            FieldValue::String(large_string.clone()),
-        );
-
-        // Create large array
-        let large_array: Vec<FieldValue> = (0..1000).map(|i| FieldValue::Integer(i)).collect();
-        record.insert("large_array".to_string(), FieldValue::Array(large_array));
-
-        let serialized = format
-            .serialize_record(&record)
-            .expect("Large data serialization should succeed");
-        let deserialized = format
-            .deserialize_record(&serialized)
-            .expect("Large data deserialization should succeed");
-
-        assert_eq!(
-            deserialized.get("large_field"),
-            Some(&FieldValue::String(large_string))
-        );
-
-        if let Some(FieldValue::Array(arr)) = deserialized.get("large_array") {
-            assert_eq!(arr.len(), 1000, "Array should have 1000 elements");
-        } else {
-            panic!("Large array should be present");
-        }
+        test_serialization_round_trip(&format, &record)
+            .expect("Large data round trip should succeed");
     }
 
     #[tokio::test]
@@ -290,6 +138,107 @@ mod protobuf_tests {
         // Test creating protobuf format with specific type
         let format = SerializationFormatFactory::create_protobuf_format::<()>();
         assert_eq!(format.format_name(), "Protobuf");
+    }
+
+    #[tokio::test]
+    async fn test_protobuf_schema_evolution() {
+        // For Protobuf, schema evolution is handled at the type level
+        // Since we're using a generic implementation, we simulate evolution
+        // by testing backward compatibility with different field sets
+
+        let format_v1 = ProtobufFormat::<()>::new();
+        let format_v2 = ProtobufFormat::<()>::new();
+
+        // Version 1 record (minimal fields)
+        let mut record_v1 = HashMap::new();
+        record_v1.insert("id".to_string(), FieldValue::Integer(123));
+        record_v1.insert(
+            "name".to_string(),
+            FieldValue::String("Test User".to_string()),
+        );
+
+        // Serialize with v1 format
+        let serialized_v1 = format_v1
+            .serialize_record(&record_v1)
+            .expect("V1 serialization should succeed");
+
+        // Deserialize with v2 format (should be compatible)
+        let deserialized_v2 = format_v2
+            .deserialize_record(&serialized_v1)
+            .expect("V2 deserialization should succeed");
+
+        // Core fields should be preserved
+        assert_eq!(deserialized_v2.get("id"), Some(&FieldValue::Integer(123)));
+        assert_eq!(
+            deserialized_v2.get("name"),
+            Some(&FieldValue::String("Test User".to_string()))
+        );
+
+        // Version 2 record (extended fields)
+        let mut record_v2 = record_v1.clone();
+        record_v2.insert(
+            "email".to_string(),
+            FieldValue::String("test@example.com".to_string()),
+        );
+        record_v2.insert("active".to_string(), FieldValue::Boolean(true));
+
+        // Test round trip with extended record
+        test_serialization_round_trip(&format_v2, &record_v2)
+            .expect("V2 extended record round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_protobuf_unicode_strings() {
+        let format = ProtobufFormat::<()>::new();
+        let record = create_edge_case_test_record();
+
+        // Extract unicode fields for testing
+        let mut unicode_record = HashMap::new();
+        unicode_record.insert("unicode_field".to_string(), record["unicode_field"].clone());
+        unicode_record.insert("emoji_field".to_string(), record["emoji_field"].clone());
+
+        test_serialization_round_trip(&format, &unicode_record)
+            .expect("Unicode round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_protobuf_large_numbers() {
+        let format = ProtobufFormat::<()>::new();
+        let record = create_edge_case_test_record();
+
+        // Extract large number fields for testing
+        let mut large_number_record = HashMap::new();
+        large_number_record.insert("large_int".to_string(), record["large_int"].clone());
+        large_number_record.insert("small_int".to_string(), record["small_int"].clone());
+        large_number_record.insert("large_float".to_string(), record["large_float"].clone());
+        large_number_record.insert("small_float".to_string(), record["small_float"].clone());
+
+        test_serialization_round_trip(&format, &large_number_record)
+            .expect("Large numbers round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_protobuf_comprehensive_type_matrix() {
+        // Test comprehensive type coverage similar to other formats
+        let format = ProtobufFormat::<()>::new();
+        let record = create_comprehensive_test_record();
+
+        // Test serialization round trip
+        test_serialization_round_trip(&format, &record)
+            .expect("Comprehensive type matrix round trip should succeed");
+
+        // Also test execution format round trip
+        test_execution_format_round_trip(&format, &record)
+            .expect("Comprehensive execution format round trip should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_protobuf_complex_nested_structures() {
+        let format = ProtobufFormat::<()>::new();
+        let record = create_complex_nested_test_record();
+
+        test_serialization_round_trip(&format, &record)
+            .expect("Complex nested structures round trip should succeed");
     }
 }
 

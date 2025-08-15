@@ -4,6 +4,7 @@
 Tests for the SerializationFormatFactory and general serialization functionality.
 */
 
+use super::common_test_data::*;
 use ferrisstreams::ferris::serialization::SerializationFormatFactory;
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
@@ -173,59 +174,20 @@ async fn test_format_interface_consistency() {
         let format = SerializationFormatFactory::create_format(format_name)
             .expect(&format!("Should create format '{}'", format_name));
 
-        // Test basic functionality
-        let mut test_record = HashMap::new();
-        test_record.insert("id".to_string(), FieldValue::Integer(123));
-        test_record.insert("name".to_string(), FieldValue::String("test".to_string()));
-        test_record.insert("active".to_string(), FieldValue::Boolean(true));
-        test_record.insert("score".to_string(), FieldValue::Float(95.5));
-        test_record.insert("null_field".to_string(), FieldValue::Null);
+        // Test basic functionality with standardized test data
+        let test_record = create_basic_test_record();
 
-        // Test serialization
-        let serialized = format.serialize_record(&test_record);
-        assert!(
-            serialized.is_ok(),
-            "Serialization should succeed for format '{}'",
+        // Test serialization round trip
+        test_serialization_round_trip(format.as_ref(), &test_record).expect(&format!(
+            "Round trip should succeed for format '{}'",
             format_name
-        );
+        ));
 
-        let serialized_bytes = serialized.unwrap();
-        assert!(
-            !serialized_bytes.is_empty(),
-            "Serialized data should not be empty for format '{}'",
+        // Test execution format round trip
+        test_execution_format_round_trip(format.as_ref(), &test_record).expect(&format!(
+            "Execution format round trip should succeed for format '{}'",
             format_name
-        );
-
-        // Test deserialization
-        let deserialized = format.deserialize_record(&serialized_bytes);
-        assert!(
-            deserialized.is_ok(),
-            "Deserialization should succeed for format '{}'",
-            format_name
-        );
-
-        let deserialized_record = deserialized.unwrap();
-        assert!(
-            !deserialized_record.is_empty(),
-            "Deserialized record should not be empty for format '{}'",
-            format_name
-        );
-
-        // Test execution format conversion
-        let to_execution = format.to_execution_format(&test_record);
-        assert!(
-            to_execution.is_ok(),
-            "Conversion to execution format should succeed for format '{}'",
-            format_name
-        );
-
-        let execution_data = to_execution.unwrap();
-        let from_execution = format.from_execution_format(&execution_data);
-        assert!(
-            from_execution.is_ok(),
-            "Conversion from execution format should succeed for format '{}'",
-            format_name
-        );
+        ));
 
         // Verify format name is not empty
         assert!(
@@ -306,4 +268,111 @@ async fn test_avro_factory_error_handling() {
         "Error message should mention schema or Avro: {}",
         error_msg
     );
+}
+
+#[tokio::test]
+async fn test_comprehensive_type_matrix_across_formats() {
+    // Test that all supported formats handle the same comprehensive type set
+    let supported_formats = SerializationFormatFactory::supported_formats();
+    let comprehensive_record = create_comprehensive_test_record();
+
+    for format_name in supported_formats {
+        // Skip Avro in comprehensive test as it requires specific schema
+        if format_name == "avro" {
+            continue;
+        }
+
+        let format = SerializationFormatFactory::create_format(format_name)
+            .expect(&format!("Should create format '{}'", format_name));
+
+        // Test comprehensive type matrix
+        test_serialization_round_trip(format.as_ref(), &comprehensive_record).expect(&format!(
+            "Comprehensive type matrix should work for '{}'",
+            format_name
+        ));
+
+        test_execution_format_round_trip(format.as_ref(), &comprehensive_record).expect(&format!(
+            "Comprehensive execution format should work for '{}'",
+            format_name
+        ));
+    }
+}
+
+#[tokio::test]
+async fn test_edge_cases_across_formats() {
+    // Test edge cases across all formats
+    let supported_formats = SerializationFormatFactory::supported_formats();
+    let edge_case_record = create_edge_case_test_record();
+
+    for format_name in supported_formats {
+        // Skip Avro as it requires specific schema
+        if format_name == "avro" {
+            continue;
+        }
+
+        let format = SerializationFormatFactory::create_format(format_name)
+            .expect(&format!("Should create format '{}'", format_name));
+
+        // Test edge cases (extract compatible fields for testing)
+        let mut test_record = HashMap::new();
+        test_record.insert(
+            "unicode_field".to_string(),
+            edge_case_record["unicode_field"].clone(),
+        );
+        test_record.insert(
+            "emoji_field".to_string(),
+            edge_case_record["emoji_field"].clone(),
+        );
+        test_record.insert(
+            "large_int".to_string(),
+            edge_case_record["large_int"].clone(),
+        );
+        test_record.insert(
+            "small_int".to_string(),
+            edge_case_record["small_int"].clone(),
+        );
+
+        test_serialization_round_trip(format.as_ref(), &test_record)
+            .expect(&format!("Edge cases should work for '{}'", format_name));
+    }
+}
+
+#[tokio::test]
+async fn test_large_data_across_formats() {
+    // Test large data handling across all formats
+    let supported_formats = SerializationFormatFactory::supported_formats();
+    let large_data_record = create_large_data_test_record();
+
+    for format_name in supported_formats {
+        // Skip Avro as it requires specific schema
+        if format_name == "avro" {
+            continue;
+        }
+
+        let format = SerializationFormatFactory::create_format(format_name)
+            .expect(&format!("Should create format '{}'", format_name));
+
+        test_serialization_round_trip(format.as_ref(), &large_data_record)
+            .expect(&format!("Large data should work for '{}'", format_name));
+    }
+}
+
+#[tokio::test]
+async fn test_null_handling_consistency_across_formats() {
+    // Test null handling consistency across all formats
+    let supported_formats = SerializationFormatFactory::supported_formats();
+    let null_record = create_null_test_record();
+
+    for format_name in supported_formats {
+        // Skip Avro as it requires specific schema for null handling
+        if format_name == "avro" {
+            continue;
+        }
+
+        let format = SerializationFormatFactory::create_format(format_name)
+            .expect(&format!("Should create format '{}'", format_name));
+
+        test_serialization_round_trip(format.as_ref(), &null_record)
+            .expect(&format!("Null handling should work for '{}'", format_name));
+    }
 }

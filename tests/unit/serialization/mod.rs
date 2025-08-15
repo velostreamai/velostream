@@ -2,6 +2,7 @@
 //!
 //! Tests for all supported serialization formats including JSON, Avro, and Protobuf
 
+pub mod common_test_data;
 pub mod json_serialization_tests;
 
 #[cfg(feature = "avro")]

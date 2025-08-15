@@ -5,110 +5,17 @@ Tests for JSON serialization format implementation, ensuring all FieldValue type
 are properly converted to/from JSON format.
 */
 
+use super::common_test_data::*;
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
-use std::f64::consts::PI;
-
-fn create_comprehensive_test_record() -> HashMap<String, FieldValue> {
-    let mut record = HashMap::new();
-
-    // Basic types
-    record.insert(
-        "string_field".to_string(),
-        FieldValue::String("test_value".to_string()),
-    );
-    record.insert("integer_field".to_string(), FieldValue::Integer(42));
-    record.insert("float_field".to_string(), FieldValue::Float(PI));
-    record.insert("boolean_field".to_string(), FieldValue::Boolean(true));
-    record.insert("null_field".to_string(), FieldValue::Null);
-
-    // Array types
-    record.insert(
-        "string_array".to_string(),
-        FieldValue::Array(vec![
-            FieldValue::String("item1".to_string()),
-            FieldValue::String("item2".to_string()),
-            FieldValue::String("item3".to_string()),
-        ]),
-    );
-
-    record.insert(
-        "mixed_array".to_string(),
-        FieldValue::Array(vec![
-            FieldValue::Integer(1),
-            FieldValue::Float(2.5),
-            FieldValue::Boolean(false),
-            FieldValue::Null,
-        ]),
-    );
-
-    // Map type
-    let mut map = HashMap::new();
-    map.insert(
-        "nested_string".to_string(),
-        FieldValue::String("nested_value".to_string()),
-    );
-    map.insert("nested_number".to_string(), FieldValue::Integer(100));
-    record.insert("map_field".to_string(), FieldValue::Map(map));
-
-    // Struct type
-    let mut struct_fields = HashMap::new();
-    struct_fields.insert("id".to_string(), FieldValue::Integer(123));
-    struct_fields.insert(
-        "name".to_string(),
-        FieldValue::String("John Doe".to_string()),
-    );
-    struct_fields.insert("active".to_string(), FieldValue::Boolean(true));
-    record.insert(
-        "struct_field".to_string(),
-        FieldValue::Struct(struct_fields),
-    );
-
-    record
-}
 
 #[tokio::test]
 async fn test_json_serialization_round_trip() {
     let format = JsonFormat;
-    let original_record = create_comprehensive_test_record();
+    let record = create_comprehensive_test_record();
 
-    // Serialize to bytes
-    let serialized = format
-        .serialize_record(&original_record)
-        .expect("Serialization should succeed");
-
-    // Deserialize back to record
-    let deserialized_record = format
-        .deserialize_record(&serialized)
-        .expect("Deserialization should succeed");
-
-    // Verify all fields match
-    assert_eq!(original_record.len(), deserialized_record.len());
-
-    for (key, original_value) in &original_record {
-        let deserialized_value = deserialized_record.get(key).expect(&format!(
-            "Key '{}' should exist in deserialized record",
-            key
-        ));
-
-        // Handle the case where Struct becomes Map in JSON serialization
-        if let (FieldValue::Struct(original_map), FieldValue::Map(deserialized_map)) =
-            (original_value, deserialized_value)
-        {
-            assert_eq!(
-                original_map, deserialized_map,
-                "Struct content for key '{}' should match after round trip (as Map)",
-                key
-            );
-        } else {
-            assert_eq!(
-                original_value, deserialized_value,
-                "Value for key '{}' should match after round trip",
-                key
-            );
-        }
-    }
+    test_serialization_round_trip(&format, &record).expect("JSON round trip should succeed");
 }
 
 #[tokio::test]
@@ -116,31 +23,8 @@ async fn test_json_to_execution_format() {
     let format = JsonFormat;
     let record = create_comprehensive_test_record();
 
-    let execution_format = format
-        .to_execution_format(&record)
-        .expect("Conversion to execution format should succeed");
-
-    // Verify conversions
-    assert_eq!(
-        execution_format.get("string_field"),
-        Some(&InternalValue::String("test_value".to_string()))
-    );
-    assert_eq!(
-        execution_format.get("integer_field"),
-        Some(&InternalValue::Integer(42))
-    );
-    assert_eq!(
-        execution_format.get("float_field"),
-        Some(&InternalValue::Number(PI))
-    );
-    assert_eq!(
-        execution_format.get("boolean_field"),
-        Some(&InternalValue::Boolean(true))
-    );
-    assert_eq!(
-        execution_format.get("null_field"),
-        Some(&InternalValue::Null)
-    );
+    test_execution_format_round_trip(&format, &record)
+        .expect("JSON execution format round trip should succeed");
 }
 
 #[tokio::test]
@@ -153,7 +37,10 @@ async fn test_json_from_execution_format() {
         InternalValue::String("test".to_string()),
     );
     execution_data.insert("test_int".to_string(), InternalValue::Integer(42));
-    execution_data.insert("test_float".to_string(), InternalValue::Number(PI));
+    execution_data.insert(
+        "test_float".to_string(),
+        InternalValue::Number(std::f64::consts::PI),
+    );
     execution_data.insert("test_bool".to_string(), InternalValue::Boolean(false));
     execution_data.insert("test_null".to_string(), InternalValue::Null);
 
@@ -166,7 +53,10 @@ async fn test_json_from_execution_format() {
         Some(&FieldValue::String("test".to_string()))
     );
     assert_eq!(record.get("test_int"), Some(&FieldValue::Integer(42)));
-    assert_eq!(record.get("test_float"), Some(&FieldValue::Float(PI)));
+    assert_eq!(
+        record.get("test_float"),
+        Some(&FieldValue::Float(std::f64::consts::PI))
+    );
     assert_eq!(record.get("test_bool"), Some(&FieldValue::Boolean(false)));
     assert_eq!(record.get("test_null"), Some(&FieldValue::Null));
 }
@@ -174,32 +64,10 @@ async fn test_json_from_execution_format() {
 #[tokio::test]
 async fn test_json_nested_structures() {
     let format = JsonFormat;
+    let record = create_complex_nested_test_record();
 
-    let mut inner_struct = HashMap::new();
-    inner_struct.insert(
-        "inner_field".to_string(),
-        FieldValue::String("inner_value".to_string()),
-    );
-
-    let mut record = HashMap::new();
-    record.insert(
-        "nested_array".to_string(),
-        FieldValue::Array(vec![
-            FieldValue::Struct(inner_struct.clone()),
-            FieldValue::Array(vec![FieldValue::Integer(1), FieldValue::Integer(2)]),
-        ]),
-    );
-
-    // Test round trip
-    let serialized = format
-        .serialize_record(&record)
-        .expect("Serialization should succeed");
-    let deserialized = format
-        .deserialize_record(&serialized)
-        .expect("Deserialization should succeed");
-
-    // Handle Struct -> Map conversion in nested structures
-    assert_records_equivalent(&record, &deserialized);
+    test_serialization_round_trip(&format, &record)
+        .expect("Nested structures round trip should succeed");
 }
 
 #[tokio::test]
@@ -234,102 +102,68 @@ async fn test_json_empty_record() {
     let format = JsonFormat;
     let empty_record = HashMap::new();
 
-    let serialized = format
-        .serialize_record(&empty_record)
-        .expect("Empty record serialization should succeed");
-    let deserialized = format
-        .deserialize_record(&serialized)
-        .expect("Empty record deserialization should succeed");
-
-    assert!(deserialized.is_empty());
+    test_serialization_round_trip(&format, &empty_record)
+        .expect("Empty record round trip should succeed");
 }
 
 #[tokio::test]
 async fn test_json_large_numbers() {
     let format = JsonFormat;
+    let record = create_edge_case_test_record();
 
-    let mut record = HashMap::new();
-    record.insert("large_int".to_string(), FieldValue::Integer(i64::MAX));
-    record.insert("small_int".to_string(), FieldValue::Integer(i64::MIN));
-    record.insert("large_float".to_string(), FieldValue::Float(f64::MAX));
-    record.insert("small_float".to_string(), FieldValue::Float(f64::MIN));
+    // Extract large number fields for testing
+    let mut large_number_record = HashMap::new();
+    large_number_record.insert("large_int".to_string(), record["large_int"].clone());
+    large_number_record.insert("small_int".to_string(), record["small_int"].clone());
+    large_number_record.insert("large_float".to_string(), record["large_float"].clone());
+    large_number_record.insert("small_float".to_string(), record["small_float"].clone());
 
-    let serialized = format
-        .serialize_record(&record)
-        .expect("Large number serialization should succeed");
-    let deserialized = format
-        .deserialize_record(&serialized)
-        .expect("Large number deserialization should succeed");
-
-    assert_eq!(record, deserialized);
+    test_serialization_round_trip(&format, &large_number_record)
+        .expect("Large numbers round trip should succeed");
 }
 
 #[tokio::test]
 async fn test_json_unicode_strings() {
     let format = JsonFormat;
+    let record = create_edge_case_test_record();
 
-    let mut record = HashMap::new();
-    record.insert(
-        "unicode_field".to_string(),
-        FieldValue::String("Hello 世界 🌍 café".to_string()),
-    );
-    record.insert(
-        "emoji_field".to_string(),
-        FieldValue::String("🚀🔥💻⚡️".to_string()),
-    );
+    // Extract unicode fields for testing
+    let mut unicode_record = HashMap::new();
+    unicode_record.insert("unicode_field".to_string(), record["unicode_field"].clone());
+    unicode_record.insert("emoji_field".to_string(), record["emoji_field"].clone());
 
-    let serialized = format
-        .serialize_record(&record)
-        .expect("Unicode serialization should succeed");
-    let deserialized = format
-        .deserialize_record(&serialized)
-        .expect("Unicode deserialization should succeed");
-
-    assert_eq!(record, deserialized);
+    test_serialization_round_trip(&format, &unicode_record)
+        .expect("Unicode round trip should succeed");
 }
 
-// Helper function to compare records while handling Struct -> Map conversion
-fn assert_records_equivalent(
-    original: &HashMap<String, FieldValue>,
-    deserialized: &HashMap<String, FieldValue>,
-) {
-    assert_eq!(original.len(), deserialized.len());
+#[tokio::test]
+async fn test_json_large_data() {
+    let format = JsonFormat;
+    let record = create_large_data_test_record();
 
-    for (key, original_value) in original {
-        let deserialized_value = deserialized.get(key).expect(&format!(
-            "Key '{}' should exist in deserialized record",
-            key
-        ));
-        assert_field_values_equivalent(original_value, deserialized_value);
-    }
+    test_serialization_round_trip(&format, &record).expect("Large data round trip should succeed");
 }
 
-fn assert_field_values_equivalent(original: &FieldValue, deserialized: &FieldValue) {
-    match (original, deserialized) {
-        // Handle Struct -> Map conversion
-        (FieldValue::Struct(original_map), FieldValue::Map(deserialized_map)) => {
-            assert_eq!(original_map, deserialized_map);
-        }
-        // Handle arrays that might contain structs
-        (FieldValue::Array(original_array), FieldValue::Array(deserialized_array)) => {
-            assert_eq!(original_array.len(), deserialized_array.len());
-            for (orig_item, deser_item) in original_array.iter().zip(deserialized_array.iter()) {
-                assert_field_values_equivalent(orig_item, deser_item);
-            }
-        }
-        // Handle maps that might contain structs
-        (FieldValue::Map(original_map), FieldValue::Map(deserialized_map)) => {
-            assert_eq!(original_map.len(), deserialized_map.len());
-            for (key, orig_value) in original_map {
-                let deser_value = deserialized_map
-                    .get(key)
-                    .expect(&format!("Key '{}' should exist", key));
-                assert_field_values_equivalent(orig_value, deser_value);
-            }
-        }
-        // For all other types, they should match exactly
-        _ => {
-            assert_eq!(original, deserialized);
-        }
-    }
+#[tokio::test]
+async fn test_json_null_handling() {
+    let format = JsonFormat;
+    let record = create_null_test_record();
+
+    test_serialization_round_trip(&format, &record)
+        .expect("Null handling round trip should succeed");
+}
+
+#[tokio::test]
+async fn test_json_comprehensive_type_matrix() {
+    // Test comprehensive type coverage - the baseline for all other formats
+    let format = JsonFormat;
+    let record = create_comprehensive_test_record();
+
+    // Test serialization round trip
+    test_serialization_round_trip(&format, &record)
+        .expect("Comprehensive type matrix round trip should succeed");
+
+    // Also test execution format round trip
+    test_execution_format_round_trip(&format, &record)
+        .expect("Comprehensive execution format round trip should succeed");
 }
