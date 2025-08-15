@@ -71,7 +71,7 @@
 //! # }
 //! ```
 
-use crate::ferris::sql::{FieldValue, SqlError};
+pub use crate::ferris::sql::{FieldValue, SqlError};
 use std::collections::HashMap;
 
 /// Trait for pluggable serialization formats
