@@ -5353,17 +5353,17 @@ impl StreamExecutionEngine {
             Expr::Literal(literal) => Ok(self.literal_to_group_key(literal)),
             Expr::Function { name, args } => {
                 // Handle function calls in GROUP BY (e.g., DATE(timestamp))
-                let result = self.evaluate_expression(expr, record)?;
+                let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))
             }
             Expr::BinaryOp { left, op, right } => {
                 // Handle expressions in GROUP BY (e.g., YEAR(date) * 100 + MONTH(date))
-                let result = self.evaluate_expression(expr, record)?;
+                let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))
             }
             _ => {
                 // For other expression types, try to evaluate them
-                let result = self.evaluate_expression(expr, record)?;
+                let result = self.evaluate_expression_value(expr, record)?;
                 Ok(self.field_value_to_group_key(&result))
             }
         }
