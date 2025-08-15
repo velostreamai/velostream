@@ -1669,6 +1669,54 @@ impl TokenParser {
                 self.advance();
                 Ok(token.value)
             }
+            TokenType::Interval => {
+                // Handle INTERVAL syntax: INTERVAL 5 MINUTES
+                self.advance(); // consume INTERVAL
+                
+                // Parse the value (number or string)
+                let value_token = self.current_token().clone();
+                let value_str = match value_token.token_type {
+                    TokenType::Number => {
+                        self.advance();
+                        value_token.value
+                    }
+                    TokenType::String => {
+                        self.advance();
+                        value_token.value
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: "Expected number or string after INTERVAL".to_string(),
+                            position: Some(value_token.position),
+                        });
+                    }
+                };
+                
+                // Parse the time unit
+                let unit_token = self.current_token().clone();
+                if unit_token.token_type != TokenType::Identifier {
+                    return Err(SqlError::ParseError {
+                        message: "Expected time unit after INTERVAL value".to_string(),
+                        position: Some(unit_token.position),
+                    });
+                }
+                
+                let unit = match unit_token.value.to_uppercase().as_str() {
+                    "MINUTES" | "MINUTE" => "m",
+                    "SECONDS" | "SECOND" => "s", 
+                    "HOURS" | "HOUR" => "h",
+                    "MILLISECONDS" | "MILLISECOND" => "ms",
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!("Unsupported time unit: {}", unit_token.value),
+                            position: Some(unit_token.position),
+                        });
+                    }
+                };
+                
+                self.advance(); // consume time unit
+                Ok(format!("{}{}", value_str, unit))
+            }
             _ => Err(SqlError::ParseError {
                 message: format!("Expected duration, found {:?}", token.token_type),
                 position: Some(token.position),

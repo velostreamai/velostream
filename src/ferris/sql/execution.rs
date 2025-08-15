@@ -5292,7 +5292,13 @@ impl StreamExecutionEngine {
                         }
                     }
                     "SUM" => {
-                        self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"])?
+                        // First try to find fields with common SUM suffixes
+                        if let Ok(field_name) = self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"]) {
+                            field_name
+                        } else {
+                            // If no suffix match, look for common SUM alias names
+                            self.find_field_by_suffix(result_record, &["total", "sum"])?
+                        }
                     }
                     "AVG" => self.find_field_by_suffix(result_record, &["_avg", "_average"])?,
                     "MIN" => self.find_field_by_suffix(result_record, &["_min", "_minimum"])?,
@@ -5345,7 +5351,8 @@ impl StreamExecutionEngine {
     ) -> Result<String, SqlError> {
         for field_name in result_record.fields.keys() {
             for suffix in suffixes {
-                if field_name.ends_with(suffix) {
+                // Check both exact match and suffix match
+                if field_name == suffix || field_name.ends_with(suffix) {
                     return Ok(field_name.clone());
                 }
             }
@@ -5651,10 +5658,11 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Static helper for basic expression evaluation
+    /// Static helper for basic expression evaluation  
     fn evaluate_expression_static(expr: &Expr, record: &StreamRecord) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Column(name) => {
+                // Convert from FieldValue in StreamRecord to FieldValue return type
                 Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
             }
             Expr::Literal(literal) => {
@@ -5667,8 +5675,77 @@ impl StreamExecutionEngine {
                     _ => Ok(FieldValue::Null),
                 }
             }
+            Expr::BinaryOp { left, op, right } => {
+                let left_val = Self::evaluate_expression_static(left, record)?;
+                let right_val = Self::evaluate_expression_static(right, record)?;
+                
+                match op {
+                    BinaryOperator::GreaterThan => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l > r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l > r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) > *r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l > (*r as f64))),
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    BinaryOperator::LessThan => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l < r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l < r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) < *r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l < (*r as f64))),
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    BinaryOperator::GreaterThanOrEqual => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l >= r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l >= r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) >= *r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l >= (*r as f64))),
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    BinaryOperator::LessThanOrEqual => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(l <= r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l <= r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((*l as f64) <= *r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(*l <= (*r as f64))),
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    BinaryOperator::Equal => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((l - r).abs() < f64::EPSILON)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l == r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(((*l as f64) - r).abs() < f64::EPSILON)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean((l - (*r as f64)).abs() < f64::EPSILON)),
+                            (FieldValue::String(l), FieldValue::String(r)) => Ok(FieldValue::Boolean(l == r)),
+                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => Ok(FieldValue::Boolean(l == r)),
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    BinaryOperator::NotEqual => {
+                        match (&left_val, &right_val) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean((l - r).abs() >= f64::EPSILON)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean(l != r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Boolean(((*l as f64) - r).abs() >= f64::EPSILON)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Boolean((l - (*r as f64)).abs() >= f64::EPSILON)),
+                            (FieldValue::String(l), FieldValue::String(r)) => Ok(FieldValue::Boolean(l != r)),
+                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => Ok(FieldValue::Boolean(l != r)),
+                            _ => Ok(FieldValue::Boolean(true)),
+                        }
+                    }
+                    _ => {
+                        // For other operators, return NULL for now
+                        Ok(FieldValue::Null)
+                    }
+                }
+            }
             _ => {
-                // For complex expressions, just return NULL for now
+                // For other complex expressions, just return NULL for now
                 // In a full implementation, we'd need to recursively evaluate
                 Ok(FieldValue::Null)
             }

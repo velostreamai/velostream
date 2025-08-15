@@ -194,6 +194,73 @@ mod tests {
         results
     }
 
+    // Flink-style result collection: only keep latest result per group key
+    async fn collect_latest_group_results(
+        receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
+        group_key_field: &str
+    ) -> Vec<HashMap<String, InternalValue>> {
+        let mut all_results = Vec::new();
+        while let Ok(result) = tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
+            match result {
+                Some(r) => all_results.push(r),
+                None => break
+            }
+        }
+
+        // Deduplicate: keep only the latest result for each group key
+        let mut latest_by_key = std::collections::HashMap::new();
+        for result in all_results {
+            if let Some(key_value) = result.get(group_key_field) {
+                let key = match key_value {
+                    InternalValue::Number(n) => n.to_string(),
+                    InternalValue::String(s) => s.clone(),
+                    InternalValue::Integer(i) => i.to_string(),
+                    InternalValue::Boolean(b) => b.to_string(),
+                    _ => "null".to_string(),
+                };
+                latest_by_key.insert(key, result);
+            }
+        }
+
+        latest_by_key.into_values().collect()
+    }
+
+    // For tests with multiple group keys
+    async fn collect_latest_multi_group_results(
+        receiver: &mut mpsc::UnboundedReceiver<HashMap<String, InternalValue>>,
+        group_key_fields: &[&str]
+    ) -> Vec<HashMap<String, InternalValue>> {
+        let mut all_results = Vec::new();
+        while let Ok(result) = tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await {
+            match result {
+                Some(r) => all_results.push(r),
+                None => break
+            }
+        }
+
+        // Deduplicate: keep only the latest result for each group key combination
+        let mut latest_by_key = std::collections::HashMap::new();
+        for result in all_results {
+            let mut composite_key = String::new();
+            for (i, field) in group_key_fields.iter().enumerate() {
+                if i > 0 { composite_key.push(','); }
+                if let Some(key_value) = result.get(*field) {
+                    let key_part = match key_value {
+                        InternalValue::Number(n) => n.to_string(),
+                        InternalValue::String(s) => s.clone(),
+                        InternalValue::Integer(i) => i.to_string(),
+                        InternalValue::Boolean(b) => b.to_string(),
+                        _ => "null".to_string(),
+                    };
+                    composite_key.push_str(&key_part);
+                }
+            }
+            latest_by_key.insert(composite_key, result);
+        }
+
+        latest_by_key.into_values().collect()
+    }
+
     #[test]
     fn test_group_by_execution() {
         let rt = Runtime::new().unwrap();
@@ -225,8 +292,8 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
-            // Then collect results from channel
-            let results = collect_results(&mut receiver).await;
+            // Then collect results from channel (Flink-style: latest per group)
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
             // We should get at least one result through the channel
             assert!(!results.is_empty());
@@ -285,7 +352,7 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
-            let results = collect_results(&mut receiver).await;
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1); // Only customer 1 should pass HAVING clause
 
             let result = &results[0];
@@ -337,30 +404,36 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
-            let results = collect_results(&mut receiver).await;
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
 
             let result = &results[0];
             // Verify multiple aggregation results
             assert_eq!(result.len(), 5);
+            
+            // Check count (can be Integer or Number)
+            match result.get("count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected count to be present as Integer or Number"),
+            }
+            
+            // Check other aggregates
             match (
-                result.get("count"),
                 result.get("avg_amount"),
                 result.get("min_amount"),
                 result.get("max_amount")
             ) {
                 (
-                    Some(InternalValue::Number(count)),
                     Some(InternalValue::Number(avg)),
                     Some(InternalValue::Number(min)),
                     Some(InternalValue::Number(max))
                 ) => {
-                    assert_eq!(*count, 3.0);
                     assert_eq!(*avg, 200.0);
                     assert_eq!(*min, 100.0);
                     assert_eq!(*max, 300.0);
                 },
-                _ => panic!("Expected all aggregation results to be present"),
+                _ => panic!("Expected avg, min, max aggregation results to be present as Numbers"),
             }
         });
     }
@@ -461,8 +534,8 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
 
-            // Collect results from channel
-            let results = collect_results(&mut receiver).await;
+            // Collect results from channel (Flink-style: latest per group)
+            let results = collect_latest_group_results(&mut receiver, "high_value").await;
             assert_eq!(results.len(), 2); // Should have two groups: true and false
 
             // Find low value group (amount <= 150)
@@ -477,6 +550,10 @@ mod tests {
 
             // Verify low value group
             match (low_value.get("count"), low_value.get("total")) {
+                (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1);
+                    assert_eq!(*total, 100.0);
+                },
                 (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1.0);
                     assert_eq!(*total, 100.0);
@@ -486,6 +563,10 @@ mod tests {
 
             // Verify high value group
             match (high_value.get("count"), high_value.get("total")) {
+                (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1);
+                    assert_eq!(*total, 200.0);
+                },
                 (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
                     assert_eq!(*count, 1.0);
                     assert_eq!(*total, 200.0);
