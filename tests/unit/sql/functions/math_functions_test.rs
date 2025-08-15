@@ -119,6 +119,7 @@ async fn test_abs_function() {
 }
 
 #[tokio::test]
+#[allow(clippy::approx_constant)]
 async fn test_round_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
