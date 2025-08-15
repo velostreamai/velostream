@@ -5726,6 +5726,50 @@ impl StreamExecutionEngine {
                             }
                         }
                     }
+                    "FIRST" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                accumulator
+                                    .first_values
+                                    .entry(field_name.to_string())
+                                    .or_insert(value);
+                            }
+                        }
+                    }
+                    "LAST" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                accumulator
+                                    .last_values
+                                    .insert(field_name.to_string(), value);
+                            }
+                        }
+                    }
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                if let FieldValue::String(s) = value {
+                                    accumulator
+                                        .string_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(s);
+                                }
+                            }
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                let key = Self::field_value_to_group_key_static(&value);
+                                accumulator
+                                    .distinct_values
+                                    .entry(field_name.to_string())
+                                    .or_insert_with(std::collections::HashSet::new)
+                                    .insert(key);
+                            }
+                        }
+                    }
                     _ => {
                         // For non-recognized aggregates, store as first/last
                         if let Ok(value) = Self::evaluate_expression_static(expr, record) {
@@ -5791,6 +5835,75 @@ impl StreamExecutionEngine {
                         .get(field_name)
                         .cloned()
                         .unwrap_or(FieldValue::Null)),
+                    "STDDEV" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64; // Sample standard deviation
+                                Ok(FieldValue::Float(variance.sqrt()))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "VARIANCE" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64; // Sample variance
+                                Ok(FieldValue::Float(variance))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "FIRST" => Ok(accumulator
+                        .first_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "LAST" => Ok(accumulator
+                        .last_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(values) = accumulator.string_values.get(field_name) {
+                            // Extract separator from second argument of the original expression
+                            let separator = if let Expr::Function { args, .. } = expr {
+                                if args.len() > 1 {
+                                    // Try to extract separator from second argument
+                                    if let Expr::Literal(LiteralValue::String(sep)) = &args[1] {
+                                        sep.as_str()
+                                    } else {
+                                        "," // Default if not a string literal
+                                    }
+                                } else {
+                                    "," // Default if no second argument
+                                }
+                            } else {
+                                "," // Default if not a function
+                            };
+                            Ok(FieldValue::String(values.join(separator)))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(distinct_set) = accumulator.distinct_values.get(field_name) {
+                            Ok(FieldValue::Integer(distinct_set.len() as i64))
+                        } else {
+                            Ok(FieldValue::Integer(0))
+                        }
+                    }
                     _ => {
                         // Non-aggregate function
                         Ok(accumulator
@@ -6486,6 +6599,48 @@ impl StreamExecutionEngine {
                 let struct_str: Vec<String> = entries
                     .iter()
                     .map(|(k, v)| format!("{}:{}", k, self.field_value_to_group_key(v)))
+                    .collect();
+                format!("({})", struct_str.join(","))
+            }
+        }
+    }
+
+    /// Convert a field value to a group key string (static version)
+    fn field_value_to_group_key_static(field_value: &FieldValue) -> String {
+        match field_value {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "NULL".to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Decimal(dec) => dec.to_string(),
+            FieldValue::Array(arr) => {
+                // For arrays, create a string representation
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|v| Self::field_value_to_group_key_static(v))
+                    .collect();
+                format!("[{}]", elements.join(","))
+            }
+            FieldValue::Map(map) => {
+                // For maps, create a sorted string representation
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let map_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
+                    .collect();
+                format!("{{{}}}", map_str.join(","))
+            }
+            FieldValue::Struct(fields) => {
+                // For structs, create a sorted string representation
+                let mut entries: Vec<_> = fields.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let struct_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
                     .collect();
                 format!("({})", struct_str.join(","))
             }

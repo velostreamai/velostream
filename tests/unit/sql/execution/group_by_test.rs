@@ -609,4 +609,482 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn test_stddev_aggregate() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with known values for STDDEV calculation
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("score".to_string(), InternalValue::Number(10.0));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert("score".to_string(), InternalValue::Number(20.0));
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert("score".to_string(), InternalValue::Number(30.0));
+
+        // Test STDDEV function - use simple query for debugging
+        let query = parser
+            .parse("SELECT customer_id, STDDEV(score) as score_stddev, COUNT(*) as count FROM orders GROUP BY customer_id")
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check count
+            match result.get("count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected count to be present"),
+            }
+
+            // Check STDDEV (for values 10, 20, 30: stddev ≈ 10.0)
+            match result.get("score_stddev") {
+                Some(InternalValue::Number(stddev)) => {
+                    // Standard deviation of [10, 20, 30] should be approximately 10.0
+                    assert!(
+                        (*stddev - 10.0).abs() < 0.1,
+                        "Expected stddev ~10.0, got {}",
+                        stddev
+                    );
+                }
+                _ => panic!("Expected STDDEV result to be present as Number"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_variance_aggregate() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with known values for VARIANCE calculation
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("value".to_string(), InternalValue::Number(2.0));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert("value".to_string(), InternalValue::Number(4.0));
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert("value".to_string(), InternalValue::Number(6.0));
+
+        // Test VARIANCE function
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                VARIANCE(value) as value_variance,
+                COUNT(*) as count
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check count
+            match result.get("count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected count to be present"),
+            }
+
+            // Check VARIANCE (for values 2, 4, 6: variance should be 4.0)
+            match result.get("value_variance") {
+                Some(InternalValue::Number(variance)) => {
+                    // Variance of [2, 4, 6] should be 4.0 (sample variance)
+                    assert!(
+                        (*variance - 4.0).abs() < 0.1,
+                        "Expected variance ~4.0, got {}",
+                        variance
+                    );
+                }
+                _ => panic!("Expected VARIANCE result to be present as Number"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_first_last_aggregates() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records in a specific order
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert(
+            "product".to_string(),
+            InternalValue::String("apple".to_string()),
+        );
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert(
+            "product".to_string(),
+            InternalValue::String("banana".to_string()),
+        );
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert(
+            "product".to_string(),
+            InternalValue::String("cherry".to_string()),
+        );
+
+        // Test FIRST and LAST functions
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                FIRST(product) as first_product,
+                LAST(product) as last_product,
+                COUNT(*) as count
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check count
+            match result.get("count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected count to be present"),
+            }
+
+            // Check FIRST (should be "apple" - first record processed)
+            match result.get("first_product") {
+                Some(InternalValue::String(first)) => assert_eq!(first, "apple"),
+                _ => panic!("Expected FIRST result to be present as String"),
+            }
+
+            // Check LAST (should be "cherry" - last record processed)
+            match result.get("last_product") {
+                Some(InternalValue::String(last)) => assert_eq!(last, "cherry"),
+                _ => panic!("Expected LAST result to be present as String"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_string_agg_aggregate() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with string values
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("tag".to_string(), InternalValue::String("red".to_string()));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert(
+            "tag".to_string(),
+            InternalValue::String("green".to_string()),
+        );
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert("tag".to_string(), InternalValue::String("blue".to_string()));
+
+        // Test STRING_AGG function with comma separator
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                STRING_AGG(tag, ',') as tag_list,
+                COUNT(*) as count
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check count
+            match result.get("count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected count to be present"),
+            }
+
+            // Check STRING_AGG (should contain all three colors separated by commas)
+            match result.get("tag_list") {
+                Some(InternalValue::String(agg_result)) => {
+                    // The order might vary due to streaming nature, but should contain all elements
+                    assert!(
+                        agg_result.contains("red"),
+                        "Expected 'red' in aggregated string: {}",
+                        agg_result
+                    );
+                    assert!(
+                        agg_result.contains("green"),
+                        "Expected 'green' in aggregated string: {}",
+                        agg_result
+                    );
+                    assert!(
+                        agg_result.contains("blue"),
+                        "Expected 'blue' in aggregated string: {}",
+                        agg_result
+                    );
+                    assert!(
+                        agg_result.contains(","),
+                        "Expected comma separator in aggregated string: {}",
+                        agg_result
+                    );
+                }
+                _ => panic!("Expected STRING_AGG result to be present as String"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_count_distinct_aggregate() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with some duplicate values
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert(
+            "category".to_string(),
+            InternalValue::String("electronics".to_string()),
+        );
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert(
+            "category".to_string(),
+            InternalValue::String("books".to_string()),
+        );
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert(
+            "category".to_string(),
+            InternalValue::String("electronics".to_string()),
+        ); // Duplicate
+
+        let mut record4 = HashMap::new();
+        record4.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record4.insert(
+            "category".to_string(),
+            InternalValue::String("clothing".to_string()),
+        );
+
+        // Test COUNT_DISTINCT function
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                COUNT_DISTINCT(category) as distinct_categories,
+                COUNT(*) as total_count
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+            engine.execute(&query, record4).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check total count (should be 4)
+            match result.get("total_count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 4),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 4.0),
+                _ => panic!("Expected total_count to be present"),
+            }
+
+            // Check COUNT_DISTINCT (should be 3: electronics, books, clothing)
+            match result.get("distinct_categories") {
+                Some(InternalValue::Integer(distinct_count)) => assert_eq!(*distinct_count, 3),
+                Some(InternalValue::Number(distinct_count)) => assert_eq!(*distinct_count, 3.0),
+                _ => panic!("Expected COUNT_DISTINCT result to be present as Integer"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_mixed_aggregate_functions() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with mixed data types
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("amount".to_string(), InternalValue::Number(100.0));
+        record1.insert(
+            "category".to_string(),
+            InternalValue::String("A".to_string()),
+        );
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert("amount".to_string(), InternalValue::Number(200.0));
+        record2.insert(
+            "category".to_string(),
+            InternalValue::String("B".to_string()),
+        );
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert("amount".to_string(), InternalValue::Number(300.0));
+        record3.insert(
+            "category".to_string(),
+            InternalValue::String("A".to_string()),
+        );
+
+        // Test query combining multiple new aggregate functions
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                COUNT(*) as total_count,
+                COUNT_DISTINCT(category) as distinct_cats,
+                FIRST(category) as first_cat,
+                LAST(category) as last_cat,
+                STDDEV(amount) as amount_stddev,
+                VARIANCE(amount) as amount_variance,
+                STRING_AGG(category, '|') as cat_list
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Verify we have all expected fields
+            assert_eq!(result.len(), 8);
+
+            // Check basic aggregates
+            match result.get("total_count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 3),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 3.0),
+                _ => panic!("Expected total_count to be present"),
+            }
+
+            match result.get("distinct_cats") {
+                Some(InternalValue::Integer(distinct)) => assert_eq!(*distinct, 2), // A and B
+                Some(InternalValue::Number(distinct)) => assert_eq!(*distinct, 2.0),
+                _ => panic!("Expected distinct_cats to be present"),
+            }
+
+            // Check FIRST and LAST
+            assert!(result.contains_key("first_cat"));
+            assert!(result.contains_key("last_cat"));
+
+            // Check statistical functions
+            match result.get("amount_stddev") {
+                Some(InternalValue::Number(stddev)) => {
+                    // Standard deviation of [100, 200, 300] should be ~100
+                    assert!(
+                        *stddev > 80.0 && *stddev < 120.0,
+                        "Expected stddev ~100, got {}",
+                        stddev
+                    );
+                }
+                _ => panic!("Expected amount_stddev to be present as Number"),
+            }
+
+            match result.get("amount_variance") {
+                Some(InternalValue::Number(variance)) => {
+                    // Variance should be stddev squared (~10000)
+                    assert!(
+                        *variance > 8000.0 && *variance < 12000.0,
+                        "Expected variance ~10000, got {}",
+                        variance
+                    );
+                }
+                _ => panic!("Expected amount_variance to be present as Number"),
+            }
+
+            // Check STRING_AGG
+            match result.get("cat_list") {
+                Some(InternalValue::String(agg_result)) => {
+                    assert!(
+                        agg_result.contains("A") && agg_result.contains("B"),
+                        "Expected both A and B in aggregated string: {}",
+                        agg_result
+                    );
+                    assert!(
+                        agg_result.contains("|"),
+                        "Expected pipe separator: {}",
+                        agg_result
+                    );
+                }
+                _ => panic!("Expected cat_list to be present as String"),
+            }
+        });
+    }
 }
