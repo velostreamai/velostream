@@ -6,11 +6,11 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 
 **Goal**: Implement comprehensive GROUP BY operations with streaming semantics following Apache Flink's emission model.
 
-**Current Status**: 17/17 tests passing (100% success rate) - Core functionality complete, all aggregate functions implemented and tested, windowing working.
+**Current Status**: 20/20 tests passing (100% success rate) - Core functionality complete, all aggregate functions implemented and tested, windowing working, NULL handling implemented.
 
 ## Progress Summary
 
-### ✅ Completed Tasks (9/16)
+### ✅ Completed Tasks (10/16)
 
 1. **Research Flink's GROUP BY emission model** ✅
    - Studied Flink's continuous emission strategy with retraction semantics
@@ -57,14 +57,16 @@ This document tracks the progress and remaining work for the GROUP BY implementa
    - **Features**: Sample standard deviation/variance, dynamic separator support for STRING_AGG, proper NULL handling
    - **Result**: 17/17 tests passing (100% success rate), all 13/13 aggregate functions now working
 
-### ❌ Pending Tasks (7/16)
+10. **Add NULL value handling tests in GROUP BY operations** ✅ **COMPLETED**
+    - **Added**: 3 comprehensive NULL handling test functions
+    - **Tests**: NULL values in grouping expressions, NULL handling in aggregate functions, complex multi-column NULL scenarios
+    - **Implementation**: Enhanced GroupAccumulator with `non_null_counts` field, fixed COUNT(column) vs COUNT(*) distinction
+    - **Features**: Proper SQL-standard NULL handling - NULLs group together, aggregates ignore NULLs (except COUNT(*))
+    - **Result**: 20/20 tests passing (100% success rate), complete NULL handling for all GROUP BY operations
+
+### ❌ Pending Tasks (6/16)
 
 #### **Edge Case Testing**
-10. **Add NULL value handling tests in GROUP BY operations** 🧪 **HIGH PRIORITY**
-    - Test NULL values in grouping expressions
-    - Test NULL handling in aggregate functions
-    - Verify NULL groups are handled correctly
-
 11. **Add edge case tests: empty result sets, mixed data types, large group counts** 🧪
     - Empty result sets from WHERE clauses
     - Mixed data types in aggregation columns
@@ -95,7 +97,7 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 
 #### **Validation**
 16. **Verify comprehensive test coverage (target: 25+ tests)** 📊
-    - Current: 11 tests
+    - Current: 20 tests
     - Target: 25+ tests for production confidence
     - Ensure all code paths are tested
 
@@ -133,16 +135,17 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 - All aggregate functions with comprehensive test coverage
 - Mixed aggregate functions, complex expressions
 - Window integration with GROUP BY
+- NULL value handling in grouping and aggregation
 
 **❌ Scenarios Missing:**
-- NULL handling, edge cases, error scenarios
+- Edge cases, error scenarios
 - Integration with JOINs/subqueries, performance testing
 
 ## Priority Roadmap
 
 ### Phase 1: Core Completeness (High Priority)
 1. ✅ Task 9: Missing aggregate function tests **COMPLETED**
-2. Task 10: NULL value handling tests
+2. ✅ Task 10: NULL value handling tests **COMPLETED**
 3. Task 11: Edge case testing
 
 ### Phase 2: Robustness (Medium Priority)  
@@ -162,7 +165,7 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 
 ## Success Metrics
 
-- **Current**: 17/17 tests passing (100%) ✅
+- **Current**: 20/20 tests passing (100%) ✅
 - **All Aggregate Functions**: 13/13 implemented and tested ✅
 - **Target**: 25+ tests with 100% core functionality coverage  
 - **Production Ready**: All error scenarios handled, comprehensive edge case testing

@@ -1087,4 +1087,371 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    fn test_group_by_with_null_grouping_values() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with NULL values in grouping column
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("amount".to_string(), InternalValue::Number(100.0));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Null);
+        record2.insert("amount".to_string(), InternalValue::Number(200.0));
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Null);
+        record3.insert("amount".to_string(), InternalValue::Number(300.0));
+
+        let mut record4 = HashMap::new();
+        record4.insert("customer_id".to_string(), InternalValue::Number(2.0));
+        record4.insert("amount".to_string(), InternalValue::Number(400.0));
+
+        // Test GROUP BY with NULL values in grouping column
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                COUNT(*) as count,
+                SUM(amount) as total
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+            engine.execute(&query, record4).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 3); // Should have 3 groups: 1, NULL, 2
+
+            // Find group for customer_id = 1
+            let group1 = results.iter().find(|r|
+                matches!(r.get("customer_id"), Some(InternalValue::Number(id)) if *id == 1.0)
+            ).expect("Should have group for customer_id = 1");
+
+            match (group1.get("count"), group1.get("total")) {
+                (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1);
+                    assert_eq!(*total, 100.0);
+                }
+                (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1.0);
+                    assert_eq!(*total, 100.0);
+                }
+                _ => panic!("Expected count and total for group 1"),
+            }
+
+            // Find group for customer_id = NULL
+            let null_group = results
+                .iter()
+                .find(|r| matches!(r.get("customer_id"), Some(InternalValue::Null)))
+                .expect("Should have group for customer_id = NULL");
+
+            match (null_group.get("count"), null_group.get("total")) {
+                (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 2);
+                    assert_eq!(*total, 500.0);
+                }
+                (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 2.0);
+                    assert_eq!(*total, 500.0);
+                }
+                _ => panic!("Expected count and total for NULL group"),
+            }
+
+            // Find group for customer_id = 2
+            let group2 = results.iter().find(|r|
+                matches!(r.get("customer_id"), Some(InternalValue::Number(id)) if *id == 2.0)
+            ).expect("Should have group for customer_id = 2");
+
+            match (group2.get("count"), group2.get("total")) {
+                (Some(InternalValue::Integer(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1);
+                    assert_eq!(*total, 400.0);
+                }
+                (Some(InternalValue::Number(count)), Some(InternalValue::Number(total))) => {
+                    assert_eq!(*count, 1.0);
+                    assert_eq!(*total, 400.0);
+                }
+                _ => panic!("Expected count and total for group 2"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_aggregate_functions_with_null_values() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with NULL values in aggregation columns
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert("amount".to_string(), InternalValue::Number(100.0));
+        record1.insert("quantity".to_string(), InternalValue::Number(5.0));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert("amount".to_string(), InternalValue::Null);
+        record2.insert("quantity".to_string(), InternalValue::Number(3.0));
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record3.insert("amount".to_string(), InternalValue::Number(200.0));
+        record3.insert("quantity".to_string(), InternalValue::Null);
+
+        let mut record4 = HashMap::new();
+        record4.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record4.insert("amount".to_string(), InternalValue::Null);
+        record4.insert("quantity".to_string(), InternalValue::Null);
+
+        // Test aggregate functions with NULL values
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                COUNT(*) as total_count,
+                COUNT(amount) as amount_count,
+                COUNT(quantity) as quantity_count,
+                SUM(amount) as amount_sum,
+                AVG(amount) as amount_avg,
+                MIN(amount) as amount_min,
+                MAX(amount) as amount_max,
+                SUM(quantity) as quantity_sum
+            FROM orders
+            GROUP BY customer_id
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+            engine.execute(&query, record4).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+
+            // Check COUNT(*) - should count all records including those with NULLs
+            match result.get("total_count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 4),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 4.0),
+                _ => panic!("Expected total_count to be 4"),
+            }
+
+            // Check COUNT(amount) - should only count non-NULL values (2 records)
+            match result.get("amount_count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 2),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 2.0),
+                _ => panic!("Expected amount_count to be 2"),
+            }
+
+            // Check COUNT(quantity) - should only count non-NULL values (2 records)
+            match result.get("quantity_count") {
+                Some(InternalValue::Integer(count)) => assert_eq!(*count, 2),
+                Some(InternalValue::Number(count)) => assert_eq!(*count, 2.0),
+                _ => panic!("Expected quantity_count to be 2"),
+            }
+
+            // Check SUM(amount) - should sum only non-NULL values (100 + 200 = 300)
+            match result.get("amount_sum") {
+                Some(InternalValue::Number(sum)) => assert_eq!(*sum, 300.0),
+                _ => panic!("Expected amount_sum to be 300.0"),
+            }
+
+            // Check AVG(amount) - should average only non-NULL values (300/2 = 150)
+            match result.get("amount_avg") {
+                Some(InternalValue::Number(avg)) => assert_eq!(*avg, 150.0),
+                _ => panic!("Expected amount_avg to be 150.0"),
+            }
+
+            // Check MIN(amount) - should be minimum of non-NULL values (100)
+            match result.get("amount_min") {
+                Some(InternalValue::Number(min)) => assert_eq!(*min, 100.0),
+                _ => panic!("Expected amount_min to be 100.0"),
+            }
+
+            // Check MAX(amount) - should be maximum of non-NULL values (200)
+            match result.get("amount_max") {
+                Some(InternalValue::Number(max)) => assert_eq!(*max, 200.0),
+                _ => panic!("Expected amount_max to be 200.0"),
+            }
+
+            // Check SUM(quantity) - should sum only non-NULL values (5 + 3 = 8)
+            match result.get("quantity_sum") {
+                Some(InternalValue::Number(sum)) => assert_eq!(*sum, 8.0),
+                _ => panic!("Expected quantity_sum to be 8.0"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_null_handling_in_complex_grouping() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records with NULL values in multiple grouping columns
+        let mut record1 = HashMap::new();
+        record1.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record1.insert(
+            "region".to_string(),
+            InternalValue::String("US".to_string()),
+        );
+        record1.insert("amount".to_string(), InternalValue::Number(100.0));
+
+        let mut record2 = HashMap::new();
+        record2.insert("customer_id".to_string(), InternalValue::Number(1.0));
+        record2.insert("region".to_string(), InternalValue::Null);
+        record2.insert("amount".to_string(), InternalValue::Number(200.0));
+
+        let mut record3 = HashMap::new();
+        record3.insert("customer_id".to_string(), InternalValue::Null);
+        record3.insert(
+            "region".to_string(),
+            InternalValue::String("EU".to_string()),
+        );
+        record3.insert("amount".to_string(), InternalValue::Number(300.0));
+
+        let mut record4 = HashMap::new();
+        record4.insert("customer_id".to_string(), InternalValue::Null);
+        record4.insert("region".to_string(), InternalValue::Null);
+        record4.insert("amount".to_string(), InternalValue::Number(400.0));
+
+        // Test GROUP BY with multiple columns containing NULLs
+        let query = parser
+            .parse(
+                "
+            SELECT
+                customer_id,
+                region,
+                COUNT(*) as count,
+                SUM(amount) as total,
+                FIRST(amount) as first_amount
+            FROM orders
+            GROUP BY customer_id, region
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute(&query, record1).await.unwrap();
+            engine.execute(&query, record2).await.unwrap();
+            engine.execute(&query, record3).await.unwrap();
+            engine.execute(&query, record4).await.unwrap();
+
+            let results =
+                collect_latest_multi_group_results(&mut receiver, &["customer_id", "region"]).await;
+            assert_eq!(results.len(), 4); // Should have 4 distinct groups
+
+            // Verify each group combination
+            for result in &results {
+                match (result.get("customer_id"), result.get("region")) {
+                    (Some(InternalValue::Number(1.0)), Some(InternalValue::String(region)))
+                        if region == "US" =>
+                    {
+                        // Group: customer_id=1, region=US
+                        match (result.get("count"), result.get("total")) {
+                            (
+                                Some(InternalValue::Integer(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1);
+                                assert_eq!(*total, 100.0);
+                            }
+                            (
+                                Some(InternalValue::Number(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1.0);
+                                assert_eq!(*total, 100.0);
+                            }
+                            _ => panic!("Expected count=1, total=100 for group (1, US)"),
+                        }
+                    }
+                    (Some(InternalValue::Number(1.0)), Some(InternalValue::Null)) => {
+                        // Group: customer_id=1, region=NULL
+                        match (result.get("count"), result.get("total")) {
+                            (
+                                Some(InternalValue::Integer(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1);
+                                assert_eq!(*total, 200.0);
+                            }
+                            (
+                                Some(InternalValue::Number(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1.0);
+                                assert_eq!(*total, 200.0);
+                            }
+                            _ => panic!("Expected count=1, total=200 for group (1, NULL)"),
+                        }
+                    }
+                    (Some(InternalValue::Null), Some(InternalValue::String(region)))
+                        if region == "EU" =>
+                    {
+                        // Group: customer_id=NULL, region=EU
+                        match (result.get("count"), result.get("total")) {
+                            (
+                                Some(InternalValue::Integer(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1);
+                                assert_eq!(*total, 300.0);
+                            }
+                            (
+                                Some(InternalValue::Number(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1.0);
+                                assert_eq!(*total, 300.0);
+                            }
+                            _ => panic!("Expected count=1, total=300 for group (NULL, EU)"),
+                        }
+                    }
+                    (Some(InternalValue::Null), Some(InternalValue::Null)) => {
+                        // Group: customer_id=NULL, region=NULL
+                        match (result.get("count"), result.get("total")) {
+                            (
+                                Some(InternalValue::Integer(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1);
+                                assert_eq!(*total, 400.0);
+                            }
+                            (
+                                Some(InternalValue::Number(count)),
+                                Some(InternalValue::Number(total)),
+                            ) => {
+                                assert_eq!(*count, 1.0);
+                                assert_eq!(*total, 400.0);
+                            }
+                            _ => panic!("Expected count=1, total=400 for group (NULL, NULL)"),
+                        }
+                    }
+                    _ => panic!(
+                        "Unexpected group combination: {:?}, {:?}",
+                        result.get("customer_id"),
+                        result.get("region")
+                    ),
+                }
+            }
+        });
+    }
 }

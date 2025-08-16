@@ -139,6 +139,8 @@ pub struct GroupByState {
 pub struct GroupAccumulator {
     /// Count of records in this group
     count: u64,
+    /// Count of non-NULL values for COUNT(column) aggregates (field_name -> count)
+    non_null_counts: HashMap<String, u64>,
     /// Sum values for SUM() aggregates (field_name -> sum)
     sums: HashMap<String, f64>,
     /// Values for MIN() aggregates (field_name -> min_value)
@@ -4994,6 +4996,12 @@ impl StreamExecutionEngine {
                                 // If HAVING clause fails, don't emit a result but continue processing
                                 None
                             }
+                            Err(SqlError::ExecutionError { message, .. })
+                                if message == "No groups satisfied HAVING clause" =>
+                            {
+                                // If no groups satisfy HAVING clause, don't emit a result but continue processing
+                                None
+                            }
                             Err(e) => return Err(e),
                         };
 
@@ -5499,6 +5507,7 @@ impl StreamExecutionEngine {
                     .entry(group_key.clone())
                     .or_insert_with(|| GroupAccumulator {
                         count: 0,
+                        non_null_counts: HashMap::new(),
                         sums: HashMap::new(),
                         mins: HashMap::new(),
                         maxs: HashMap::new(),
@@ -5655,6 +5664,22 @@ impl StreamExecutionEngine {
         match expr {
             Expr::Function { name, args } => {
                 match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        // For COUNT(column), only count non-NULL values
+                        if !args.is_empty() {
+                            if let Some(arg) = args.first() {
+                                if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                    if !matches!(value, FieldValue::Null) {
+                                        *accumulator
+                                            .non_null_counts
+                                            .entry(field_name.to_string())
+                                            .or_insert(0) += 1;
+                                    }
+                                }
+                            }
+                        }
+                        // For COUNT(*), we rely on the global count which is incremented for every record
+                    }
                     "SUM" => {
                         if let Some(arg) = args.first() {
                             if let Ok(value) = Self::evaluate_expression_static(arg, record) {
@@ -5809,7 +5834,26 @@ impl StreamExecutionEngine {
         match expr {
             Expr::Function { name, .. } => {
                 match name.to_uppercase().as_str() {
-                    "COUNT" => Ok(FieldValue::Integer(accumulator.count as i64)),
+                    "COUNT" => {
+                        // Check if this is COUNT(*) or COUNT(column)
+                        if let Expr::Function { args, .. } = expr {
+                            if args.is_empty() {
+                                // COUNT(*) - count all records
+                                Ok(FieldValue::Integer(accumulator.count as i64))
+                            } else {
+                                // COUNT(column) - count non-NULL values for this field
+                                Ok(FieldValue::Integer(
+                                    accumulator
+                                        .non_null_counts
+                                        .get(field_name)
+                                        .copied()
+                                        .unwrap_or(0) as i64,
+                                ))
+                            }
+                        } else {
+                            Ok(FieldValue::Integer(accumulator.count as i64))
+                        }
+                    }
                     "SUM" => Ok(FieldValue::Float(
                         accumulator.sums.get(field_name).copied().unwrap_or(0.0),
                     )),
@@ -6363,7 +6407,21 @@ impl StreamExecutionEngine {
                             Ok(FieldValue::Integer(accumulator.count as i64))
                         } else {
                             // COUNT(column) - count non-null values
-                            Ok(FieldValue::Integer(accumulator.count as i64))
+                            let field_key = if let Some(arg) = args.first() {
+                                match arg {
+                                    Expr::Column(col_name) => col_name.clone(),
+                                    _ => "count".to_string(),
+                                }
+                            } else {
+                                "count".to_string()
+                            };
+                            Ok(FieldValue::Integer(
+                                accumulator
+                                    .non_null_counts
+                                    .get(&field_key)
+                                    .copied()
+                                    .unwrap_or(0) as i64,
+                            ))
                         }
                     }
                     "SUM" => Ok(FieldValue::Float(
