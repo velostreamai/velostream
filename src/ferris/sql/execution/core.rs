@@ -111,9 +111,12 @@ use crate::ferris::sql::execution::expressions::{
     ExpressionEvaluator, FunctionEvaluator, add_values, cast_value, divide_values, multiply_values,
     subtract_values,
 };
+use crate::ferris::sql::execution::groupby::{GroupAccumulator, GroupByProcessor, GroupByState};
+use crate::ferris::sql::execution::joins::JoinProcessor;
 use crate::ferris::sql::execution::types::{
     ExecutionMessage, FieldValue, HeaderMutation, HeaderOperation, StreamRecord,
 };
+use crate::ferris::sql::execution::windows::{WindowProcessor, WindowState};
 
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
@@ -130,46 +133,6 @@ pub struct StreamExecutionEngine {
 // CORE DATA TYPES AND STRUCTURES
 // =============================================================================
 
-/// State for tracking GROUP BY aggregations across streaming records
-#[derive(Debug, Clone)]
-pub struct GroupByState {
-    /// Map of group keys to their accumulated state
-    groups: HashMap<Vec<String>, GroupAccumulator>,
-    /// The GROUP BY expressions for this state
-    group_expressions: Vec<Expr>,
-    /// The SELECT fields to compute for each group
-    select_fields: Vec<SelectField>,
-    /// Optional HAVING clause
-    having_clause: Option<Expr>,
-}
-
-/// Accumulator for a single group's aggregate state
-#[derive(Debug, Clone)]
-pub struct GroupAccumulator {
-    /// Count of records in this group
-    count: u64,
-    /// Count of non-NULL values for COUNT(column) aggregates (field_name -> count)
-    non_null_counts: HashMap<String, u64>,
-    /// Sum values for SUM() aggregates (field_name -> sum)
-    sums: HashMap<String, f64>,
-    /// Values for MIN() aggregates (field_name -> min_value)
-    mins: HashMap<String, FieldValue>,
-    /// Values for MAX() aggregates (field_name -> max_value)
-    maxs: HashMap<String, FieldValue>,
-    /// Values for statistical aggregates (field_name -> [values])
-    numeric_values: HashMap<String, Vec<f64>>,
-    /// First values for FIRST() aggregates
-    first_values: HashMap<String, FieldValue>,
-    /// Last values for LAST() aggregates (updated on each record)
-    last_values: HashMap<String, FieldValue>,
-    /// String values for STRING_AGG
-    string_values: HashMap<String, Vec<String>>,
-    /// Distinct values for COUNT_DISTINCT
-    distinct_values: HashMap<String, std::collections::HashSet<String>>,
-    /// Sample record for non-aggregate fields (takes first record's values)
-    sample_record: Option<StreamRecord>,
-}
-
 pub struct QueryExecution {
     query: StreamingQuery,
     state: ExecutionState,
@@ -183,13 +146,6 @@ enum ExecutionState {
     Paused,
     Stopped,
     Error(String),
-}
-
-#[derive(Debug)]
-struct WindowState {
-    window_spec: WindowSpec,
-    buffer: Vec<StreamRecord>,
-    last_emit: i64,
 }
 
 // =============================================================================
@@ -287,11 +243,7 @@ impl StreamExecutionEngine {
             // Initialize window state if needed for this query
             let query_id = "execute_query".to_string();
             if !self.active_queries.contains_key(&query_id) {
-                let window_state = Some(WindowState {
-                    window_spec: window_spec.clone(),
-                    buffer: Vec::new(),
-                    last_emit: 0,
-                });
+                let window_state = Some(WindowState::new(window_spec.clone()));
 
                 let execution = QueryExecution {
                     query: query.clone(),
@@ -417,13 +369,9 @@ impl StreamExecutionEngine {
         query: StreamingQuery,
     ) -> Result<(), SqlError> {
         let window_state = match &query {
-            StreamingQuery::Select { window, .. } => {
-                window.as_ref().map(|window_spec| WindowState {
-                    window_spec: window_spec.clone(),
-                    buffer: Vec::new(),
-                    last_emit: 0,
-                })
-            }
+            StreamingQuery::Select { window, .. } => window
+                .as_ref()
+                .map(|window_spec| WindowState::new(window_spec.clone())),
             _ => None,
         };
 
@@ -611,7 +559,7 @@ impl StreamExecutionEngine {
                 // Handle JOINs first (if any)
                 let mut joined_record = record.clone();
                 if let Some(join_clauses) = joins {
-                    joined_record = self.process_joins(&joined_record, join_clauses)?;
+                    joined_record = JoinProcessor::process_joins(&joined_record, join_clauses)?;
                 }
 
                 // Apply WHERE clause
@@ -4854,7 +4802,7 @@ impl StreamExecutionEngine {
                 // Add record to buffer first
                 if let Some(execution) = self.active_queries.get_mut(query_id) {
                     if let Some(state) = execution.window_state.as_mut() {
-                        state.buffer.push(record.clone());
+                        let _ = state.add_record(record.clone());
                     }
                 }
 
@@ -4874,7 +4822,10 @@ impl StreamExecutionEngine {
                     let (last_emit_time, buffer) =
                         if let Some(execution) = self.active_queries.get(query_id) {
                             if let Some(state) = &execution.window_state {
-                                (state.last_emit, state.buffer.clone())
+                                (
+                                    state.last_emit,
+                                    state.get_window_records().iter().cloned().collect(),
+                                )
                             } else {
                                 (0, Vec::new())
                             }
