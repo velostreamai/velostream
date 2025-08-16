@@ -107,6 +107,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 // Import types from the new execution module
+use crate::ferris::sql::execution::expressions::{
+    ExpressionEvaluator, FunctionEvaluator, add_values, cast_value, divide_values, multiply_values,
+    subtract_values,
+};
 use crate::ferris::sql::execution::types::{
     ExecutionMessage, FieldValue, HeaderMutation, HeaderOperation, StreamRecord,
 };
@@ -1691,6 +1695,14 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
+        add_values(left, right)
+    }
+
+    pub fn add_values_original(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<FieldValue, SqlError> {
         match (left, right) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(FieldValue::Integer(a + b)),
             (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a + b)),
@@ -1705,6 +1717,14 @@ impl StreamExecutionEngine {
     }
 
     pub fn subtract_values(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<FieldValue, SqlError> {
+        subtract_values(left, right)
+    }
+
+    pub fn subtract_values_original(
         &self,
         left: &FieldValue,
         right: &FieldValue,
@@ -1727,6 +1747,14 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
+        multiply_values(left, right)
+    }
+
+    pub fn multiply_values_original(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<FieldValue, SqlError> {
         match (left, right) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(FieldValue::Integer(a * b)),
             (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a * b)),
@@ -1741,6 +1769,14 @@ impl StreamExecutionEngine {
     }
 
     pub fn divide_values(
+        &self,
+        left: &FieldValue,
+        right: &FieldValue,
+    ) -> Result<FieldValue, SqlError> {
+        divide_values(left, right)
+    }
+
+    pub fn divide_values_original(
         &self,
         left: &FieldValue,
         right: &FieldValue,
@@ -3816,6 +3852,14 @@ impl StreamExecutionEngine {
     }
 
     pub fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
+        cast_value(value, target_type)
+    }
+
+    pub fn cast_value_original(
+        &self,
+        value: FieldValue,
+        target_type: &str,
+    ) -> Result<FieldValue, SqlError> {
         match target_type {
             "INTEGER" | "INT" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
