@@ -23,7 +23,7 @@ including state management, record processing, and aggregate function computatio
 ## Usage
 
 ```rust,no_run
-use crate::ferris::sql::execution::groupby::{GroupByState, GroupByProcessor};
+use ferrisstreams::ferris::sql::execution::groupby::{GroupByState, GroupByProcessor};
 
 // Example variables (would be provided by your application)
 # let group_expressions = vec![];  // Vec<Expr>
@@ -43,7 +43,7 @@ for record in records {
 for group_key in group_state.group_keys() {
     let accumulator = group_state.get_accumulator(group_key).unwrap();
     let result = GroupByProcessor::compute_group_result_fields(
-        accumulator, &group_state.select_fields, &group_state.group_expressions, 
+        accumulator, &group_state.select_fields, &group_state.group_expressions,
         accumulator.sample_record.as_ref()
     )?;
 }

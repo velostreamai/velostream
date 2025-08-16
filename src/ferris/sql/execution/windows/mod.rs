@@ -23,14 +23,14 @@ supporting time-based window operations including tumbling, sliding, and session
 
 ### Tumbling Windows
 Fixed-size, non-overlapping windows that partition the stream into discrete chunks.
-```
+```text
 [Window 1][Window 2][Window 3]
 0--------10--------20--------30
 ```
 
 ### Sliding Windows
 Fixed-size windows that advance by smaller intervals, creating overlapping windows.
-```
+```text
 [Window 1    ]
     [Window 2    ]
         [Window 3    ]
@@ -39,7 +39,7 @@ Fixed-size windows that advance by smaller intervals, creating overlapping windo
 
 ### Session Windows
 Variable-size windows that group events separated by no more than a gap threshold.
-```
+```text
 [Session 1]    [Session 2      ]
 |ev|ev|       |ev|    |ev|ev|
 ```
@@ -47,8 +47,8 @@ Variable-size windows that group events separated by no more than a gap threshol
 ## Usage
 
 ```rust,no_run
-use crate::ferris::sql::execution::windows::{WindowState, WindowProcessor};
-use crate::ferris::sql::ast::{WindowSpec, StreamingQuery};
+use ferrisstreams::ferris::sql::execution::windows::{WindowState, WindowProcessor};
+use ferrisstreams::ferris::sql::ast::{WindowSpec, StreamingQuery};
 use std::time::Duration;
 
 // Create window state for a tumbling 10-second window

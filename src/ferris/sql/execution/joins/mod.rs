@@ -60,8 +60,8 @@ WITHIN INTERVAL 1 HOUR WITH GRACE PERIOD 30 MINUTES
 ## Usage
 
 ```rust,no_run
-use crate::ferris::sql::execution::joins::JoinProcessor;
-use crate::ferris::sql::ast::{JoinClause, JoinType};
+use ferrisstreams::ferris::sql::execution::joins::JoinProcessor;
+use ferrisstreams::ferris::sql::ast::{JoinClause, JoinType};
 
 // Example variables (would be provided by your application)
 # let left_record = todo!();      // StreamRecord
