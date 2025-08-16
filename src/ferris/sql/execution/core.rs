@@ -106,6 +106,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+// Import types from the new execution module
+use crate::ferris::sql::execution::types::{
+    ExecutionMessage, FieldValue, HeaderMutation, HeaderOperation, StreamRecord,
+};
+
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
@@ -159,127 +164,6 @@ pub struct GroupAccumulator {
     distinct_values: HashMap<String, std::collections::HashSet<String>>,
     /// Sample record for non-aggregate fields (takes first record's values)
     sample_record: Option<StreamRecord>,
-}
-
-#[derive(Debug)]
-pub enum ExecutionMessage {
-    StartJob {
-        job_id: String,
-        query: StreamingQuery,
-    },
-    StopJob {
-        job_id: String,
-    },
-    ProcessRecord {
-        stream_name: String,
-        record: StreamRecord,
-    },
-    QueryResult {
-        query_id: String,
-        result: StreamRecord,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub struct StreamRecord {
-    pub fields: HashMap<String, FieldValue>,
-    pub timestamp: i64,
-    pub offset: i64,
-    pub partition: i32,
-    pub headers: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HeaderMutation {
-    pub operation: HeaderOperation,
-    pub key: String,
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub enum HeaderOperation {
-    Set,
-    Remove,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FieldValue {
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Boolean(bool),
-    Null,
-    /// Date type (YYYY-MM-DD)
-    Date(NaiveDate),
-    /// Timestamp type (YYYY-MM-DD HH:MM:SS[.nnn])
-    Timestamp(NaiveDateTime),
-    /// Decimal type for precise arithmetic
-    Decimal(Decimal),
-    /// Array of values - all elements must be the same type
-    Array(Vec<FieldValue>),
-    /// Map of key-value pairs - keys must be strings
-    Map(HashMap<String, FieldValue>),
-    /// Structured data with named fields
-    Struct(HashMap<String, FieldValue>),
-}
-
-impl FieldValue {
-    /// Get the type name for error messages
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            FieldValue::Integer(_) => "INTEGER",
-            FieldValue::Float(_) => "FLOAT",
-            FieldValue::String(_) => "STRING",
-            FieldValue::Boolean(_) => "BOOLEAN",
-            FieldValue::Null => "NULL",
-            FieldValue::Date(_) => "DATE",
-            FieldValue::Timestamp(_) => "TIMESTAMP",
-            FieldValue::Decimal(_) => "DECIMAL",
-            FieldValue::Array(_) => "ARRAY",
-            FieldValue::Map(_) => "MAP",
-            FieldValue::Struct(_) => "STRUCT",
-        }
-    }
-
-    /// Check if this value is numeric
-    pub fn is_numeric(&self) -> bool {
-        matches!(
-            self,
-            FieldValue::Integer(_) | FieldValue::Float(_) | FieldValue::Decimal(_)
-        )
-    }
-
-    /// Convert to string representation for display
-    pub fn to_display_string(&self) -> String {
-        match self {
-            FieldValue::Integer(i) => i.to_string(),
-            FieldValue::Float(f) => f.to_string(),
-            FieldValue::String(s) => s.clone(),
-            FieldValue::Boolean(b) => b.to_string(),
-            FieldValue::Null => "NULL".to_string(),
-            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
-            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-            FieldValue::Decimal(dec) => dec.to_string(),
-            FieldValue::Array(arr) => {
-                let elements: Vec<String> = arr.iter().map(|v| v.to_display_string()).collect();
-                format!("[{}]", elements.join(", "))
-            }
-            FieldValue::Map(map) => {
-                let pairs: Vec<String> = map
-                    .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
-                    .collect();
-                format!("{{{}}}", pairs.join(", "))
-            }
-            FieldValue::Struct(fields) => {
-                let field_strs: Vec<String> = fields
-                    .iter()
-                    .map(|(name, value)| format!("{}: {}", name, value.to_display_string()))
-                    .collect();
-                format!("{{{}}}", field_strs.join(", "))
-            }
-        }
-    }
 }
 
 pub struct QueryExecution {
