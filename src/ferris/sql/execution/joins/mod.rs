@@ -59,9 +59,20 @@ WITHIN INTERVAL 1 HOUR WITH GRACE PERIOD 30 MINUTES
 
 ## Usage
 
-```rust
+```rust,no_run
 use crate::ferris::sql::execution::joins::JoinProcessor;
 use crate::ferris::sql::ast::{JoinClause, JoinType};
+
+// Example variables (would be provided by your application)
+# let left_record = todo!();      // StreamRecord
+# let right_record_opt = None;    // Option<StreamRecord>
+# let join_clause = todo!();      // JoinClause
+# let base_record = todo!();      // StreamRecord
+# let join_clauses = vec![];      // Vec<JoinClause>
+# let stream_record = todo!();    // StreamRecord
+# let table_source = todo!();     // StreamSource
+# let join_condition = todo!();   // Expr
+# let join_type = JoinType::Inner; // JoinType
 
 // Process a single JOIN operation
 let result = JoinProcessor::execute_join(
@@ -83,6 +94,7 @@ let stream_table_result = JoinProcessor::process_stream_table_join(
     &join_condition,
     &join_type
 )?;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Stream-Table JOIN Optimization

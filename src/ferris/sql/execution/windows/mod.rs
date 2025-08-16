@@ -46,9 +46,10 @@ Variable-size windows that group events separated by no more than a gap threshol
 
 ## Usage
 
-```rust
+```rust,no_run
 use crate::ferris::sql::execution::windows::{WindowState, WindowProcessor};
-use crate::ferris::sql::ast::WindowSpec;
+use crate::ferris::sql::ast::{WindowSpec, StreamingQuery};
+use std::time::Duration;
 
 // Create window state for a tumbling 10-second window
 let window_spec = WindowSpec::Tumbling {
@@ -57,7 +58,11 @@ let window_spec = WindowSpec::Tumbling {
 };
 let mut window_state = WindowState::new(window_spec);
 
-// Process records through the window
+// Example processing loop (variables would be provided by your application)
+# let records = vec![];  // Vec<StreamRecord>
+# let query = todo!();   // StreamingQuery
+# let current_time = 0i64; // chrono::Utc::now().timestamp_millis()
+
 for record in records {
     WindowProcessor::process_record(&mut window_state, &record)?;
 
@@ -74,6 +79,7 @@ for record in records {
         window_state.update_last_emit(current_time);
     }
 }
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Memory Management

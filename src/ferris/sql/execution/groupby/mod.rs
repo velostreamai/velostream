@@ -22,8 +22,14 @@ including state management, record processing, and aggregate function computatio
 
 ## Usage
 
-```rust
+```rust,no_run
 use crate::ferris::sql::execution::groupby::{GroupByState, GroupByProcessor};
+
+// Example variables (would be provided by your application)
+# let group_expressions = vec![];  // Vec<Expr>
+# let select_fields = vec![];      // Vec<SelectField>
+# let having_clause = None;        // Option<Expr>
+# let records = vec![];            // Vec<StreamRecord>
 
 // Create GROUP BY state
 let mut group_state = GroupByState::new(group_expressions, select_fields, having_clause);
@@ -37,9 +43,11 @@ for record in records {
 for group_key in group_state.group_keys() {
     let accumulator = group_state.get_accumulator(group_key).unwrap();
     let result = GroupByProcessor::compute_group_result_fields(
-        accumulator, &select_fields, &group_expressions, accumulator.sample_record.as_ref()
+        accumulator, &group_state.select_fields, &group_state.group_expressions, 
+        accumulator.sample_record.as_ref()
     )?;
 }
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 */
 
