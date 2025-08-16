@@ -39,7 +39,7 @@ fn create_test_record(
     }
     record.insert(
         "timestamp".to_string(),
-        InternalValue::Integer(chrono::Utc::now().timestamp()),
+        InternalValue::Integer(chrono::Utc::now().timestamp_millis()),
     );
     record
 }
@@ -61,7 +61,7 @@ async fn test_windowed_execution_tumbling() {
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Tumbling {
-            size: Duration::from_secs(300), // 5 minutes
+            size: Duration::from_millis(1000), // 1 second
             time_column: Some("timestamp".to_string()),
         }),
         group_by: None,
@@ -70,13 +70,31 @@ async fn test_windowed_execution_tumbling() {
         limit: None,
     };
 
-    let record = create_test_record(1, 100, 299.99, Some("pending"));
+    // Create records with specific timestamps to trigger window emission
+    let base_time = 1000; // Start at 1 second (1000ms)
+    let mut record = create_test_record(1, 100, 299.99, Some("pending"));
+    record.insert("timestamp".to_string(), InternalValue::Integer(base_time));
 
+    // Execute first record
     let result = engine.execute(&query, record).await;
     assert!(result.is_ok());
 
+    // Create second record past the window boundary to trigger emission
+    let mut record2 = create_test_record(2, 200, 150.5, Some("completed"));
+    record2.insert(
+        "timestamp".to_string(),
+        InternalValue::Integer(base_time + 1500),
+    ); // 1.5 seconds later
+
+    let result2 = engine.execute(&query, record2).await;
+    assert!(result2.is_ok());
+
+    // Now we should have output from the first window
     let output = rx.try_recv();
-    assert!(output.is_ok());
+    assert!(output.is_ok(), "Should receive windowed output");
+
+    let output_record = output.unwrap();
+    assert!(output_record.contains_key("total_amount"));
 }
 
 #[tokio::test]
@@ -185,7 +203,7 @@ async fn test_aggregation_functions() {
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Tumbling {
-            size: Duration::from_secs(60),
+            size: Duration::from_millis(1000), // 1 second
             time_column: Some("timestamp".to_string()),
         }),
         group_by: None,
@@ -194,10 +212,23 @@ async fn test_aggregation_functions() {
         limit: None,
     };
 
-    let record = create_test_record(1, 100, 299.99, Some("pending"));
+    // Create records with specific timestamps to trigger window emission
+    let base_time = 1000; // Start at 1 second (1000ms)
+    let mut record = create_test_record(1, 100, 299.99, Some("pending"));
+    record.insert("timestamp".to_string(), InternalValue::Integer(base_time));
 
     let result = engine.execute(&query, record).await;
     assert!(result.is_ok());
+
+    // Create second record past the window boundary to trigger emission
+    let mut record2 = create_test_record(2, 200, 150.5, Some("completed"));
+    record2.insert(
+        "timestamp".to_string(),
+        InternalValue::Integer(base_time + 1500),
+    ); // 1.5 seconds later
+
+    let result2 = engine.execute(&query, record2).await;
+    assert!(result2.is_ok());
 
     let output = rx.try_recv().unwrap();
     assert!(output.contains_key("count"));

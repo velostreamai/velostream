@@ -113,11 +113,53 @@ pub struct StreamExecutionEngine {
     output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
     _serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
+    // Stateful GROUP BY support
+    group_states: HashMap<String, GroupByState>,
 }
 
 // =============================================================================
 // CORE DATA TYPES AND STRUCTURES
 // =============================================================================
+
+/// State for tracking GROUP BY aggregations across streaming records
+#[derive(Debug, Clone)]
+pub struct GroupByState {
+    /// Map of group keys to their accumulated state
+    groups: HashMap<Vec<String>, GroupAccumulator>,
+    /// The GROUP BY expressions for this state
+    group_expressions: Vec<Expr>,
+    /// The SELECT fields to compute for each group
+    select_fields: Vec<SelectField>,
+    /// Optional HAVING clause
+    having_clause: Option<Expr>,
+}
+
+/// Accumulator for a single group's aggregate state
+#[derive(Debug, Clone)]
+pub struct GroupAccumulator {
+    /// Count of records in this group
+    count: u64,
+    /// Count of non-NULL values for COUNT(column) aggregates (field_name -> count)
+    non_null_counts: HashMap<String, u64>,
+    /// Sum values for SUM() aggregates (field_name -> sum)
+    sums: HashMap<String, f64>,
+    /// Values for MIN() aggregates (field_name -> min_value)
+    mins: HashMap<String, FieldValue>,
+    /// Values for MAX() aggregates (field_name -> max_value)
+    maxs: HashMap<String, FieldValue>,
+    /// Values for statistical aggregates (field_name -> [values])
+    numeric_values: HashMap<String, Vec<f64>>,
+    /// First values for FIRST() aggregates
+    first_values: HashMap<String, FieldValue>,
+    /// Last values for LAST() aggregates (updated on each record)
+    last_values: HashMap<String, FieldValue>,
+    /// String values for STRING_AGG
+    string_values: HashMap<String, Vec<String>>,
+    /// Distinct values for COUNT_DISTINCT
+    distinct_values: HashMap<String, std::collections::HashSet<String>>,
+    /// Sample record for non-aggregate fields (takes first record's values)
+    sample_record: Option<StreamRecord>,
+}
 
 #[derive(Debug)]
 pub enum ExecutionMessage {
@@ -279,6 +321,7 @@ impl StreamExecutionEngine {
             output_sender,
             _serialization_format,
             record_count: 0,
+            group_states: HashMap::new(),
         }
     }
 
@@ -311,22 +354,75 @@ impl StreamExecutionEngine {
         partition: Option<i32>,
     ) -> Result<(), SqlError> {
         // Convert input record to StreamRecord
+        let mut fields_map: HashMap<String, FieldValue> = record
+            .into_iter()
+            .map(|(k, v)| {
+                let field_value = self.internal_to_field_value(v);
+                (k, field_value)
+            })
+            .collect();
+
+        // For windowed queries, try to extract event time from _timestamp field if present
+        let record_timestamp = if let StreamingQuery::Select {
+            window: Some(_), ..
+        } = query
+        {
+            if let Some(ts_field) = fields_map.get("_timestamp") {
+                match ts_field {
+                    FieldValue::Integer(ts) => *ts,
+                    FieldValue::Float(ts) => *ts as i64,
+                    _ => timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                }
+            } else {
+                timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+            }
+        } else {
+            timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+        };
+
         let stream_record = StreamRecord {
-            fields: record
-                .into_iter()
-                .map(|(k, v)| {
-                    let field_value = self.internal_to_field_value(v);
-                    (k, field_value)
-                })
-                .collect(),
-            timestamp: timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            fields: fields_map,
+            timestamp: record_timestamp,
             offset: offset.unwrap_or(0),
             partition: partition.unwrap_or(0),
             headers,
         };
 
-        // Apply query and process record
-        if let Some(result) = self.apply_query(query, &stream_record)? {
+        // Check if this is a windowed query and process accordingly
+        let result = if let StreamingQuery::Select {
+            window: Some(window_spec),
+            ..
+        } = query
+        {
+            // For windowed queries, we need to simulate the streaming execution model
+
+            // Initialize window state if needed for this query
+            let query_id = "execute_query".to_string();
+            if !self.active_queries.contains_key(&query_id) {
+                let window_state = Some(WindowState {
+                    window_spec: window_spec.clone(),
+                    buffer: Vec::new(),
+                    last_emit: 0,
+                });
+
+                let execution = QueryExecution {
+                    query: query.clone(),
+                    state: ExecutionState::Running,
+                    window_state,
+                };
+
+                self.active_queries.insert(query_id.clone(), execution);
+            }
+
+            // Process using windowed logic
+            self.process_windowed_query(&query_id, query, &stream_record)?
+        } else {
+            // Regular non-windowed processing
+            self.apply_query(query, &stream_record)?
+        };
+
+        // Process result if any
+        if let Some(result) = result {
             // Convert result to InternalValue format
             let internal_result: HashMap<String, InternalValue> = result
                 .fields
@@ -614,6 +710,7 @@ impl StreamExecutionEngine {
                 joins,
                 having,
                 limit,
+                group_by,
                 ..
             } => {
                 // Check limit first
@@ -634,6 +731,17 @@ impl StreamExecutionEngine {
                     if !self.evaluate_expression(where_expr, &joined_record)? {
                         return Ok(None);
                     }
+                }
+
+                // Handle GROUP BY if present
+                if let Some(group_exprs) = group_by {
+                    return self.handle_group_by_record(
+                        query,
+                        &joined_record,
+                        group_exprs,
+                        fields,
+                        having,
+                    );
                 }
 
                 // Apply SELECT fields
@@ -4745,6 +4853,7 @@ impl StreamExecutionEngine {
             if let Some(field_value) = record.fields.get(column_name) {
                 match field_value {
                     FieldValue::Integer(ts) => *ts,
+                    FieldValue::Float(ts) => *ts as i64,
                     FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
                     FieldValue::String(s) => {
                         // Try to parse as timestamp
@@ -4781,13 +4890,14 @@ impl StreamExecutionEngine {
                 // For tumbling windows, only emit when:
                 // 1. This is the first window (last_emit == 0) AND we have the first record past window size
                 // 2. We've crossed into a new window boundary
-                if window_state.last_emit == 0 {
+                let should_emit = if window_state.last_emit == 0 {
                     // First window - only emit if we have records past the first window boundary
                     current_time >= window_size_ms
                 } else {
                     // Subsequent windows - emit when we cross window boundaries
                     current_window_start > window_state.last_emit
-                }
+                };
+                should_emit
             }
             WindowSpec::Sliding { advance, .. } => {
                 let advance_ms = advance.as_millis() as i64;
@@ -4872,7 +4982,7 @@ impl StreamExecutionEngine {
 
                     // Execute aggregation on filtered records
                     let result_option =
-                        match self.execute_windowed_aggregation(query, &windowed_buffer) {
+                        match self.execute_windowed_aggregation_impl(query, &windowed_buffer) {
                             Ok(result) => Some(result),
                             Err(SqlError::ExecutionError { message, .. })
                                 if message == "No records after filtering" =>
@@ -4884,6 +4994,12 @@ impl StreamExecutionEngine {
                                 if message == "HAVING clause not satisfied" =>
                             {
                                 // If HAVING clause fails, don't emit a result but continue processing
+                                None
+                            }
+                            Err(SqlError::ExecutionError { message, .. })
+                                if message == "No groups satisfied HAVING clause" =>
+                            {
+                                // If no groups satisfy HAVING clause, don't emit a result but continue processing
                                 None
                             }
                             Err(e) => return Err(e),
@@ -4981,7 +5097,17 @@ impl StreamExecutionEngine {
     }
 
     /// Execute aggregation on windowed records
-    fn execute_windowed_aggregation(
+    #[cfg(test)]
+    pub fn execute_windowed_aggregation(
+        &mut self,
+        query: &StreamingQuery,
+        records: &[StreamRecord],
+    ) -> Result<StreamRecord, SqlError> {
+        self.execute_windowed_aggregation_impl(query, records)
+    }
+
+    /// Execute aggregation on windowed records (internal implementation)
+    fn execute_windowed_aggregation_impl(
         &mut self,
         query: &StreamingQuery,
         records: &[StreamRecord],
@@ -5015,72 +5141,114 @@ impl StreamExecutionEngine {
             }
 
             // Group records if GROUP BY exists
-            let grouped_records = if let Some(_group_exprs) = group_by {
-                // For now, treat all records as one group
-                // TODO: Implement proper grouping logic
-                vec![filtered_records]
+            let grouped_records = if let Some(group_exprs) = group_by {
+                self.group_records(filtered_records, group_exprs)?
             } else {
                 vec![filtered_records]
             };
 
-            // Process first group (for now)
-            let group_records = &grouped_records[0];
-            let mut result_fields = HashMap::new();
+            // Process each group and create result records
+            let mut all_results = Vec::new();
 
-            // Process each field in SELECT
-            for field in fields {
-                match field {
-                    SelectField::Expression { expr, alias } => {
-                        let value = self.evaluate_aggregation_expression(expr, group_records)?;
-                        let field_name = alias
-                            .as_ref()
-                            .unwrap_or(&self.get_expression_name(expr))
-                            .clone();
-                        result_fields.insert(field_name, value);
-                    }
-                    SelectField::Column(name) => {
-                        // For window aggregations, columns should be aggregate functions or in GROUP BY
-                        if let Some(value) = group_records.first().and_then(|r| r.fields.get(name))
-                        {
-                            result_fields.insert(name.clone(), value.clone());
+            for group_records in &grouped_records {
+                if group_records.is_empty() {
+                    continue; // Skip empty groups
+                }
+
+                let mut result_fields = HashMap::new();
+
+                // Process each field in SELECT
+                for field in fields {
+                    match field {
+                        SelectField::Expression { expr, alias } => {
+                            let value =
+                                self.evaluate_aggregation_expression(expr, group_records)?;
+                            let field_name = alias
+                                .as_ref()
+                                .unwrap_or(&self.get_expression_name(expr))
+                                .clone();
+                            result_fields.insert(field_name, value);
                         }
-                    }
-                    SelectField::AliasedColumn { column, alias } => {
-                        if let Some(value) =
-                            group_records.first().and_then(|r| r.fields.get(column))
-                        {
-                            result_fields.insert(alias.clone(), value.clone());
+                        SelectField::Column(name) => {
+                            // For GROUP BY, non-aggregate columns should be in GROUP BY clause
+                            // Take value from first record in group (all should be same for grouped column)
+                            if let Some(value) =
+                                group_records.first().and_then(|r| r.fields.get(name))
+                            {
+                                result_fields.insert(name.clone(), value.clone());
+                            }
                         }
-                    }
-                    SelectField::Wildcard => {
-                        // Add all fields from first record
-                        if let Some(first_record) = group_records.first() {
-                            result_fields.extend(first_record.fields.clone());
+                        SelectField::AliasedColumn { column, alias } => {
+                            if let Some(value) =
+                                group_records.first().and_then(|r| r.fields.get(column))
+                            {
+                                result_fields.insert(alias.clone(), value.clone());
+                            }
+                        }
+                        SelectField::Wildcard => {
+                            // For GROUP BY with wildcard, this is ambiguous
+                            // Add GROUP BY fields from first record
+                            if let Some(first_record) = group_records.first() {
+                                if let Some(group_exprs) = group_by {
+                                    for group_expr in group_exprs {
+                                        if let Expr::Column(col_name) = group_expr {
+                                            if let Some(value) = first_record.fields.get(col_name) {
+                                                result_fields
+                                                    .insert(col_name.clone(), value.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            // Create result record
-            let result_record = StreamRecord {
-                fields: result_fields,
-                timestamp: group_records.last().unwrap().timestamp,
-                offset: group_records.last().unwrap().offset,
-                partition: group_records.last().unwrap().partition,
-                headers: group_records.last().unwrap().headers.clone(),
-            };
+                // Create result record for this group
+                let result_record = StreamRecord {
+                    fields: result_fields,
+                    timestamp: group_records.last().unwrap().timestamp,
+                    offset: group_records.last().unwrap().offset,
+                    partition: group_records.last().unwrap().partition,
+                    headers: group_records.last().unwrap().headers.clone(),
+                };
 
-            // Apply HAVING clause if present
-            if let Some(having_expr) = having {
-                if !self.evaluate_having_expression(having_expr, &result_record)? {
-                    return Err(SqlError::ExecutionError {
-                        message: "HAVING clause not satisfied".to_string(),
-                        query: None,
-                    });
+                // Apply HAVING clause if present
+                if let Some(having_expr) = having {
+                    if self.evaluate_having_expression(having_expr, &result_record)? {
+                        all_results.push(result_record);
+                    }
+                    // Skip results that don't satisfy HAVING clause
+                } else {
+                    all_results.push(result_record);
                 }
             }
 
-            Ok(result_record)
+            // For now, return the first result if any exist
+            // In a full implementation, we'd need to emit all results through a stream
+            if all_results.is_empty() {
+                return Err(SqlError::ExecutionError {
+                    message: "No groups satisfied HAVING clause".to_string(),
+                    query: None,
+                });
+            }
+
+            // Emit additional results through the channel
+            for additional_result in all_results.iter().skip(1) {
+                // Convert StreamRecord fields to InternalValue format
+                let mut internal_record = HashMap::new();
+                for (key, field_value) in &additional_result.fields {
+                    let internal_value = self.field_value_to_internal(field_value.clone());
+                    internal_record.insert(key.clone(), internal_value);
+                }
+
+                if let Err(_) = self.output_sender.send(internal_record) {
+                    // Log warning but continue - the receiver may have been dropped
+                    eprintln!("Warning: Failed to send additional GROUP BY result");
+                }
+            }
+
+            Ok(all_results[0].clone())
         } else {
             Err(SqlError::ExecutionError {
                 message: "Invalid query type for windowed aggregation".to_string(),
@@ -5187,7 +5355,15 @@ impl StreamExecutionEngine {
                         }
                     }
                     "SUM" => {
-                        self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"])?
+                        // First try to find fields with common SUM suffixes
+                        if let Ok(field_name) =
+                            self.find_field_by_suffix(result_record, &["_amount", "_sum", "_total"])
+                        {
+                            field_name
+                        } else {
+                            // If no suffix match, look for common SUM alias names
+                            self.find_field_by_suffix(result_record, &["total", "sum"])?
+                        }
                     }
                     "AVG" => self.find_field_by_suffix(result_record, &["_avg", "_average"])?,
                     "MIN" => self.find_field_by_suffix(result_record, &["_min", "_minimum"])?,
@@ -5240,7 +5416,8 @@ impl StreamExecutionEngine {
     ) -> Result<String, SqlError> {
         for field_name in result_record.fields.keys() {
             for suffix in suffixes {
-                if field_name.ends_with(suffix) {
+                // Check both exact match and suffix match
+                if field_name == suffix || field_name.ends_with(suffix) {
                     return Ok(field_name.clone());
                 }
             }
@@ -5270,6 +5447,1275 @@ impl StreamExecutionEngine {
                 message: "Invalid comparison operator".to_string(),
                 query: None,
             }),
+        }
+    }
+
+    /// Handle a single record for stateful GROUP BY processing
+    fn handle_group_by_record(
+        &mut self,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        group_exprs: &[Expr],
+        select_fields: &[SelectField],
+        having_clause: &Option<Expr>,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        // Generate a unique key for this query's GROUP BY state
+        let query_key = format!("{:p}", query as *const _);
+
+        // Initialize GROUP BY state if not exists
+        if !self.group_states.contains_key(&query_key) {
+            self.group_states.insert(
+                query_key.clone(),
+                GroupByState {
+                    groups: HashMap::new(),
+                    group_expressions: group_exprs.to_vec(),
+                    select_fields: select_fields.to_vec(),
+                    having_clause: having_clause.clone(),
+                },
+            );
+        }
+
+        // Evaluate group key for this record
+        let mut group_key = Vec::new();
+        for group_expr in group_exprs {
+            let key_value = self.evaluate_group_key_expression(group_expr, record)?;
+            group_key.push(key_value);
+        }
+
+        // Pre-compute expression names to avoid borrowing issues
+        let mut field_names = Vec::new();
+        for field in select_fields {
+            match field {
+                SelectField::Expression { expr, alias } => {
+                    let expr_name = self.get_expression_name(expr);
+                    let field_name = alias.as_ref().map(|a| a.clone()).unwrap_or(expr_name);
+                    field_names.push((field.clone(), field_name));
+                }
+                _ => field_names.push((field.clone(), String::new())),
+            }
+        }
+
+        // Get or create the group state
+        // Update group accumulator and compute result
+        let result_record = {
+            let group_state = self.group_states.get_mut(&query_key).unwrap();
+
+            // Create or get the group accumulator
+            let group_accumulator =
+                group_state
+                    .groups
+                    .entry(group_key.clone())
+                    .or_insert_with(|| GroupAccumulator {
+                        count: 0,
+                        non_null_counts: HashMap::new(),
+                        sums: HashMap::new(),
+                        mins: HashMap::new(),
+                        maxs: HashMap::new(),
+                        numeric_values: HashMap::new(),
+                        first_values: HashMap::new(),
+                        last_values: HashMap::new(),
+                        string_values: HashMap::new(),
+                        distinct_values: HashMap::new(),
+                        sample_record: None,
+                    });
+
+            // Increment count
+            group_accumulator.count += 1;
+
+            // Set sample record if first
+            if group_accumulator.sample_record.is_none() {
+                group_accumulator.sample_record = Some(record.clone());
+            }
+
+            // Update accumulator for each SELECT field
+            for (field, precomputed_name) in &field_names {
+                match field {
+                    SelectField::Expression { expr, .. } => {
+                        Self::update_accumulator_for_field(
+                            group_accumulator,
+                            precomputed_name,
+                            expr,
+                            record,
+                        )?;
+                    }
+                    SelectField::Column(name) => {
+                        if let Some(field_value) = record.fields.get(name) {
+                            group_accumulator
+                                .first_values
+                                .entry(name.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(name.clone(), field_value.clone());
+                        }
+                    }
+                    SelectField::AliasedColumn { column, alias } => {
+                        if let Some(field_value) = record.fields.get(column) {
+                            group_accumulator
+                                .first_values
+                                .entry(alias.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(alias.clone(), field_value.clone());
+                        }
+                    }
+                    SelectField::Wildcard => {
+                        for (field_name, field_value) in &record.fields {
+                            group_accumulator
+                                .first_values
+                                .entry(field_name.clone())
+                                .or_insert_with(|| field_value.clone());
+                            group_accumulator
+                                .last_values
+                                .insert(field_name.clone(), field_value.clone());
+                        }
+                    }
+                }
+            }
+
+            // Build result fields
+            let mut result_fields = HashMap::new();
+            for (field, precomputed_name) in &field_names {
+                match field {
+                    SelectField::Expression { expr, .. } => {
+                        let value = Self::compute_field_aggregate_value(
+                            precomputed_name,
+                            expr,
+                            group_accumulator,
+                        )?;
+                        result_fields.insert(precomputed_name.clone(), value);
+                    }
+                    SelectField::Column(name) => {
+                        if let Some(value) = group_accumulator.first_values.get(name) {
+                            result_fields.insert(name.clone(), value.clone());
+                        } else if let Some(sample) = &group_accumulator.sample_record {
+                            if let Some(value) = sample.fields.get(name) {
+                                result_fields.insert(name.clone(), value.clone());
+                            }
+                        }
+                    }
+                    SelectField::AliasedColumn { column, alias } => {
+                        if let Some(value) = group_accumulator.first_values.get(column) {
+                            result_fields.insert(alias.clone(), value.clone());
+                        } else if let Some(sample) = &group_accumulator.sample_record {
+                            if let Some(value) = sample.fields.get(column) {
+                                result_fields.insert(alias.clone(), value.clone());
+                            }
+                        }
+                    }
+                    SelectField::Wildcard => {
+                        for group_expr in group_exprs.iter() {
+                            if let Expr::Column(col_name) = group_expr {
+                                if let Some(sample) = &group_accumulator.sample_record {
+                                    if let Some(value) = sample.fields.get(col_name) {
+                                        result_fields.insert(col_name.clone(), value.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Create result record
+            StreamRecord {
+                fields: result_fields,
+                timestamp: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.timestamp)
+                    .unwrap_or(0),
+                offset: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.offset)
+                    .unwrap_or(0),
+                partition: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.partition)
+                    .unwrap_or(0),
+                headers: group_accumulator
+                    .sample_record
+                    .as_ref()
+                    .map(|r| r.headers.clone())
+                    .unwrap_or_default(),
+            }
+        };
+
+        // Apply HAVING clause if present
+        if let Some(having_expr) = having_clause {
+            if !self.evaluate_having_expression(having_expr, &result_record)? {
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(result_record))
+    }
+
+    /// Update accumulator for a specific field (static helper)
+    fn update_accumulator_for_field(
+        accumulator: &mut GroupAccumulator,
+        field_name: &str,
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<(), SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        // For COUNT(column), only count non-NULL values
+                        if !args.is_empty() {
+                            if let Some(arg) = args.first() {
+                                if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                    if !matches!(value, FieldValue::Null) {
+                                        *accumulator
+                                            .non_null_counts
+                                            .entry(field_name.to_string())
+                                            .or_insert(0) += 1;
+                                    }
+                                }
+                            }
+                        }
+                        // For COUNT(*), we rely on the global count which is incremented for every record
+                    }
+                    "SUM" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                match value {
+                                    FieldValue::Float(f) => {
+                                        *accumulator
+                                            .sums
+                                            .entry(field_name.to_string())
+                                            .or_insert(0.0) += f;
+                                    }
+                                    FieldValue::Integer(i) => {
+                                        *accumulator
+                                            .sums
+                                            .entry(field_name.to_string())
+                                            .or_insert(0.0) += i as f64;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    "MIN" | "MAX" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                if name.to_uppercase() == "MIN" {
+                                    let current_min = accumulator.mins.get(field_name);
+                                    if current_min.is_none()
+                                        || Self::field_value_compare_static(
+                                            &value,
+                                            current_min.unwrap(),
+                                        ) == std::cmp::Ordering::Less
+                                    {
+                                        accumulator.mins.insert(field_name.to_string(), value);
+                                    }
+                                } else {
+                                    let current_max = accumulator.maxs.get(field_name);
+                                    if current_max.is_none()
+                                        || Self::field_value_compare_static(
+                                            &value,
+                                            current_max.unwrap(),
+                                        ) == std::cmp::Ordering::Greater
+                                    {
+                                        accumulator.maxs.insert(field_name.to_string(), value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "AVG" | "STDDEV" | "VARIANCE" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                match value {
+                                    FieldValue::Float(f) => {
+                                        accumulator
+                                            .numeric_values
+                                            .entry(field_name.to_string())
+                                            .or_insert_with(Vec::new)
+                                            .push(f);
+                                    }
+                                    FieldValue::Integer(i) => {
+                                        accumulator
+                                            .numeric_values
+                                            .entry(field_name.to_string())
+                                            .or_insert_with(Vec::new)
+                                            .push(i as f64);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    "FIRST" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                accumulator
+                                    .first_values
+                                    .entry(field_name.to_string())
+                                    .or_insert(value);
+                            }
+                        }
+                    }
+                    "LAST" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                accumulator
+                                    .last_values
+                                    .insert(field_name.to_string(), value);
+                            }
+                        }
+                    }
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                if let FieldValue::String(s) = value {
+                                    accumulator
+                                        .string_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(s);
+                                }
+                            }
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(arg) = args.first() {
+                            if let Ok(value) = Self::evaluate_expression_static(arg, record) {
+                                let key = Self::field_value_to_group_key_static(&value);
+                                accumulator
+                                    .distinct_values
+                                    .entry(field_name.to_string())
+                                    .or_insert_with(std::collections::HashSet::new)
+                                    .insert(key);
+                            }
+                        }
+                    }
+                    _ => {
+                        // For non-recognized aggregates, store as first/last
+                        if let Ok(value) = Self::evaluate_expression_static(expr, record) {
+                            accumulator
+                                .first_values
+                                .entry(field_name.to_string())
+                                .or_insert(value.clone());
+                            accumulator
+                                .last_values
+                                .insert(field_name.to_string(), value);
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Non-function expression
+                if let Ok(value) = Self::evaluate_expression_static(expr, record) {
+                    accumulator
+                        .first_values
+                        .entry(field_name.to_string())
+                        .or_insert(value.clone());
+                    accumulator
+                        .last_values
+                        .insert(field_name.to_string(), value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Compute aggregate value for a field (static helper)
+    fn compute_field_aggregate_value(
+        field_name: &str,
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Function { name, .. } => {
+                match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        // Check if this is COUNT(*) or COUNT(column)
+                        if let Expr::Function { args, .. } = expr {
+                            if args.is_empty() {
+                                // COUNT(*) - count all records
+                                Ok(FieldValue::Integer(accumulator.count as i64))
+                            } else {
+                                // COUNT(column) - count non-NULL values for this field
+                                Ok(FieldValue::Integer(
+                                    accumulator
+                                        .non_null_counts
+                                        .get(field_name)
+                                        .copied()
+                                        .unwrap_or(0) as i64,
+                                ))
+                            }
+                        } else {
+                            Ok(FieldValue::Integer(accumulator.count as i64))
+                        }
+                    }
+                    "SUM" => Ok(FieldValue::Float(
+                        accumulator.sums.get(field_name).copied().unwrap_or(0.0),
+                    )),
+                    "AVG" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.is_empty() {
+                                Ok(FieldValue::Null)
+                            } else {
+                                let avg = values.iter().sum::<f64>() / values.len() as f64;
+                                Ok(FieldValue::Float(avg))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MIN" => Ok(accumulator
+                        .mins
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "MAX" => Ok(accumulator
+                        .maxs
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "STDDEV" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64; // Sample standard deviation
+                                Ok(FieldValue::Float(variance.sqrt()))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "VARIANCE" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64; // Sample variance
+                                Ok(FieldValue::Float(variance))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "FIRST" => Ok(accumulator
+                        .first_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "LAST" => Ok(accumulator
+                        .last_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(values) = accumulator.string_values.get(field_name) {
+                            // Extract separator from second argument of the original expression
+                            let separator = if let Expr::Function { args, .. } = expr {
+                                if args.len() > 1 {
+                                    // Try to extract separator from second argument
+                                    if let Expr::Literal(LiteralValue::String(sep)) = &args[1] {
+                                        sep.as_str()
+                                    } else {
+                                        "," // Default if not a string literal
+                                    }
+                                } else {
+                                    "," // Default if no second argument
+                                }
+                            } else {
+                                "," // Default if not a function
+                            };
+                            Ok(FieldValue::String(values.join(separator)))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(distinct_set) = accumulator.distinct_values.get(field_name) {
+                            Ok(FieldValue::Integer(distinct_set.len() as i64))
+                        } else {
+                            Ok(FieldValue::Integer(0))
+                        }
+                    }
+                    _ => {
+                        // Non-aggregate function
+                        Ok(accumulator
+                            .first_values
+                            .get(field_name)
+                            .cloned()
+                            .unwrap_or(FieldValue::Null))
+                    }
+                }
+            }
+            _ => {
+                // Non-function expression
+                Ok(accumulator
+                    .first_values
+                    .get(field_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null))
+            }
+        }
+    }
+
+    /// Static helper for basic expression evaluation  
+    fn evaluate_expression_static(
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Column(name) => {
+                // Convert from FieldValue in StreamRecord to FieldValue return type
+                Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
+            }
+            Expr::Literal(literal) => match literal {
+                LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                LiteralValue::Null => Ok(FieldValue::Null),
+                _ => Ok(FieldValue::Null),
+            },
+            Expr::BinaryOp { left, op, right } => {
+                let left_val = Self::evaluate_expression_static(left, record)?;
+                let right_val = Self::evaluate_expression_static(right, record)?;
+
+                match op {
+                    BinaryOperator::GreaterThan => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l > r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l > r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) > *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l > (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::LessThan => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l < r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l < r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) < *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l < (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::GreaterThanOrEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l >= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l >= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) >= *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l >= (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::LessThanOrEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(l <= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l <= r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((*l as f64) <= *r))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(*l <= (*r as f64)))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::Equal => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((l - r).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(((*l as f64) - r).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean((l - (*r as f64)).abs() < f64::EPSILON))
+                        }
+                        (FieldValue::String(l), FieldValue::String(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                            Ok(FieldValue::Boolean(l == r))
+                        }
+                        _ => Ok(FieldValue::Boolean(false)),
+                    },
+                    BinaryOperator::NotEqual => match (&left_val, &right_val) {
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean((l - r).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            Ok(FieldValue::Boolean(((*l as f64) - r).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            Ok(FieldValue::Boolean((l - (*r as f64)).abs() >= f64::EPSILON))
+                        }
+                        (FieldValue::String(l), FieldValue::String(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                            Ok(FieldValue::Boolean(l != r))
+                        }
+                        _ => Ok(FieldValue::Boolean(true)),
+                    },
+                    _ => {
+                        // For other operators, return NULL for now
+                        Ok(FieldValue::Null)
+                    }
+                }
+            }
+            _ => {
+                // For other complex expressions, just return NULL for now
+                // In a full implementation, we'd need to recursively evaluate
+                Ok(FieldValue::Null)
+            }
+        }
+    }
+
+    /// Static helper for field value comparison
+    fn field_value_compare_static(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
+        match (a, b) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => a
+                .partial_cmp(&(*b as f64))
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
+            _ => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// Update a group accumulator with a new record (inline version)
+    fn update_group_accumulator_inline(
+        &self,
+        accumulator: &mut GroupAccumulator,
+        record: &StreamRecord,
+        select_fields: &[SelectField],
+    ) -> Result<(), SqlError> {
+        // Increment count
+        accumulator.count += 1;
+
+        // Set sample record if first
+        if accumulator.sample_record.is_none() {
+            accumulator.sample_record = Some(record.clone());
+        }
+
+        // Process each SELECT field to update relevant accumulators
+        for field in select_fields {
+            match field {
+                SelectField::Expression { expr, alias } => {
+                    let expr_name = self.get_expression_name(expr);
+                    let field_name = alias.as_ref().unwrap_or(&expr_name);
+                    self.update_accumulator_for_expression_inline(
+                        accumulator,
+                        field_name,
+                        expr,
+                        record,
+                    )?;
+                }
+                SelectField::Column(name) => {
+                    if let Some(field_value) = record.fields.get(name) {
+                        // Update FIRST/LAST for all columns
+                        accumulator
+                            .first_values
+                            .entry(name.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(name.clone(), field_value.clone());
+                    }
+                }
+                SelectField::AliasedColumn { column, alias } => {
+                    if let Some(field_value) = record.fields.get(column) {
+                        accumulator
+                            .first_values
+                            .entry(alias.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(alias.clone(), field_value.clone());
+                    }
+                }
+                SelectField::Wildcard => {
+                    // Handle wildcard by processing all fields
+                    for (field_name, field_value) in &record.fields {
+                        accumulator
+                            .first_values
+                            .entry(field_name.clone())
+                            .or_insert_with(|| field_value.clone());
+                        accumulator
+                            .last_values
+                            .insert(field_name.clone(), field_value.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update accumulator for a specific expression (inline version)
+    fn update_accumulator_for_expression_inline(
+        &self,
+        accumulator: &mut GroupAccumulator,
+        field_name: &str,
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<(), SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                match name.to_uppercase().as_str() {
+                    "SUM" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            if let FieldValue::Float(f) = value {
+                                *accumulator
+                                    .sums
+                                    .entry(field_name.to_string())
+                                    .or_insert(0.0) += f;
+                            } else if let FieldValue::Integer(i) = value {
+                                *accumulator
+                                    .sums
+                                    .entry(field_name.to_string())
+                                    .or_insert(0.0) += i as f64;
+                            }
+                        }
+                    }
+                    "MIN" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            let current_min = accumulator.mins.get(field_name);
+                            if current_min.is_none()
+                                || self.field_value_compare(&value, current_min.unwrap())
+                                    == std::cmp::Ordering::Less
+                            {
+                                accumulator.mins.insert(field_name.to_string(), value);
+                            }
+                        }
+                    }
+                    "MAX" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            let current_max = accumulator.maxs.get(field_name);
+                            if current_max.is_none()
+                                || self.field_value_compare(&value, current_max.unwrap())
+                                    == std::cmp::Ordering::Greater
+                            {
+                                accumulator.maxs.insert(field_name.to_string(), value);
+                            }
+                        }
+                    }
+                    "AVG" | "STDDEV" | "VARIANCE" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            match value {
+                                FieldValue::Float(f) => {
+                                    accumulator
+                                        .numeric_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(f);
+                                }
+                                FieldValue::Integer(i) => {
+                                    accumulator
+                                        .numeric_values
+                                        .entry(field_name.to_string())
+                                        .or_insert_with(Vec::new)
+                                        .push(i as f64);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    "FIRST" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            accumulator
+                                .first_values
+                                .entry(field_name.to_string())
+                                .or_insert(value);
+                        }
+                    }
+                    "LAST" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            accumulator
+                                .last_values
+                                .insert(field_name.to_string(), value);
+                        }
+                    }
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            if let FieldValue::String(s) = value {
+                                accumulator
+                                    .string_values
+                                    .entry(field_name.to_string())
+                                    .or_insert_with(Vec::new)
+                                    .push(s);
+                            }
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(arg) = args.first() {
+                            let value = self.evaluate_expression_value(arg, record)?;
+                            let key = self.field_value_to_group_key(&value);
+                            accumulator
+                                .distinct_values
+                                .entry(field_name.to_string())
+                                .or_insert_with(std::collections::HashSet::new)
+                                .insert(key);
+                        }
+                    }
+                    _ => {
+                        // Non-aggregate function - store first/last values
+                        let value = self.evaluate_expression_value(expr, record)?;
+                        accumulator
+                            .first_values
+                            .entry(field_name.to_string())
+                            .or_insert(value.clone());
+                        accumulator
+                            .last_values
+                            .insert(field_name.to_string(), value);
+                    }
+                }
+            }
+            _ => {
+                // Non-function expression - store first/last values
+                let value = self.evaluate_expression_value(expr, record)?;
+                accumulator
+                    .first_values
+                    .entry(field_name.to_string())
+                    .or_insert(value.clone());
+                accumulator
+                    .last_values
+                    .insert(field_name.to_string(), value);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Compute result fields for a group
+    fn compute_group_result_fields(
+        &self,
+        accumulator: &GroupAccumulator,
+        select_fields: &[SelectField],
+        group_exprs: &[Expr],
+    ) -> Result<HashMap<String, FieldValue>, SqlError> {
+        let mut result_fields = HashMap::new();
+
+        // Process each SELECT field
+        for field in select_fields {
+            match field {
+                SelectField::Expression { expr, alias } => {
+                    let expr_name = self.get_expression_name(expr);
+                    let field_name = alias.as_ref().unwrap_or(&expr_name);
+                    let value = self.compute_aggregate_value(field_name, expr, accumulator)?;
+                    result_fields.insert(field_name.clone(), value);
+                }
+                SelectField::Column(name) => {
+                    // For GROUP BY, non-aggregate columns should be from GROUP BY expressions or stored values
+                    if let Some(value) = accumulator.first_values.get(name) {
+                        result_fields.insert(name.clone(), value.clone());
+                    } else if let Some(sample) = &accumulator.sample_record {
+                        if let Some(value) = sample.fields.get(name) {
+                            result_fields.insert(name.clone(), value.clone());
+                        }
+                    }
+                }
+                SelectField::AliasedColumn { column, alias } => {
+                    if let Some(value) = accumulator.first_values.get(column) {
+                        result_fields.insert(alias.clone(), value.clone());
+                    } else if let Some(sample) = &accumulator.sample_record {
+                        if let Some(value) = sample.fields.get(column) {
+                            result_fields.insert(alias.clone(), value.clone());
+                        }
+                    }
+                }
+                SelectField::Wildcard => {
+                    // Add GROUP BY columns
+                    for group_expr in group_exprs.iter() {
+                        if let Expr::Column(col_name) = group_expr {
+                            if let Some(sample) = &accumulator.sample_record {
+                                if let Some(value) = sample.fields.get(col_name) {
+                                    result_fields.insert(col_name.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(result_fields)
+    }
+
+    /// Compute the final aggregate value for a field
+    fn compute_aggregate_value(
+        &self,
+        field_name: &str,
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                match name.to_uppercase().as_str() {
+                    "COUNT" => {
+                        if args.is_empty() {
+                            Ok(FieldValue::Integer(accumulator.count as i64))
+                        } else {
+                            // COUNT(column) - count non-null values
+                            let field_key = if let Some(arg) = args.first() {
+                                match arg {
+                                    Expr::Column(col_name) => col_name.clone(),
+                                    _ => "count".to_string(),
+                                }
+                            } else {
+                                "count".to_string()
+                            };
+                            Ok(FieldValue::Integer(
+                                accumulator
+                                    .non_null_counts
+                                    .get(&field_key)
+                                    .copied()
+                                    .unwrap_or(0) as i64,
+                            ))
+                        }
+                    }
+                    "SUM" => Ok(FieldValue::Float(
+                        accumulator.sums.get(field_name).copied().unwrap_or(0.0),
+                    )),
+                    "AVG" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.is_empty() {
+                                Ok(FieldValue::Null)
+                            } else {
+                                let avg = values.iter().sum::<f64>() / values.len() as f64;
+                                Ok(FieldValue::Float(avg))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MIN" => Ok(accumulator
+                        .mins
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "MAX" => Ok(accumulator
+                        .maxs
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "STDDEV" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64;
+                                Ok(FieldValue::Float(variance.sqrt()))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "VARIANCE" => {
+                        if let Some(values) = accumulator.numeric_values.get(field_name) {
+                            if values.len() < 2 {
+                                Ok(FieldValue::Float(0.0))
+                            } else {
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance =
+                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64;
+                                Ok(FieldValue::Float(variance))
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "FIRST" => Ok(accumulator
+                        .first_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "LAST" => Ok(accumulator
+                        .last_values
+                        .get(field_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null)),
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if let Some(values) = accumulator.string_values.get(field_name) {
+                            // TODO: Extract separator from second argument
+                            let separator = if args.len() > 1 {
+                                // This is simplified - in real implementation we'd evaluate the separator expression
+                                ","
+                            } else {
+                                ","
+                            };
+                            Ok(FieldValue::String(values.join(separator)))
+                        } else {
+                            Ok(FieldValue::String(String::new()))
+                        }
+                    }
+                    "COUNT_DISTINCT" => {
+                        if let Some(distinct_set) = accumulator.distinct_values.get(field_name) {
+                            Ok(FieldValue::Integer(distinct_set.len() as i64))
+                        } else {
+                            Ok(FieldValue::Integer(0))
+                        }
+                    }
+                    _ => {
+                        // Non-aggregate function
+                        accumulator.first_values.get(field_name).cloned().ok_or(
+                            SqlError::ExecutionError {
+                                message: format!("No value found for field {}", field_name),
+                                query: None,
+                            },
+                        )
+                    }
+                }
+            }
+            _ => {
+                // Non-function expression
+                accumulator
+                    .first_values
+                    .get(field_name)
+                    .cloned()
+                    .ok_or(SqlError::ExecutionError {
+                        message: format!("No value found for field {}", field_name),
+                        query: None,
+                    })
+            }
+        }
+    }
+
+    /// Helper method to compare FieldValues
+    fn field_value_compare(&self, a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
+        match (a, b) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => a
+                .partial_cmp(&(*b as f64))
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a.cmp(b),
+            (FieldValue::Date(a), FieldValue::Date(b)) => a.cmp(b),
+            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => a.cmp(b),
+            _ => std::cmp::Ordering::Equal,
+        }
+    }
+
+    /// Group records by GROUP BY expressions
+    fn group_records<'a>(
+        &mut self,
+        records: Vec<&'a StreamRecord>,
+        group_exprs: &[Expr],
+    ) -> Result<Vec<Vec<&'a StreamRecord>>, SqlError> {
+        let mut groups: HashMap<Vec<String>, Vec<&'a StreamRecord>> = HashMap::new();
+
+        for record in records {
+            let mut group_key = Vec::new();
+
+            // Evaluate each GROUP BY expression for this record
+            for group_expr in group_exprs {
+                let key_value = self.evaluate_group_key_expression(group_expr, record)?;
+                group_key.push(key_value);
+            }
+
+            // Add record to the appropriate group
+            groups
+                .entry(group_key)
+                .or_insert_with(Vec::new)
+                .push(record);
+        }
+
+        // Convert HashMap to Vec<Vec<&StreamRecord>>
+        Ok(groups.into_values().collect())
+    }
+
+    /// Evaluate a GROUP BY expression to produce a grouping key
+    fn evaluate_group_key_expression(
+        &mut self,
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<String, SqlError> {
+        match expr {
+            Expr::Column(name) => {
+                if let Some(field_value) = record.fields.get(name) {
+                    Ok(self.field_value_to_group_key(field_value))
+                } else {
+                    Ok("NULL".to_string()) // NULL values group together
+                }
+            }
+            Expr::Literal(literal) => Ok(self.literal_to_group_key(literal)),
+            Expr::Function { name: _, args: _ } => {
+                // Handle function calls in GROUP BY (e.g., DATE(timestamp))
+                let result = self.evaluate_expression_value(expr, record)?;
+                Ok(self.field_value_to_group_key(&result))
+            }
+            Expr::BinaryOp {
+                left: _,
+                op: _,
+                right: _,
+            } => {
+                // Handle expressions in GROUP BY (e.g., YEAR(date) * 100 + MONTH(date))
+                let result = self.evaluate_expression_value(expr, record)?;
+                Ok(self.field_value_to_group_key(&result))
+            }
+            _ => {
+                // For other expression types, try to evaluate them
+                let result = self.evaluate_expression_value(expr, record)?;
+                Ok(self.field_value_to_group_key(&result))
+            }
+        }
+    }
+
+    /// Convert a FieldValue to a string suitable for grouping
+    fn field_value_to_group_key(&self, field_value: &FieldValue) -> String {
+        match field_value {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "NULL".to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Decimal(dec) => dec.to_string(),
+            FieldValue::Array(arr) => {
+                // For arrays, create a string representation
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|v| self.field_value_to_group_key(v))
+                    .collect();
+                format!("[{}]", elements.join(","))
+            }
+            FieldValue::Map(map) => {
+                // For maps, create a sorted string representation
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let map_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, self.field_value_to_group_key(v)))
+                    .collect();
+                format!("{{{}}}", map_str.join(","))
+            }
+            FieldValue::Struct(fields) => {
+                // For structs, create a sorted string representation
+                let mut entries: Vec<_> = fields.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let struct_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, self.field_value_to_group_key(v)))
+                    .collect();
+                format!("({})", struct_str.join(","))
+            }
+        }
+    }
+
+    /// Convert a field value to a group key string (static version)
+    fn field_value_to_group_key_static(field_value: &FieldValue) -> String {
+        match field_value {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "NULL".to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Decimal(dec) => dec.to_string(),
+            FieldValue::Array(arr) => {
+                // For arrays, create a string representation
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(|v| Self::field_value_to_group_key_static(v))
+                    .collect();
+                format!("[{}]", elements.join(","))
+            }
+            FieldValue::Map(map) => {
+                // For maps, create a sorted string representation
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let map_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
+                    .collect();
+                format!("{{{}}}", map_str.join(","))
+            }
+            FieldValue::Struct(fields) => {
+                // For structs, create a sorted string representation
+                let mut entries: Vec<_> = fields.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let struct_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
+                    .collect();
+                format!("({})", struct_str.join(","))
+            }
+        }
+    }
+
+    /// Convert a literal value to a group key string
+    fn literal_to_group_key(&self, literal: &LiteralValue) -> String {
+        match literal {
+            LiteralValue::String(s) => s.clone(),
+            LiteralValue::Integer(i) => i.to_string(),
+            LiteralValue::Float(f) => f.to_string(),
+            LiteralValue::Boolean(b) => b.to_string(),
+            LiteralValue::Null => "NULL".to_string(),
+            LiteralValue::Interval { value, unit } => {
+                format!("INTERVAL {} {:?}", value, unit)
+            }
         }
     }
 
@@ -5411,6 +6857,160 @@ impl StreamExecutionEngine {
                             }
                         }
                         Ok(max_val.unwrap_or(FieldValue::Null))
+                    }
+                    "COUNT_DISTINCT" | "COUNT(DISTINCT" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "COUNT DISTINCT requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut distinct_values = std::collections::HashSet::new();
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            if !matches!(value, FieldValue::Null) {
+                                distinct_values.insert(self.field_value_to_group_key(&value));
+                            }
+                        }
+                        Ok(FieldValue::Integer(distinct_values.len() as i64))
+                    }
+                    "STDDEV" | "STDDEV_POP" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "STDDEV requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut values = Vec::new();
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            match value {
+                                FieldValue::Integer(n) => values.push(n as f64),
+                                FieldValue::Float(f) => values.push(f),
+                                FieldValue::Null => {} // Skip nulls
+                                _ => {
+                                    return Err(SqlError::ExecutionError {
+                                        message: "STDDEV can only be applied to numeric values"
+                                            .to_string(),
+                                        query: None,
+                                    });
+                                }
+                            }
+                        }
+
+                        if values.is_empty() {
+                            Ok(FieldValue::Null)
+                        } else if values.len() == 1 {
+                            Ok(FieldValue::Float(0.0)) // Standard deviation of single value is 0
+                        } else {
+                            let mean = values.iter().sum::<f64>() / values.len() as f64;
+                            let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                / values.len() as f64;
+                            Ok(FieldValue::Float(variance.sqrt()))
+                        }
+                    }
+                    "VAR" | "VARIANCE" | "VAR_POP" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "VARIANCE requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let mut values = Vec::new();
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            match value {
+                                FieldValue::Integer(n) => values.push(n as f64),
+                                FieldValue::Float(f) => values.push(f),
+                                FieldValue::Null => {} // Skip nulls
+                                _ => {
+                                    return Err(SqlError::ExecutionError {
+                                        message: "VARIANCE can only be applied to numeric values"
+                                            .to_string(),
+                                        query: None,
+                                    });
+                                }
+                            }
+                        }
+
+                        if values.is_empty() {
+                            Ok(FieldValue::Null)
+                        } else if values.len() == 1 {
+                            Ok(FieldValue::Float(0.0)) // Variance of single value is 0
+                        } else {
+                            let mean = values.iter().sum::<f64>() / values.len() as f64;
+                            let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+                                / values.len() as f64;
+                            Ok(FieldValue::Float(variance))
+                        }
+                    }
+                    "FIRST" | "FIRST_VALUE" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "FIRST requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        if let Some(first_record) = records.first() {
+                            self.evaluate_expression_value(&args[0], first_record)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "LAST" | "LAST_VALUE" => {
+                        if args.len() != 1 {
+                            return Err(SqlError::ExecutionError {
+                                message: "LAST requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        if let Some(last_record) = records.last() {
+                            self.evaluate_expression_value(&args[0], last_record)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "STRING_AGG" | "GROUP_CONCAT" => {
+                        if args.len() != 2 {
+                            return Err(SqlError::ExecutionError {
+                                message: "STRING_AGG requires exactly two arguments (expression, separator)".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        let separator = match self.evaluate_expression_value(
+                            &args[1],
+                            records.first().unwrap_or(&records[0]),
+                        )? {
+                            FieldValue::String(s) => s,
+                            _ => {
+                                return Err(SqlError::ExecutionError {
+                                    message: "STRING_AGG separator must be a string".to_string(),
+                                    query: None,
+                                });
+                            }
+                        };
+
+                        let mut string_values = Vec::new();
+                        for record in records {
+                            let value = self.evaluate_expression_value(&args[0], record)?;
+                            if !matches!(value, FieldValue::Null) {
+                                string_values.push(match value {
+                                    FieldValue::String(s) => s,
+                                    FieldValue::Integer(i) => i.to_string(),
+                                    FieldValue::Float(f) => f.to_string(),
+                                    FieldValue::Boolean(b) => b.to_string(),
+                                    _ => self.field_value_to_group_key(&value),
+                                });
+                            }
+                        }
+
+                        Ok(FieldValue::String(string_values.join(&separator)))
                     }
                     _ => {
                         // For non-aggregate functions, evaluate on first record
