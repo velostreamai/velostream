@@ -14,11 +14,26 @@
 //!
 //! ## Usage
 //!
-//! ```rust
-//! use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+//! ```rust,no_run
+//! # use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+//! # use ferrisstreams::ferris::serialization::JsonFormat;
+//! # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+//! # use std::sync::Arc;
+//! # use tokio::sync::mpsc;
+//! # use std::collections::HashMap;
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let (output_sender, _receiver) = mpsc::unbounded_channel();
+//! let serialization_format = Arc::new(JsonFormat);
+//! let mut engine = StreamExecutionEngine::new(output_sender, serialization_format);
 //!
-//! let engine = StreamExecutionEngine::new(output_sender, serialization_format);
+//! // Parse a simple query and execute with a record
+//! let parser = StreamingSqlParser::new();
+//! let query = parser.parse("SELECT * FROM stream")?;
+//! let record = HashMap::new(); // Empty record for example
 //! engine.execute(&query, record).await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! All other types and methods are internal implementation details.
