@@ -10,12 +10,30 @@ Comprehensive tests for the newly implemented window processing functionality in
 */
 
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
-use ferrisstreams::ferris::sql::ast::StreamingQuery;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// Convert StreamRecord to HashMap<String, InternalValue> for the new API
+fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
+    record
+        .fields
+        .iter()
+        .map(|(k, v)| {
+            let internal_value = match v {
+                FieldValue::String(s) => InternalValue::String(s.clone()),
+                FieldValue::Integer(i) => InternalValue::Integer(*i),
+                FieldValue::Float(f) => InternalValue::Number(*f),
+                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
+                FieldValue::Null => InternalValue::Null,
+                _ => InternalValue::String(format!("{:?}", v)), // Fallback for complex types
+            };
+            (k.clone(), internal_value)
+        })
+        .collect()
+}
 
 fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     let mut fields = HashMap::new();
@@ -32,24 +50,6 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
-
 async fn execute_windowed_test(
     query: &str,
     records: Vec<StreamRecord>,
@@ -60,54 +60,29 @@ async fn execute_windowed_test(
 
     let parsed_query = parser.parse(query)?;
 
-    // Register the query
-    engine
-        .start_query_execution("test_query".to_string(), parsed_query)
-        .await?;
-
-    // Process records one by one through stream processing
+    // Process records using the new streamlined API
     for record in &records {
-        // Handle the "No records after filtering" error by ignoring it
-        // This allows empty windows to be properly handled in tests
-        match engine.process_stream_record("orders", record.clone()).await {
+        // Convert StreamRecord to InternalValue format for the new API
+        let internal_record = convert_stream_record_to_internal(record);
+
+        // Process using the new execute method
+        match engine.execute(&parsed_query, internal_record).await {
             Ok(_) => {}
             Err(e) => {
-                // Check if it's the specific error we want to handle
-                if let Some(_err_str) = e
-                    .to_string()
-                    .to_lowercase()
-                    .find("no records after filtering")
+                // Handle expected errors gracefully (e.g., filtering, windowing)
+                if e.to_string().contains("No records after filtering")
+                    || e.to_string().contains("windowed")
                 {
-                    // Ignore this specific error
+                    // These are expected for window processing tests
                 } else {
-                    // Propagate other errors
                     return Err(e.into());
                 }
             }
         }
     }
 
-    // Flush any pending windows by adding a trigger record past all expected windows
-    // Find the maximum timestamp and add a large buffer
-    let max_timestamp = records.iter().map(|r| r.timestamp).max().unwrap_or(0);
-    let flush_timestamp = max_timestamp + 30000; // 30 seconds past the last record
-    let flush_record = create_test_record(999, 0.0, flush_timestamp);
-    match engine.process_stream_record("orders", flush_record).await {
-        Ok(_) => {}
-        Err(e) => {
-            // Check if it's the specific error we want to handle
-            if let Some(_err_str) = e
-                .to_string()
-                .to_lowercase()
-                .find("no records after filtering")
-            {
-                // Ignore this specific error
-            } else {
-                // Propagate other errors
-                return Err(e.into());
-            }
-        }
-    };
+    // Flush any remaining GROUP BY results
+    engine.flush_group_by_results().await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

@@ -952,6 +952,7 @@ impl SerializationFormatFactory {
 
     /// Get list of supported formats
     pub fn supported_formats() -> Vec<&'static str> {
+        #[allow(unused_mut)]
         let mut formats = vec!["json"];
 
         #[cfg(feature = "avro")]

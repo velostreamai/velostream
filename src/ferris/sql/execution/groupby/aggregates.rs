@@ -1,6 +1,6 @@
 //! Aggregate helper functions for GROUP BY operations in streaming SQL.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::ferris::sql::execution::types::FieldValue;
 

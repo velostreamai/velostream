@@ -2,6 +2,8 @@ pub mod core;
 pub mod expressions;
 pub mod groupby;
 pub mod joins;
+pub mod query_planner;
+pub mod stream_processor;
 pub mod types;
 pub mod windows;
 
@@ -11,13 +13,13 @@ pub use types::*;
 pub use core::StreamExecutionEngine;
 
 // Re-export expression system
-pub use expressions::*;
 
 // Re-export GROUP BY system
-pub use groupby::*;
 
 // Re-export window system
-pub use windows::*;
 
 // Re-export join system
-pub use joins::*;
+
+// Re-export query planning system
+
+// Re-export stream processing system

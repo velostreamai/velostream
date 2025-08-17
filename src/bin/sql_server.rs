@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::{
-    error::{FerrisError, FerrisResult},
+    error::FerrisResult,
     kafka::{JsonSerializer, KafkaConsumer},
     serialization::{InternalValue, JsonFormat, SerializationFormat},
     sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},

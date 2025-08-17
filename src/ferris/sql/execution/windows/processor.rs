@@ -1,7 +1,5 @@
 //! Window processor implementation for streaming SQL window operations.
 
-use std::collections::VecDeque;
-
 use crate::ferris::sql::ast::{StreamingQuery, WindowSpec};
 use crate::ferris::sql::error::SqlError;
 use crate::ferris::sql::execution::groupby::GroupByProcessor;
@@ -124,10 +122,7 @@ impl WindowProcessor {
     ) -> Result<StreamRecord, SqlError> {
         match query {
             StreamingQuery::Select {
-                fields,
-                from,
-                group_by,
-                ..
+                fields, group_by, ..
             } => {
                 if let Some(group_exprs) = group_by {
                     // Handle GROUP BY in windowed context
@@ -147,7 +142,7 @@ impl WindowProcessor {
     /// Execute windowed GROUP BY aggregation
     fn execute_windowed_group_by(
         fields: &[crate::ferris::sql::ast::SelectField],
-        from: &str,
+        _from: &str,
         group_exprs: &[crate::ferris::sql::ast::Expr],
         records: &[StreamRecord],
     ) -> Result<StreamRecord, SqlError> {

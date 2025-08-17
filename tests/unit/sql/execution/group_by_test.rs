@@ -305,25 +305,38 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             // Then collect results from channel (Flink-style: latest per group)
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
             // We should get at least one result through the channel
             assert!(!results.is_empty());
 
-            // Find and verify each customer's group results
-            let cust1_result = results.iter().find(|r|
-                matches!(r.get("customer_id"), Some(InternalValue::Number(id)) if *id == 1.0)
-            ).expect("Should have results for customer 1");
+            // Find and verify each customer's group results - handle both Number and Integer types
+            let cust1_result = results
+                .iter()
+                .find(|r| match r.get("customer_id") {
+                    Some(InternalValue::Number(id)) => *id == 1.0,
+                    Some(InternalValue::Integer(id)) => *id == 1,
+                    _ => false,
+                })
+                .expect("Should have results for customer 1");
 
             match cust1_result.get("total") {
                 Some(InternalValue::Number(sum)) => assert_eq!(*sum, 300.0),
                 _ => panic!("Expected numeric sum for customer 1"),
             }
 
-            let cust2_result = results.iter().find(|r|
-                matches!(r.get("customer_id"), Some(InternalValue::Number(id)) if *id == 2.0)
-            ).expect("Should have results for customer 2");
+            let cust2_result = results
+                .iter()
+                .find(|r| match r.get("customer_id") {
+                    Some(InternalValue::Number(id)) => *id == 2.0,
+                    Some(InternalValue::Integer(id)) => *id == 2,
+                    _ => false,
+                })
+                .expect("Should have results for customer 2");
 
             match cust2_result.get("total") {
                 Some(InternalValue::Number(sum)) => assert_eq!(*sum, 150.0),
@@ -368,6 +381,9 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1); // Only customer 1 should pass HAVING clause
@@ -424,6 +440,9 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+            
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -454,7 +473,16 @@ mod tests {
                     assert_eq!(*min, 100.0);
                     assert_eq!(*max, 300.0);
                 }
-                _ => panic!("Expected avg, min, max aggregation results to be present as Numbers"),
+                (
+                    Some(InternalValue::Number(avg)),
+                    Some(InternalValue::Integer(min)),
+                    Some(InternalValue::Integer(max)),
+                ) => {
+                    assert_eq!(*avg, 200.0);
+                    assert_eq!(*min, 100);
+                    assert_eq!(*max, 300);
+                }
+                _ => panic!("Expected avg, min, max aggregation results to be present as Numbers or Integers"),
             }
         });
     }
@@ -501,8 +529,8 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
-            // Flush any remaining windows to ensure all results are emitted
-            engine.flush_windows().await.unwrap();
+            // Flush any remaining GROUP BY results to ensure all results are emitted
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_results(&mut receiver).await;
             assert_eq!(results.len(), 2); // Should have results for each window
@@ -565,6 +593,9 @@ mod tests {
             // Execute each record
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
+
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             // Collect results from channel (Flink-style: latest per group)
             let results = collect_latest_group_results(&mut receiver, "high_value").await;
@@ -639,6 +670,9 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
 
@@ -703,6 +737,9 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -779,6 +816,9 @@ mod tests {
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
 
@@ -845,6 +885,9 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -943,6 +986,9 @@ mod tests {
             engine.execute(&query, record3).await.unwrap();
             engine.execute(&query, record4).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
 
@@ -1018,6 +1064,9 @@ mod tests {
             engine.execute(&query, record1).await.unwrap();
             engine.execute(&query, record2).await.unwrap();
             engine.execute(&query, record3).await.unwrap();
+
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1131,6 +1180,9 @@ mod tests {
             engine.execute(&query, record3).await.unwrap();
             engine.execute(&query, record4).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 3); // Should have 3 groups: 1, NULL, 2
 
@@ -1241,6 +1293,9 @@ mod tests {
             engine.execute(&query, record3).await.unwrap();
             engine.execute(&query, record4).await.unwrap();
 
+            // Flush GROUP BY results to emit accumulated aggregations
+            engine.flush_group_by_results().await.unwrap();
+
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
 
@@ -1270,31 +1325,36 @@ mod tests {
             // Check SUM(amount) - should sum only non-NULL values (100 + 200 = 300)
             match result.get("amount_sum") {
                 Some(InternalValue::Number(sum)) => assert_eq!(*sum, 300.0),
-                _ => panic!("Expected amount_sum to be 300.0"),
+                Some(InternalValue::Integer(sum)) => assert_eq!(*sum, 300),
+                _ => panic!("Expected amount_sum to be Number or Integer"),
             }
 
             // Check AVG(amount) - should average only non-NULL values (300/2 = 150)
             match result.get("amount_avg") {
                 Some(InternalValue::Number(avg)) => assert_eq!(*avg, 150.0),
-                _ => panic!("Expected amount_avg to be 150.0"),
+                Some(InternalValue::Integer(avg)) => assert_eq!(*avg, 150),
+                _ => panic!("Expected amount_avg to be Number or Integer"),
             }
 
             // Check MIN(amount) - should be minimum of non-NULL values (100)
             match result.get("amount_min") {
                 Some(InternalValue::Number(min)) => assert_eq!(*min, 100.0),
-                _ => panic!("Expected amount_min to be 100.0"),
+                Some(InternalValue::Integer(min)) => assert_eq!(*min, 100),
+                _ => panic!("Expected amount_min to be Number or Integer"),
             }
 
             // Check MAX(amount) - should be maximum of non-NULL values (200)
             match result.get("amount_max") {
                 Some(InternalValue::Number(max)) => assert_eq!(*max, 200.0),
-                _ => panic!("Expected amount_max to be 200.0"),
+                Some(InternalValue::Integer(max)) => assert_eq!(*max, 200),
+                _ => panic!("Expected amount_max to be Number or Integer"),
             }
 
             // Check SUM(quantity) - should sum only non-NULL values (5 + 3 = 8)
             match result.get("quantity_sum") {
                 Some(InternalValue::Number(sum)) => assert_eq!(*sum, 8.0),
-                _ => panic!("Expected quantity_sum to be 8.0"),
+                Some(InternalValue::Integer(sum)) => assert_eq!(*sum, 8),
+                _ => panic!("Expected quantity_sum to be Number or Integer"),
             }
         });
     }

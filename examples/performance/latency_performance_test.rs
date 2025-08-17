@@ -6,12 +6,11 @@
 //! - Latency vs throughput trade-offs
 //! - Low-latency configuration testing
 
+use ferrisstreams::ferris::kafka::admin_client::KafkaAdminClient;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::{
-    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, Message, ProducerBuilder,
-};
+use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, Message, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

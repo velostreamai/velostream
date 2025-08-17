@@ -5,10 +5,11 @@
 //! - Adaptive batch sizes
 //! - Non-blocking operations
 
+use ferrisstreams::ferris::kafka::admin_client::KafkaAdminClient;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use ferrisstreams::{JsonSerializer, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

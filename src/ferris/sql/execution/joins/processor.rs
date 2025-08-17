@@ -379,7 +379,7 @@ impl JoinProcessor {
     }
 
     /// Create mock table record for stream-table JOIN optimization
-    pub fn create_mock_table_record(table_name: &str, key: i64) -> Result<StreamRecord, SqlError> {
+    pub fn create_mock_table_record(_table_name: &str, key: i64) -> Result<StreamRecord, SqlError> {
         let mut fields = HashMap::new();
 
         // Simulate table data based on key lookup

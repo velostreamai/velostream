@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "avro")]
 use std::io::Cursor;
 
 #[cfg(feature = "protobuf")]
@@ -270,6 +272,7 @@ impl<T: Message + Default> Default for ProtoSerializer<T> {
     }
 }
 
+#[cfg(feature = "protobuf")]
 impl<T: Message + Default> ProtoSerializer<T> {
     pub fn new() -> Self {
         Self(std::marker::PhantomData)

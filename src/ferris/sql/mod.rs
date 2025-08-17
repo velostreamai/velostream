@@ -10,16 +10,11 @@ pub mod parser;
 pub mod schema;
 
 // Re-export main API
-pub use app_parser::{ApplicationMetadata, SqlApplication, SqlApplicationParser, SqlStatement};
-pub use ast::{
-    DataType, Expr, FrameBound, FrameType, OverClause, SelectField, StreamingQuery, WindowFrame,
-    WindowSpec,
-};
-pub use context::StreamingSqlContext;
+pub use app_parser::SqlApplicationParser;
+pub use ast::StreamingQuery;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 pub use parser::StreamingSqlParser;
-pub use schema::{FieldDefinition, Schema, StreamHandle};
 
 // Version and feature info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

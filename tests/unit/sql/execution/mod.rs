@@ -3,9 +3,12 @@
 
 // Core execution functionality
 pub mod basic_execution_test;
+pub mod core_execution_test;
 pub mod error_handling_test;
 pub mod expression_evaluation_test;
 pub mod operator_test;
+pub mod query_planner_test;
+pub mod stream_processor_test;
 pub mod window_processing_test;
 pub mod windowing_test;
 

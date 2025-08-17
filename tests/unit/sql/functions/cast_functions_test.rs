@@ -6,19 +6,12 @@ These tests verify that all type conversions work correctly and handle edge case
 */
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine};
+use ferrisstreams::ferris::sql::execution::expressions::casting::cast_value;
+use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::str::FromStr;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-
-fn create_test_engine() -> StreamExecutionEngine {
-    let (output_tx, _output_rx) = mpsc::unbounded_channel();
-    StreamExecutionEngine::new(output_tx, Arc::new(JsonFormat))
-}
 
 fn create_mock_record() -> ferrisstreams::ferris::sql::execution::StreamRecord {
     ferrisstreams::ferris::sql::execution::StreamRecord {
@@ -32,7 +25,6 @@ fn create_mock_record() -> ferrisstreams::ferris::sql::execution::StreamRecord {
 
 #[tokio::test]
 async fn test_cast_to_date_from_string() {
-    let engine = create_test_engine();
     let _record = create_mock_record();
 
     // Test various date string formats
@@ -46,7 +38,7 @@ async fn test_cast_to_date_from_string() {
     ];
 
     for (date_str, should_succeed) in test_cases {
-        let result = engine.cast_value(FieldValue::String(date_str.to_string()), "DATE");
+        let result = cast_value(FieldValue::String(date_str.to_string()), "DATE");
 
         if should_succeed {
             assert!(
@@ -71,13 +63,11 @@ async fn test_cast_to_date_from_string() {
 
 #[tokio::test]
 async fn test_cast_to_date_from_timestamp() {
-    let engine = create_test_engine();
-
     let timestamp =
         NaiveDateTime::parse_from_str("2023-12-25 14:30:45", "%Y-%m-%d %H:%M:%S").unwrap();
     let expected_date = NaiveDate::from_ymd_opt(2023, 12, 25).unwrap();
 
-    let result = engine.cast_value(FieldValue::Timestamp(timestamp), "DATE");
+    let result = cast_value(FieldValue::Timestamp(timestamp), "DATE");
 
     assert!(result.is_ok(), "Should successfully cast TIMESTAMP to DATE");
     assert_eq!(result.unwrap(), FieldValue::Date(expected_date));
@@ -85,8 +75,6 @@ async fn test_cast_to_date_from_timestamp() {
 
 #[tokio::test]
 async fn test_cast_to_timestamp_from_string() {
-    let engine = create_test_engine();
-
     let test_cases = vec![
         ("2023-12-25 14:30:45", true),
         ("2023-12-25 14:30:45.123", true),
@@ -99,7 +87,7 @@ async fn test_cast_to_timestamp_from_string() {
     ];
 
     for (timestamp_str, should_succeed) in test_cases {
-        let result = engine.cast_value(FieldValue::String(timestamp_str.to_string()), "TIMESTAMP");
+        let result = cast_value(FieldValue::String(timestamp_str.to_string()), "TIMESTAMP");
 
         if should_succeed {
             assert!(
@@ -127,12 +115,10 @@ async fn test_cast_to_timestamp_from_string() {
 
 #[tokio::test]
 async fn test_cast_to_timestamp_from_date() {
-    let engine = create_test_engine();
-
     let date = NaiveDate::from_ymd_opt(2023, 12, 25).unwrap();
     let expected_timestamp = date.and_hms_opt(0, 0, 0).unwrap();
 
-    let result = engine.cast_value(FieldValue::Date(date), "TIMESTAMP");
+    let result = cast_value(FieldValue::Date(date), "TIMESTAMP");
 
     assert!(result.is_ok(), "Should successfully cast DATE to TIMESTAMP");
     assert_eq!(result.unwrap(), FieldValue::Timestamp(expected_timestamp));
@@ -140,12 +126,10 @@ async fn test_cast_to_timestamp_from_date() {
 
 #[tokio::test]
 async fn test_cast_to_timestamp_from_integer() {
-    let engine = create_test_engine();
-
     // Unix timestamp for 2023-01-01 00:00:00 UTC
     let unix_timestamp = 1672531200i64;
 
-    let result = engine.cast_value(FieldValue::Integer(unix_timestamp), "TIMESTAMP");
+    let result = cast_value(FieldValue::Integer(unix_timestamp), "TIMESTAMP");
 
     assert!(
         result.is_ok(),
@@ -163,15 +147,13 @@ async fn test_cast_to_timestamp_from_integer() {
 
 #[tokio::test]
 async fn test_cast_to_decimal_from_various_types() {
-    let engine = create_test_engine();
-
     // Test from Integer
-    let result = engine.cast_value(FieldValue::Integer(42), "DECIMAL");
+    let result = cast_value(FieldValue::Integer(42), "DECIMAL");
     assert!(result.is_ok(), "Should cast INTEGER to DECIMAL");
     assert_eq!(result.unwrap(), FieldValue::Decimal(Decimal::from(42)));
 
     // Test from Float
-    let result = engine.cast_value(FieldValue::Float(PI), "DECIMAL");
+    let result = cast_value(FieldValue::Float(PI), "DECIMAL");
     assert!(result.is_ok(), "Should cast FLOAT to DECIMAL");
     if let Ok(FieldValue::Decimal(d)) = result {
         // Allow for some floating point precision differences
@@ -184,7 +166,7 @@ async fn test_cast_to_decimal_from_various_types() {
     }
 
     // Test from String
-    let result = engine.cast_value(FieldValue::String("123.456".to_string()), "DECIMAL");
+    let result = cast_value(FieldValue::String("123.456".to_string()), "DECIMAL");
     assert!(
         result.is_ok(),
         "Should cast valid numeric STRING to DECIMAL"
@@ -195,16 +177,16 @@ async fn test_cast_to_decimal_from_various_types() {
     );
 
     // Test from Boolean
-    let result = engine.cast_value(FieldValue::Boolean(true), "DECIMAL");
+    let result = cast_value(FieldValue::Boolean(true), "DECIMAL");
     assert!(result.is_ok(), "Should cast BOOLEAN to DECIMAL");
     assert_eq!(result.unwrap(), FieldValue::Decimal(Decimal::ONE));
 
-    let result = engine.cast_value(FieldValue::Boolean(false), "DECIMAL");
+    let result = cast_value(FieldValue::Boolean(false), "DECIMAL");
     assert!(result.is_ok(), "Should cast BOOLEAN to DECIMAL");
     assert_eq!(result.unwrap(), FieldValue::Decimal(Decimal::ZERO));
 
     // Test invalid string
-    let result = engine.cast_value(FieldValue::String("not-a-number".to_string()), "DECIMAL");
+    let result = cast_value(FieldValue::String("not-a-number".to_string()), "DECIMAL");
     assert!(
         result.is_err(),
         "Should fail to cast invalid STRING to DECIMAL"
@@ -213,17 +195,15 @@ async fn test_cast_to_decimal_from_various_types() {
 
 #[tokio::test]
 async fn test_cast_decimal_to_other_types() {
-    let engine = create_test_engine();
-
     let decimal_value = Decimal::from_str("123.456").unwrap();
 
     // Test DECIMAL to INTEGER (should truncate)
-    let result = engine.cast_value(FieldValue::Decimal(decimal_value), "INTEGER");
+    let result = cast_value(FieldValue::Decimal(decimal_value), "INTEGER");
     assert!(result.is_ok(), "Should cast DECIMAL to INTEGER");
     assert_eq!(result.unwrap(), FieldValue::Integer(123));
 
     // Test DECIMAL to FLOAT
-    let result = engine.cast_value(FieldValue::Decimal(decimal_value), "FLOAT");
+    let result = cast_value(FieldValue::Decimal(decimal_value), "FLOAT");
     assert!(result.is_ok(), "Should cast DECIMAL to FLOAT");
     if let Ok(FieldValue::Float(f)) = result {
         assert!(
@@ -233,7 +213,7 @@ async fn test_cast_decimal_to_other_types() {
     }
 
     // Test DECIMAL to STRING
-    let result = engine.cast_value(FieldValue::Decimal(decimal_value), "STRING");
+    let result = cast_value(FieldValue::Decimal(decimal_value), "STRING");
     assert!(result.is_ok(), "Should cast DECIMAL to STRING");
     if let Ok(FieldValue::String(s)) = result {
         assert!(
@@ -245,8 +225,6 @@ async fn test_cast_decimal_to_other_types() {
 
 #[tokio::test]
 async fn test_cast_null_values() {
-    let engine = create_test_engine();
-
     // All NULL casts should return NULL, except STRING which returns "NULL"
     let null_target_types = vec![
         "DATE",
@@ -258,7 +236,7 @@ async fn test_cast_null_values() {
     ];
 
     for target_type in null_target_types {
-        let result = engine.cast_value(FieldValue::Null, target_type);
+        let result = cast_value(FieldValue::Null, target_type);
         assert!(
             result.is_ok(),
             "Should successfully cast NULL to {}",
@@ -268,15 +246,13 @@ async fn test_cast_null_values() {
     }
 
     // Special case for STRING - NULL to STRING should return "NULL" string
-    let result = engine.cast_value(FieldValue::Null, "STRING");
+    let result = cast_value(FieldValue::Null, "STRING");
     assert!(result.is_ok(), "Should successfully cast NULL to STRING");
     assert_eq!(result.unwrap(), FieldValue::String("NULL".to_string()));
 }
 
 #[tokio::test]
 async fn test_cast_error_cases() {
-    let engine = create_test_engine();
-
     // Test invalid cast combinations that should fail
     let invalid_casts = vec![
         (FieldValue::Array(vec![]), "DATE"),
@@ -295,7 +271,7 @@ async fn test_cast_error_cases() {
     ];
 
     for (value, target_type) in invalid_casts {
-        let result = engine.cast_value(value.clone(), target_type);
+        let result = cast_value(value.clone(), target_type);
         assert!(
             result.is_err(),
             "Should fail to cast {:?} to {}",
@@ -307,11 +283,9 @@ async fn test_cast_error_cases() {
 
 #[tokio::test]
 async fn test_cast_datetime_alias() {
-    let engine = create_test_engine();
-
     // Test that DATETIME works as an alias for TIMESTAMP
     let date_str = "2023-12-25 14:30:45";
-    let result = engine.cast_value(FieldValue::String(date_str.to_string()), "DATETIME");
+    let result = cast_value(FieldValue::String(date_str.to_string()), "DATETIME");
 
     assert!(result.is_ok(), "Should successfully cast to DATETIME");
     if let Ok(FieldValue::Timestamp(_)) = result {
@@ -323,10 +297,8 @@ async fn test_cast_datetime_alias() {
 
 #[tokio::test]
 async fn test_cast_numeric_alias() {
-    let engine = create_test_engine();
-
     // Test that NUMERIC works as an alias for DECIMAL
-    let result = engine.cast_value(FieldValue::String("123.456".to_string()), "NUMERIC");
+    let result = cast_value(FieldValue::String("123.456".to_string()), "NUMERIC");
 
     assert!(result.is_ok(), "Should successfully cast to NUMERIC");
     if let Ok(FieldValue::Decimal(_)) = result {
@@ -338,11 +310,9 @@ async fn test_cast_numeric_alias() {
 
 #[tokio::test]
 async fn test_large_decimal_values() {
-    let engine = create_test_engine();
-
     // Test large but reasonable decimal numbers (within Decimal's precision limits)
     let large_decimal_str = "123456789012345.123456789";
-    let result = engine.cast_value(FieldValue::String(large_decimal_str.to_string()), "DECIMAL");
+    let result = cast_value(FieldValue::String(large_decimal_str.to_string()), "DECIMAL");
 
     assert!(result.is_ok(), "Should handle large DECIMAL values");
     if let Ok(FieldValue::Decimal(d)) = result {
@@ -355,8 +325,6 @@ async fn test_large_decimal_values() {
 
 #[tokio::test]
 async fn test_date_boundary_values() {
-    let engine = create_test_engine();
-
     // Test boundary dates
     let boundary_dates = vec![
         "1970-01-01", // Unix epoch
@@ -366,18 +334,16 @@ async fn test_date_boundary_values() {
     ];
 
     for date_str in boundary_dates {
-        let result = engine.cast_value(FieldValue::String(date_str.to_string()), "DATE");
+        let result = cast_value(FieldValue::String(date_str.to_string()), "DATE");
         assert!(result.is_ok(), "Should handle boundary date {}", date_str);
     }
 }
 
 #[tokio::test]
 async fn test_timestamp_precision() {
-    let engine = create_test_engine();
-
     // Test that millisecond precision is preserved
     let timestamp_with_ms = "2023-12-25 14:30:45.123";
-    let result = engine.cast_value(
+    let result = cast_value(
         FieldValue::String(timestamp_with_ms.to_string()),
         "TIMESTAMP",
     );
@@ -395,27 +361,25 @@ async fn test_timestamp_precision() {
 
 #[tokio::test]
 async fn test_cast_display_string_format() {
-    let engine = create_test_engine();
-
     // Test that new types display correctly when cast to string
     let date = NaiveDate::from_ymd_opt(2023, 12, 25).unwrap();
     let timestamp =
         NaiveDateTime::parse_from_str("2023-12-25 14:30:45.123", "%Y-%m-%d %H:%M:%S%.3f").unwrap();
     let decimal = Decimal::from_str("123.456").unwrap();
 
-    let result = engine.cast_value(FieldValue::Date(date), "STRING");
+    let result = cast_value(FieldValue::Date(date), "STRING");
     assert!(result.is_ok());
     if let Ok(FieldValue::String(s)) = result {
         assert_eq!(s, "2023-12-25");
     }
 
-    let result = engine.cast_value(FieldValue::Timestamp(timestamp), "STRING");
+    let result = cast_value(FieldValue::Timestamp(timestamp), "STRING");
     assert!(result.is_ok());
     if let Ok(FieldValue::String(s)) = result {
         assert!(s.starts_with("2023-12-25 14:30:45"));
     }
 
-    let result = engine.cast_value(FieldValue::Decimal(decimal), "STRING");
+    let result = cast_value(FieldValue::Decimal(decimal), "STRING");
     assert!(result.is_ok());
     if let Ok(FieldValue::String(s)) = result {
         assert_eq!(s, "123.456");

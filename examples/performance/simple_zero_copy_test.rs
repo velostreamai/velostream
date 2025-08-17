@@ -5,11 +5,12 @@
 //! - Processing borrowed data without copying
 //! - Memory-efficient message handling
 
+use ferrisstreams::ferris::kafka::admin_client::KafkaAdminClient;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
-use ferrisstreams::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use ferrisstreams::{KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

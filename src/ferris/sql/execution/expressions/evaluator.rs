@@ -1,7 +1,8 @@
+use super::functions::FunctionEvaluator;
 use super::{add_values, divide_values, multiply_values, subtract_values};
 use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue, TimeUnit, UnaryOperator};
 use crate::ferris::sql::error::SqlError;
-use crate::ferris::sql::execution::types::{FieldValue, HeaderMutation, StreamRecord};
+use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Core expression evaluation logic
 pub struct ExpressionEvaluator;
@@ -97,6 +98,17 @@ impl ExpressionEvaluator {
                     Ok(false)
                 }
             }
+            Expr::Function { name, args } => {
+                let result = FunctionEvaluator::evaluate_function(name, args, record)?;
+                match result {
+                    FieldValue::Boolean(b) => Ok(b),
+                    FieldValue::Integer(i) => Ok(i != 0),
+                    FieldValue::Float(f) => Ok(f != 0.0),
+                    FieldValue::String(s) => Ok(!s.is_empty()),
+                    FieldValue::Null => Ok(false),
+                    _ => Ok(true), // Non-null values are generally truthy
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!(
                     "Expression type {} is not supported in boolean context",
@@ -169,6 +181,9 @@ impl ExpressionEvaluator {
                 } else {
                     Ok(FieldValue::Null)
                 }
+            }
+            Expr::Function { name, args } => {
+                FunctionEvaluator::evaluate_function(name, args, record)
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!(
@@ -253,9 +268,14 @@ impl ExpressionEvaluator {
         match op {
             BinaryOperator::Equal => Ok(Self::values_equal(&left_val, &right_val)),
             BinaryOperator::NotEqual => Ok(!Self::values_equal(&left_val, &right_val)),
+            BinaryOperator::GreaterThan => Ok(Self::compare_values(&left_val, &right_val) > 0),
+            BinaryOperator::LessThan => Ok(Self::compare_values(&left_val, &right_val) < 0),
+            BinaryOperator::GreaterThanOrEqual => {
+                Ok(Self::compare_values(&left_val, &right_val) >= 0)
+            }
+            BinaryOperator::LessThanOrEqual => Ok(Self::compare_values(&left_val, &right_val) <= 0),
             _ => {
-                // For other comparison operators, we need numeric comparison logic
-                // This is simplified - full implementation would handle all comparison types
+                // For other comparison operators, we need more complex logic
                 Ok(false)
             }
         }
@@ -269,6 +289,68 @@ impl ExpressionEvaluator {
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
             (FieldValue::Null, FieldValue::Null) => true,
             _ => false,
+        }
+    }
+
+    fn compare_values(a: &FieldValue, b: &FieldValue) -> i32 {
+        match (a, b) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => {
+                let a_float = *a as f64;
+                if a_float < *b {
+                    -1
+                } else if a_float > *b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                let b_float = *b as f64;
+                if *a < b_float {
+                    -1
+                } else if *a > b_float {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::String(a), FieldValue::String(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => 0, // For incomparable types, consider them equal
         }
     }
 

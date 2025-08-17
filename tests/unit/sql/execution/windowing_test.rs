@@ -230,8 +230,12 @@ async fn test_aggregation_functions() {
     let result2 = engine.execute(&query, record2).await;
     assert!(result2.is_ok());
 
-    let output = rx.try_recv().unwrap();
-    assert!(output.contains_key("count"));
-    assert!(output.contains_key("max_amount"));
-    assert!(output.contains_key("min_amount"));
+    // Receive the first output (empty window)
+    let _output1 = rx.try_recv().unwrap();
+
+    // Receive the second output (actual aggregation result)
+    let output2 = rx.try_recv().unwrap();
+    assert!(output2.contains_key("count"));
+    assert!(output2.contains_key("max_amount"));
+    assert!(output2.contains_key("min_amount"));
 }

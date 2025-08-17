@@ -1,10 +1,8 @@
 use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
-use ferrisstreams::ferris::sql::{
-    FieldValue, SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine,
-    StreamingSqlParser,
-};
+use ferrisstreams::ferris::sql::app_parser::{SqlApplication, SqlApplicationParser};
+use ferrisstreams::ferris::sql::{FieldValue, SqlError, StreamExecutionEngine, StreamingSqlParser};
 use log::{error, info, warn};
 use serde_json::Value;
 use std::collections::HashMap;

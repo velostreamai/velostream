@@ -56,6 +56,5 @@ pub mod processor;
 pub mod state;
 
 // Re-export all public types for easy access
-pub use aggregates::*;
 pub use processor::*;
 pub use state::*;

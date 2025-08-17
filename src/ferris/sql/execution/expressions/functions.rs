@@ -22,7 +22,7 @@ impl FunctionEvaluator {
         name: &str,
         args: &[Expr],
         record: &StreamRecord,
-        header_mutations: &mut Vec<HeaderMutation>,
+        _header_mutations: &mut Vec<HeaderMutation>,
     ) -> Result<FieldValue, SqlError> {
         match name.to_uppercase().as_str() {
             // Aggregate functions (simplified for streaming)
@@ -44,6 +44,11 @@ impl FunctionEvaluator {
             "ROUND" => Self::evaluate_round(args, record),
             "CEIL" => Self::evaluate_ceil(args, record),
             "FLOOR" => Self::evaluate_floor(args, record),
+            "LEAST" => Self::evaluate_least(args, record),
+            "GREATEST" => Self::evaluate_greatest(args, record),
+            "MOD" => Self::evaluate_mod(args, record),
+            "POWER" => Self::evaluate_power(args, record),
+            "SQRT" => Self::evaluate_sqrt(args, record),
 
             // Date/time functions
             "NOW" => Self::evaluate_now(),
@@ -416,6 +421,227 @@ impl FunctionEvaluator {
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
             (FieldValue::Null, FieldValue::Null) => true,
             _ => false,
+        }
+    }
+
+    // Additional math functions
+    fn evaluate_least(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "LEAST requires at least one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let mut min_value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        for arg in args.iter().skip(1) {
+            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+            if Self::compare_values(&value, &min_value) < 0 {
+                min_value = value;
+            }
+        }
+        Ok(min_value)
+    }
+
+    fn evaluate_greatest(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "GREATEST requires at least one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let mut max_value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        for arg in args.iter().skip(1) {
+            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+            if Self::compare_values(&value, &max_value) > 0 {
+                max_value = value;
+            }
+        }
+        Ok(max_value)
+    }
+
+    fn evaluate_mod(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "MOD requires exactly two arguments".to_string(),
+                query: None,
+            });
+        }
+
+        let value1 = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let value2 = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        match (value1, value2) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => {
+                if b == 0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "Division by zero in MOD function".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Integer(a % b))
+            }
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                if b == 0.0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "Division by zero in MOD function".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Float(a % b))
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => {
+                if b == 0.0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "Division by zero in MOD function".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Float(a as f64 % b))
+            }
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                if b == 0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "Division by zero in MOD function".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Float(a % b as f64))
+            }
+            (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "MOD function requires numeric arguments".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn evaluate_power(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "POWER requires exactly two arguments".to_string(),
+                query: None,
+            });
+        }
+
+        let base = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let exponent = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        match (base, exponent) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => {
+                Ok(FieldValue::Float((a as f64).powf(b as f64)))
+            }
+            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a.powf(b))),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => {
+                Ok(FieldValue::Float((a as f64).powf(b)))
+            }
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                Ok(FieldValue::Float(a.powf(b as f64)))
+            }
+            (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "POWER function requires numeric arguments".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn evaluate_sqrt(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "SQRT requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match value {
+            FieldValue::Integer(i) => {
+                if i < 0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "SQRT of negative number is not allowed".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Float((i as f64).sqrt()))
+            }
+            FieldValue::Float(f) => {
+                if f < 0.0 {
+                    return Err(SqlError::ExecutionError {
+                        message: "SQRT of negative number is not allowed".to_string(),
+                        query: None,
+                    });
+                }
+                Ok(FieldValue::Float(f.sqrt()))
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "SQRT function requires numeric argument".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn compare_values(a: &FieldValue, b: &FieldValue) -> i32 {
+        match (a, b) {
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => {
+                let a_float = *a as f64;
+                if a_float < *b {
+                    -1
+                } else if a_float > *b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                let b_float = *b as f64;
+                if *a < b_float {
+                    -1
+                } else if *a > b_float {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::String(a), FieldValue::String(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => {
+                if a < b {
+                    -1
+                } else if a > b {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => 0, // For incomparable types, consider them equal
         }
     }
 }

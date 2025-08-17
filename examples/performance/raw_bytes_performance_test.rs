@@ -24,11 +24,12 @@
 //! - PAYLOAD_SIZE: Size of raw byte payload
 //! - CONCURRENT_PRODUCERS: Number of concurrent producers
 
+use ferrisstreams::ferris::kafka::admin_client::KafkaAdminClient;
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
-use ferrisstreams::{Headers, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use ferrisstreams::{Headers, KafkaConsumer, ProducerBuilder};
 
 use futures::StreamExt;
 use std::sync::Arc;

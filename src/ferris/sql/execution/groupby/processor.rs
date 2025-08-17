@@ -258,7 +258,7 @@ impl GroupByProcessor {
         }
 
         // Add GROUP BY expressions to result if not already present
-        for (i, expr) in group_exprs.iter().enumerate() {
+        for (_i, expr) in group_exprs.iter().enumerate() {
             let expr_name = Self::get_expression_name(expr);
             if !result_fields.contains_key(&expr_name) {
                 if let Some(sample) = sample_record {
@@ -280,7 +280,7 @@ impl GroupByProcessor {
         accumulator: &GroupAccumulator,
     ) -> Result<FieldValue, SqlError> {
         match expr {
-            Expr::Function { name, args: _ } => {
+            Expr::Function { name, args } => {
                 match name.to_uppercase().as_str() {
                     "COUNT" => {
                         // Return count of non-NULL values if field-specific, otherwise total count
@@ -357,7 +357,19 @@ impl GroupByProcessor {
                         .unwrap_or(FieldValue::Null)),
                     "STRING_AGG" | "GROUP_CONCAT" => {
                         if let Some(strings) = accumulator.string_values.get(field_name) {
-                            Ok(FieldValue::String(strings.join(",")))
+                            // Extract separator from second argument, default to comma
+                            let separator = if args.len() > 1 {
+                                // Try to extract separator from literal string argument
+                                match &args[1] {
+                                    Expr::Literal(
+                                        crate::ferris::sql::ast::LiteralValue::String(s),
+                                    ) => s.as_str(),
+                                    _ => ",", // fallback to comma if not a string literal
+                                }
+                            } else {
+                                "," // default separator
+                            };
+                            Ok(FieldValue::String(strings.join(separator)))
                         } else {
                             Ok(FieldValue::Null)
                         }
