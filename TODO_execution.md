@@ -207,7 +207,7 @@ cargo doc --no-deps --open  # Review generated documentation
 - [x] All binaries compile unchanged
 - [x] Generated docs show only public API
 
-## PHASE 2: EXTRACT CORE TYPES (RISK: LOW) ⏳ **PENDING**
+## PHASE 2: EXTRACT CORE TYPES (RISK: LOW) ✅ **COMPLETED**
 
 **Goal**: Extract `FieldValue`, `StreamRecord`, and internal types to separate files.
 
@@ -220,19 +220,19 @@ src/ferris/sql/execution/
 └── engine.rs                 # StreamExecutionEngine (reduced)
 ```
 
-### 🔲 Step 1: Create types.rs
+### ✅ Step 1: Create types.rs
 Extract `FieldValue` and `StreamRecord` with their implementations.
 
-### 🔲 Step 2: Create internal.rs  
+### ✅ Step 2: Create internal.rs  
 Extract all `#[doc(hidden)]` types.
 
-### 🔲 Step 3: Update mod.rs
+### ✅ Step 3: Update mod.rs
 Clean re-exports of only public API.
 
-### 🔲 Step 4: Update engine.rs
+### ✅ Step 4: Update engine.rs
 Remove extracted types, add imports.
 
-### 🔲 Step 5: Refactor and organize tests
+### ✅ Step 5: Refactor and organize tests
 Move type-related tests to appropriate test modules and update imports.
 
 **Test Organization:**
@@ -242,15 +242,15 @@ Move type-related tests to appropriate test modules and update imports.
 - Ensure all tests still pass with new organization
 
 ### Phase 2 Success Criteria
-- [ ] `types.rs` created with `FieldValue` and `StreamRecord`
-- [ ] `internal.rs` created with all internal types
-- [ ] `mod.rs` updated with clean re-exports
-- [ ] `engine.rs` updated with imports
-- [ ] Tests reorganized into appropriate directories
-- [ ] All test imports updated for new module structure
-- [ ] All tests still pass
-- [ ] All binaries compile unchanged
-- [ ] No functionality changes
+- [x] `types.rs` created with `FieldValue` and `StreamRecord`
+- [x] `internal.rs` created with all internal types
+- [x] `mod.rs` updated with clean re-exports
+- [x] `engine.rs` updated with imports
+- [x] Tests reorganized into appropriate directories
+- [x] All test imports updated for new module structure
+- [x] All tests still pass
+- [x] All binaries compile unchanged
+- [x] No functionality changes
 
 ## PHASE 3: EXTRACT EXPRESSION ENGINE (RISK: MEDIUM) ⏳ **PENDING**
 
@@ -547,13 +547,13 @@ cargo doc --no-deps
 
 ### ✅ COMPLETED PHASES
 - **Phase 1: API Cleanup** - All internal types hidden, methods made private, documentation updated
+- **Phase 2: Extract Core Types** - FieldValue, StreamRecord, and internal types extracted to separate files with organized test structure
 
 ### ⏳ PENDING PHASES  
-- **Phase 2: Extract Core Types** - 0/5 steps completed (includes test refactoring)
 - **Phase 3: Extract Expression Engine** - 0/6 steps completed (includes test refactoring)
 - **Phase 4: Extract Aggregation Engine** - 0/6 steps completed (includes test refactoring)
 - **Phase 5: Extract Query Processors** - 0/7 steps completed (includes test refactoring)
 
-### 📊 OVERALL PROGRESS: 20% Complete (1/5 phases)
+### 📊 OVERALL PROGRESS: 40% Complete (2/5 phases)
 
 This incremental approach ensures we can safely refactor the execution engine while maintaining the excellent test coverage and functionality that already exists.
