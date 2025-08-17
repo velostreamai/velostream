@@ -5,6 +5,25 @@ This module implements the execution engine for streaming SQL queries. It proces
 SQL AST nodes and executes them against streaming data records, supporting real-time
 query evaluation with expression processing, filtering, and basic aggregations.
 
+## Public API
+
+The primary interface for executing SQL queries against streaming data:
+
+- [`StreamExecutionEngine`] - Main execution engine
+- [`StreamRecord`] - Input record format
+- [`FieldValue`] - Value type system
+
+## Usage
+
+```rust
+use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+
+let engine = StreamExecutionEngine::new(output_sender, serialization_format);
+engine.execute(&query, record).await?;
+```
+
+All other types and methods are internal implementation details.
+
 ## Key Features
 
 - **Real-time Processing**: Processes streaming records one at a time as they arrive
@@ -122,6 +141,7 @@ pub struct StreamExecutionEngine {
 // =============================================================================
 
 /// State for tracking GROUP BY aggregations across streaming records
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct GroupByState {
     /// Map of group keys to their accumulated state
@@ -135,6 +155,7 @@ pub struct GroupByState {
 }
 
 /// Accumulator for a single group's aggregate state
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct GroupAccumulator {
     /// Count of records in this group
@@ -161,6 +182,7 @@ pub struct GroupAccumulator {
     sample_record: Option<StreamRecord>,
 }
 
+#[doc(hidden)]
 #[derive(Debug)]
 pub enum ExecutionMessage {
     StartJob {
@@ -189,6 +211,7 @@ pub struct StreamRecord {
     pub headers: HashMap<String, String>,
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct HeaderMutation {
     pub operation: HeaderOperation,
@@ -196,6 +219,7 @@ pub struct HeaderMutation {
     pub value: Option<String>,
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub enum HeaderOperation {
     Set,
@@ -282,6 +306,7 @@ impl FieldValue {
     }
 }
 
+#[doc(hidden)]
 pub struct QueryExecution {
     query: StreamingQuery,
     state: ExecutionState,
@@ -344,6 +369,16 @@ impl StreamExecutionEngine {
             .await
     }
 
+    /// Executes a SQL query with full metadata (headers, timestamp, offset, partition).
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The parsed SQL query to execute
+    /// * `record` - The input record data  
+    /// * `headers` - Message headers
+    /// * `timestamp` - Record timestamp (optional)
+    /// * `offset` - Kafka offset (optional)
+    /// * `partition` - Kafka partition (optional)
     pub async fn execute_with_metadata(
         &mut self,
         query: &StreamingQuery,
@@ -491,6 +526,9 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
+    /// Starts the execution engine's message processing loop.
+    ///
+    /// This method must be called to begin processing query execution messages.
     pub async fn start(&mut self) -> Result<(), SqlError> {
         let mut receiver =
             self.message_receiver
@@ -523,6 +561,7 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
+    #[doc(hidden)]
     pub async fn start_query_execution(
         &mut self,
         query_id: String,
@@ -556,6 +595,7 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
+    #[doc(hidden)]
     pub async fn process_stream_record(
         &mut self,
         stream_name: &str,
@@ -623,6 +663,9 @@ impl StreamExecutionEngine {
     }
 
     /// Flush any pending window results by processing a final trigger record  
+    /// Flushes all pending windowed aggregations.
+    ///
+    /// Forces emission of any buffered window results.
     pub async fn flush_windows(&mut self) -> Result<(), SqlError> {
         // Create a trigger record with a very high timestamp to force window emission
         let trigger_record = StreamRecord {
@@ -1601,6 +1644,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn values_equal(&self, left: &FieldValue, right: &FieldValue) -> bool {
         match (left, right) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
@@ -1626,6 +1670,7 @@ impl StreamExecutionEngine {
     }
 
     /// Compare values with numeric type coercion for IN operations
+    #[doc(hidden)]
     pub fn values_equal_with_coercion(&self, left: &FieldValue, right: &FieldValue) -> bool {
         match (left, right) {
             // Exact type matches
@@ -1802,6 +1847,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn add_values(
         &self,
         left: &FieldValue,
@@ -1820,6 +1866,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn subtract_values(
         &self,
         left: &FieldValue,
@@ -1838,6 +1885,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn multiply_values(
         &self,
         left: &FieldValue,
@@ -1856,6 +1904,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn divide_values(
         &self,
         left: &FieldValue,
@@ -3931,6 +3980,7 @@ impl StreamExecutionEngine {
         }
     }
 
+    #[doc(hidden)]
     pub fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
         match target_type {
             "INTEGER" | "INT" => match value {
@@ -4124,7 +4174,7 @@ impl StreamExecutionEngine {
         }
     }
 
-    pub fn get_sender(&self) -> mpsc::Sender<ExecutionMessage> {
+    pub(crate) fn get_sender(&self) -> mpsc::Sender<ExecutionMessage> {
         self.message_sender.clone()
     }
 
@@ -5098,7 +5148,7 @@ impl StreamExecutionEngine {
 
     /// Execute aggregation on windowed records
     #[cfg(test)]
-    pub fn execute_windowed_aggregation(
+    pub(crate) fn execute_windowed_aggregation(
         &mut self,
         query: &StreamingQuery,
         records: &[StreamRecord],
