@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::expression::{BuiltinFunctions, ExpressionEvaluator};
+use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
     HeaderOperation, QueryExecution, WindowState,
@@ -326,6 +326,17 @@ impl StreamExecutionEngine {
                                 .map(|(k, v)| (k, self.field_value_to_internal(v)))
                                 .collect();
                             InternalValue::Object(internal_map)
+                        }
+                        FieldValue::Interval { value, unit } => {
+                            // Convert interval to milliseconds for output
+                            let millis = match unit {
+                                TimeUnit::Millisecond => value,
+                                TimeUnit::Second => value * 1000,
+                                TimeUnit::Minute => value * 60 * 1000,
+                                TimeUnit::Hour => value * 60 * 60 * 1000,
+                                TimeUnit::Day => value * 24 * 60 * 60 * 1000,
+                            };
+                            InternalValue::Integer(millis)
                         }
                     };
                     (k, internal_value)
@@ -1125,27 +1136,20 @@ impl StreamExecutionEngine {
                 LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 LiteralValue::Null => Ok(FieldValue::Null),
-                LiteralValue::Interval { value, unit } => {
-                    // Convert INTERVAL to milliseconds for internal representation
-                    let millis = match unit {
-                        TimeUnit::Millisecond => *value,
-                        TimeUnit::Second => *value * 1000,
-                        TimeUnit::Minute => *value * 60 * 1000,
-                        TimeUnit::Hour => *value * 60 * 60 * 1000,
-                        TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
-                    };
-                    Ok(FieldValue::Integer(millis))
-                }
+                LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
+                    value: *value,
+                    unit: unit.clone(),
+                }),
             },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = self.evaluate_expression_value(left, record)?;
                 let right_val = self.evaluate_expression_value(right, record)?;
 
                 match op {
-                    BinaryOperator::Add => self.add_values(&left_val, &right_val),
-                    BinaryOperator::Subtract => self.subtract_values(&left_val, &right_val),
-                    BinaryOperator::Multiply => self.multiply_values(&left_val, &right_val),
-                    BinaryOperator::Divide => self.divide_values(&left_val, &right_val),
+                    BinaryOperator::Add => ArithmeticOperations::add_values(&left_val, &right_val),
+                    BinaryOperator::Subtract => ArithmeticOperations::subtract_values(&left_val, &right_val),
+                    BinaryOperator::Multiply => ArithmeticOperations::multiply_values(&left_val, &right_val),
+                    BinaryOperator::Divide => ArithmeticOperations::divide_values(&left_val, &right_val),
                     BinaryOperator::Modulo => self.divide_values(&left_val, &right_val),
                     BinaryOperator::Equal
                     | BinaryOperator::NotEqual
@@ -1426,17 +1430,7 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(FieldValue::Integer(a + b)),
-            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a + b)),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 + b)),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a + *b as f64)),
-            _ => Err(SqlError::TypeError {
-                expected: "numeric".to_string(),
-                actual: "non-numeric".to_string(),
-                value: None,
-            }),
-        }
+        ArithmeticOperations::add_values(left, right)
     }
 
     #[doc(hidden)]
@@ -1445,17 +1439,7 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(FieldValue::Integer(a - b)),
-            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a - b)),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 - b)),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a - *b as f64)),
-            _ => Err(SqlError::TypeError {
-                expected: "numeric".to_string(),
-                actual: "non-numeric".to_string(),
-                value: None,
-            }),
-        }
+        ArithmeticOperations::subtract_values(left, right)
     }
 
     #[doc(hidden)]
@@ -1464,17 +1448,7 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(FieldValue::Integer(a * b)),
-            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a * b)),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 * b)),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a * *b as f64)),
-            _ => Err(SqlError::TypeError {
-                expected: "numeric".to_string(),
-                actual: "non-numeric".to_string(),
-                value: None,
-            }),
-        }
+        ArithmeticOperations::multiply_values(left, right)
     }
 
     #[doc(hidden)]
@@ -1483,53 +1457,7 @@ impl StreamExecutionEngine {
         left: &FieldValue,
         right: &FieldValue,
     ) -> Result<FieldValue, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => {
-                if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
-                } else {
-                    Ok(FieldValue::Float(*a as f64 / *b as f64))
-                }
-            }
-            (FieldValue::Float(a), FieldValue::Float(b)) => {
-                if *b == 0.0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
-                } else {
-                    Ok(FieldValue::Float(a / b))
-                }
-            }
-            (FieldValue::Integer(a), FieldValue::Float(b)) => {
-                if *b == 0.0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
-                } else {
-                    Ok(FieldValue::Float(*a as f64 / b))
-                }
-            }
-            (FieldValue::Float(a), FieldValue::Integer(b)) => {
-                if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
-                } else {
-                    Ok(FieldValue::Float(a / *b as f64))
-                }
-            }
-            _ => Err(SqlError::TypeError {
-                expected: "numeric".to_string(),
-                actual: "non-numeric".to_string(),
-                value: None,
-            }),
-        }
+        ArithmeticOperations::divide_values(left, right)
     }
 
     // =============================================================================
@@ -2189,7 +2117,8 @@ impl StreamExecutionEngine {
                 | FieldValue::Timestamp(_)
                 | FieldValue::Array(_)
                 | FieldValue::Map(_)
-                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                | FieldValue::Struct(_)
+                | FieldValue::Interval { .. } => Err(SqlError::ExecutionError {
                     message: format!("Cannot cast {} to INTEGER", value.type_name()),
                     query: None,
                 }),
@@ -2221,7 +2150,8 @@ impl StreamExecutionEngine {
                 | FieldValue::Timestamp(_)
                 | FieldValue::Array(_)
                 | FieldValue::Map(_)
-                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                | FieldValue::Struct(_)
+                | FieldValue::Interval { .. } => Err(SqlError::ExecutionError {
                     message: format!("Cannot cast {} to FLOAT", value.type_name()),
                     query: None,
                 }),
@@ -2237,7 +2167,8 @@ impl StreamExecutionEngine {
                 | FieldValue::Decimal(_)
                 | FieldValue::Array(_)
                 | FieldValue::Map(_)
-                | FieldValue::Struct(_) => Ok(FieldValue::String(value.to_display_string())),
+                | FieldValue::Struct(_)
+                | FieldValue::Interval { .. } => Ok(FieldValue::String(value.to_display_string())),
             },
             "BOOLEAN" | "BOOL" => match value {
                 FieldValue::Integer(i) => Ok(FieldValue::Boolean(i != 0)),
@@ -2257,7 +2188,8 @@ impl StreamExecutionEngine {
                 | FieldValue::Decimal(_)
                 | FieldValue::Array(_)
                 | FieldValue::Map(_)
-                | FieldValue::Struct(_) => Err(SqlError::ExecutionError {
+                | FieldValue::Struct(_)
+                | FieldValue::Interval { .. } => Err(SqlError::ExecutionError {
                     message: format!("Cannot cast {} to BOOLEAN", value.type_name()),
                     query: None,
                 }),
@@ -2391,6 +2323,17 @@ impl StreamExecutionEngine {
                     .map(|(k, v)| (k, self.field_value_to_internal(v)))
                     .collect();
                 InternalValue::Object(internal_map)
+            }
+            FieldValue::Interval { value, unit } => {
+                // Convert interval to milliseconds for output
+                let millis = match unit {
+                    TimeUnit::Millisecond => value,
+                    TimeUnit::Second => value * 1000,
+                    TimeUnit::Minute => value * 60 * 1000,
+                    TimeUnit::Hour => value * 60 * 60 * 1000,
+                    TimeUnit::Day => value * 24 * 60 * 60 * 1000,
+                };
+                InternalValue::Integer(millis)
             }
         }
     }
@@ -4902,6 +4845,9 @@ impl StreamExecutionEngine {
                     .collect();
                 format!("({})", struct_str.join(","))
             }
+            FieldValue::Interval { value, unit } => {
+                format!("INTERVAL:{}:{:?}", value, unit)
+            }
         }
     }
 
@@ -4943,6 +4889,9 @@ impl StreamExecutionEngine {
                     .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
                     .collect();
                 format!("({})", struct_str.join(","))
+            }
+            FieldValue::Interval { value, unit } => {
+                format!("INTERVAL:{}:{:?}", value, unit)
             }
         }
     }

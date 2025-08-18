@@ -4,6 +4,7 @@
 //! - [`FieldValue`] - The value type system supporting SQL data types
 //! - [`StreamRecord`] - The record format for streaming data processing
 
+use crate::ferris::sql::ast::TimeUnit;
 use chrono::{NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -37,6 +38,8 @@ pub enum FieldValue {
     Map(HashMap<String, FieldValue>),
     /// Structured data with named fields
     Struct(HashMap<String, FieldValue>),
+    /// Time interval (value, unit)
+    Interval { value: i64, unit: TimeUnit },
 }
 
 impl FieldValue {
@@ -57,6 +60,7 @@ impl FieldValue {
             FieldValue::Array(_) => "ARRAY",
             FieldValue::Map(_) => "MAP",
             FieldValue::Struct(_) => "STRUCT",
+            FieldValue::Interval { .. } => "INTERVAL",
         }
     }
 
@@ -103,6 +107,9 @@ impl FieldValue {
                     .map(|(name, value)| format!("{}: {}", name, value.to_display_string()))
                     .collect();
                 format!("{{{}}}", field_strs.join(", "))
+            }
+            FieldValue::Interval { value, unit } => {
+                format!("INTERVAL {} {:?}", value, unit)
             }
         }
     }

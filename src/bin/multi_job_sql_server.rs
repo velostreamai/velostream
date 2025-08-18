@@ -277,6 +277,9 @@ impl MultiJobSqlServer {
                                 FieldValue::Timestamp(ts) => InternalValue::String(
                                     ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
                                 ),
+                                FieldValue::Interval { value, unit } => {
+                                    InternalValue::String(format!("INTERVAL {} {:?}", value, unit))
+                                }
                                 FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
                                 FieldValue::Array(arr) => {
                                     let internal_arr: Vec<InternalValue> = arr

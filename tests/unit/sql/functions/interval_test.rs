@@ -43,6 +43,19 @@ fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, I
                 FieldValue::String(s) => InternalValue::String(s.clone()),
                 FieldValue::Boolean(b) => InternalValue::Boolean(*b),
                 FieldValue::Null => InternalValue::Null,
+                FieldValue::Interval { value, unit } => {
+                    // Convert interval to milliseconds for output
+                    let millis = match unit {
+                        ferrisstreams::ferris::sql::ast::TimeUnit::Millisecond => *value,
+                        ferrisstreams::ferris::sql::ast::TimeUnit::Second => *value * 1000,
+                        ferrisstreams::ferris::sql::ast::TimeUnit::Minute => *value * 60 * 1000,
+                        ferrisstreams::ferris::sql::ast::TimeUnit::Hour => *value * 60 * 60 * 1000,
+                        ferrisstreams::ferris::sql::ast::TimeUnit::Day => {
+                            *value * 24 * 60 * 60 * 1000
+                        }
+                    };
+                    InternalValue::Integer(millis)
+                }
                 _ => InternalValue::String(format!("{:?}", v)),
             };
             (k.clone(), internal_val)

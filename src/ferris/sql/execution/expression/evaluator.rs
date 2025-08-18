@@ -64,12 +64,10 @@ impl ExpressionEvaluator {
                     LiteralValue::Float(f) => FieldValue::Float(*f),
                     LiteralValue::Boolean(b) => FieldValue::Boolean(*b),
                     LiteralValue::Null => FieldValue::Null,
-                    _ => {
-                        return Err(SqlError::ExecutionError {
-                            message: format!("Unsupported literal type: {:?}", literal),
-                            query: None,
-                        });
-                    }
+                    LiteralValue::Interval { value, unit } => FieldValue::Interval {
+                        value: *value,
+                        unit: unit.clone(),
+                    },
                 };
                 Self::field_value_to_bool(&field_value)
             }
@@ -78,71 +76,83 @@ impl ExpressionEvaluator {
                     // Handle IN/NOT IN operators specially - they need the List structure preserved
                     BinaryOperator::In => {
                         let left_val = Self::evaluate_expression_value(left, record)?;
-                        
+
                         // SQL semantics: NULL IN (...) always returns NULL (false in boolean context)
                         if matches!(left_val, FieldValue::Null) {
                             return Ok(false);
                         }
-                        
+
                         match &**right {
                             Expr::List(values) => {
                                 for value_expr in values {
-                                    let value = Self::evaluate_expression_value(value_expr, record)?;
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
                                     if Self::values_equal(&left_val, &value) {
                                         return Ok(true);
                                     }
                                 }
                                 Ok(false)
                             }
-                            Expr::Subquery { query: _, subquery_type: _ } => {
+                            Expr::Subquery {
+                                query: _,
+                                subquery_type: _,
+                            } => {
                                 // For subqueries, use a mock implementation similar to the engine
                                 // In production, this would execute the actual subquery
                                 match &left_val {
                                     FieldValue::Integer(n) => Ok(*n > 0), // Mock: positive numbers are "in" the subquery
                                     FieldValue::String(s) => Ok(!s.is_empty()), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => Ok(*b),           // Mock: true values are "in" the subquery
-                                    FieldValue::Null => Ok(false),              // NULL is never "in" a subquery
+                                    FieldValue::Boolean(b) => Ok(*b), // Mock: true values are "in" the subquery
+                                    FieldValue::Null => Ok(false), // NULL is never "in" a subquery
                                     _ => Ok(false), // Other types are not "in" the subquery by default
                                 }
                             }
                             _ => Err(SqlError::ExecutionError {
-                                message: "IN operator requires a list or subquery on the right side".to_string(),
+                                message:
+                                    "IN operator requires a list or subquery on the right side"
+                                        .to_string(),
                                 query: None,
                             }),
                         }
                     }
                     BinaryOperator::NotIn => {
                         let left_val = Self::evaluate_expression_value(left, record)?;
-                        
+
                         // SQL semantics: NULL NOT IN (...) always returns NULL (false in boolean context)
                         if matches!(left_val, FieldValue::Null) {
                             return Ok(false);
                         }
-                        
+
                         match &**right {
                             Expr::List(values) => {
                                 for value_expr in values {
-                                    let value = Self::evaluate_expression_value(value_expr, record)?;
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
                                     if Self::values_equal(&left_val, &value) {
                                         return Ok(false);
                                     }
                                 }
                                 Ok(true)
                             }
-                            Expr::Subquery { query: _, subquery_type: _ } => {
+                            Expr::Subquery {
+                                query: _,
+                                subquery_type: _,
+                            } => {
                                 // For subqueries, use a mock implementation similar to the engine (inverted for NOT IN)
                                 // In production, this would execute the actual subquery
                                 let in_result = match &left_val {
                                     FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
                                     FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b,           // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,              // NULL is never "in" a subquery
+                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
+                                    FieldValue::Null => false,    // NULL is never "in" a subquery
                                     _ => false, // Other types are not "in" the subquery by default
                                 };
                                 Ok(!in_result) // NOT IN is the inverse of IN
                             }
                             _ => Err(SqlError::ExecutionError {
-                                message: "NOT IN operator requires a list or subquery on the right side".to_string(),
+                                message:
+                                    "NOT IN operator requires a list or subquery on the right side"
+                                        .to_string(),
                                 query: None,
                             }),
                         }
@@ -154,7 +164,9 @@ impl ExpressionEvaluator {
 
                         match op {
                             BinaryOperator::Equal => Ok(Self::values_equal(&left_val, &right_val)),
-                            BinaryOperator::NotEqual => Ok(!Self::values_equal(&left_val, &right_val)),
+                            BinaryOperator::NotEqual => {
+                                Ok(!Self::values_equal(&left_val, &right_val))
+                            }
                             BinaryOperator::LessThan => {
                                 Self::compare_values(&left_val, &right_val, |cmp| cmp < 0)
                             }
@@ -203,7 +215,10 @@ impl ExpressionEvaluator {
                     }
                 }
             }
-            Expr::Subquery { query: _, subquery_type } => {
+            Expr::Subquery {
+                query: _,
+                subquery_type,
+            } => {
                 // Handle subqueries in boolean context
                 use crate::ferris::sql::ast::SubqueryType;
                 match subquery_type {
@@ -224,12 +239,18 @@ impl ExpressionEvaluator {
                         Ok(true)
                     }
                     _ => Err(SqlError::ExecutionError {
-                        message: format!("Unsupported subquery type in boolean context: {:?}", subquery_type),
+                        message: format!(
+                            "Unsupported subquery type in boolean context: {:?}",
+                            subquery_type
+                        ),
                         query: None,
                     }),
                 }
             }
-            Expr::UnaryOp { op, expr: inner_expr } => {
+            Expr::UnaryOp {
+                op,
+                expr: inner_expr,
+            } => {
                 use crate::ferris::sql::ast::UnaryOperator;
                 match op {
                     UnaryOperator::Not => {
@@ -300,9 +321,9 @@ impl ExpressionEvaluator {
                 LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 LiteralValue::Null => Ok(FieldValue::Null),
-                _ => Err(SqlError::ExecutionError {
-                    message: format!("Unsupported literal type: {:?}", literal),
-                    query: None,
+                LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
+                    value: *value,
+                    unit: unit.clone(),
                 }),
             },
             Expr::BinaryOp { left, op, right } => {
@@ -398,20 +419,24 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(FieldValue::Boolean(false))
                             }
-                            Expr::Subquery { query: _, subquery_type: _ } => {
+                            Expr::Subquery {
+                                query: _,
+                                subquery_type: _,
+                            } => {
                                 // For subqueries, use a mock implementation similar to the engine
                                 let in_result = match &left_val {
                                     FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
                                     FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b,           // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,              // NULL is never "in" a subquery
+                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
+                                    FieldValue::Null => false,    // NULL is never "in" a subquery
                                     _ => false, // Other types are not "in" the subquery by default
                                 };
                                 Ok(FieldValue::Boolean(in_result))
                             }
                             _ => Err(SqlError::ExecutionError {
-                                message: "IN operator requires a list or subquery on the right side"
-                                    .to_string(),
+                                message:
+                                    "IN operator requires a list or subquery on the right side"
+                                        .to_string(),
                                 query: None,
                             }),
                         }
@@ -429,20 +454,24 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(FieldValue::Boolean(true))
                             }
-                            Expr::Subquery { query: _, subquery_type: _ } => {
+                            Expr::Subquery {
+                                query: _,
+                                subquery_type: _,
+                            } => {
                                 // For subqueries, use a mock implementation similar to the engine (inverted for NOT IN)
                                 let in_result = match &left_val {
                                     FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
                                     FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b,           // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,              // NULL is never "in" a subquery
+                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
+                                    FieldValue::Null => false,    // NULL is never "in" a subquery
                                     _ => false, // Other types are not "in" the subquery by default
                                 };
                                 Ok(FieldValue::Boolean(!in_result)) // NOT IN is the inverse of IN
                             }
                             _ => Err(SqlError::ExecutionError {
-                                message: "NOT IN operator requires a list or subquery on the right side"
-                                    .to_string(),
+                                message:
+                                    "NOT IN operator requires a list or subquery on the right side"
+                                        .to_string(),
                                 query: None,
                             }),
                         }
@@ -455,7 +484,10 @@ impl ExpressionEvaluator {
                 }
             }
             Expr::Function { .. } => BuiltinFunctions::evaluate_function(expr, record),
-            Expr::Subquery { query: _, subquery_type } => {
+            Expr::Subquery {
+                query: _,
+                subquery_type,
+            } => {
                 // Handle subqueries based on their type
                 use crate::ferris::sql::ast::SubqueryType;
                 match subquery_type {
@@ -489,7 +521,10 @@ impl ExpressionEvaluator {
                     query: None,
                 })
             }
-            Expr::UnaryOp { op, expr: inner_expr } => {
+            Expr::UnaryOp {
+                op,
+                expr: inner_expr,
+            } => {
                 use crate::ferris::sql::ast::UnaryOperator;
                 match op {
                     UnaryOperator::Not => {
@@ -544,6 +579,38 @@ impl ExpressionEvaluator {
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
             (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
             (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
+            (FieldValue::Array(a), FieldValue::Array(b)) => {
+                // Arrays are equal if they have the same length and all elements are equal
+                if a.len() != b.len() {
+                    false
+                } else {
+                    a.iter()
+                        .zip(b.iter())
+                        .all(|(elem_a, elem_b)| Self::values_equal(elem_a, elem_b))
+                }
+            }
+            (FieldValue::Map(a), FieldValue::Map(b)) => {
+                // Maps are equal if they have the same keys and all values are equal
+                if a.len() != b.len() {
+                    false
+                } else {
+                    a.iter().all(|(key, val_a)| {
+                        b.get(key)
+                            .map_or(false, |val_b| Self::values_equal(val_a, val_b))
+                    })
+                }
+            }
+            (FieldValue::Struct(a), FieldValue::Struct(b)) => {
+                // Structs are equal if they have the same fields and all values are equal
+                if a.len() != b.len() {
+                    false
+                } else {
+                    a.iter().all(|(field, val_a)| {
+                        b.get(field)
+                            .map_or(false, |val_b| Self::values_equal(val_a, val_b))
+                    })
+                }
+            }
             _ => false,
         }
     }

@@ -541,11 +541,7 @@ async fn test_multiple_statistical_functions_in_single_query() {
 
     let record = create_test_record();
     let result = engine.execute(&query, record).await;
-    assert!(
-        result.is_ok(),
-        "err:{:}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "err:{:}", result.unwrap_err());
 
     let output = rx.try_recv().unwrap();
 
