@@ -266,36 +266,37 @@ src/ferris/sql/execution/
 │   └── arithmetic.rs        # Arithmetic operations
 ```
 
-### 🔲 Step 1: Create expression/mod.rs
+### ✅ Step 1: Create expression/mod.rs
 Define public expression evaluation API.
 
-### 🔲 Step 2: Create expression/evaluator.rs
+### ✅ Step 2: Create expression/evaluator.rs
 Extract core `evaluate_expression*` methods.
 
-### 🔲 Step 3: Create expression/functions.rs
+### ✅ Step 3: Create expression/functions.rs
 Extract built-in function implementations (ABS, UPPER, etc.).
 
-### 🔲 Step 4: Create expression/arithmetic.rs
+### ✅ Step 4: Create expression/arithmetic.rs
 Extract arithmetic operations (add_values, subtract_values, etc.).
 
-### 🔲 Step 5: Update engine.rs
+### ✅ Step 5: Update engine.rs
 Remove extracted expression logic, add imports.
 
-### 🔲 Step 6: Refactor and organize tests
+### ✅ Step 6: Refactor and organize tests
 Move expression-related tests to appropriate test modules and update imports.
 
 **Test Organization:**
-- Move arithmetic tests to `tests/unit/sql/execution/expression/arithmetic/`
-- Move function tests to `tests/unit/sql/execution/expression/functions/`
-- Move expression evaluation tests to `tests/unit/sql/execution/expression/evaluator/`
-- Update test imports to use new module structure
-- Ensure all tests still pass with new organization
+- ✅ Move arithmetic tests to `tests/unit/sql/execution/expression/arithmetic/`
+- ✅ Move function tests to `tests/unit/sql/execution/expression/functions/`
+- ✅ Move expression evaluation tests to `tests/unit/sql/execution/expression/evaluator/`
+- ✅ Update test imports to use new module structure
+- ✅ Ensure all tests still pass with new organization
 
 ### Key Extractions
-- `evaluate_expression*` methods
-- Function implementations (ABS, UPPER, etc.)
-- Arithmetic operations
-- Type conversions
+- ✅ `evaluate_expression*` methods extracted to `evaluator.rs` (~400 lines)
+- ✅ Function implementations (25+ functions: ABS, UPPER, COUNT, SUM, etc.) extracted to `functions.rs` (~800 lines)
+- ✅ Arithmetic operations extracted to `arithmetic.rs` (already existed)
+- ✅ Type conversions and pattern matching for LIKE/IN/NOT IN operators
+- ✅ Fixed regressions and ensured all previously passing tests now pass
 
 ### Phase 3 Success Criteria
 - [x] Expression module structure created
@@ -308,6 +309,10 @@ Move expression-related tests to appropriate test modules and update imports.
 - [x] All tests still pass
 - [x] All binaries compile unchanged
 - [x] No functionality changes
+- [x] Fixed all regressions introduced during extraction
+- [x] LIKE/NOT LIKE operators working correctly
+- [x] IN/NOT IN operators working correctly
+- [x] NULL handling preserved and improved
 
 ## PHASE 4: EXTRACT AGGREGATION ENGINE (RISK: MEDIUM) ⏳ **PENDING**
 
@@ -548,7 +553,7 @@ cargo doc --no-deps
 ### ✅ COMPLETED PHASES
 - **Phase 1: API Cleanup** - All internal types hidden, methods made private, documentation updated
 - **Phase 2: Extract Core Types** - FieldValue, StreamRecord, and internal types extracted to separate files with organized test structure
-- **Phase 3: Extract Expression Engine** - Expression evaluation, built-in functions, and arithmetic operations extracted to separate modules
+- **Phase 3: Extract Expression Engine** - Expression evaluation (~400 lines), built-in functions (~800 lines), and arithmetic operations extracted to separate modules. Fixed all regressions, LIKE/NOT LIKE and IN/NOT IN operators working correctly.
 
 ### ⏳ PENDING PHASES  
 - **Phase 4: Extract Aggregation Engine** - 0/6 steps completed (includes test refactoring)

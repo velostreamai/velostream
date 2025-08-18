@@ -3,8 +3,8 @@
 //! This module implements arithmetic operations (add, subtract, multiply, divide)
 //! with proper type coercion and SQL semantics.
 
-use crate::ferris::sql::error::SqlError;
 use super::super::types::FieldValue;
+use crate::ferris::sql::error::SqlError;
 
 /// Provides arithmetic operations for SQL expressions
 pub struct ArithmeticOperations;

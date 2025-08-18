@@ -8,10 +8,10 @@
 //! - JSON functions (JSON_EXTRACT, JSON_VALUE)
 //! - Conversion functions (CAST)
 
-use crate::ferris::sql::ast::{Expr, LiteralValue};
-use crate::ferris::sql::error::SqlError;
 use super::super::types::{FieldValue, StreamRecord};
 use super::evaluator::ExpressionEvaluator;
+use crate::ferris::sql::ast::{Expr, LiteralValue};
+use crate::ferris::sql::error::SqlError;
 
 /// Provides built-in SQL function implementations
 pub struct BuiltinFunctions;
@@ -23,9 +23,7 @@ impl BuiltinFunctions {
     /// This is the main entry point for all built-in function evaluation.
     pub fn evaluate_function(func: &Expr, record: &StreamRecord) -> Result<FieldValue, SqlError> {
         match func {
-            Expr::Function { name, args } => {
-                Self::evaluate_function_by_name(name, args, record)
-            }
+            Expr::Function { name, args } => Self::evaluate_function_by_name(name, args, record),
             _ => Err(SqlError::ExecutionError {
                 message: "Expected function expression".to_string(),
                 query: None,
@@ -149,7 +147,10 @@ impl BuiltinFunctions {
         ExpressionEvaluator::evaluate_expression_value(&args[0], record)
     }
 
-    fn approx_count_distinct_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    fn approx_count_distinct_function(
+        args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
                 message: "APPROX_COUNT_DISTINCT requires exactly one argument".to_string(),
@@ -242,9 +243,8 @@ impl BuiltinFunctions {
             }
             (FieldValue::Null, _) => Ok(FieldValue::String("".to_string())),
             _ => Err(SqlError::ExecutionError {
-                message:
-                    "LISTAGG requires string or array first argument and string delimiter"
-                        .to_string(),
+                message: "LISTAGG requires string or array first argument and string delimiter"
+                    .to_string(),
                 query: None,
             }),
         }
@@ -295,8 +295,7 @@ impl BuiltinFunctions {
     fn has_header_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
-                message: "HAS_HEADER requires exactly one argument (header key)"
-                    .to_string(),
+                message: "HAS_HEADER requires exactly one argument (header key)".to_string(),
                 query: None,
             });
         }
@@ -343,8 +342,7 @@ impl BuiltinFunctions {
     fn round_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() < 1 || args.len() > 2 {
             return Err(SqlError::ExecutionError {
-                message: "ROUND requires 1 or 2 arguments: ROUND(number[, precision])"
-                    .to_string(),
+                message: "ROUND requires 1 or 2 arguments: ROUND(number[, precision])".to_string(),
                 query: None,
             });
         }
@@ -562,8 +560,9 @@ impl BuiltinFunctions {
     fn substring_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() < 2 || args.len() > 3 {
             return Err(SqlError::ExecutionError {
-                message: "SUBSTRING requires 2 or 3 arguments: SUBSTRING(string, start[, length])".to_string(),
-                query: None
+                message: "SUBSTRING requires 2 or 3 arguments: SUBSTRING(string, start[, length])"
+                    .to_string(),
+                query: None,
             });
         }
 
@@ -607,7 +606,9 @@ impl BuiltinFunctions {
     fn replace_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 3 {
             return Err(SqlError::ExecutionError {
-                message: "REPLACE requires exactly 3 arguments: REPLACE(string, search, replacement)".to_string(),
+                message:
+                    "REPLACE requires exactly 3 arguments: REPLACE(string, search, replacement)"
+                        .to_string(),
                 query: None,
             });
         }
@@ -617,9 +618,11 @@ impl BuiltinFunctions {
         let replacement_val = ExpressionEvaluator::evaluate_expression_value(&args[2], record)?;
 
         match (string_val, search_val, replacement_val) {
-            (FieldValue::String(s), FieldValue::String(search), FieldValue::String(replacement)) => {
-                Ok(FieldValue::String(s.replace(&search, &replacement)))
-            }
+            (
+                FieldValue::String(s),
+                FieldValue::String(search),
+                FieldValue::String(replacement),
+            ) => Ok(FieldValue::String(s.replace(&search, &replacement))),
             (FieldValue::Null, _, _) | (_, FieldValue::Null, _) | (_, _, FieldValue::Null) => {
                 Ok(FieldValue::Null)
             }
@@ -776,8 +779,10 @@ impl BuiltinFunctions {
     fn json_extract_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 2 {
             return Err(SqlError::ExecutionError {
-                message: "JSON_EXTRACT requires exactly two arguments: JSON_EXTRACT(json_string, path)".to_string(),
-                query: None
+                message:
+                    "JSON_EXTRACT requires exactly two arguments: JSON_EXTRACT(json_string, path)"
+                        .to_string(),
+                query: None,
             });
         }
 
@@ -800,8 +805,9 @@ impl BuiltinFunctions {
     fn json_value_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 2 {
             return Err(SqlError::ExecutionError {
-                message: "JSON_VALUE requires exactly two arguments: JSON_VALUE(json_string, path)".to_string(),
-                query: None
+                message: "JSON_VALUE requires exactly two arguments: JSON_VALUE(json_string, path)"
+                    .to_string(),
+                query: None,
             });
         }
 
@@ -837,8 +843,7 @@ impl BuiltinFunctions {
     fn cast_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 2 {
             return Err(SqlError::ExecutionError {
-                message: "CAST requires exactly two arguments: CAST(value, type)"
-                    .to_string(),
+                message: "CAST requires exactly two arguments: CAST(value, type)".to_string(),
                 query: None,
             });
         }
@@ -861,14 +866,12 @@ impl BuiltinFunctions {
     fn cast_value(value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
         match target_type {
             "INTEGER" | "INT" | "BIGINT" => match value {
-                FieldValue::String(s) => {
-                    s.parse::<i64>()
-                        .map(FieldValue::Integer)
-                        .map_err(|_| SqlError::ExecutionError {
-                            message: format!("Cannot cast '{}' to INTEGER", s),
-                            query: None,
-                        })
-                }
+                FieldValue::String(s) => s.parse::<i64>().map(FieldValue::Integer).map_err(|_| {
+                    SqlError::ExecutionError {
+                        message: format!("Cannot cast '{}' to INTEGER", s),
+                        query: None,
+                    }
+                }),
                 FieldValue::Float(f) => Ok(FieldValue::Integer(f as i64)),
                 FieldValue::Boolean(b) => Ok(FieldValue::Integer(if b { 1 } else { 0 })),
                 FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),

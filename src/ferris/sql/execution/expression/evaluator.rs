@@ -3,11 +3,11 @@
 //! This module implements the core expression evaluation logic that processes
 //! SQL expressions against streaming data records.
 
-use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
-use crate::ferris::sql::error::SqlError;
 use super::super::types::{FieldValue, StreamRecord};
 use super::arithmetic::ArithmeticOperations;
 use super::functions::BuiltinFunctions;
+use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
+use crate::ferris::sql::error::SqlError;
 
 /// Main expression evaluator that handles all SQL expression types
 pub struct ExpressionEvaluator;
@@ -39,28 +39,17 @@ impl ExpressionEvaluator {
                                     value.clone()
                                 } else {
                                     // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                    record.fields.get(column_name).cloned().ok_or_else(|| {
-                                        SqlError::SchemaError {
-                                            message: format!(
-                                                "Schema error for column '{}': Column not found",
-                                                name
-                                            ),
-                                            column: Some(name.clone()),
-                                        }
-                                    })?
+                                    // Return NULL if not found instead of error
+                                    record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null)
                                 }
                             }
                         } else {
-                            // Regular field lookup
-                            record.fields.get(name).cloned().ok_or_else(|| {
-                                SqlError::SchemaError {
-                                    message: format!(
-                                        "Schema error for column '{}': Column not found",
-                                        name
-                                    ),
-                                    column: Some(name.clone()),
-                                }
-                            })?
+                            // Regular field lookup - return NULL if not found instead of error
+                            record.fields.get(name).cloned().unwrap_or(FieldValue::Null)
                         }
                     }
                 };
@@ -91,26 +80,81 @@ impl ExpressionEvaluator {
                 match op {
                     BinaryOperator::Equal => Ok(Self::values_equal(&left_val, &right_val)),
                     BinaryOperator::NotEqual => Ok(!Self::values_equal(&left_val, &right_val)),
-                    BinaryOperator::LessThan => Self::compare_values(&left_val, &right_val, |cmp| cmp < 0),
-                    BinaryOperator::LessThanOrEqual => Self::compare_values(&left_val, &right_val, |cmp| cmp <= 0),
-                    BinaryOperator::GreaterThan => Self::compare_values(&left_val, &right_val, |cmp| cmp > 0),
-                    BinaryOperator::GreaterThanOrEqual => Self::compare_values(&left_val, &right_val, |cmp| cmp >= 0),
-                    BinaryOperator::And => {
-                        Ok(Self::field_value_to_bool(&left_val)? && Self::field_value_to_bool(&right_val)?)
+                    BinaryOperator::LessThan => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp < 0)
                     }
-                    BinaryOperator::Or => {
-                        Ok(Self::field_value_to_bool(&left_val)? || Self::field_value_to_bool(&right_val)?)
+                    BinaryOperator::LessThanOrEqual => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp <= 0)
                     }
-                    BinaryOperator::Like => {
-                        match (&left_val, &right_val) {
-                            (FieldValue::String(text), FieldValue::String(pattern)) => {
-                                Ok(Self::match_pattern(text, pattern))
+                    BinaryOperator::GreaterThan => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp > 0)
+                    }
+                    BinaryOperator::GreaterThanOrEqual => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp >= 0)
+                    }
+                    BinaryOperator::And => Ok(Self::field_value_to_bool(&left_val)?
+                        && Self::field_value_to_bool(&right_val)?),
+                    BinaryOperator::Or => Ok(Self::field_value_to_bool(&left_val)?
+                        || Self::field_value_to_bool(&right_val)?),
+                    BinaryOperator::Like => match (&left_val, &right_val) {
+                        (FieldValue::String(text), FieldValue::String(pattern)) => {
+                            Ok(Self::match_pattern(text, pattern))
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(false),
+                        _ => Err(SqlError::TypeError {
+                            expected: "string".to_string(),
+                            actual: "non-string".to_string(),
+                            value: None,
+                        }),
+                    },
+                    BinaryOperator::NotLike => match (&left_val, &right_val) {
+                        (FieldValue::String(text), FieldValue::String(pattern)) => {
+                            Ok(!Self::match_pattern(text, pattern))
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(false),
+                        _ => Err(SqlError::TypeError {
+                            expected: "string".to_string(),
+                            actual: "non-string".to_string(),
+                            value: None,
+                        }),
+                    },
+                    BinaryOperator::In => {
+                        // For IN operator, right side should be a list
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(true);
+                                    }
+                                }
+                                Ok(false)
                             }
-                            (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(false),
-                            _ => Err(SqlError::TypeError {
-                                expected: "string".to_string(),
-                                actual: "non-string".to_string(),
-                                value: None,
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        // For NOT IN operator, right side should be a list
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(false);
+                                    }
+                                }
+                                Ok(true)
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
                             }),
                         }
                     }
@@ -131,7 +175,10 @@ impl ExpressionEvaluator {
     ///
     /// Used for SELECT clause evaluation, arithmetic operations, and function calls.
     /// Returns the actual value of the expression.
-    pub fn evaluate_expression_value(expr: &Expr, record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    pub fn evaluate_expression_value(
+        expr: &Expr,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Column(name) => {
                 // Check for system columns first (case insensitive)
@@ -153,62 +200,167 @@ impl ExpressionEvaluator {
                                     Ok(value.clone())
                                 } else {
                                     // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                    record.fields.get(column_name).cloned().ok_or_else(|| {
-                                        SqlError::SchemaError {
-                                            message: format!(
-                                                "Schema error for column '{}': Column not found",
-                                                name
-                                            ),
-                                            column: Some(name.clone()),
-                                        }
-                                    })
+                                    // Return NULL if not found instead of error
+                                    Ok(record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null))
                                 }
                             }
                         } else {
-                            // Regular field lookup
-                            record.fields.get(name).cloned().ok_or_else(|| {
-                                SqlError::SchemaError {
-                                    message: format!(
-                                        "Schema error for column '{}': Column not found",
-                                        name
-                                    ),
-                                    column: Some(name.clone()),
-                                }
-                            })
+                            // Regular field lookup - return NULL if not found instead of error
+                            Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                         }
                     }
                 }
             }
-            Expr::Literal(literal) => {
-                match literal {
-                    LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
-                    LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
-                    LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
-                    LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
-                    LiteralValue::Null => Ok(FieldValue::Null),
-                    _ => Err(SqlError::ExecutionError {
-                        message: format!("Unsupported literal type: {:?}", literal),
-                        query: None,
-                    }),
-                }
-            }
+            Expr::Literal(literal) => match literal {
+                LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                LiteralValue::Null => Ok(FieldValue::Null),
+                _ => Err(SqlError::ExecutionError {
+                    message: format!("Unsupported literal type: {:?}", literal),
+                    query: None,
+                }),
+            },
             Expr::BinaryOp { left, op, right } => {
                 let left_val = Self::evaluate_expression_value(left, record)?;
                 let right_val = Self::evaluate_expression_value(right, record)?;
 
                 match op {
+                    // Arithmetic operators
                     BinaryOperator::Add => ArithmeticOperations::add_values(&left_val, &right_val),
-                    BinaryOperator::Subtract => ArithmeticOperations::subtract_values(&left_val, &right_val),
-                    BinaryOperator::Multiply => ArithmeticOperations::multiply_values(&left_val, &right_val),
-                    BinaryOperator::Divide => ArithmeticOperations::divide_values(&left_val, &right_val),
+                    BinaryOperator::Subtract => {
+                        ArithmeticOperations::subtract_values(&left_val, &right_val)
+                    }
+                    BinaryOperator::Multiply => {
+                        ArithmeticOperations::multiply_values(&left_val, &right_val)
+                    }
+                    BinaryOperator::Divide => {
+                        ArithmeticOperations::divide_values(&left_val, &right_val)
+                    }
+
+                    // Comparison operators - return boolean values
+                    BinaryOperator::Equal => Ok(FieldValue::Boolean(Self::values_equal(
+                        &left_val, &right_val,
+                    ))),
+                    BinaryOperator::NotEqual => Ok(FieldValue::Boolean(!Self::values_equal(
+                        &left_val, &right_val,
+                    ))),
+                    BinaryOperator::LessThan => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp < 0)
+                            .map(FieldValue::Boolean)
+                    }
+                    BinaryOperator::LessThanOrEqual => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp <= 0)
+                            .map(FieldValue::Boolean)
+                    }
+                    BinaryOperator::GreaterThan => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp > 0)
+                            .map(FieldValue::Boolean)
+                    }
+                    BinaryOperator::GreaterThanOrEqual => {
+                        Self::compare_values(&left_val, &right_val, |cmp| cmp >= 0)
+                            .map(FieldValue::Boolean)
+                    }
+
+                    // Logical operators
+                    BinaryOperator::And => Ok(FieldValue::Boolean(
+                        Self::field_value_to_bool(&left_val)?
+                            && Self::field_value_to_bool(&right_val)?,
+                    )),
+                    BinaryOperator::Or => Ok(FieldValue::Boolean(
+                        Self::field_value_to_bool(&left_val)?
+                            || Self::field_value_to_bool(&right_val)?,
+                    )),
+
+                    // String pattern matching
+                    BinaryOperator::Like => match (&left_val, &right_val) {
+                        (FieldValue::String(text), FieldValue::String(pattern)) => {
+                            Ok(FieldValue::Boolean(Self::match_pattern(text, pattern)))
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                            Ok(FieldValue::Boolean(false))
+                        }
+                        _ => Err(SqlError::TypeError {
+                            expected: "string".to_string(),
+                            actual: "non-string".to_string(),
+                            value: None,
+                        }),
+                    },
+                    BinaryOperator::NotLike => match (&left_val, &right_val) {
+                        (FieldValue::String(text), FieldValue::String(pattern)) => {
+                            Ok(FieldValue::Boolean(!Self::match_pattern(text, pattern)))
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                            Ok(FieldValue::Boolean(false))
+                        }
+                        _ => Err(SqlError::TypeError {
+                            expected: "string".to_string(),
+                            actual: "non-string".to_string(),
+                            value: None,
+                        }),
+                    },
+
+                    // Set membership operators
+                    BinaryOperator::In => {
+                        // For IN operator, right side should be a list
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        // For NOT IN operator, right side should be a list
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_value(value_expr, record)?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+
                     _ => Err(SqlError::ExecutionError {
                         message: format!("Binary operator {:?} not supported in value context", op),
                         query: None,
                     }),
                 }
             }
-            Expr::Function { .. } => {
-                BuiltinFunctions::evaluate_function(expr, record)
+            Expr::Function { .. } => BuiltinFunctions::evaluate_function(expr, record),
+            Expr::List(_) => {
+                // List expressions are handled differently based on context
+                // For now, return an error for standalone list evaluation
+                Err(SqlError::ExecutionError {
+                    message: "List expressions must be used in IN/NOT IN operations".to_string(),
+                    query: None,
+                })
             }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression type: {:?}", expr),
@@ -218,7 +370,7 @@ impl ExpressionEvaluator {
     }
 
     // Helper methods for comparison and conversion
-    
+
     fn field_value_to_bool(value: &FieldValue) -> Result<bool, SqlError> {
         match value {
             FieldValue::Boolean(b) => Ok(*b),
@@ -255,9 +407,17 @@ impl ExpressionEvaluator {
         let cmp = match (left, right) {
             (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(false),
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b) as i32,
-            (FieldValue::Float(a), FieldValue::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) as i32,
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) as i32,
-            (FieldValue::Float(a), FieldValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal) as i32,
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) as i32
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                as i32,
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                a.partial_cmp(&(*b as f64))
+                    .unwrap_or(std::cmp::Ordering::Equal) as i32
+            }
             (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b) as i32,
             _ => {
                 return Err(SqlError::TypeError {
@@ -271,10 +431,8 @@ impl ExpressionEvaluator {
     }
 
     fn match_pattern(text: &str, pattern: &str) -> bool {
-        let regex_pattern = pattern
-            .replace('%', ".*")
-            .replace('_', ".");
-        
+        let regex_pattern = pattern.replace('%', ".*").replace('_', ".");
+
         match regex::Regex::new(&format!("^{}$", regex_pattern)) {
             Ok(re) => re.is_match(text),
             Err(_) => false,

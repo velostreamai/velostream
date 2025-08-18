@@ -12,11 +12,11 @@
 //! - Type coercion and casting
 //! - NULL handling according to SQL semantics
 
+pub mod arithmetic;
 pub mod evaluator;
 pub mod functions;
-pub mod arithmetic;
 
 // Re-export the main API
+pub use arithmetic::ArithmeticOperations;
 pub use evaluator::ExpressionEvaluator;
 pub use functions::BuiltinFunctions;
-pub use arithmetic::ArithmeticOperations;
