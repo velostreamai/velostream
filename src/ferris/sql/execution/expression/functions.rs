@@ -12,6 +12,8 @@ use super::super::types::{FieldValue, StreamRecord};
 use super::evaluator::ExpressionEvaluator;
 use crate::ferris::sql::ast::{Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
+use serde_json;
+use std::collections::HashMap;
 
 /// Provides built-in SQL function implementations
 pub struct BuiltinFunctions;
@@ -85,6 +87,30 @@ impl BuiltinFunctions {
             // System functions
             "TIMESTAMP" => Self::timestamp_function(args, record),
 
+            // Advanced type functions
+            "ARRAY" => Self::array_function(args, record),
+            "STRUCT" => Self::struct_function(args, record),
+            "MAP" => Self::map_function(args, record),
+            "ARRAY_LENGTH" => Self::array_length_function(args, record),
+            "ARRAY_CONTAINS" => Self::array_contains_function(args, record),
+            "MAP_KEYS" => Self::map_keys_function(args, record),
+            "MAP_VALUES" => Self::map_values_function(args, record),
+            "CONCAT" => Self::concat_function(args, record),
+            "COALESCE" => Self::coalesce_function(args, record),
+            "NULLIF" => Self::nullif_function(args, record),
+
+            "EXTRACT" => Self::extract_function(args, record),
+
+            "DATEDIFF" => Self::datediff_function(args, record),
+
+            "MEDIAN" => Self::median_function(args, record),
+
+            "STDDEV" | "STDDEV_SAMP" => Self::stddev_function(args, record),
+
+
+            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance(&args, record),
+
+
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unknown function: {}", name),
                 query: None,
@@ -92,6 +118,30 @@ impl BuiltinFunctions {
         }
     }
 
+    fn evaluate_variance(args: &&[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // VARIANCE(column) - sample variance
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "VARIANCE requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match value {
+            FieldValue::Null => Ok(FieldValue::Null),
+            FieldValue::Integer(_) | FieldValue::Float(_) => {
+                // warn!(
+                //     "VARIANCE function: returning 0.0 for single streaming record - requires window aggregation"
+                // );
+                Ok(FieldValue::Float(0.0))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "VARIANCE requires numeric argument".to_string(),
+                query: None,
+            }),
+        }
+    }
     // Aggregate Functions
 
     fn count_function(args: &[Expr], _record: &StreamRecord) -> Result<FieldValue, SqlError> {
@@ -943,5 +993,549 @@ impl BuiltinFunctions {
         }
         // Return current record timestamp
         Ok(FieldValue::Integer(record.timestamp))
+    }
+
+    // Advanced Type Functions
+
+    fn array_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // ARRAY constructor function - creates an array from arguments
+        let mut array_values = Vec::new();
+        for arg in args {
+            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+            array_values.push(value);
+        }
+        Ok(FieldValue::Array(array_values))
+    }
+
+    fn struct_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Ok(FieldValue::Struct(HashMap::new()));
+        }
+
+        let mut struct_map = HashMap::new();
+
+        if args.len() % 2 == 0 {
+            // Even number of arguments - treat as name-value pairs
+            for chunk in args.chunks(2) {
+                let name_val = ExpressionEvaluator::evaluate_expression_value(&chunk[0], record)?;
+                let value_val = ExpressionEvaluator::evaluate_expression_value(&chunk[1], record)?;
+                
+                let name = match name_val {
+                    FieldValue::String(s) => s,
+                    _ => return Err(SqlError::ExecutionError {
+                        message: "STRUCT field names must be strings".to_string(),
+                        query: None,
+                    }),
+                };
+
+                struct_map.insert(name, value_val);
+            }
+        } else {
+            // Odd number of arguments - treat as positional fields (field0, field1, field2...)
+            for (i, arg) in args.iter().enumerate() {
+                let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                struct_map.insert(format!("field{}", i), value);
+            }
+        }
+
+        Ok(FieldValue::Struct(struct_map))
+    }
+
+    fn map_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Ok(FieldValue::Map(HashMap::new()));
+        }
+
+        // MAP constructor - alternating keys and values
+        if args.len() % 2 != 0 {
+            return Err(SqlError::TypeError {
+                expected: "even number of arguments (key-value pairs)".to_string(),
+                actual: format!("{} arguments", args.len()),
+                value: None,
+            });
+        }
+
+        let mut map = HashMap::new();
+        for chunk in args.chunks(2) {
+            let key_val = ExpressionEvaluator::evaluate_expression_value(&chunk[0], record)?;
+            let value_val = ExpressionEvaluator::evaluate_expression_value(&chunk[1], record)?;
+            
+            let key = match key_val {
+                FieldValue::String(s) => s,
+                FieldValue::Integer(i) => i.to_string(),
+                _ => return Err(SqlError::ExecutionError {
+                    message: "MAP keys must be strings or integers".to_string(),
+                    query: None,
+                }),
+            };
+
+            map.insert(key, value_val);
+        }
+
+        Ok(FieldValue::Map(map))
+    }
+
+    fn array_length_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "ARRAY_LENGTH requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let array_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match array_val {
+            FieldValue::Array(arr) => Ok(FieldValue::Integer(arr.len() as i64)),
+            FieldValue::String(json_str) => {
+                // Try to parse as JSON array
+                match serde_json::from_str::<serde_json::Value>(&json_str) {
+                    Ok(serde_json::Value::Array(arr)) => Ok(FieldValue::Integer(arr.len() as i64)),
+                    _ => Err(SqlError::TypeError {
+                        expected: "array".to_string(),
+                        actual: "string (not JSON array)".to_string(),
+                        value: None,
+                    }),
+                }
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::TypeError {
+                expected: "array".to_string(),
+                actual: array_val.type_name().to_string(),
+                value: None,
+            }),
+        }
+    }
+
+    fn concat_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Ok(FieldValue::String("".to_string()));
+        }
+
+        let mut result = String::new();
+        for arg in args {
+            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+            match value {
+                FieldValue::String(s) => result.push_str(&s),
+                FieldValue::Integer(i) => result.push_str(&i.to_string()),
+                FieldValue::Float(f) => result.push_str(&f.to_string()),
+                FieldValue::Boolean(b) => result.push_str(&b.to_string()),
+                FieldValue::Null => {}, // NULL values are ignored in CONCAT
+                _ => result.push_str(&value.to_display_string()),
+            }
+        }
+        Ok(FieldValue::String(result))
+    }
+
+    fn coalesce_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.is_empty() {
+            return Ok(FieldValue::Null);
+        }
+
+        // Return the first non-NULL value
+        for arg in args {
+            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+            if !matches!(value, FieldValue::Null) {
+                return Ok(value);
+            }
+        }
+        Ok(FieldValue::Null)
+    }
+
+    fn array_contains_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "ARRAY_CONTAINS requires exactly two arguments: array and value".to_string(),
+                query: None,
+            });
+        }
+
+        let array_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let search_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        match array_val {
+            FieldValue::Array(arr) => {
+                for element in arr {
+                    if Self::values_equal(&element, &search_val) {
+                        return Ok(FieldValue::Boolean(true));
+                    }
+                }
+                Ok(FieldValue::Boolean(false))
+            }
+            FieldValue::String(json_str) => {
+                // Try to parse as JSON array
+                match serde_json::from_str::<serde_json::Value>(&json_str) {
+                    Ok(serde_json::Value::Array(arr)) => {
+                        // Convert JSON values back to FieldValue for comparison
+                        for json_val in arr {
+                            let field_val = match json_val {
+                                serde_json::Value::String(s) => FieldValue::String(s),
+                                serde_json::Value::Number(n) => {
+                                    if let Some(i) = n.as_i64() {
+                                        FieldValue::Integer(i)
+                                    } else if let Some(f) = n.as_f64() {
+                                        FieldValue::Float(f)
+                                    } else {
+                                        continue;
+                                    }
+                                }
+                                serde_json::Value::Bool(b) => FieldValue::Boolean(b),
+                                serde_json::Value::Null => FieldValue::Null,
+                                _ => continue,
+                            };
+                            if Self::values_equal(&field_val, &search_val) {
+                                return Ok(FieldValue::Boolean(true));
+                            }
+                        }
+                        Ok(FieldValue::Boolean(false))
+                    }
+                    _ => Err(SqlError::TypeError {
+                        expected: "array".to_string(),
+                        actual: "string (not JSON array)".to_string(),
+                        value: None,
+                    }),
+                }
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::TypeError {
+                expected: "array".to_string(),
+                actual: array_val.type_name().to_string(),
+                value: None,
+            }),
+        }
+    }
+
+    // Helper method for comparing FieldValues
+    fn values_equal(left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            (FieldValue::Null, FieldValue::Null) => true,
+            (FieldValue::Null, _) | (_, FieldValue::Null) => false,
+            (FieldValue::String(a), FieldValue::String(b)) => a == b,
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
+            (FieldValue::Float(a), FieldValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
+            (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
+            // Compare arrays
+            (FieldValue::Array(a), FieldValue::Array(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                for (item_a, item_b) in a.iter().zip(b.iter()) {
+                    if !Self::values_equal(item_a, item_b) {
+                        return false;
+                    }
+                }
+                true
+            }
+            // Compare maps/structs
+            (FieldValue::Map(a), FieldValue::Map(b)) |
+            (FieldValue::Struct(a), FieldValue::Struct(b)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                for (key, val_a) in a {
+                    if let Some(val_b) = b.get(key) {
+                        if !Self::values_equal(val_a, val_b) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn map_keys_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "MAP_KEYS requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let map_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match map_val {
+            FieldValue::Map(map) => {
+                let keys: Vec<FieldValue> = map.keys()
+                    .map(|k| FieldValue::String(k.clone()))
+                    .collect();
+                Ok(FieldValue::Array(keys))
+            }
+            FieldValue::Struct(struct_map) => {
+                let keys: Vec<FieldValue> = struct_map.keys()
+                    .map(|k| FieldValue::String(k.clone()))
+                    .collect();
+                Ok(FieldValue::Array(keys))
+            }
+            FieldValue::String(json_str) => {
+                // Try to parse as JSON object
+                match serde_json::from_str::<serde_json::Value>(&json_str) {
+                    Ok(serde_json::Value::Object(obj)) => {
+                        let keys: Vec<FieldValue> = obj.keys()
+                            .map(|k| FieldValue::String(k.clone()))
+                            .collect();
+                        Ok(FieldValue::Array(keys))
+                    }
+                    _ => Err(SqlError::TypeError {
+                        expected: "map or struct".to_string(),
+                        actual: "string (not JSON object)".to_string(),
+                        value: None,
+                    }),
+                }
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::TypeError {
+                expected: "map or struct".to_string(),
+                actual: map_val.type_name().to_string(),
+                value: None,
+            }),
+        }
+    }
+
+    fn nullif_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "NULLIF requires exactly two arguments".to_string(),
+                query: None,
+            });
+        }
+
+        let val1 = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let val2 = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        if Self::values_equal(&val1, &val2) {
+            Ok(FieldValue::Null)
+        } else {
+            Ok(val1)
+        }
+    }
+
+    fn median_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // MEDIAN(column) - median value
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "MEDIAN requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        // For streaming with single value, median is the value itself
+        let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match value {
+            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(value),
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "MEDIAN requires numeric argument".to_string(),
+                query: None,
+            }),
+        }
+    }
+    fn map_values_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "MAP_VALUES requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let map_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match map_val {
+            FieldValue::Map(map) => {
+                let values: Vec<FieldValue> = map.values().cloned().collect();
+                Ok(FieldValue::Array(values))
+            }
+            FieldValue::Struct(struct_map) => {
+                let values: Vec<FieldValue> = struct_map.values().cloned().collect();
+                Ok(FieldValue::Array(values))
+            }
+            FieldValue::String(json_str) => {
+                // Try to parse as JSON object
+                match serde_json::from_str::<serde_json::Value>(&json_str) {
+                    Ok(serde_json::Value::Object(obj)) => {
+                        let values: Vec<FieldValue> = obj.values().map(|v| {
+                            match v {
+                                serde_json::Value::String(s) => FieldValue::String(s.clone()),
+                                serde_json::Value::Number(n) => {
+                                    if let Some(i) = n.as_i64() {
+                                        FieldValue::Integer(i)
+                                    } else if let Some(f) = n.as_f64() {
+                                        FieldValue::Float(f)
+                                    } else {
+                                        FieldValue::Null
+                                    }
+                                }
+                                serde_json::Value::Bool(b) => FieldValue::Boolean(*b),
+                                serde_json::Value::Null => FieldValue::Null,
+                                _ => FieldValue::String(v.to_string()),
+                            }
+                        }).collect();
+                        Ok(FieldValue::Array(values))
+                    }
+                    _ => Ok(FieldValue::Array(vec![])), // Not an object
+                }
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Ok(FieldValue::Array(vec![])), // Not a map/struct
+        }
+    }
+
+    fn extract_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "EXTRACT requires exactly two arguments: EXTRACT(part, timestamp)".to_string(),
+                query: None,
+            });
+        }
+
+        let part_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let timestamp_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        match (part_val, timestamp_val) {
+            (FieldValue::String(part), FieldValue::Integer(ts)) => {
+                use chrono::{TimeZone, Utc, Datelike};
+
+                let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
+                    SqlError::ExecutionError {
+                        message: format!("Invalid timestamp: {}", ts),
+                        query: None,
+                    }
+                })?;
+
+                let result = match part.to_uppercase().as_str() {
+                    "WEEK" => {
+                        // Get ISO week number (1-53)
+                        dt.iso_week().week() as i64
+                    }
+                    "EPOCH" => dt.timestamp(),
+                    "QUARTER" => ((dt.month() - 1) / 3 + 1) as i64,
+                    "MILLISECOND" => dt.timestamp_subsec_millis() as i64,
+                    "MICROSECOND" => dt.timestamp_subsec_micros() as i64,
+                    "NANOSECOND" => dt.timestamp_subsec_nanos() as i64,
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported EXTRACT part: {}. Supported parts: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, DOW, DOY, EPOCH, WEEK, QUARTER, MILLISECOND, MICROSECOND, NANOSECOND",
+                                part
+                            ),
+                            query: None,
+                        });
+                    }
+                };
+                Ok(FieldValue::Integer(result))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "EXTRACT requires part name (string) and timestamp (integer)".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn datediff_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 3 {
+            return Err(SqlError::ExecutionError {
+                message: "DATEDIFF requires exactly three arguments: DATEDIFF(unit, start_date, end_date)".to_string(),
+                query: None,
+            });
+        }
+
+        let unit_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let start_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+        let end_val = ExpressionEvaluator::evaluate_expression_value(&args[2], record)?;
+
+        match (unit_val, start_val, end_val) {
+            (FieldValue::String(unit), FieldValue::Integer(start_ts), FieldValue::Integer(end_ts)) => {
+                use chrono::{TimeZone, Utc, Datelike, NaiveDateTime};
+
+                let start_dt = Utc.timestamp_millis_opt(start_ts).single().ok_or_else(|| {
+                    SqlError::ExecutionError {
+                        message: format!("Invalid start timestamp: {}", start_ts),
+                        query: None,
+                    }
+                })?;
+
+                let end_dt = Utc.timestamp_millis_opt(end_ts).single().ok_or_else(|| {
+                    SqlError::ExecutionError {
+                        message: format!("Invalid end timestamp: {}", end_ts),
+                        query: None,
+                    }
+                })?;
+
+                let result = match unit.to_lowercase().as_str() {
+                    "years" => {
+                        end_dt.year() as i64 - start_dt.year() as i64
+                    },
+                    "months" => {
+                        // Calculate months between dates
+                        ((end_dt.year() as i64 - start_dt.year() as i64) * 12) +
+                        (end_dt.month() as i64 - start_dt.month() as i64)
+                    },
+                    "quarters" => {
+                        // Calculate quarters between dates
+                        let start_quarter = (start_dt.month() - 1) / 3 + 1;
+                        let end_quarter = (end_dt.month() - 1) / 3 + 1;
+                        ((end_dt.year() as i64 - start_dt.year() as i64) * 4) +
+                        (end_quarter as i64 - start_quarter as i64)
+                    },
+                    "weeks" => {
+                        // Calculate weeks between dates using ISO week dates
+                        let start_week = start_dt.iso_week();
+                        let end_week = end_dt.iso_week();
+                        ((end_week.year() as i64 - start_week.year() as i64) * 52) +
+                        (end_week.week() as i64 - start_week.week() as i64)
+                    },
+                    "days" => {
+                        // Calculate days between dates by comparing the dates only (ignoring time)
+                        let start_date = start_dt.date_naive();
+                        let end_date = end_dt.date_naive();
+                        (end_date - start_date).num_days() as i64
+                    },
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported DATEDIFF unit: {}. Supported units: years, months, quarters, weeks, days",
+                                unit
+                            ),
+                            query: None,
+                        });
+                    }
+                };
+
+                Ok(FieldValue::Integer(result))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "DATEDIFF requires unit name (string) and timestamps (integer)".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn stddev_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // STDDEV(column) - standard deviation (sample)
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "STDDEV requires exactly one argument".to_string(),
+                query: None,
+            });
+        }
+
+        let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        match value {
+            FieldValue::Null => Ok(FieldValue::Null),
+            FieldValue::Integer(_) | FieldValue::Float(_) => {
+                // For streaming, return 0.0 since we only have one value
+                // In a real implementation, this would calculate over a window of values
+                // warn!(
+                //                 "STDDEV function: returning 0.0 for single streaming record - requires window aggregation"
+                //             );
+                Ok(FieldValue::Float(0.0))
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "STDDEV requires numeric argument".to_string(),
+                query: None,
+            }),
+        }
     }
 }

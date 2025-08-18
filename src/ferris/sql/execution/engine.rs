@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
+use super::expression::{BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
     HeaderOperation, QueryExecution, WindowState,
@@ -137,7 +137,7 @@ use super::types::{FieldValue, StreamRecord};
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
-    StreamSource, StreamingQuery, TimeUnit, UnaryOperator, WindowSpec,
+    StreamSource, StreamingQuery, TimeUnit, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
@@ -219,7 +219,7 @@ impl StreamExecutionEngine {
         partition: Option<i32>,
     ) -> Result<(), SqlError> {
         // Convert input record to StreamRecord
-        let mut fields_map: HashMap<String, FieldValue> = record
+        let fields_map: HashMap<String, FieldValue> = record
             .into_iter()
             .map(|(k, v)| {
                 let field_value = self.internal_to_field_value(v);

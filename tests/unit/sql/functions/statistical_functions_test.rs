@@ -244,8 +244,9 @@ async fn test_median_function() {
         let result = engine.execute(&query, record).await;
         assert!(
             result.is_ok(),
-            "MEDIAN execution failed for {}",
-            column_name
+            "MEDIAN execution failed for {}: {:?}",
+            column_name,
+            result.unwrap_err()
         );
 
         let output = rx.try_recv().unwrap();
@@ -542,7 +543,8 @@ async fn test_multiple_statistical_functions_in_single_query() {
     let result = engine.execute(&query, record).await;
     assert!(
         result.is_ok(),
-        "Multiple statistical functions in single query should succeed"
+        "err:{:}",
+        result.unwrap_err()
     );
 
     let output = rx.try_recv().unwrap();
