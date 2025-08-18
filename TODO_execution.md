@@ -252,7 +252,7 @@ Move type-related tests to appropriate test modules and update imports.
 - [x] All binaries compile unchanged
 - [x] No functionality changes
 
-## PHASE 3: EXTRACT EXPRESSION ENGINE (RISK: MEDIUM) ⏳ **PENDING**
+## PHASE 3: EXTRACT EXPRESSION ENGINE (RISK: MEDIUM) ✅ **COMPLETED**
 
 **Goal**: Extract expression evaluation logic (~1,500 lines) to separate module.
 
@@ -298,16 +298,16 @@ Move expression-related tests to appropriate test modules and update imports.
 - Type conversions
 
 ### Phase 3 Success Criteria
-- [ ] Expression module structure created
-- [ ] Core evaluation logic extracted to `evaluator.rs`
-- [ ] Function implementations extracted to `functions.rs`
-- [ ] Arithmetic operations extracted to `arithmetic.rs`
-- [ ] Engine updated with imports
-- [ ] Expression tests reorganized into appropriate directories
-- [ ] All test imports updated for new module structure
-- [ ] All tests still pass
-- [ ] All binaries compile unchanged
-- [ ] No functionality changes
+- [x] Expression module structure created
+- [x] Core evaluation logic extracted to `evaluator.rs`
+- [x] Function implementations extracted to `functions.rs`
+- [x] Arithmetic operations extracted to `arithmetic.rs`
+- [x] Engine updated with imports
+- [x] Expression tests reorganized into appropriate directories
+- [x] All test imports updated for new module structure
+- [x] All tests still pass
+- [x] All binaries compile unchanged
+- [x] No functionality changes
 
 ## PHASE 4: EXTRACT AGGREGATION ENGINE (RISK: MEDIUM) ⏳ **PENDING**
 
@@ -548,12 +548,12 @@ cargo doc --no-deps
 ### ✅ COMPLETED PHASES
 - **Phase 1: API Cleanup** - All internal types hidden, methods made private, documentation updated
 - **Phase 2: Extract Core Types** - FieldValue, StreamRecord, and internal types extracted to separate files with organized test structure
+- **Phase 3: Extract Expression Engine** - Expression evaluation, built-in functions, and arithmetic operations extracted to separate modules
 
 ### ⏳ PENDING PHASES  
-- **Phase 3: Extract Expression Engine** - 0/6 steps completed (includes test refactoring)
 - **Phase 4: Extract Aggregation Engine** - 0/6 steps completed (includes test refactoring)
 - **Phase 5: Extract Query Processors** - 0/7 steps completed (includes test refactoring)
 
-### 📊 OVERALL PROGRESS: 40% Complete (2/5 phases)
+### 📊 OVERALL PROGRESS: 60% Complete (3/5 phases)
 
 This incremental approach ensures we can safely refactor the execution engine while maintaining the excellent test coverage and functionality that already exists.

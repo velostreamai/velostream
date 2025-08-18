@@ -660,6 +660,7 @@ dependencies = [
  "prost",
  "rand",
  "rdkafka",
+ "regex",
  "reqwest",
  "rust_decimal",
  "serde",

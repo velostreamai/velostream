@@ -139,6 +139,7 @@ use crate::ferris::sql::ast::{
     StreamSource, StreamingQuery, TimeUnit, UnaryOperator, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
+use super::expression::{ExpressionEvaluator, BuiltinFunctions, ArithmeticOperations};
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use log::warn;
 use rust_decimal::Decimal;
@@ -600,7 +601,7 @@ impl StreamExecutionEngine {
 
                 // Apply WHERE clause
                 if let Some(where_expr) = where_clause {
-                    if !self.evaluate_expression(where_expr, &joined_record)? {
+                    if !ExpressionEvaluator::evaluate_expression(where_expr, &joined_record)? {
                         return Ok(None);
                     }
                 }
@@ -680,7 +681,7 @@ impl StreamExecutionEngine {
                         headers: joined_record.headers.clone(),
                     };
 
-                    if !self.evaluate_expression(having_expr, &result_record)? {
+                    if !ExpressionEvaluator::evaluate_expression(having_expr, &result_record)? {
                         return Ok(None);
                     }
                 }
@@ -984,8 +985,8 @@ impl StreamExecutionEngine {
         record: &StreamRecord,
         op: &BinaryOperator,
     ) -> Result<bool, SqlError> {
-        let left_val = self.evaluate_expression_value(left, record)?;
-        let right_val = self.evaluate_expression_value(right, record)?;
+        let left_val = ExpressionEvaluator::evaluate_expression_value(left, record)?;
+        let right_val = ExpressionEvaluator::evaluate_expression_value(right, record)?;
 
         match op {
             BinaryOperator::Equal => Ok(self.values_equal(&left_val, &right_val)),
@@ -1331,7 +1332,7 @@ impl StreamExecutionEngine {
                 record,
                 window_buffer,
             ),
-            _ => self.evaluate_expression_value(expr, record),
+            _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
         }
     }
 
