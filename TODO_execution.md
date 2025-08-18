@@ -252,7 +252,7 @@ Move type-related tests to appropriate test modules and update imports.
 - [x] All binaries compile unchanged
 - [x] No functionality changes
 
-## PHASE 3: EXTRACT EXPRESSION ENGINE (RISK: MEDIUM) ✅ **COMPLETED**
+## PHASE 3: EXTRACT EXPRESSION ENGINE (RISK: MEDIUM) ⚠️ **IN PROGRESS**
 
 **Goal**: Extract expression evaluation logic (~1,500 lines) to separate module.
 
@@ -306,13 +306,11 @@ Move expression-related tests to appropriate test modules and update imports.
 - [x] Engine updated with imports
 - [x] Expression tests reorganized into appropriate directories
 - [x] All test imports updated for new module structure
-- [x] All tests still pass
-- [x] All binaries compile unchanged
-- [x] No functionality changes
-- [x] Fixed all regressions introduced during extraction
 - [x] LIKE/NOT LIKE operators working correctly
-- [x] IN/NOT IN operators working correctly
-- [x] NULL handling preserved and improved
+- [ ] **IN/NOT IN operators working correctly** ⚠️ **4 tests still failing**
+- [ ] **All tests still pass** ⚠️ **4 tests still failing**
+- [x] All binaries compile unchanged
+- [x] No functionality changes (except for regressions to fix)
 
 ## PHASE 4: EXTRACT AGGREGATION ENGINE (RISK: MEDIUM) ⏳ **PENDING**
 
