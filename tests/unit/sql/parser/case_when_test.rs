@@ -346,7 +346,7 @@ async fn test_case_when_boolean_results() {
         InternalValue::Boolean(val) => *val,
         _ => panic!("Expected boolean result for is_high_amount"),
     };
-    assert_eq!(is_high_amount, true); // amount (123.45) > 100
+    assert!(is_high_amount); // amount (123.45) > 100
 }
 
 #[tokio::test]

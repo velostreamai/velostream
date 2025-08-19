@@ -32,7 +32,7 @@ impl ExpressionEvaluator {
                             if let Some(value) = record.fields.get(name) {
                                 value.clone()
                             } else {
-                                let column_name = name.split('.').last().unwrap_or(name);
+                                let column_name = name.split('.').next_back().unwrap_or(name);
                                 // Try to find with the "right_" prefix (for non-aliased JOINs)
                                 let prefixed_name = format!("right_{}", column_name);
                                 if let Some(value) = record.fields.get(&prefixed_name) {
@@ -303,7 +303,7 @@ impl ExpressionEvaluator {
                             if let Some(value) = record.fields.get(name) {
                                 Ok(value.clone())
                             } else {
-                                let column_name = name.split('.').last().unwrap_or(name);
+                                let column_name = name.split('.').next_back().unwrap_or(name);
                                 // Try to find with the "right_" prefix (for non-aliased JOINs)
                                 let prefixed_name = format!("right_{}", column_name);
                                 if let Some(value) = record.fields.get(&prefixed_name) {
@@ -641,7 +641,7 @@ impl ExpressionEvaluator {
                 } else {
                     a.iter().all(|(key, val_a)| {
                         b.get(key)
-                            .map_or(false, |val_b| Self::values_equal(val_a, val_b))
+                            .is_some_and(|val_b| Self::values_equal(val_a, val_b))
                     })
                 }
             }
@@ -652,7 +652,7 @@ impl ExpressionEvaluator {
                 } else {
                     a.iter().all(|(field, val_a)| {
                         b.get(field)
-                            .map_or(false, |val_b| Self::values_equal(val_a, val_b))
+                            .is_some_and(|val_b| Self::values_equal(val_a, val_b))
                     })
                 }
             }

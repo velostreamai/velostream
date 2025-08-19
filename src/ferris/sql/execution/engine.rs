@@ -1120,12 +1120,12 @@ impl StreamExecutionEngine {
             (FieldValue::Map(a), FieldValue::Map(b)) => {
                 a.len() == b.len()
                     && a.iter()
-                        .all(|(k, v)| b.get(k).map_or(false, |bv| self.values_equal(v, bv)))
+                        .all(|(k, v)| b.get(k).is_some_and(|bv| self.values_equal(v, bv)))
             }
             (FieldValue::Struct(a), FieldValue::Struct(b)) => {
                 a.len() == b.len()
                     && a.iter()
-                        .all(|(k, v)| b.get(k).map_or(false, |bv| self.values_equal(v, bv)))
+                        .all(|(k, v)| b.get(k).is_some_and(|bv| self.values_equal(v, bv)))
             }
             _ => false,
         }
@@ -1156,14 +1156,14 @@ impl StreamExecutionEngine {
                 a.len() == b.len()
                     && a.iter().all(|(k, v)| {
                         b.get(k)
-                            .map_or(false, |bv| self.values_equal_with_coercion(v, bv))
+                            .is_some_and(|bv| self.values_equal_with_coercion(v, bv))
                     })
             }
             (FieldValue::Struct(a), FieldValue::Struct(b)) => {
                 a.len() == b.len()
                     && a.iter().all(|(k, v)| {
                         b.get(k)
-                            .map_or(false, |bv| self.values_equal_with_coercion(v, bv))
+                            .is_some_and(|bv| self.values_equal_with_coercion(v, bv))
                     })
             }
 
@@ -2954,14 +2954,14 @@ impl StreamExecutionEngine {
                 // For tumbling windows, only emit when:
                 // 1. This is the first window (last_emit == 0) AND we have the first record past window size
                 // 2. We've crossed into a new window boundary
-                let should_emit = if window_state.last_emit == 0 {
+
+                if window_state.last_emit == 0 {
                     // First window - only emit if we have records past the first window boundary
                     current_time >= window_size_ms
                 } else {
                     // Subsequent windows - emit when we cross window boundaries
                     current_window_start > window_state.last_emit
-                };
-                should_emit
+                }
             }
             WindowSpec::Sliding { advance, .. } => {
                 let advance_ms = advance.as_millis() as i64;
@@ -3306,7 +3306,7 @@ impl StreamExecutionEngine {
                     internal_record.insert(key.clone(), internal_value);
                 }
 
-                if let Err(_) = self.output_sender.send(internal_record) {
+                if self.output_sender.send(internal_record).is_err() {
                     // Log warning but continue - the receiver may have been dropped
                     eprintln!("Warning: Failed to send additional GROUP BY result");
                 }
@@ -3552,7 +3552,7 @@ impl StreamExecutionEngine {
             match field {
                 SelectField::Expression { expr, alias } => {
                     let expr_name = self.get_expression_name(expr);
-                    let field_name = alias.as_ref().map(|a| a.clone()).unwrap_or(expr_name);
+                    let field_name = alias.clone().unwrap_or(expr_name);
                     field_names.push((field.clone(), field_name));
                 }
                 _ => field_names.push((field.clone(), String::new())),
@@ -3800,14 +3800,14 @@ impl StreamExecutionEngine {
                                         accumulator
                                             .numeric_values
                                             .entry(field_name.to_string())
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(f);
                                     }
                                     FieldValue::Integer(i) => {
                                         accumulator
                                             .numeric_values
                                             .entry(field_name.to_string())
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(i as f64);
                                     }
                                     _ => {}
@@ -3841,7 +3841,7 @@ impl StreamExecutionEngine {
                                     accumulator
                                         .string_values
                                         .entry(field_name.to_string())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(s);
                                 }
                             }
@@ -3854,7 +3854,7 @@ impl StreamExecutionEngine {
                                 accumulator
                                     .distinct_values
                                     .entry(field_name.to_string())
-                                    .or_insert_with(std::collections::HashSet::new)
+                                    .or_default()
                                     .insert(key);
                             }
                         }
@@ -4178,14 +4178,14 @@ impl StreamExecutionEngine {
                                     accumulator
                                         .numeric_values
                                         .entry(field_name.to_string())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(f);
                                 }
                                 FieldValue::Integer(i) => {
                                     accumulator
                                         .numeric_values
                                         .entry(field_name.to_string())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(i as f64);
                                 }
                                 _ => {}
@@ -4219,7 +4219,7 @@ impl StreamExecutionEngine {
                                 accumulator
                                     .string_values
                                     .entry(field_name.to_string())
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(s);
                             }
                         }
@@ -4232,7 +4232,7 @@ impl StreamExecutionEngine {
                             accumulator
                                 .distinct_values
                                 .entry(field_name.to_string())
-                                .or_insert_with(std::collections::HashSet::new)
+                                .or_default()
                                 .insert(key);
                         }
                     }
@@ -4502,10 +4502,7 @@ impl StreamExecutionEngine {
             }
 
             // Add record to the appropriate group
-            groups
-                .entry(group_key)
-                .or_insert_with(Vec::new)
-                .push(record);
+            groups.entry(group_key).or_default().push(record);
         }
 
         // Convert HashMap to Vec<Vec<&StreamRecord>>
@@ -4609,7 +4606,7 @@ impl StreamExecutionEngine {
                 // For arrays, create a string representation
                 let elements: Vec<String> = arr
                     .iter()
-                    .map(|v| Self::field_value_to_group_key_static(v))
+                    .map(Self::field_value_to_group_key_static)
                     .collect();
                 format!("[{}]", elements.join(","))
             }

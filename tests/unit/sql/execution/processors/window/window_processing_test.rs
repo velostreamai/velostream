@@ -10,7 +10,6 @@ Comprehensive tests for the newly implemented window processing functionality in
 */
 
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
-use ferrisstreams::ferris::sql::ast::StreamingQuery;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -136,7 +135,7 @@ async fn test_tumbling_window_count() {
     assert_eq!(results.len(), 2, "Should emit 2 window results");
 
     // First window should have count of 3
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["order_count"], InternalValue::Integer(3));
     }
 
@@ -163,7 +162,7 @@ async fn test_tumbling_window_sum() {
     assert_eq!(results.len(), 2, "Should emit 2 window results");
 
     // First window: 100 + 200 = 300
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["total_amount"], InternalValue::Number(300.0));
     }
 
@@ -190,7 +189,7 @@ async fn test_tumbling_window_avg() {
     assert_eq!(results.len(), 2, "Should emit 2 window results");
 
     // First window: (100 + 200) / 2 = 150
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["avg_amount"], InternalValue::Number(150.0));
     }
 
@@ -218,7 +217,7 @@ async fn test_tumbling_window_min_max() {
     assert_eq!(results.len(), 2, "Should emit 2 window results");
 
     // First window: MIN=100, MAX=300
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["min_amount"], InternalValue::Number(100.0));
         assert_eq!(first_result["max_amount"], InternalValue::Number(300.0));
     }
@@ -304,7 +303,7 @@ async fn test_window_with_where_clause() {
     assert_eq!(results.len(), 2, "Should emit 2 window results");
 
     // First window: 2 records with amount > 250
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["high_value_orders"], InternalValue::Integer(2));
     }
 
@@ -338,7 +337,7 @@ async fn test_window_with_having_clause() {
         "Should emit only windows passing HAVING clause"
     );
 
-    if let Some(result) = results.get(0) {
+    if let Some(result) = results.first() {
         assert_eq!(result["order_count"], InternalValue::Integer(3));
     }
 }
@@ -381,7 +380,7 @@ async fn test_window_boundary_alignment() {
     );
 
     // First window should have 2 records (including the one at 9999ms)
-    if let Some(first_result) = results.get(0) {
+    if let Some(first_result) = results.first() {
         assert_eq!(first_result["order_count"], InternalValue::Integer(2));
     }
 

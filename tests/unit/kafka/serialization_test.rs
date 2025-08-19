@@ -95,7 +95,7 @@ fn test_json_serializer_nested_structs() {
 
     assert_eq!(nested, deserialized);
     assert_eq!(deserialized.inner.value, 100);
-    assert_eq!(deserialized.inner.flag, true);
+    assert!(deserialized.inner.flag);
 }
 
 #[test]

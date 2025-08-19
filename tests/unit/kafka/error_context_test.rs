@@ -163,8 +163,8 @@ fn test_operational_error_metadata_tracking() {
     for (i, (operation, topic, component)) in operations.iter().enumerate() {
         let context = ErrorContext::new(operation, topic)
             .with_metadata("component", *component)
-            .with_metadata("pipeline_stage", &format!("stage_{}", i + 1))
-            .with_metadata("instance_id", &format!("instance_{:03}", i * 17 + 42))
+            .with_metadata("pipeline_stage", format!("stage_{}", i + 1))
+            .with_metadata("instance_id", format!("instance_{:03}", i * 17 + 42))
             .with_metadata("request_id", "req_abc123_xyz789")
             .with_metadata("user_id", "user_987654321")
             .with_metadata("session_id", "sess_def456_uvw012")
@@ -172,13 +172,10 @@ fn test_operational_error_metadata_tracking() {
             .with_metadata("region", "us-west-2")
             .with_metadata(
                 "availability_zone",
-                &format!("us-west-2{}", char::from(b'a' + i as u8)),
+                format!("us-west-2{}", char::from(b'a' + i as u8)),
             )
-            .with_metadata("cpu_usage", &format!("{:.1}%", 45.0 + i as f64 * 8.3))
-            .with_metadata(
-                "memory_usage",
-                &format!("{:.1}MB", 256.0 + i as f64 * 128.0),
-            );
+            .with_metadata("cpu_usage", format!("{:.1}%", 45.0 + i as f64 * 8.3))
+            .with_metadata("memory_usage", format!("{:.1}MB", 256.0 + i as f64 * 128.0));
 
         operation_contexts.push(context);
     }
@@ -369,6 +366,12 @@ pub struct ErrorMetrics {
     pub last_error_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+impl Default for ErrorMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ErrorMetrics {
     pub fn new() -> Self {
         Self {
@@ -524,10 +527,7 @@ fn test_error_aggregation() {
             };
 
             let key = format!("{}:{}", topic, operation);
-            error_buckets
-                .entry(key)
-                .or_insert_with(Vec::new)
-                .push(error);
+            error_buckets.entry(key).or_default().push(error);
         }
     }
 
@@ -561,9 +561,9 @@ fn test_retry_mechanism_with_error_context() {
 
     for attempt in 1..=max_retries {
         let context = ErrorContext::new("send_with_retry", "critical-alerts")
-            .with_metadata("retry_attempt", &attempt.to_string())
-            .with_metadata("max_retries", &max_retries.to_string())
-            .with_metadata("backoff_ms", &(100 * 2_u32.pow(attempt - 1)).to_string())
+            .with_metadata("retry_attempt", attempt.to_string())
+            .with_metadata("max_retries", max_retries.to_string())
+            .with_metadata("backoff_ms", (100 * 2_u32.pow(attempt - 1)).to_string())
             .with_metadata("original_error", "broker_timeout")
             .with_metadata("strategy", "exponential_backoff");
 

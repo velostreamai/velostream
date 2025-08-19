@@ -108,7 +108,7 @@ async fn test_multiple_user_workflow() {
 
                 // Be more patient - only break if we've had many consecutive timeouts
                 // and either we've received some messages OR we've tried for a long time
-                if consecutive_timeouts >= 8 && (received_users.len() > 0 || attempt > 30) {
+                if consecutive_timeouts >= 8 && (!received_users.is_empty() || attempt > 30) {
                     println!(
                         "Giving up after {} consecutive timeouts",
                         consecutive_timeouts

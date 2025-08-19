@@ -41,9 +41,7 @@ impl GroupByState {
 
     /// Get or create a group accumulator for the given key values
     pub fn get_or_create_group(&mut self, key_values: Vec<String>) -> &mut GroupAccumulator {
-        self.groups
-            .entry(key_values)
-            .or_insert_with(GroupAccumulator::new)
+        self.groups.entry(key_values).or_default()
     }
 
     /// Get all group keys currently tracked

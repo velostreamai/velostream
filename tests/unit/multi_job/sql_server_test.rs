@@ -4,10 +4,7 @@
 //! all jobs from a single SQL application file.
 
 use ferrisstreams::ferris::sql::app_parser::SqlApplicationParser;
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::timeout;
 
 // Import the MultiJobSqlServer from the binary crate
 // Note: This requires the structs to be pub in the binary or moved to lib
@@ -159,7 +156,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
 
     // Verify binary is executable
     println!("🔍 Verifying binary permissions and testing execution...");
-    let version_output = Command::new(&binary_path).args(&["--version"]).output();
+    let version_output = Command::new(&binary_path).args(["--version"]).output();
 
     match version_output {
         Ok(output) => {
@@ -191,11 +188,11 @@ async fn test_multi_job_server_deploy_all_jobs() {
     println!("📁 Temp file created at: {}", temp_path.display());
     println!(
         "📏 Temp file size: {} bytes",
-        std::fs::metadata(&temp_path).unwrap().len()
+        std::fs::metadata(temp_path).unwrap().len()
     );
 
     // Verify temp file is readable
-    let temp_content = std::fs::read_to_string(&temp_path).expect("Failed to read temp file");
+    let temp_content = std::fs::read_to_string(temp_path).expect("Failed to read temp file");
     println!(
         "✅ Temp file is readable, contains {} bytes",
         temp_content.len()
@@ -205,7 +202,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     println!("🚀 Starting multi-job SQL server for test...");
 
     let mut server_process = Command::new(&binary_path)
-        .args(&[
+        .args([
             "server",
             "--brokers",
             "localhost:9092",
@@ -233,7 +230,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     );
 
     let deploy_output = Command::new(&binary_path)
-        .args(&[
+        .args([
             "deploy-app",
             "--file",
             temp_path.to_str().unwrap(),
@@ -296,7 +293,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     let consumer_groups_output = if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
         // CI environment - try using kafka tools directly
         Command::new("sh")
-            .args(&["-c", "which kafka-consumer-groups.sh >/dev/null 2>&1 && kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list || echo 'kafka-tools-not-available'"])
+            .args(["-c", "which kafka-consumer-groups.sh >/dev/null 2>&1 && kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list || echo 'kafka-tools-not-available'"])
             .output()
             .ok()
     } else {
@@ -305,9 +302,9 @@ async fn test_multi_job_server_deploy_all_jobs() {
         // Local development - try Docker
         if let Some(ref container_name) = get_kafka_container_name_sync() {
             Command::new("docker")
-                .args(&[
+                .args([
                     "exec",
-                    &container_name,
+                    container_name,
                     "kafka-consumer-groups",
                     "--bootstrap-server",
                     "localhost:9092",
@@ -366,7 +363,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
         let create_result = if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
             // CI environment - use kafka-topics.sh if available
             Command::new("sh")
-                .args(&["-c", &format!("kafka-topics.sh --create --bootstrap-server localhost:9092 --topic {} --partitions 1 --replication-factor 1 --if-not-exists 2>/dev/null || true", topic)])
+                .args(["-c", &format!("kafka-topics.sh --create --bootstrap-server localhost:9092 --topic {} --partitions 1 --replication-factor 1 --if-not-exists 2>/dev/null || true", topic)])
                 .output()
                 .ok()
         } else {
@@ -375,9 +372,9 @@ async fn test_multi_job_server_deploy_all_jobs() {
             // Local development - use Docker
             if let Some(ref container_name) = get_kafka_container_name_sync() {
                 Command::new("docker")
-                    .args(&[
+                    .args([
                         "exec",
-                        &container_name,
+                        container_name,
                         "kafka-topics",
                         "--create",
                         "--bootstrap-server",
@@ -463,7 +460,7 @@ async fn test_job_deployment_with_mock_topics() {
 async fn is_kafka_available() -> bool {
     // First try direct connection (CI environment)
     let direct_test = Command::new("sh")
-        .args(&[
+        .args([
             "-c",
             "timeout 5s bash -c '</dev/tcp/localhost/9092' 2>/dev/null",
         ])
@@ -477,7 +474,7 @@ async fn is_kafka_available() -> bool {
 
     // Fall back to Docker exec (local development)
     let docker_test = Command::new("docker")
-        .args(&[
+        .args([
             "exec",
             "simple-kafka",
             "kafka-topics",
@@ -505,7 +502,7 @@ async fn get_kafka_container_name() -> Option<String> {
 
     for (filter, _desc) in &patterns {
         let output = Command::new("docker")
-            .args(&["ps", "--filter", filter, "--format", "{{.Names}}"])
+            .args(["ps", "--filter", filter, "--format", "{{.Names}}"])
             .output();
 
         if let Ok(output) = output {
@@ -532,7 +529,7 @@ fn get_kafka_container_name_sync() -> Option<String> {
 
     for (filter, _desc) in &patterns {
         let output = Command::new("docker")
-            .args(&["ps", "--filter", filter, "--format", "{{.Names}}"])
+            .args(["ps", "--filter", filter, "--format", "{{.Names}}"])
             .output();
 
         if let Ok(output) = output {

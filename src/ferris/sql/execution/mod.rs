@@ -49,7 +49,3 @@ pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 
 // Internal types are available within this module but not re-exported publicly
-pub(crate) use internal::{
-    ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
-    HeaderOperation, QueryExecution, WindowState,
-};

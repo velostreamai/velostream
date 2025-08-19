@@ -102,14 +102,14 @@ impl AccumulatorManager {
                                     accumulator
                                         .numeric_values
                                         .entry(field_name.to_string())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(i as f64);
                                 }
                                 FieldValue::Float(f) => {
                                     accumulator
                                         .numeric_values
                                         .entry(field_name.to_string())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(f);
                                 }
                                 FieldValue::Null => {
@@ -137,7 +137,7 @@ impl AccumulatorManager {
                                 accumulator
                                     .distinct_values
                                     .entry(field_name.to_string())
-                                    .or_insert_with(std::collections::HashSet::new)
+                                    .or_default()
                                     .insert(string_value);
                             }
                         }
@@ -173,7 +173,7 @@ impl AccumulatorManager {
                                 accumulator
                                     .string_values
                                     .entry(field_name.to_string())
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(string_value);
                             }
                         }

@@ -424,7 +424,7 @@ async fn test_kafka_workflow() {
 
             let headers = Headers::new().insert("test-type", "e2e-builder").insert(
                 "timestamp",
-                &std::time::SystemTime::now()
+                std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()

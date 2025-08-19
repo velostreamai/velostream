@@ -416,7 +416,7 @@ impl BuiltinFunctions {
     }
 
     fn round_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(SqlError::ExecutionError {
                 message: "ROUND requires 1 or 2 arguments: ROUND(number[, precision])".to_string(),
                 query: None,
@@ -805,7 +805,7 @@ impl BuiltinFunctions {
 
         // Return first part for simplicity (full array support would need array type)
         let parts: Vec<&str> = string.split(&delimiter).collect();
-        Ok(FieldValue::String(parts.get(0).unwrap_or(&"").to_string()))
+        Ok(FieldValue::String(parts.first().unwrap_or(&"").to_string()))
     }
 
     fn join_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
@@ -1539,7 +1539,7 @@ impl BuiltinFunctions {
                         // Calculate days between dates by comparing the dates only (ignoring time)
                         let start_date = start_dt.date_naive();
                         let end_date = end_dt.date_naive();
-                        (end_date - start_date).num_days() as i64
+                        (end_date - start_date).num_days()
                     }
                     "hours" => {
                         // Calculate hours between timestamps
