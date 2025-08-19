@@ -4228,7 +4228,7 @@ impl StreamExecutionEngine {
                         if let Some(arg) = args.first() {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
-                            let key = self.field_value_to_group_key(&value);
+                            let key = GroupByStateManager::field_value_to_group_key(&value);
                             accumulator
                                 .distinct_values
                                 .entry(field_name.to_string())
@@ -4320,7 +4320,7 @@ impl StreamExecutionEngine {
         match expr {
             Expr::Column(name) => {
                 if let Some(field_value) = record.fields.get(name) {
-                    Ok(self.field_value_to_group_key(field_value))
+                    Ok(GroupByStateManager::field_value_to_group_key(field_value))
                 } else {
                     Ok("NULL".to_string()) // NULL values group together
                 }
@@ -4329,7 +4329,7 @@ impl StreamExecutionEngine {
             Expr::Function { name: _, args: _ } => {
                 // Handle function calls in GROUP BY (e.g., DATE(timestamp))
                 let result = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-                Ok(self.field_value_to_group_key(&result))
+                Ok(GroupByStateManager::field_value_to_group_key(&result))
             }
             Expr::BinaryOp {
                 left: _,
@@ -4338,105 +4338,17 @@ impl StreamExecutionEngine {
             } => {
                 // Handle expressions in GROUP BY (e.g., YEAR(date) * 100 + MONTH(date))
                 let result = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-                Ok(self.field_value_to_group_key(&result))
+                Ok(GroupByStateManager::field_value_to_group_key(&result))
             }
             _ => {
                 // For other expression types, try to evaluate them
                 let result = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-                Ok(self.field_value_to_group_key(&result))
+                Ok(GroupByStateManager::field_value_to_group_key(&result))
             }
         }
     }
 
     /// Convert a FieldValue to a string suitable for grouping
-    fn field_value_to_group_key(&self, field_value: &FieldValue) -> String {
-        match field_value {
-            FieldValue::String(s) => s.clone(),
-            FieldValue::Integer(i) => i.to_string(),
-            FieldValue::Float(f) => f.to_string(),
-            FieldValue::Boolean(b) => b.to_string(),
-            FieldValue::Null => "NULL".to_string(),
-            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
-            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-            FieldValue::Decimal(dec) => dec.to_string(),
-            FieldValue::Array(arr) => {
-                // For arrays, create a string representation
-                let elements: Vec<String> = arr
-                    .iter()
-                    .map(|v| self.field_value_to_group_key(v))
-                    .collect();
-                format!("[{}]", elements.join(","))
-            }
-            FieldValue::Map(map) => {
-                // For maps, create a sorted string representation
-                let mut entries: Vec<_> = map.iter().collect();
-                entries.sort_by_key(|(k, _)| k.as_str());
-                let map_str: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("{}:{}", k, self.field_value_to_group_key(v)))
-                    .collect();
-                format!("{{{}}}", map_str.join(","))
-            }
-            FieldValue::Struct(fields) => {
-                // For structs, create a sorted string representation
-                let mut entries: Vec<_> = fields.iter().collect();
-                entries.sort_by_key(|(k, _)| k.as_str());
-                let struct_str: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("{}:{}", k, self.field_value_to_group_key(v)))
-                    .collect();
-                format!("({})", struct_str.join(","))
-            }
-            FieldValue::Interval { value, unit } => {
-                format!("INTERVAL:{}:{:?}", value, unit)
-            }
-        }
-    }
-
-    /// Convert a field value to a group key string (static version)
-    fn field_value_to_group_key_static(field_value: &FieldValue) -> String {
-        match field_value {
-            FieldValue::String(s) => s.clone(),
-            FieldValue::Integer(i) => i.to_string(),
-            FieldValue::Float(f) => f.to_string(),
-            FieldValue::Boolean(b) => b.to_string(),
-            FieldValue::Null => "NULL".to_string(),
-            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
-            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-            FieldValue::Decimal(dec) => dec.to_string(),
-            FieldValue::Array(arr) => {
-                // For arrays, create a string representation
-                let elements: Vec<String> = arr
-                    .iter()
-                    .map(Self::field_value_to_group_key_static)
-                    .collect();
-                format!("[{}]", elements.join(","))
-            }
-            FieldValue::Map(map) => {
-                // For maps, create a sorted string representation
-                let mut entries: Vec<_> = map.iter().collect();
-                entries.sort_by_key(|(k, _)| k.as_str());
-                let map_str: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
-                    .collect();
-                format!("{{{}}}", map_str.join(","))
-            }
-            FieldValue::Struct(fields) => {
-                // For structs, create a sorted string representation
-                let mut entries: Vec<_> = fields.iter().collect();
-                entries.sort_by_key(|(k, _)| k.as_str());
-                let struct_str: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key_static(v)))
-                    .collect();
-                format!("({})", struct_str.join(","))
-            }
-            FieldValue::Interval { value, unit } => {
-                format!("INTERVAL:{}:{:?}", value, unit)
-            }
-        }
-    }
 
     /// Convert a literal value to a group key string
     fn literal_to_group_key(&self, literal: &LiteralValue) -> String {
@@ -4610,7 +4522,8 @@ impl StreamExecutionEngine {
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             if !matches!(value, FieldValue::Null) {
-                                distinct_values.insert(self.field_value_to_group_key(&value));
+                                distinct_values
+                                    .insert(GroupByStateManager::field_value_to_group_key(&value));
                             }
                         }
                         Ok(FieldValue::Integer(distinct_values.len() as i64))
@@ -4748,7 +4661,7 @@ impl StreamExecutionEngine {
                                     FieldValue::Integer(i) => i.to_string(),
                                     FieldValue::Float(f) => f.to_string(),
                                     FieldValue::Boolean(b) => b.to_string(),
-                                    _ => self.field_value_to_group_key(&value),
+                                    _ => GroupByStateManager::field_value_to_group_key(&value),
                                 });
                             }
                         }
