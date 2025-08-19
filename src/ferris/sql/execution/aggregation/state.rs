@@ -136,8 +136,8 @@ mod tests {
             "42"
         );
         assert_eq!(
-            GroupByStateManager::field_value_to_group_key(&FieldValue::Float(3.14)),
-            "3.14"
+            GroupByStateManager::field_value_to_group_key(&FieldValue::Float(std::f64::consts::PI)),
+            &std::f64::consts::PI.to_string()
         );
         assert_eq!(
             GroupByStateManager::field_value_to_group_key(&FieldValue::Boolean(true)),
