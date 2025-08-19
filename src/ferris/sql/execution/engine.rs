@@ -210,6 +210,71 @@ impl StreamExecutionEngine {
         None
     }
 
+    /// Step 2.2: Dual-path apply_query method - routes to legacy or processors
+    fn apply_query(
+        &mut self,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        if self.use_processors {
+            self.apply_query_with_processors(query, record)
+        } else {
+            self.apply_query_legacy(query, record)
+        }
+    }
+
+    /// Step 3.1: Real processor-based query execution implementation
+    fn apply_query_with_processors(
+        &mut self,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        let mut context = self.create_processor_context("query_id");
+
+        // Set LIMIT in context if present
+        if let StreamingQuery::Select { limit, .. } = query {
+            context.max_records = *limit;
+        }
+
+        let result = QueryProcessor::process_query(query, record, &mut context)?;
+
+        // Update engine state from context
+        if result.should_count && result.record.is_some() {
+            self.record_count += 1;
+        }
+
+        // Apply header mutations
+        self.apply_header_mutations(&result.header_mutations)?;
+
+        Ok(result.record)
+    }
+
+    /// Step 3.2: Header mutation application handler
+    fn apply_header_mutations(
+        &mut self,
+        mutations: &[ProcessorHeaderMutation],
+    ) -> Result<(), SqlError> {
+        // Store mutations to apply to output records
+        // Implementation depends on how headers are currently handled
+        for mutation in mutations {
+            match &mutation.operation {
+                ProcessorHeaderOperation::Set => {
+                    // SET_HEADER implementation would go here
+                    log::debug!(
+                        "Header mutation: SET {} = {:?}",
+                        mutation.key,
+                        mutation.value
+                    );
+                }
+                ProcessorHeaderOperation::Remove => {
+                    // REMOVE_HEADER implementation would go here
+                    log::debug!("Header mutation: REMOVE {}", mutation.key);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn execute(
         &mut self,
         query: &StreamingQuery,
@@ -612,7 +677,8 @@ impl StreamExecutionEngine {
         }
     }
 
-    fn apply_query(
+    /// Step 2.1: Legacy apply_query method renamed for dual-path system
+    fn apply_query_legacy(
         &mut self,
         query: &StreamingQuery,
         record: &StreamRecord,
