@@ -42,10 +42,14 @@ pub mod aggregation;
 pub mod engine;
 pub mod expression;
 pub mod internal;
+pub mod processors;
 pub mod types;
 
 // Re-export public API only
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
+
+// Internal types are available within this module but not re-exported publicly
+// SqlError and StreamingQuery are in crate::ferris::sql module
 
 // Internal types are available within this module but not re-exported publicly
