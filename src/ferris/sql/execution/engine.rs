@@ -1090,7 +1090,6 @@ impl StreamExecutionEngine {
         }
     }
 
-
     fn get_expression_name(&self, expr: &Expr) -> String {
         match expr {
             Expr::Column(name) => name.clone(),
@@ -1430,7 +1429,9 @@ impl StreamExecutionEngine {
 
                 // Parse default value (if provided)
                 let default_value = if args.len() == 3 {
-                    Some(ExpressionEvaluator::evaluate_expression_value(&args[2], record)?)
+                    Some(ExpressionEvaluator::evaluate_expression_value(
+                        &args[2], record,
+                    )?)
                 } else {
                     None
                 };
@@ -1513,7 +1514,9 @@ impl StreamExecutionEngine {
 
                 // Parse default value (if provided)
                 let default_value = if args.len() == 3 {
-                    Some(ExpressionEvaluator::evaluate_expression_value(&args[2], record)?)
+                    Some(ExpressionEvaluator::evaluate_expression_value(
+                        &args[2], record,
+                    )?)
                 } else {
                     None
                 };
@@ -1669,7 +1672,10 @@ impl StreamExecutionEngine {
                 if nth <= total_records {
                     if nth <= window_buffer.len() {
                         // nth record is in the buffer
-                        ExpressionEvaluator::evaluate_expression_value(&args[0], &window_buffer[nth - 1])
+                        ExpressionEvaluator::evaluate_expression_value(
+                            &args[0],
+                            &window_buffer[nth - 1],
+                        )
                     } else {
                         // nth record is the current record
                         ExpressionEvaluator::evaluate_expression_value(&args[0], record)
@@ -1733,7 +1739,8 @@ impl StreamExecutionEngine {
                 }
 
                 // Parse the number of tiles
-                let tiles = match ExpressionEvaluator::evaluate_expression_value(&args[0], record)? {
+                let tiles = match ExpressionEvaluator::evaluate_expression_value(&args[0], record)?
+                {
                     FieldValue::Integer(n) => {
                         if n <= 0 {
                             return Err(SqlError::ExecutionError {
@@ -1780,7 +1787,6 @@ impl StreamExecutionEngine {
             }),
         }
     }
-
 
     fn evaluate_function_with_mutations(
         &self,
@@ -4262,7 +4268,8 @@ impl StreamExecutionEngine {
                 match name.to_uppercase().as_str() {
                     "SUM" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             if let FieldValue::Float(f) = value {
                                 *accumulator
                                     .sums
@@ -4278,7 +4285,8 @@ impl StreamExecutionEngine {
                     }
                     "MIN" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             let current_min = accumulator.mins.get(field_name);
                             if current_min.is_none()
                                 || self.field_value_compare(&value, current_min.unwrap())
@@ -4290,7 +4298,8 @@ impl StreamExecutionEngine {
                     }
                     "MAX" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             let current_max = accumulator.maxs.get(field_name);
                             if current_max.is_none()
                                 || self.field_value_compare(&value, current_max.unwrap())
@@ -4302,7 +4311,8 @@ impl StreamExecutionEngine {
                     }
                     "AVG" | "STDDEV" | "VARIANCE" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             match value {
                                 FieldValue::Float(f) => {
                                     accumulator
@@ -4324,7 +4334,8 @@ impl StreamExecutionEngine {
                     }
                     "FIRST" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             accumulator
                                 .first_values
                                 .entry(field_name.to_string())
@@ -4333,7 +4344,8 @@ impl StreamExecutionEngine {
                     }
                     "LAST" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             accumulator
                                 .last_values
                                 .insert(field_name.to_string(), value);
@@ -4341,7 +4353,8 @@ impl StreamExecutionEngine {
                     }
                     "STRING_AGG" | "GROUP_CONCAT" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             if let FieldValue::String(s) = value {
                                 accumulator
                                     .string_values
@@ -4353,7 +4366,8 @@ impl StreamExecutionEngine {
                     }
                     "COUNT_DISTINCT" => {
                         if let Some(arg) = args.first() {
-                            let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             let key = self.field_value_to_group_key(&value);
                             accumulator
                                 .distinct_values
@@ -4795,7 +4809,9 @@ impl StreamExecutionEngine {
                             // COUNT(column) - count non-null values
                             let mut count = 0i64;
                             for record in records {
-                                let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                                let value = ExpressionEvaluator::evaluate_expression_value(
+                                    &args[0], record,
+                                )?;
                                 if !matches!(value, FieldValue::Null) {
                                     count += 1;
                                 }
@@ -4818,7 +4834,8 @@ impl StreamExecutionEngine {
 
                         let mut sum = 0.0f64;
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             match value {
                                 FieldValue::Integer(n) => sum += n as f64,
                                 FieldValue::Float(f) => sum += f,
@@ -4845,7 +4862,8 @@ impl StreamExecutionEngine {
                         let mut sum = 0.0f64;
                         let mut count = 0i64;
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             match value {
                                 FieldValue::Integer(n) => {
                                     sum += n as f64;
@@ -4882,7 +4900,8 @@ impl StreamExecutionEngine {
 
                         let mut min_val: Option<FieldValue> = None;
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             if !matches!(value, FieldValue::Null) {
                                 if min_val.is_none()
                                     || self
@@ -4905,7 +4924,8 @@ impl StreamExecutionEngine {
 
                         let mut max_val: Option<FieldValue> = None;
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             if !matches!(value, FieldValue::Null) {
                                 if max_val.is_none()
                                     || self
@@ -4928,7 +4948,8 @@ impl StreamExecutionEngine {
 
                         let mut distinct_values = std::collections::HashSet::new();
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             if !matches!(value, FieldValue::Null) {
                                 distinct_values.insert(self.field_value_to_group_key(&value));
                             }
@@ -4945,7 +4966,8 @@ impl StreamExecutionEngine {
 
                         let mut values = Vec::new();
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             match value {
                                 FieldValue::Integer(n) => values.push(n as f64),
                                 FieldValue::Float(f) => values.push(f),
@@ -4981,7 +5003,8 @@ impl StreamExecutionEngine {
 
                         let mut values = Vec::new();
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             match value {
                                 FieldValue::Integer(n) => values.push(n as f64),
                                 FieldValue::Float(f) => values.push(f),
@@ -5058,7 +5081,8 @@ impl StreamExecutionEngine {
 
                         let mut string_values = Vec::new();
                         for record in records {
-                            let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
                             if !matches!(value, FieldValue::Null) {
                                 string_values.push(match value {
                                     FieldValue::String(s) => s,
