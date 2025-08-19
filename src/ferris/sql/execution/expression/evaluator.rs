@@ -258,6 +258,16 @@ impl ExpressionEvaluator {
                         let inner_result = Self::evaluate_expression(inner_expr, record)?;
                         Ok(!inner_result)
                     }
+                    UnaryOperator::IsNull => {
+                        // For IS NULL operator, evaluate inner expression and check if it's null
+                        let inner_result = Self::evaluate_expression_value(inner_expr, record)?;
+                        Ok(matches!(inner_result, FieldValue::Null))
+                    }
+                    UnaryOperator::IsNotNull => {
+                        // For IS NOT NULL operator, evaluate inner expression and check if it's not null
+                        let inner_result = Self::evaluate_expression_value(inner_expr, record)?;
+                        Ok(!matches!(inner_result, FieldValue::Null))
+                    }
                     _ => Err(SqlError::ExecutionError {
                         message: format!("Unsupported unary operator in boolean context: {:?}", op),
                         query: None,
@@ -539,10 +549,45 @@ impl ExpressionEvaluator {
                             }
                         }
                     }
+                    UnaryOperator::IsNull => {
+                        // For IS NULL operator, evaluate inner expression and return boolean
+                        let inner_result = Self::evaluate_expression_value(inner_expr, record)?;
+                        Ok(FieldValue::Boolean(matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    UnaryOperator::IsNotNull => {
+                        // For IS NOT NULL operator, evaluate inner expression and return boolean
+                        let inner_result = Self::evaluate_expression_value(inner_expr, record)?;
+                        Ok(FieldValue::Boolean(!matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
                     _ => Err(SqlError::ExecutionError {
                         message: format!("Unsupported unary operator in value context: {:?}", op),
                         query: None,
                     }),
+                }
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Evaluate each WHEN condition until one is true
+                for (condition, result) in when_clauses {
+                    let condition_value = Self::evaluate_expression(condition, record)?;
+                    if condition_value {
+                        return Self::evaluate_expression_value(result, record);
+                    }
+                }
+
+                // If no WHEN condition was true, evaluate ELSE clause or return NULL
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_expression_value(else_expr, record)
+                } else {
+                    Ok(FieldValue::Null)
                 }
             }
             _ => Err(SqlError::ExecutionError {

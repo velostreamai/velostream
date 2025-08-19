@@ -1431,7 +1431,7 @@ impl BuiltinFunctions {
 
         match (part_val, timestamp_val) {
             (FieldValue::String(part), FieldValue::Integer(ts)) => {
-                use chrono::{Datelike, TimeZone, Utc};
+                use chrono::{Datelike, TimeZone, Timelike, Utc};
 
                 let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
                     SqlError::ExecutionError {
@@ -1441,6 +1441,17 @@ impl BuiltinFunctions {
                 })?;
 
                 let result = match part.to_uppercase().as_str() {
+                    "YEAR" => dt.year() as i64,
+                    "MONTH" => dt.month() as i64,
+                    "DAY" => dt.day() as i64,
+                    "HOUR" => dt.hour() as i64,
+                    "MINUTE" => dt.minute() as i64,
+                    "SECOND" => dt.second() as i64,
+                    "DOW" => {
+                        // Day of week (0 = Sunday, 6 = Saturday)
+                        dt.weekday().num_days_from_sunday() as i64
+                    }
+                    "DOY" => dt.ordinal() as i64, // Day of year (1-366)
                     "WEEK" => {
                         // Get ISO week number (1-53)
                         dt.iso_week().week() as i64
@@ -1530,10 +1541,14 @@ impl BuiltinFunctions {
                         let end_date = end_dt.date_naive();
                         (end_date - start_date).num_days() as i64
                     }
+                    "hours" => {
+                        // Calculate hours between timestamps
+                        (end_ts - start_ts) / (1000 * 60 * 60)
+                    }
                     _ => {
                         return Err(SqlError::ExecutionError {
                             message: format!(
-                                "Unsupported DATEDIFF unit: {}. Supported units: years, months, quarters, weeks, days",
+                                "Unsupported DATEDIFF unit: {}. Supported units: years, months, quarters, weeks, days, hours",
                                 unit
                             ),
                             query: None,
@@ -1751,6 +1766,23 @@ impl BuiltinFunctions {
         }
     }
 
+    // Helper function for type promotion
+    fn promote_numeric_types(values: &[FieldValue]) -> Vec<FieldValue> {
+        let has_float = values.iter().any(|v| matches!(v, FieldValue::Float(_)));
+
+        if has_float {
+            values
+                .iter()
+                .map(|v| match v {
+                    FieldValue::Integer(i) => FieldValue::Float(*i as f64),
+                    other => other.clone(),
+                })
+                .collect()
+        } else {
+            values.to_vec()
+        }
+    }
+
     // String manipulation functions
 
     fn left_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
@@ -1812,7 +1844,9 @@ impl BuiltinFunctions {
                 query: None,
             });
         }
-        Ok(FieldValue::Timestamp(chrono::Utc::now().naive_utc()))
+        // Return current timestamp as milliseconds since epoch
+        let now = chrono::Utc::now().timestamp_millis();
+        Ok(FieldValue::Integer(now))
     }
 
     fn current_timestamp_function(
@@ -1836,9 +1870,18 @@ impl BuiltinFunctions {
         let format_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
 
         match (timestamp_val, format_val) {
-            (FieldValue::Integer(_ts), FieldValue::String(_format)) => {
-                // Simplified implementation
-                Ok(FieldValue::String("2023-01-01 00:00:00".to_string()))
+            (FieldValue::Integer(ts), FieldValue::String(format)) => {
+                use chrono::{TimeZone, Utc};
+
+                let dt = Utc.timestamp_millis_opt(ts).single().ok_or_else(|| {
+                    SqlError::ExecutionError {
+                        message: format!("Invalid timestamp: {}", ts),
+                        query: None,
+                    }
+                })?;
+
+                let formatted = dt.format(&format).to_string();
+                Ok(FieldValue::String(formatted))
             }
             (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
             _ => Err(SqlError::ExecutionError {
@@ -1899,11 +1942,21 @@ impl BuiltinFunctions {
             });
         }
 
-        let mut min_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
-        for arg in &args[1..] {
+        // Evaluate all arguments first
+        let mut values = Vec::new();
+        for arg in args {
             let val = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
-            if Self::compare_values_for_min(&val, &min_val)? {
-                min_val = val;
+            values.push(val);
+        }
+
+        // Promote numeric types if mixed
+        let promoted_values = Self::promote_numeric_types(&values);
+
+        // Find minimum value
+        let mut min_val = promoted_values[0].clone();
+        for val in &promoted_values[1..] {
+            if Self::compare_values_for_min(val, &min_val)? {
+                min_val = val.clone();
             }
         }
         Ok(min_val)
@@ -1917,11 +1970,21 @@ impl BuiltinFunctions {
             });
         }
 
-        let mut max_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
-        for arg in &args[1..] {
+        // Evaluate all arguments first
+        let mut values = Vec::new();
+        for arg in args {
             let val = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
-            if Self::compare_values_for_max(&val, &max_val)? {
-                max_val = val;
+            values.push(val);
+        }
+
+        // Promote numeric types if mixed
+        let promoted_values = Self::promote_numeric_types(&values);
+
+        // Find maximum value
+        let mut max_val = promoted_values[0].clone();
+        for val in &promoted_values[1..] {
+            if Self::compare_values_for_max(val, &max_val)? {
+                max_val = val.clone();
             }
         }
         Ok(max_val)
