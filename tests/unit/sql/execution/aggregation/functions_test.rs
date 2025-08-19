@@ -1,9 +1,9 @@
 //! Tests for aggregate function computation
 
+use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
 use ferrisstreams::ferris::sql::execution::aggregation::AggregateFunctions;
 use ferrisstreams::ferris::sql::execution::internal::GroupAccumulator;
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
-use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
 use std::collections::HashSet;
 
 fn create_test_accumulator() -> GroupAccumulator {
@@ -63,12 +63,9 @@ fn test_compute_count_star() {
         args: vec![], // COUNT(*)
     };
 
-    let result = AggregateFunctions::compute_field_aggregate_value(
-        "count_star",
-        &count_expr,
-        &accumulator,
-    )
-    .unwrap();
+    let result =
+        AggregateFunctions::compute_field_aggregate_value("count_star", &count_expr, &accumulator)
+            .unwrap();
 
     assert_eq!(result, FieldValue::Integer(10));
 }
@@ -196,12 +193,9 @@ fn test_compute_string_agg() {
         ],
     };
 
-    let result = AggregateFunctions::compute_field_aggregate_value(
-        "names",
-        &string_agg_expr,
-        &accumulator,
-    )
-    .unwrap();
+    let result =
+        AggregateFunctions::compute_field_aggregate_value("names", &string_agg_expr, &accumulator)
+            .unwrap();
 
     assert_eq!(result, FieldValue::String("Alice;Bob;Charlie".to_string()));
 }

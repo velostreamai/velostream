@@ -108,4 +108,3 @@ impl GroupByStateManager {
         Ok(keys)
     }
 }
-

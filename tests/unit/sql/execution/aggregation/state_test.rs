@@ -1,8 +1,8 @@
 //! Tests for aggregation state management
 
+use ferrisstreams::ferris::sql::ast::Expr;
 use ferrisstreams::ferris::sql::execution::aggregation::GroupByStateManager;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::ast::Expr;
 use std::collections::HashMap;
 
 fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
@@ -72,14 +72,12 @@ fn test_record_matches_group_key() {
     let expressions = vec![Expr::Column("category".to_string())];
     let target_key = vec!["electronics".to_string()];
 
-    let result =
-        GroupByStateManager::record_matches_group_key(&expressions, &record, &target_key);
+    let result = GroupByStateManager::record_matches_group_key(&expressions, &record, &target_key);
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     let wrong_key = vec!["books".to_string()];
-    let result2 =
-        GroupByStateManager::record_matches_group_key(&expressions, &record, &wrong_key);
+    let result2 = GroupByStateManager::record_matches_group_key(&expressions, &record, &wrong_key);
     assert!(result2.is_ok());
     assert!(!result2.unwrap());
 }

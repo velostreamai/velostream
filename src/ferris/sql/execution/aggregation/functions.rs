@@ -283,4 +283,3 @@ impl AggregateFunctions {
         ]
     }
 }
-

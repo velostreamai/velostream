@@ -1,9 +1,9 @@
 //! Tests for aggregation accumulator management
 
+use ferrisstreams::ferris::sql::ast::{Expr, SelectField};
 use ferrisstreams::ferris::sql::execution::aggregation::AccumulatorManager;
 use ferrisstreams::ferris::sql::execution::internal::GroupAccumulator;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::ast::{Expr, SelectField};
 use std::collections::HashMap;
 
 fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
