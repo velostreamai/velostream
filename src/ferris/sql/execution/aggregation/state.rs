@@ -29,6 +29,7 @@ impl GroupByStateManager {
     }
 
     /// Convert a FieldValue to a string representation for group key
+    /// Uses comprehensive formatting matching engine implementation for consistency
     #[doc(hidden)]
     pub fn field_value_to_group_key(value: &FieldValue) -> String {
         match value {
@@ -37,27 +38,40 @@ impl GroupByStateManager {
             FieldValue::Float(f) => f.to_string(),
             FieldValue::Boolean(b) => b.to_string(),
             FieldValue::Null => "NULL".to_string(),
-            FieldValue::Timestamp(ts) => ts.to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Decimal(dec) => dec.to_string(),
             FieldValue::Array(arr) => {
-                format!(
-                    "[{}]",
-                    arr.iter()
-                        .map(Self::field_value_to_group_key)
-                        .collect::<Vec<_>>()
-                        .join(",")
-                )
+                // For arrays, create a string representation
+                let elements: Vec<String> = arr
+                    .iter()
+                    .map(Self::field_value_to_group_key)
+                    .collect();
+                format!("[{}]", elements.join(","))
             }
-            FieldValue::Map(obj) | FieldValue::Struct(obj) => {
-                let mut pairs: Vec<_> = obj
+            FieldValue::Map(map) => {
+                // For maps, create a sorted string representation
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let map_str: Vec<String> = entries
                     .iter()
                     .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key(v)))
                     .collect();
-                pairs.sort(); // Ensure consistent ordering
-                format!("{{{}}}", pairs.join(","))
+                format!("{{{}}}", map_str.join(","))
             }
-            FieldValue::Date(date) => date.to_string(),
-            FieldValue::Decimal(decimal) => decimal.to_string(),
-            FieldValue::Interval { value, unit } => format!("{}_{:?}", value, unit),
+            FieldValue::Struct(fields) => {
+                // For structs, create a sorted string representation with parentheses
+                let mut entries: Vec<_> = fields.iter().collect();
+                entries.sort_by_key(|(k, _)| k.as_str());
+                let struct_str: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{}:{}", k, Self::field_value_to_group_key(v)))
+                    .collect();
+                format!("({})", struct_str.join(","))
+            }
+            FieldValue::Interval { value, unit } => {
+                format!("INTERVAL:{}:{:?}", value, unit)
+            }
         }
     }
 
