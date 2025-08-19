@@ -3,7 +3,7 @@
 ## Overview
 Phase 4 successfully extracted aggregation functionality to separate modules, but left some duplicate/dead code in the main engine.rs file. This document tracks cleanup tasks to complete the refactoring.
 
-## Status: **PENDING**
+## Status: **PHASE A COMPLETE** | **PHASE B PENDING**
 
 ## Dead Code Removal Tasks
 
@@ -58,11 +58,11 @@ Functions to remove:
 
 ## Implementation Plan
 
-### Phase A: Dead Code Removal (Safe)
-1. Remove `compute_group_result_fields()` function completely
-2. Remove `compute_aggregate_value()` function completely  
-3. Run full test suite to verify no regressions
-4. **Expected**: All tests should pass (functions are unused)
+### Phase A: Dead Code Removal (Safe) ✅ COMPLETED
+1. ✅ Remove `compute_group_result_fields()` function completely
+2. ✅ Remove `compute_aggregate_value()` function completely  
+3. ✅ Run full test suite to verify no regressions
+4. ✅ **Result**: All tests pass (functions were unused as expected)
 
 ### Phase B: Consolidate GROUP BY Key Generation (Complex)
 1. **Analysis**: Compare implementations and determine canonical version
@@ -74,10 +74,10 @@ Functions to remove:
 
 ## Risk Assessment
 
-### Low Risk (Phase A):
-- Removing unused functions has minimal risk
-- Functions are not called anywhere
-- Easy to revert if issues found
+### ✅ Low Risk (Phase A - COMPLETED):
+- ✅ Removing unused functions had minimal risk
+- ✅ Functions were not called anywhere
+- ✅ Easy to revert if issues found
 
 ### Medium Risk (Phase B):  
 - Different formatting could affect GROUP BY behavior
@@ -86,9 +86,16 @@ Functions to remove:
 
 ## Success Criteria
 
-- [ ] ~200 lines of dead code removed from engine.rs
+### Phase A (Dead Code Removal) ✅ COMPLETED
+- [✅] ~200 lines of dead code removed from engine.rs
+  - ✅ Removed `compute_group_result_fields()` function (~52 lines)
+  - ✅ Removed `compute_aggregate_value()` function (~140 lines)
+  - ✅ Total: ~192 lines removed
+- [✅] All 40+ aggregation tests continue to pass (40/40 tests passing)
+- [✅] No compilation errors
+
+### Phase B (Consolidation) ⏳ PENDING  
 - [ ] Single `field_value_to_group_key` implementation exists  
-- [ ] All 40+ aggregation tests continue to pass
 - [ ] All GROUP BY functionality works identically
 - [ ] No compilation errors or warnings
 
@@ -100,10 +107,17 @@ Functions to remove:
 
 ## Estimated Impact
 
-- **Code Reduction**: ~200-300 lines removed from engine.rs
-- **Maintenance**: Reduced code duplication  
-- **Clarity**: Single source of truth for GROUP BY key generation
-- **Performance**: Minimal (same logic, fewer duplicate functions)
+### Phase A Results ✅
+- **Code Reduction**: ✅ 192 lines removed from engine.rs
+- **Maintenance**: ✅ Removed duplicate aggregate computation logic  
+- **Testing**: ✅ All 40 aggregation tests still pass
+- **Performance**: ✅ No impact (dead functions removed)
+
+### Phase B Expected Impact ⏳
+- **Code Reduction**: ~20-40 additional lines (duplicate functions)
+- **Maintenance**: Single source of truth for GROUP BY key generation  
+- **Testing**: All GROUP BY functionality must work identically
+- **Performance**: Minimal (same logic, single implementation)
 
 ---
 
