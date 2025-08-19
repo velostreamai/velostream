@@ -128,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
+use super::aggregation::{AggregateFunctions, AggregationEngine};
 use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
@@ -157,6 +158,8 @@ pub struct StreamExecutionEngine {
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
+    // Aggregation engine
+    aggregation_engine: AggregationEngine,
 }
 
 // =============================================================================
@@ -177,6 +180,7 @@ impl StreamExecutionEngine {
             _serialization_format,
             record_count: 0,
             group_states: HashMap::new(),
+            aggregation_engine: AggregationEngine::new(),
         }
     }
 
@@ -3639,7 +3643,7 @@ impl StreamExecutionEngine {
             for (field, precomputed_name) in &field_names {
                 match field {
                     SelectField::Expression { expr, .. } => {
-                        let value = Self::compute_field_aggregate_value(
+                        let value = AggregateFunctions::compute_field_aggregate_value(
                             precomputed_name,
                             expr,
                             group_accumulator,
@@ -3883,150 +3887,6 @@ impl StreamExecutionEngine {
             }
         }
         Ok(())
-    }
-
-    /// Compute aggregate value for a field (static helper)
-    fn compute_field_aggregate_value(
-        field_name: &str,
-        expr: &Expr,
-        accumulator: &GroupAccumulator,
-    ) -> Result<FieldValue, SqlError> {
-        match expr {
-            Expr::Function { name, .. } => {
-                match name.to_uppercase().as_str() {
-                    "COUNT" => {
-                        // Check if this is COUNT(*) or COUNT(column)
-                        if let Expr::Function { args, .. } = expr {
-                            if args.is_empty() {
-                                // COUNT(*) - count all records
-                                Ok(FieldValue::Integer(accumulator.count as i64))
-                            } else {
-                                // COUNT(column) - count non-NULL values for this field
-                                Ok(FieldValue::Integer(
-                                    accumulator
-                                        .non_null_counts
-                                        .get(field_name)
-                                        .copied()
-                                        .unwrap_or(0) as i64,
-                                ))
-                            }
-                        } else {
-                            Ok(FieldValue::Integer(accumulator.count as i64))
-                        }
-                    }
-                    "SUM" => Ok(FieldValue::Float(
-                        accumulator.sums.get(field_name).copied().unwrap_or(0.0),
-                    )),
-                    "AVG" => {
-                        if let Some(values) = accumulator.numeric_values.get(field_name) {
-                            if values.is_empty() {
-                                Ok(FieldValue::Null)
-                            } else {
-                                let avg = values.iter().sum::<f64>() / values.len() as f64;
-                                Ok(FieldValue::Float(avg))
-                            }
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
-                    }
-                    "MIN" => Ok(accumulator
-                        .mins
-                        .get(field_name)
-                        .cloned()
-                        .unwrap_or(FieldValue::Null)),
-                    "MAX" => Ok(accumulator
-                        .maxs
-                        .get(field_name)
-                        .cloned()
-                        .unwrap_or(FieldValue::Null)),
-                    "STDDEV" => {
-                        if let Some(values) = accumulator.numeric_values.get(field_name) {
-                            if values.len() < 2 {
-                                Ok(FieldValue::Float(0.0))
-                            } else {
-                                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance =
-                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-                                        / (values.len() - 1) as f64; // Sample standard deviation
-                                Ok(FieldValue::Float(variance.sqrt()))
-                            }
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
-                    }
-                    "VARIANCE" => {
-                        if let Some(values) = accumulator.numeric_values.get(field_name) {
-                            if values.len() < 2 {
-                                Ok(FieldValue::Float(0.0))
-                            } else {
-                                let mean = values.iter().sum::<f64>() / values.len() as f64;
-                                let variance =
-                                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-                                        / (values.len() - 1) as f64; // Sample variance
-                                Ok(FieldValue::Float(variance))
-                            }
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
-                    }
-                    "FIRST" => Ok(accumulator
-                        .first_values
-                        .get(field_name)
-                        .cloned()
-                        .unwrap_or(FieldValue::Null)),
-                    "LAST" => Ok(accumulator
-                        .last_values
-                        .get(field_name)
-                        .cloned()
-                        .unwrap_or(FieldValue::Null)),
-                    "STRING_AGG" | "GROUP_CONCAT" => {
-                        if let Some(values) = accumulator.string_values.get(field_name) {
-                            // Extract separator from second argument of the original expression
-                            let separator = if let Expr::Function { args, .. } = expr {
-                                if args.len() > 1 {
-                                    // Try to extract separator from second argument
-                                    if let Expr::Literal(LiteralValue::String(sep)) = &args[1] {
-                                        sep.as_str()
-                                    } else {
-                                        "," // Default if not a string literal
-                                    }
-                                } else {
-                                    "," // Default if no second argument
-                                }
-                            } else {
-                                "," // Default if not a function
-                            };
-                            Ok(FieldValue::String(values.join(separator)))
-                        } else {
-                            Ok(FieldValue::Null)
-                        }
-                    }
-                    "COUNT_DISTINCT" => {
-                        if let Some(distinct_set) = accumulator.distinct_values.get(field_name) {
-                            Ok(FieldValue::Integer(distinct_set.len() as i64))
-                        } else {
-                            Ok(FieldValue::Integer(0))
-                        }
-                    }
-                    _ => {
-                        // Non-aggregate function
-                        Ok(accumulator
-                            .first_values
-                            .get(field_name)
-                            .cloned()
-                            .unwrap_or(FieldValue::Null))
-                    }
-                }
-            }
-            _ => {
-                // Non-function expression
-                Ok(accumulator
-                    .first_values
-                    .get(field_name)
-                    .cloned()
-                    .unwrap_or(FieldValue::Null))
-            }
-        }
     }
 
     /// Static helper for basic expression evaluation  
