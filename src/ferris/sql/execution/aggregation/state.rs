@@ -43,10 +43,8 @@ impl GroupByStateManager {
             FieldValue::Decimal(dec) => dec.to_string(),
             FieldValue::Array(arr) => {
                 // For arrays, create a string representation
-                let elements: Vec<String> = arr
-                    .iter()
-                    .map(Self::field_value_to_group_key)
-                    .collect();
+                let elements: Vec<String> =
+                    arr.iter().map(Self::field_value_to_group_key).collect();
                 format!("[{}]", elements.join(","))
             }
             FieldValue::Map(map) => {

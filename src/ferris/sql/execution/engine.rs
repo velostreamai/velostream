@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::aggregation::{AggregateFunctions, AggregationEngine};
+use super::aggregation::{AggregateFunctions, AggregationEngine, GroupByStateManager};
 use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
@@ -3850,7 +3850,7 @@ impl StreamExecutionEngine {
                     "COUNT_DISTINCT" => {
                         if let Some(arg) = args.first() {
                             if let Ok(value) = Self::evaluate_expression_static(arg, record) {
-                                let key = Self::field_value_to_group_key_static(&value);
+                                let key = GroupByStateManager::field_value_to_group_key(&value);
                                 accumulator
                                     .distinct_values
                                     .entry(field_name.to_string())
@@ -4264,7 +4264,6 @@ impl StreamExecutionEngine {
 
         Ok(())
     }
-
 
     /// Helper method to compare FieldValues
     fn field_value_compare(&self, a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
