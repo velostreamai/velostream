@@ -149,6 +149,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+// Processor imports for Phase 5B integration
+use super::processors::{
+    HeaderMutation as ProcessorHeaderMutation, HeaderOperation as ProcessorHeaderOperation,
+    JoinContext, ProcessorContext, ProcessorResult, QueryProcessor, WindowContext,
+};
+
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
@@ -160,6 +166,8 @@ pub struct StreamExecutionEngine {
     group_states: HashMap<String, GroupByState>,
     // Aggregation engine
     aggregation_engine: AggregationEngine,
+    // Phase 5B: Feature flag for processors, default false
+    use_processors: bool,
 }
 
 // =============================================================================
@@ -181,7 +189,25 @@ impl StreamExecutionEngine {
             record_count: 0,
             group_states: HashMap::new(),
             aggregation_engine: AggregationEngine::new(),
+            use_processors: false, // Step 1.4: Default to false for Phase 5B
         }
+    }
+
+    /// Step 1.3: Create processor context for new processor-based execution
+    fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
+        ProcessorContext {
+            record_count: self.record_count,
+            max_records: None,
+            window_context: self.get_window_context_for_processors(query_id),
+            join_context: JoinContext,
+        }
+    }
+
+    /// Step 1.3: Helper method to create window context for processors
+    fn get_window_context_for_processors(&self, _query_id: &str) -> Option<WindowContext> {
+        // Check if query has windowing, create context if needed
+        // Initially return None, implement as needed
+        None
     }
 
     pub async fn execute(
