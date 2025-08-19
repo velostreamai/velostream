@@ -33,7 +33,8 @@
 //!     timestamp: 0,
 //!     offset: 0,
 //!     partition: 0,
-//! headers: Default::default(),};
+//!     headers: Default::default(),
+//! };
 //!
 //! // accumulator.increment_count();
 //! // let result = engine.compute_aggregate_value("field", &expr, &accumulator)?;
