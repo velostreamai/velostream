@@ -81,6 +81,8 @@ pub struct ProcessorContext {
     pub window_context: Option<WindowContext>,
     /// JOIN processing utilities
     pub join_context: JoinContext,
+    /// GROUP BY processing state
+    pub group_by_states: HashMap<String, crate::ferris::sql::execution::internal::GroupByState>,
 }
 
 /// Window processing context
