@@ -255,7 +255,21 @@ impl SelectProcessor {
                     if let Expr::Function { name, args } = expr {
                         match name.to_uppercase().as_str() {
                             "COUNT" => {
-                                // COUNT is already handled by accumulator.count
+                                // For COUNT(column), track non-NULL values
+                                if !args.is_empty() {
+                                    if let Some(arg) = args.first() {
+                                        let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                                        if !matches!(value, FieldValue::Null) {
+                                            let field_key = if let Some(alias_name) = alias {
+                                                alias_name.clone()
+                                            } else {
+                                                "count".to_string()
+                                            };
+                                            accumulator.add_non_null_count(&field_key);
+                                        }
+                                    }
+                                }
+                                // For COUNT(*), we rely on the global count which is incremented for every record
                             }
                             "SUM" => {
                                 if let Some(Expr::Column(col_name)) = args.first() {
@@ -402,10 +416,24 @@ impl SelectProcessor {
                         };
                         match name.to_uppercase().as_str() {
                             "COUNT" => {
-                                result_fields.insert(
-                                    field_name,
-                                    FieldValue::Integer(accumulator.count as i64),
-                                );
+                                if args.is_empty() {
+                                    // COUNT(*) - use total count
+                                    result_fields.insert(
+                                        field_name,
+                                        FieldValue::Integer(accumulator.count as i64),
+                                    );
+                                } else {
+                                    // COUNT(column) - use non-NULL count for this field
+                                    let non_null_count = accumulator
+                                        .non_null_counts
+                                        .get(&field_name)
+                                        .copied()
+                                        .unwrap_or(0);
+                                    result_fields.insert(
+                                        field_name,
+                                        FieldValue::Integer(non_null_count as i64),
+                                    );
+                                }
                             }
                             "SUM" => {
                                 if let Some(Expr::Column(col_name)) = args.first() {
