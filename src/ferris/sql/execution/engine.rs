@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::aggregation::{AggregateFunctions, AggregationEngine, GroupByStateManager};
+use super::aggregation::{AggregateFunctions, GroupByStateManager};
 use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
@@ -164,10 +164,6 @@ pub struct StreamExecutionEngine {
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
-    // Aggregation engine
-    aggregation_engine: AggregationEngine,
-    // Phase 5B: Feature flag for processors, default false
-    use_processors: bool,
 }
 
 // =============================================================================
@@ -188,8 +184,6 @@ impl StreamExecutionEngine {
             _serialization_format,
             record_count: 0,
             group_states: HashMap::new(),
-            aggregation_engine: AggregationEngine::new(),
-            use_processors: false, // Step 5 Rollback: Conservative approach until GROUP BY implemented
         }
     }
 
@@ -211,13 +205,15 @@ impl StreamExecutionEngine {
         None
     }
 
-    /// Step 5: Enable GROUP BY and window function support in processors
+    /// Route queries to processors for all supported query types
     fn should_use_processors(&self, query: &StreamingQuery) -> bool {
         match query {
-            // Step 5: Support SELECT queries including GROUP BY and window functions
-            // Window functions in SELECT fields should use processors,
-            // but query-level window specifications can also use processors
+            // All processor-supported query types
             StreamingQuery::Select { .. } => true,
+            StreamingQuery::CreateStream { .. } => true,
+            StreamingQuery::CreateTable { .. } => true,
+            StreamingQuery::Show { .. } => true,
+            // Other query types (StartJob, StopJob, PauseJob, etc.) use legacy
             _ => false,
         }
     }
@@ -1116,81 +1112,6 @@ impl StreamExecutionEngine {
         }
     }
 
-    fn evaluate_comparison(
-        &self,
-        left: &Expr,
-        right: &Expr,
-        record: &StreamRecord,
-        op: &BinaryOperator,
-    ) -> Result<bool, SqlError> {
-        let left_val = ExpressionEvaluator::evaluate_expression_value(left, record)?;
-        let right_val = ExpressionEvaluator::evaluate_expression_value(right, record)?;
-
-        match op {
-            BinaryOperator::Equal => Ok(self.values_equal(&left_val, &right_val)),
-            BinaryOperator::NotEqual => Ok(!self.values_equal(&left_val, &right_val)),
-            BinaryOperator::GreaterThan => self.compare_values(&left_val, &right_val, |a, b| a > b),
-            BinaryOperator::LessThan => self.compare_values(&left_val, &right_val, |a, b| a < b),
-            BinaryOperator::GreaterThanOrEqual => {
-                self.compare_values(&left_val, &right_val, |a, b| a >= b)
-            }
-            BinaryOperator::LessThanOrEqual => {
-                self.compare_values(&left_val, &right_val, |a, b| a <= b)
-            }
-            BinaryOperator::Like => {
-                // Extract string values
-                let (value, pattern) = match (left_val, right_val) {
-                    (FieldValue::String(value), FieldValue::String(pattern)) => (value, pattern),
-                    (FieldValue::Null, _) | (_, FieldValue::Null) => {
-                        // NULL in LIKE comparisons returns NULL (false in boolean context)
-                        return Ok(false);
-                    }
-                    _ => {
-                        return Err(SqlError::ExecutionError {
-                            message: "LIKE requires string operands".to_string(),
-                            query: None,
-                        });
-                    }
-                };
-
-                // Apply pattern matching
-                Ok(self.match_pattern(&value, &pattern))
-            }
-            BinaryOperator::NotLike => {
-                // Extract string values
-                let (value, pattern) = match (left_val, right_val) {
-                    (FieldValue::String(value), FieldValue::String(pattern)) => (value, pattern),
-                    (FieldValue::Null, _) | (_, FieldValue::Null) => {
-                        // NULL in NOT LIKE comparisons returns NULL (false in boolean context)
-                        return Ok(false);
-                    }
-                    _ => {
-                        return Err(SqlError::ExecutionError {
-                            message: "NOT LIKE requires string operands".to_string(),
-                            query: None,
-                        });
-                    }
-                };
-
-                // Apply pattern matching (negated for NOT LIKE)
-                Ok(!self.match_pattern(&value, &pattern))
-            }
-            BinaryOperator::In | BinaryOperator::NotIn => {
-                // For comparison context, we need to handle the IN operator here too
-                // This is a bit tricky because we need access to the right expression, not just its value
-                Err(SqlError::ExecutionError {
-                    message: "IN/NOT IN operators should be handled in expression context"
-                        .to_string(),
-                    query: None,
-                })
-            }
-            _ => Err(SqlError::ExecutionError {
-                message: "Invalid comparison operator".to_string(),
-                query: None,
-            }),
-        }
-    }
-
     // =============================================================================
     // EXPRESSION EVALUATION FUNCTIONS
     // =============================================================================
@@ -1298,74 +1219,6 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Matches a string against a SQL LIKE pattern
-    ///
-    /// SQL LIKE patterns:
-    /// - '%' matches any sequence of characters (including none)
-    /// - '_' matches any single character
-    /// - Any other character matches itself
-    fn match_pattern(&self, value: &str, pattern: &str) -> bool {
-        self.match_pattern_recursive(value, pattern, 0, 0)
-    }
-
-    /// Recursive helper for pattern matching
-    fn match_pattern_recursive(
-        &self,
-        value: &str,
-        pattern: &str,
-        value_pos: usize,
-        pattern_pos: usize,
-    ) -> bool {
-        let value_chars: Vec<char> = value.chars().collect();
-        let pattern_chars: Vec<char> = pattern.chars().collect();
-
-        // If we've reached the end of the pattern, we're done only if we've also reached the end of the value
-        if pattern_pos >= pattern_chars.len() {
-            return value_pos >= value_chars.len();
-        }
-
-        // Check for wildcard '%' which can match 0 or more characters
-        if pattern_chars[pattern_pos] == '%' {
-            // Try to match 0 characters (skip the %)
-            if self.match_pattern_recursive(value, pattern, value_pos, pattern_pos + 1) {
-                return true;
-            }
-
-            // Try to match 1 or more characters
-            // We only need to try this if we haven't reached the end of the value
-            if value_pos < value_chars.len() {
-                return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos);
-            }
-        }
-        // Check for single character wildcard '_'
-        else if pattern_chars[pattern_pos] == '_' {
-            // Must have a character to match
-            if value_pos >= value_chars.len() {
-                return false;
-            }
-
-            // Match any single character and continue
-            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
-        }
-        // Regular character match
-        else {
-            // Must have a character to match
-            if value_pos >= value_chars.len() {
-                return false;
-            }
-
-            // Characters must match
-            if pattern_chars[pattern_pos] != value_chars[value_pos] {
-                return false;
-            }
-
-            // Continue matching
-            return self.match_pattern_recursive(value, pattern, value_pos + 1, pattern_pos + 1);
-        }
-
-        false
-    }
-
     fn compare_values<F>(
         &self,
         left: &FieldValue,
@@ -1390,46 +1243,6 @@ impl StreamExecutionEngine {
         };
 
         Ok(op(left_num, right_num))
-    }
-
-    fn compare_values_for_min(
-        &self,
-        left: &FieldValue,
-        right: &FieldValue,
-    ) -> Result<bool, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a < b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a < b),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) < *b),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a < (*b as f64)),
-            (FieldValue::String(a), FieldValue::String(b)) => Ok(a < b),
-            (FieldValue::Null, _) => Ok(false), // NULL is not less than anything
-            (_, FieldValue::Null) => Ok(true),  // anything is less than NULL
-            _ => Err(SqlError::ExecutionError {
-                message: "Cannot compare incompatible types for LEAST".to_string(),
-                query: None,
-            }),
-        }
-    }
-
-    fn compare_values_for_max(
-        &self,
-        left: &FieldValue,
-        right: &FieldValue,
-    ) -> Result<bool, SqlError> {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => Ok(a > b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => Ok(a > b),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => Ok((*a as f64) > *b),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(*a > (*b as f64)),
-            (FieldValue::String(a), FieldValue::String(b)) => Ok(a > b),
-            (FieldValue::Null, _) => Ok(false), // NULL is not greater than anything
-            (_, FieldValue::Null) => Ok(true),  // anything is greater than NULL
-            _ => Err(SqlError::ExecutionError {
-                message: "Cannot compare incompatible types for GREATEST".to_string(),
-                query: None,
-            }),
-        }
     }
 
     #[doc(hidden)]
@@ -2011,85 +1824,6 @@ impl StreamExecutionEngine {
         }
     }
 
-    fn extract_json_value(&self, json_string: &str, path: &str) -> Result<FieldValue, SqlError> {
-        // Parse the JSON string
-        let json_value: serde_json::Value =
-            serde_json::from_str(json_string).map_err(|_| SqlError::ExecutionError {
-                message: "Invalid JSON string".to_string(),
-                query: None,
-            })?;
-
-        // Simple path extraction - supports dot notation like "user.name" or "data.items[0]"
-        let mut current = &json_value;
-
-        // Split path by dots, but handle array indices
-        let path_parts: Vec<&str> = if path.starts_with('$') {
-            // JSONPath style - remove the $ prefix
-            path[1..].split('.').collect()
-        } else {
-            path.split('.').collect()
-        };
-
-        for part in path_parts {
-            if part.is_empty() {
-                continue;
-            }
-
-            // Handle array access like "items[0]"
-            if let Some(bracket_pos) = part.find('[') {
-                let field_name = &part[..bracket_pos];
-                let index_part = &part[bracket_pos + 1..part.len() - 1]; // Remove [ and ]
-
-                // First navigate to the field
-                if !field_name.is_empty() {
-                    current = current
-                        .get(field_name)
-                        .ok_or_else(|| SqlError::ExecutionError {
-                            message: format!("JSON path not found: {}", field_name),
-                            query: None,
-                        })?;
-                }
-
-                // Then handle array index
-                let index: usize = index_part.parse().map_err(|_| SqlError::ExecutionError {
-                    message: format!("Invalid array index: {}", index_part),
-                    query: None,
-                })?;
-
-                current = current.get(index).ok_or_else(|| SqlError::ExecutionError {
-                    message: format!("Array index out of bounds: {}", index),
-                    query: None,
-                })?;
-            } else {
-                // Regular field access
-                current = current.get(part).ok_or_else(|| SqlError::ExecutionError {
-                    message: format!("JSON path not found: {}", part),
-                    query: None,
-                })?;
-            }
-        }
-
-        // Convert JSON value to FieldValue
-        match current {
-            serde_json::Value::String(s) => Ok(FieldValue::String(s.clone())),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    Ok(FieldValue::Integer(i))
-                } else if let Some(f) = n.as_f64() {
-                    Ok(FieldValue::Float(f))
-                } else {
-                    Ok(FieldValue::String(n.to_string()))
-                }
-            }
-            serde_json::Value::Bool(b) => Ok(FieldValue::Boolean(*b)),
-            serde_json::Value::Null => Ok(FieldValue::Null),
-            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-                // For complex types, return as JSON string
-                Ok(FieldValue::String(current.to_string()))
-            }
-        }
-    }
-
     #[doc(hidden)]
     pub fn cast_value(&self, value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
         match target_type {
@@ -2286,10 +2020,6 @@ impl StreamExecutionEngine {
                 query: None,
             }),
         }
-    }
-
-    pub(crate) fn get_sender(&self) -> mpsc::Sender<ExecutionMessage> {
-        self.message_sender.clone()
     }
 
     /// Convert FieldValue to InternalValue for pluggable serialization
@@ -2808,23 +2538,6 @@ impl StreamExecutionEngine {
                     .collect();
                 FieldValue::Map(field_map)
             }
-        }
-    }
-
-    /// Promote integer to float if any of the values is a float (SQL type promotion)
-    fn promote_numeric_type(&self, values: &[FieldValue]) -> Vec<FieldValue> {
-        let has_float = values.iter().any(|v| matches!(v, FieldValue::Float(_)));
-
-        if has_float {
-            values
-                .iter()
-                .map(|v| match v {
-                    FieldValue::Integer(i) => FieldValue::Float(*i as f64),
-                    other => other.clone(),
-                })
-                .collect()
-        } else {
-            values.to_vec()
         }
     }
 
@@ -4272,7 +3985,7 @@ impl StreamExecutionEngine {
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             let current_min = accumulator.mins.get(field_name);
                             if current_min.is_none()
-                                || self.field_value_compare(&value, current_min.unwrap())
+                                || Self::field_value_compare_static(&value, current_min.unwrap())
                                     == std::cmp::Ordering::Less
                             {
                                 accumulator.mins.insert(field_name.to_string(), value);
@@ -4285,7 +3998,7 @@ impl StreamExecutionEngine {
                                 ExpressionEvaluator::evaluate_expression_value(arg, record)?;
                             let current_max = accumulator.maxs.get(field_name);
                             if current_max.is_none()
-                                || self.field_value_compare(&value, current_max.unwrap())
+                                || Self::field_value_compare_static(&value, current_max.unwrap())
                                     == std::cmp::Ordering::Greater
                             {
                                 accumulator.maxs.insert(field_name.to_string(), value);
@@ -4386,27 +4099,6 @@ impl StreamExecutionEngine {
         }
 
         Ok(())
-    }
-
-    /// Helper method to compare FieldValues
-    fn field_value_compare(&self, a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
-        match (a, b) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => {
-                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-            }
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
-                .partial_cmp(b)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => a
-                .partial_cmp(&(*b as f64))
-                .unwrap_or(std::cmp::Ordering::Equal),
-            (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
-            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a.cmp(b),
-            (FieldValue::Date(a), FieldValue::Date(b)) => a.cmp(b),
-            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => a.cmp(b),
-            _ => std::cmp::Ordering::Equal,
-        }
     }
 
     /// Group records by GROUP BY expressions
