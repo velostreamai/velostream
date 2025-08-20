@@ -258,7 +258,9 @@ impl SelectProcessor {
                                 // For COUNT(column), track non-NULL values
                                 if !args.is_empty() {
                                     if let Some(arg) = args.first() {
-                                        let value = ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                                        let value = ExpressionEvaluator::evaluate_expression_value(
+                                            arg, record,
+                                        )?;
                                         if !matches!(value, FieldValue::Null) {
                                             let field_key = if let Some(alias_name) = alias {
                                                 alias_name.clone()
@@ -651,15 +653,11 @@ impl SelectProcessor {
 
         // Apply HAVING clause if present
         if let Some(having_expr) = having {
-            let temp_record = StreamRecord {
-                fields: result_fields.clone(),
-                timestamp: record.timestamp,
-                offset: record.offset,
-                partition: record.partition,
-                headers: record.headers.clone(),
-            };
+            // Use a specialized HAVING evaluator that can resolve aggregate functions
+            let having_result =
+                Self::evaluate_having_expression(having_expr, &accumulator, fields)?;
 
-            if !ExpressionEvaluator::evaluate_expression(having_expr, &temp_record)? {
+            if !having_result {
                 // HAVING clause failed, don't emit this result
                 return Ok(ProcessorResult {
                     record: None,
@@ -798,6 +796,11 @@ impl SelectProcessor {
 
     /// Update min accumulator
     fn update_min_accumulator(accumulator: &mut GroupAccumulator, key: &str, value: &FieldValue) {
+        // SQL MIN function should ignore NULL values completely
+        if matches!(value, FieldValue::Null) {
+            return;
+        }
+
         match accumulator.mins.get(key) {
             Some(current_min) => {
                 if Self::compare_field_values(value, current_min) == std::cmp::Ordering::Less {
@@ -805,15 +808,18 @@ impl SelectProcessor {
                 }
             }
             None => {
-                if !matches!(value, FieldValue::Null) {
-                    accumulator.mins.insert(key.to_string(), value.clone());
-                }
+                accumulator.mins.insert(key.to_string(), value.clone());
             }
         }
     }
 
     /// Update max accumulator
     fn update_max_accumulator(accumulator: &mut GroupAccumulator, key: &str, value: &FieldValue) {
+        // SQL MAX function should ignore NULL values completely
+        if matches!(value, FieldValue::Null) {
+            return;
+        }
+
         match accumulator.maxs.get(key) {
             Some(current_max) => {
                 if Self::compare_field_values(value, current_max) == std::cmp::Ordering::Greater {
@@ -821,9 +827,7 @@ impl SelectProcessor {
                 }
             }
             None => {
-                if !matches!(value, FieldValue::Null) {
-                    accumulator.maxs.insert(key.to_string(), value.clone());
-                }
+                accumulator.maxs.insert(key.to_string(), value.clone());
             }
         }
     }
@@ -1043,5 +1047,440 @@ impl SelectProcessor {
             Expr::Column(_) | Expr::Literal(_) | Expr::Subquery { .. } => {}
         }
         Ok(())
+    }
+
+    /// Evaluate HAVING clause expression with aggregate function support
+    fn evaluate_having_expression(
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<bool, SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                // Evaluate aggregate function directly
+                let value = Self::compute_aggregate_for_having(name, args, accumulator, fields)?;
+                Self::field_value_to_bool(&value)
+            }
+            Expr::BinaryOp { left, op, right } => {
+                use crate::ferris::sql::ast::BinaryOperator;
+                let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
+                let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
+
+                match op {
+                    BinaryOperator::GreaterThan => {
+                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp > 0)
+                    }
+                    BinaryOperator::GreaterThanOrEqual => {
+                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp >= 0)
+                    }
+                    BinaryOperator::LessThan => {
+                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp < 0)
+                    }
+                    BinaryOperator::LessThanOrEqual => {
+                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
+                    }
+                    BinaryOperator::Equal => Ok(Self::field_values_equal(&left_val, &right_val)),
+                    BinaryOperator::NotEqual => {
+                        Ok(!Self::field_values_equal(&left_val, &right_val))
+                    }
+                    BinaryOperator::And => Ok(Self::field_value_to_bool(&left_val)?
+                        && Self::field_value_to_bool(&right_val)?),
+                    BinaryOperator::Or => Ok(Self::field_value_to_bool(&left_val)?
+                        || Self::field_value_to_bool(&right_val)?),
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!("Unsupported operator in HAVING clause: {:?}", op),
+                        query: None,
+                    }),
+                }
+            }
+            Expr::UnaryOp {
+                op,
+                expr: inner_expr,
+            } => {
+                use crate::ferris::sql::ast::UnaryOperator;
+                match op {
+                    UnaryOperator::Not => {
+                        let inner_result =
+                            Self::evaluate_having_expression(inner_expr, accumulator, fields)?;
+                        Ok(!inner_result)
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!("Unsupported unary operator in HAVING clause: {:?}", op),
+                        query: None,
+                    }),
+                }
+            }
+            _ => {
+                // For non-aggregate expressions, evaluate as value and convert to bool
+                let value = Self::evaluate_having_value_expression(expr, accumulator, fields)?;
+                Self::field_value_to_bool(&value)
+            }
+        }
+    }
+
+    /// Evaluate expression to get its value in HAVING context
+    fn evaluate_having_value_expression(
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                Self::compute_aggregate_for_having(name, args, accumulator, fields)
+            }
+            Expr::Literal(literal) => {
+                use crate::ferris::sql::ast::LiteralValue;
+                match literal {
+                    LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                    LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                    LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                    LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                    LiteralValue::Null => Ok(FieldValue::Null),
+                    LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
+                        value: *value,
+                        unit: unit.clone(),
+                    }),
+                }
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: format!("Unsupported expression in HAVING clause: {:?}", expr),
+                query: None,
+            }),
+        }
+    }
+
+    /// Extract aggregate functions from expressions and compute their values
+    fn extract_and_compute_aggregates(
+        having_fields: &mut HashMap<String, FieldValue>,
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<(), SqlError> {
+        match expr {
+            Expr::Function { name, args } => {
+                // Compute the aggregate function value and store it with a key
+                // that matches how the expression evaluator will look it up
+                let function_key = Self::get_function_key(name, args)?;
+                let computed_value =
+                    Self::compute_aggregate_for_having(name, args, accumulator, fields)?;
+                having_fields.insert(function_key, computed_value);
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                // Recursively process both sides of binary operations
+                Self::extract_and_compute_aggregates(having_fields, left, accumulator, fields)?;
+                Self::extract_and_compute_aggregates(having_fields, right, accumulator, fields)?;
+            }
+            Expr::UnaryOp {
+                expr: inner_expr, ..
+            } => {
+                // Recursively process unary operations
+                Self::extract_and_compute_aggregates(
+                    having_fields,
+                    inner_expr,
+                    accumulator,
+                    fields,
+                )?;
+            }
+            _ => {
+                // Other expression types don't need special handling for aggregates
+            }
+        }
+        Ok(())
+    }
+
+    /// Generate a key for function lookups that matches expression evaluation
+    fn get_function_key(name: &str, args: &[Expr]) -> Result<String, SqlError> {
+        match name.to_uppercase().as_str() {
+            "COUNT" => {
+                if args.is_empty() {
+                    Ok("COUNT(*)".to_string())
+                } else if let Some(Expr::Column(col_name)) = args.first() {
+                    Ok(format!("COUNT({})", col_name))
+                } else {
+                    Ok("COUNT(expr)".to_string())
+                }
+            }
+            "SUM" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    Ok(format!("SUM({})", col_name))
+                } else {
+                    Ok("SUM(expr)".to_string())
+                }
+            }
+            "AVG" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    Ok(format!("AVG({})", col_name))
+                } else {
+                    Ok("AVG(expr)".to_string())
+                }
+            }
+            "MIN" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    Ok(format!("MIN({})", col_name))
+                } else {
+                    Ok("MIN(expr)".to_string())
+                }
+            }
+            "MAX" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    Ok(format!("MAX({})", col_name))
+                } else {
+                    Ok("MAX(expr)".to_string())
+                }
+            }
+            other => Ok(format!("{}(...)", other)),
+        }
+    }
+
+    /// Compute aggregate function values for HAVING clause evaluation
+    fn compute_aggregate_for_having(
+        name: &str,
+        args: &[Expr],
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<FieldValue, SqlError> {
+        // Find the matching SELECT field to get the correct accumulator key
+        let accumulator_key = Self::find_accumulator_key(name, args, fields);
+
+        match name.to_uppercase().as_str() {
+            "COUNT" => {
+                if args.is_empty() {
+                    // COUNT(*) - use total count
+                    Ok(FieldValue::Integer(accumulator.count as i64))
+                } else {
+                    // COUNT(column) - use non-NULL count
+                    let non_null_count = accumulator
+                        .non_null_counts
+                        .get(&accumulator_key)
+                        .copied()
+                        .unwrap_or(0);
+                    Ok(FieldValue::Integer(non_null_count as i64))
+                }
+            }
+            "SUM" => {
+                let sum_value = accumulator
+                    .sums
+                    .get(&accumulator_key)
+                    .copied()
+                    .unwrap_or(0.0);
+                Ok(FieldValue::Float(sum_value))
+            }
+            "AVG" => {
+                if let Some(values) = accumulator.numeric_values.get(&accumulator_key) {
+                    if !values.is_empty() {
+                        let avg = values.iter().sum::<f64>() / values.len() as f64;
+                        Ok(FieldValue::Float(avg))
+                    } else {
+                        Ok(FieldValue::Null)
+                    }
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            "MIN" => {
+                if let Some(min_value) = accumulator.mins.get(&accumulator_key) {
+                    Ok(min_value.clone())
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            "MAX" => {
+                if let Some(max_value) = accumulator.maxs.get(&accumulator_key) {
+                    Ok(max_value.clone())
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            _ => Ok(FieldValue::Null),
+        }
+    }
+
+    /// Find the accumulator key for a function by looking at the SELECT fields
+    fn find_accumulator_key(name: &str, args: &[Expr], fields: &[SelectField]) -> String {
+        // Look for a matching function in the SELECT fields to get the alias/key
+        for field in fields {
+            if let SelectField::Expression { expr, alias } = field {
+                if let Expr::Function {
+                    name: field_name,
+                    args: field_args,
+                } = expr
+                {
+                    if field_name.to_uppercase() == name.to_uppercase() {
+                        // Check if args match
+                        if Self::args_match(args, field_args) {
+                            // Found matching function, use alias or generate default key
+                            return if let Some(alias_name) = alias {
+                                alias_name.clone()
+                            } else {
+                                match name.to_uppercase().as_str() {
+                                    "SUM" => {
+                                        if let Some(Expr::Column(col_name)) = args.first() {
+                                            format!("sum_{}", col_name)
+                                        } else {
+                                            "sum".to_string()
+                                        }
+                                    }
+                                    "AVG" => {
+                                        if let Some(Expr::Column(col_name)) = args.first() {
+                                            format!("avg_{}", col_name)
+                                        } else {
+                                            "avg".to_string()
+                                        }
+                                    }
+                                    "MIN" => {
+                                        if let Some(Expr::Column(col_name)) = args.first() {
+                                            format!("min_{}", col_name)
+                                        } else {
+                                            "min".to_string()
+                                        }
+                                    }
+                                    "MAX" => {
+                                        if let Some(Expr::Column(col_name)) = args.first() {
+                                            format!("max_{}", col_name)
+                                        } else {
+                                            "max".to_string()
+                                        }
+                                    }
+                                    "COUNT" => {
+                                        if let Some(Expr::Column(col_name)) = args.first() {
+                                            format!("count_{}", col_name)
+                                        } else {
+                                            "count".to_string()
+                                        }
+                                    }
+                                    _ => name.to_lowercase(),
+                                }
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: generate default key
+        match name.to_uppercase().as_str() {
+            "SUM" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    format!("sum_{}", col_name)
+                } else {
+                    "sum".to_string()
+                }
+            }
+            "AVG" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    format!("avg_{}", col_name)
+                } else {
+                    "avg".to_string()
+                }
+            }
+            "MIN" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    format!("min_{}", col_name)
+                } else {
+                    "min".to_string()
+                }
+            }
+            "MAX" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    format!("max_{}", col_name)
+                } else {
+                    "max".to_string()
+                }
+            }
+            "COUNT" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    format!("count_{}", col_name)
+                } else {
+                    "count".to_string()
+                }
+            }
+            _ => name.to_lowercase(),
+        }
+    }
+
+    /// Check if two argument lists match
+    fn args_match(args1: &[Expr], args2: &[Expr]) -> bool {
+        if args1.len() != args2.len() {
+            return false;
+        }
+        for (arg1, arg2) in args1.iter().zip(args2.iter()) {
+            match (arg1, arg2) {
+                (Expr::Column(name1), Expr::Column(name2)) => {
+                    if name1 != name2 {
+                        return false;
+                    }
+                }
+                _ => {
+                    // For simplicity, assume other expressions match if they're the same type
+                    // A more sophisticated implementation would do deeper comparison
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Convert FieldValue to boolean for HAVING clause evaluation
+    fn field_value_to_bool(value: &FieldValue) -> Result<bool, SqlError> {
+        match value {
+            FieldValue::Boolean(b) => Ok(*b),
+            FieldValue::Integer(i) => Ok(*i != 0),
+            FieldValue::Float(f) => Ok(*f != 0.0),
+            FieldValue::String(s) => Ok(!s.is_empty()),
+            FieldValue::Null => Ok(false),
+            _ => Err(SqlError::ExecutionError {
+                message: "Cannot convert value to boolean".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    /// Check if two FieldValues are equal
+    fn field_values_equal(left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            (FieldValue::Null, FieldValue::Null) => true,
+            (FieldValue::Null, _) | (_, FieldValue::Null) => false,
+            (FieldValue::String(a), FieldValue::String(b)) => a == b,
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
+            (FieldValue::Float(a), FieldValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
+            (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
+            _ => false,
+        }
+    }
+
+    /// Compare two FieldValues using a comparison function for HAVING evaluation
+    fn compare_having_values<F>(
+        left: &FieldValue,
+        right: &FieldValue,
+        op: F,
+    ) -> Result<bool, SqlError>
+    where
+        F: Fn(i32) -> bool,
+    {
+        let cmp = match (left, right) {
+            (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(false),
+            (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b) as i32,
+            (FieldValue::Float(a), FieldValue::Float(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) as i32
+            }
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64)
+                .partial_cmp(b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                as i32,
+            (FieldValue::Float(a), FieldValue::Integer(b)) => {
+                a.partial_cmp(&(*b as f64))
+                    .unwrap_or(std::cmp::Ordering::Equal) as i32
+            }
+            (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b) as i32,
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "Cannot compare incompatible types".to_string(),
+                    query: None,
+                });
+            }
+        };
+        Ok(op(cmp))
     }
 }

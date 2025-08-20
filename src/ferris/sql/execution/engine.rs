@@ -256,6 +256,19 @@ impl StreamExecutionEngine {
         // Update engine state from context - sync back the GROUP BY states
         self.group_states = context.group_by_states;
 
+        // Emit GROUP BY results if this is a GROUP BY query
+        if let StreamingQuery::Select {
+            group_by,
+            fields,
+            having,
+            ..
+        } = query
+        {
+            if group_by.is_some() {
+                self.emit_group_by_results(fields, having)?;
+            }
+        }
+
         // Update engine state from context
         if result.should_count && result.record.is_some() {
             self.record_count += 1;
@@ -4839,5 +4852,237 @@ impl StreamExecutionEngine {
                 query: None,
             }),
         }
+    }
+
+    /// Emit accumulated GROUP BY results to the output channel
+    fn emit_group_by_results(
+        &mut self,
+        fields: &[SelectField],
+        having: &Option<Expr>,
+    ) -> Result<(), SqlError> {
+        // Clone the group states to avoid borrow conflicts
+        let group_states = self.group_states.clone();
+
+        // Iterate through all accumulated GROUP BY states and emit results
+        for (_query_key, group_state) in &group_states {
+            for (_group_key, accumulator) in &group_state.groups {
+                // Generate result record for this group
+                let mut result_fields = HashMap::new();
+
+                // Evaluate SELECT fields using the accumulator
+                for field in fields {
+                    match field {
+                        SelectField::Expression { expr, alias } => {
+                            let field_name = alias
+                                .as_ref()
+                                .unwrap_or(&self.get_expression_name(expr))
+                                .clone();
+
+                            match expr {
+                                Expr::Function { name, args } => {
+                                    match name.to_uppercase().as_str() {
+                                        "COUNT" => {
+                                            if args.is_empty() {
+                                                // COUNT(*) - count all records in group
+                                                result_fields.insert(
+                                                    field_name,
+                                                    FieldValue::Integer(accumulator.count as i64),
+                                                );
+                                            } else {
+                                                // COUNT(column) - count non-NULL values
+                                                let count = accumulator
+                                                    .non_null_counts
+                                                    .get(&field_name)
+                                                    .copied()
+                                                    .unwrap_or(0)
+                                                    as i64;
+                                                result_fields
+                                                    .insert(field_name, FieldValue::Integer(count));
+                                            }
+                                        }
+                                        "SUM" => {
+                                            let sum = accumulator
+                                                .sums
+                                                .get(&field_name)
+                                                .copied()
+                                                .unwrap_or(0.0);
+                                            result_fields
+                                                .insert(field_name, FieldValue::Float(sum));
+                                        }
+                                        "MAX" => {
+                                            let max = accumulator
+                                                .maxs
+                                                .get(&field_name)
+                                                .cloned()
+                                                .unwrap_or(FieldValue::Null);
+                                            result_fields.insert(field_name, max);
+                                        }
+                                        "MIN" => {
+                                            let min = accumulator
+                                                .mins
+                                                .get(&field_name)
+                                                .cloned()
+                                                .unwrap_or(FieldValue::Null);
+                                            result_fields.insert(field_name, min);
+                                        }
+                                        "AVG" => {
+                                            if let Some(values) =
+                                                accumulator.numeric_values.get(&field_name)
+                                            {
+                                                if values.is_empty() {
+                                                    result_fields
+                                                        .insert(field_name, FieldValue::Null);
+                                                } else {
+                                                    let avg = values.iter().sum::<f64>()
+                                                        / values.len() as f64;
+                                                    result_fields
+                                                        .insert(field_name, FieldValue::Float(avg));
+                                                }
+                                            } else {
+                                                result_fields.insert(field_name, FieldValue::Null);
+                                            }
+                                        }
+                                        _ => {
+                                            // For other functions, try to get first value or use defaults
+                                            let value = accumulator
+                                                .first_values
+                                                .get(&field_name)
+                                                .cloned()
+                                                .unwrap_or(FieldValue::Null);
+                                            result_fields.insert(field_name, value);
+                                        }
+                                    }
+                                }
+                                Expr::BinaryOp {
+                                    left: _,
+                                    op: _,
+                                    right: _,
+                                } => {
+                                    // This handles expressions like "amount > 150" in SELECT
+                                    // We need to evaluate the expression using the sample record
+                                    if let Some(sample_record) = &accumulator.sample_record {
+                                        match ExpressionEvaluator::evaluate_expression_value(
+                                            expr,
+                                            sample_record,
+                                        ) {
+                                            Ok(value) => {
+                                                result_fields.insert(field_name, value);
+                                            }
+                                            Err(_) => {
+                                                result_fields.insert(field_name, FieldValue::Null);
+                                            }
+                                        }
+                                    } else {
+                                        result_fields.insert(field_name, FieldValue::Null);
+                                    }
+                                }
+                                _ => {
+                                    // For other expressions, get first value
+                                    let value = accumulator
+                                        .first_values
+                                        .get(&field_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null);
+                                    result_fields.insert(field_name, value);
+                                }
+                            }
+                        }
+                        SelectField::Column(name) => {
+                            let value = accumulator
+                                .first_values
+                                .get(name)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null);
+                            result_fields.insert(name.clone(), value);
+                        }
+                        SelectField::AliasedColumn { column, alias } => {
+                            let value = accumulator
+                                .first_values
+                                .get(column)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null);
+                            result_fields.insert(alias.clone(), value);
+                        }
+                        SelectField::Wildcard => {
+                            // Add all fields from sample record
+                            if let Some(sample_record) = &accumulator.sample_record {
+                                result_fields.extend(sample_record.fields.clone());
+                            }
+                        }
+                    }
+                }
+
+                // Apply HAVING clause filter if present
+                if let Some(having_expr) = having {
+                    // Create temporary record to evaluate HAVING
+                    let temp_record = StreamRecord {
+                        fields: result_fields.clone(),
+                        timestamp: accumulator
+                            .sample_record
+                            .as_ref()
+                            .map(|r| r.timestamp)
+                            .unwrap_or(0),
+                        offset: accumulator
+                            .sample_record
+                            .as_ref()
+                            .map(|r| r.offset)
+                            .unwrap_or(0),
+                        partition: accumulator
+                            .sample_record
+                            .as_ref()
+                            .map(|r| r.partition)
+                            .unwrap_or(0),
+                        headers: accumulator
+                            .sample_record
+                            .as_ref()
+                            .map(|r| r.headers.clone())
+                            .unwrap_or_default(),
+                    };
+
+                    // Skip this group if it doesn't pass HAVING filter
+                    if !ExpressionEvaluator::evaluate_expression(having_expr, &temp_record)? {
+                        continue;
+                    }
+                }
+
+                // Create and emit result record
+                let output_record = StreamRecord {
+                    fields: result_fields,
+                    timestamp: accumulator
+                        .sample_record
+                        .as_ref()
+                        .map(|r| r.timestamp)
+                        .unwrap_or(0),
+                    offset: accumulator
+                        .sample_record
+                        .as_ref()
+                        .map(|r| r.offset)
+                        .unwrap_or(0),
+                    partition: accumulator
+                        .sample_record
+                        .as_ref()
+                        .map(|r| r.partition)
+                        .unwrap_or(0),
+                    headers: accumulator
+                        .sample_record
+                        .as_ref()
+                        .map(|r| r.headers.clone())
+                        .unwrap_or_default(),
+                };
+
+                // Convert to internal record and send
+                let mut internal_record = HashMap::new();
+                for (key, field_value) in &output_record.fields {
+                    let internal_value = self.field_value_to_internal(field_value.clone());
+                    internal_record.insert(key.clone(), internal_value);
+                }
+
+                if self.output_sender.send(internal_record).is_err() {
+                    // Channel closed, continue processing
+                }
+            }
+        }
+
+        Ok(())
     }
 }
