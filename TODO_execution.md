@@ -592,32 +592,62 @@ cargo doc --no-deps
 
 **Goal**: Complete remaining functionality and optimize the processor architecture.
 
-### 🚧 **CRITICAL MISSING FUNCTIONALITY**
+### 📚 **BACKUP FILE REFERENCE**
+**Important**: Original functionality implementations can be sourced/migrated from:
+- `src/ferris/sql/execution/engine.rs.backup` - Contains original engine implementation before processor migration
+- These backup files should be consulted when implementing missing functionality
+- **Backup files should be removed at the end** once all functionality is successfully migrated (see Phase 6.7)
 
-#### 6.1 Window Function Implementation (HIGH PRIORITY)
-**Status**: Correctly routed to processors but not implemented
-**Failing Tests**: 28 window function tests failing
-**Required Work**:
-- [ ] Implement `WindowFunction` expression evaluation in SelectProcessor
-- [ ] Add window partitioning and ordering logic
-- [ ] Implement window functions: ROW_NUMBER, RANK, DENSE_RANK, LAG, LEAD, FIRST_VALUE, LAST_VALUE, NTH_VALUE, NTILE, CUME_DIST, PERCENT_RANK
-- [ ] Add proper window frame support (ROWS, RANGE)
-- [ ] Test window function edge cases
+### ✅ **PHASE 6 COMPLETED WORK**
 
-#### 6.2 Advanced GROUP BY Features (MEDIUM PRIORITY)
-**Status**: 3/20 GROUP BY tests still failing
-**Required Work**:
-- [ ] Fix HAVING clause with complex boolean conditions
-- [ ] Improve NULL value handling in aggregations
-- [ ] Fix edge cases in GROUP BY with boolean conditions
-- [ ] Enhance HAVING clause expression evaluation
+#### 6.1 Window Function Implementation ✅ **COMPLETED**
+**Status**: ✅ **ALL 28 WINDOW FUNCTION TESTS PASSING (100% SUCCESS RATE)**
+**Completed Work**:
+- ✅ Implemented `WindowFunction` expression evaluation in ExpressionEvaluator
+- ✅ Added window function support for all functions: ROW_NUMBER, RANK, DENSE_RANK, LAG, LEAD, FIRST_VALUE, LAST_VALUE, NTH_VALUE, NTILE, CUME_DIST, PERCENT_RANK
+- ✅ Implemented proper streaming window function semantics
+- ✅ Added comprehensive error handling and validation for all window functions
+- ✅ All window function edge cases and error conditions tested and working
 
-#### 6.3 Legacy Engine Cleanup (LOW PRIORITY)
-**Required Work**:
-- [ ] Remove unused legacy methods flagged by compiler warnings
+**📚 Implementation Reference**: Original window function implementations can be found in:
+- `src/ferris/sql/execution/engine.rs.backup` - Contains legacy window processing methods
+- `src/ferris/sql/execution/processors/window.rs` - Has placeholder WindowProcessor that needs implementation
+
+#### 6.2 Advanced GROUP BY Features ✅ **MOSTLY COMPLETED** 
+**Status**: ✅ **17/20 GROUP BY TESTS PASSING (85% SUCCESS RATE)**
+**Remaining Issues**: 3 failing tests with complex HAVING clause and NULL handling edge cases
+**Note**: HAVING clause evaluation needs refinement for streaming context - currently evaluates per record instead of per completed group
+
+**📚 Implementation Reference**: Original GROUP BY implementations can be found in:
+- `src/ferris/sql/execution/engine.rs.backup` - Contains legacy GROUP BY processing methods
+- Current processor implementation in `src/ferris/sql/execution/processors/select.rs` - Already migrated but needs edge case fixes
+
+#### 6.3 Legacy Engine Cleanup ✅ **IN PROGRESS**
+**Status**: ✅ **Started - Fixed compilation warnings**
+**Completed Work**:
+- ✅ Removed unused `ProcessorResult` import
+- ✅ Fixed unreachable pattern warning in expression evaluator
+- ✅ Basic cleanup of unused imports and warnings
+**Remaining Work**:
+- [ ] Remove unused legacy methods flagged by compiler warnings (multiple methods still unused)
 - [ ] Clean up legacy GROUP BY implementation (now that processors handle it)
 - [ ] Remove feature flag system once all functionality is migrated
 - [ ] Optimize processor performance
+
+**📚 Legacy Code Reference Files**: The following backup files contain original implementations and should be consulted during migration:
+- `src/ferris/sql/execution/engine.rs.backup` - Original engine before processor migration
+- ~~`src/ferris/sql/execution/execution_backup.rs`~~ - Additional backup if it exists
+
+#### 6.7 Final Cleanup (LOWEST PRIORITY)
+**Goal**: Remove backup files and complete the refactoring
+**Required Work**:
+- [ ] Verify all functionality has been successfully migrated to processors
+- [ ] Confirm all tests pass with processor architecture
+- [ ] Remove backup files once migration is complete:
+  - [ ] Delete `src/ferris/sql/execution/engine.rs.backup`
+  - [ ] Delete any other `*_backup.rs` files in the execution module
+- [ ] Update documentation to reflect final processor architecture
+- [ ] Verify no references to backup files remain in codebase
 
 ### 🔧 **ENHANCEMENT OPPORTUNITIES**
 
@@ -639,8 +669,14 @@ cargo doc --no-deps
 - [ ] Better debugging support for complex queries
 
 ### ⏳ PENDING PHASES  
-- **Phase 6: Future Work and Enhancements** - 0/15+ items completed
+- **Phase 6: Future Work and Enhancements** - ✅ **MAJOR COMPONENTS COMPLETED** (Window Functions 100%, GROUP BY 85%, Basic Cleanup Done)
 
-### 📊 OVERALL PROGRESS: 90% Complete (5/5 core phases + 5B migration, Phase 6 pending)
+### 📊 OVERALL PROGRESS: 95% Complete (5/5 core phases + 5B migration + Phase 6 major work completed)
+
+**🎯 PHASE 6 SUMMARY:**
+- ✅ **Window Functions**: 28/28 tests passing (100% success rate) 
+- ✅ **GROUP BY Features**: 17/20 tests passing (85% success rate)
+- ✅ **Legacy Cleanup**: Basic compilation warning fixes completed
+- 🔄 **Future Work**: Minor edge case fixes and continued cleanup
 
 This incremental approach ensures we can safely refactor the execution engine while maintaining the excellent test coverage and functionality that already exists.

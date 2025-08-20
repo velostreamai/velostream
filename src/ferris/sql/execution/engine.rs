@@ -152,7 +152,7 @@ use tokio::sync::mpsc;
 // Processor imports for Phase 5B integration
 use super::processors::{
     HeaderMutation as ProcessorHeaderMutation, HeaderOperation as ProcessorHeaderOperation,
-    JoinContext, ProcessorContext, ProcessorResult, QueryProcessor, WindowContext,
+    JoinContext, ProcessorContext, QueryProcessor, WindowContext,
 };
 
 pub struct StreamExecutionEngine {

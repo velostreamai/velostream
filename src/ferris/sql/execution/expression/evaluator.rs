@@ -590,10 +590,19 @@ impl ExpressionEvaluator {
                     Ok(FieldValue::Null)
                 }
             }
-            _ => Err(SqlError::ExecutionError {
-                message: format!("Unsupported expression type: {:?}", expr),
-                query: None,
-            }),
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => {
+                // Delegate to window function evaluator
+                super::WindowFunctions::evaluate_window_function(
+                    function_name,
+                    args,
+                    over_clause,
+                    record,
+                )
+            }
         }
     }
 
