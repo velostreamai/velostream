@@ -57,7 +57,7 @@ async fn test_stddev_functions() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -146,7 +146,7 @@ async fn test_variance_functions() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -242,7 +242,7 @@ async fn test_median_function() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -312,7 +312,7 @@ async fn test_statistical_function_null_handling() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -361,7 +361,7 @@ async fn test_statistical_function_error_cases() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -420,7 +420,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -469,7 +469,7 @@ async fn test_statistical_functions_with_literal_values() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();

@@ -60,7 +60,7 @@ async fn test_abs_function() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -232,7 +232,7 @@ async fn test_ceil_floor_functions() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -286,7 +286,7 @@ async fn test_mod_function() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -377,7 +377,7 @@ async fn test_power_function() {
                 having: None,
                 order_by: None,
                 limit: None,
-        aggregation_mode: None,
+                aggregation_mode: None,
             };
 
             let record = create_test_record();
@@ -450,7 +450,7 @@ async fn test_sqrt_function() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -533,7 +533,7 @@ async fn test_math_function_error_cases() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -577,7 +577,7 @@ async fn test_math_function_null_handling() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -616,7 +616,7 @@ async fn test_math_function_null_handling() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();
@@ -654,7 +654,7 @@ async fn test_math_function_null_handling() {
             having: None,
             order_by: None,
             limit: None,
-        aggregation_mode: None,
+            aggregation_mode: None,
         };
 
         let record = create_test_record();

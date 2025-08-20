@@ -190,11 +190,11 @@ enum TokenType {
     Versions,   // VERSIONS
     Metrics,    // METRICS
     Describe,   // DESCRIBE
-    
+
     // Aggregation Mode Keywords
     AggregationMode, // AGGREGATION_MODE
-    Windowed,   // WINDOWED
-    Continuous, // CONTINUOUS
+    Windowed,        // WINDOWED
+    Continuous,      // CONTINUOUS
 
     // Literals and Identifiers
     Identifier, // Column names, table names, function names
@@ -341,12 +341,12 @@ impl StreamingSqlParser {
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
-        
+
         // Aggregation Mode Keywords
         keywords.insert("AGGREGATION_MODE".to_string(), TokenType::AggregationMode);
         keywords.insert("WINDOWED".to_string(), TokenType::Windowed);
         keywords.insert("CONTINUOUS".to_string(), TokenType::Continuous);
-        
+
         keywords.insert("JOIN".to_string(), TokenType::Join);
         keywords.insert("INNER".to_string(), TokenType::Inner);
         keywords.insert("LEFT".to_string(), TokenType::Left);
@@ -836,7 +836,7 @@ impl TokenParser {
             if self.current_token().token_type == TokenType::AggregationMode {
                 self.advance();
                 self.expect(TokenType::Equal)?;
-                
+
                 // Parse the aggregation mode value (can be string or identifier)
                 let mode_token = self.current_token().clone();
                 let mode_str = match mode_token.token_type {
@@ -862,16 +862,21 @@ impl TokenParser {
                         position: Some(mode_token.position),
                     }),
                 };
-                
+
                 // Convert string to AggregationMode enum
                 use crate::ferris::sql::ast::AggregationMode;
                 aggregation_mode = Some(match mode_str.as_str() {
                     "WINDOWED" => AggregationMode::Windowed,
                     "CONTINUOUS" => AggregationMode::Continuous,
-                    _ => return Err(SqlError::ParseError {
-                        message: format!("Invalid aggregation mode '{}'. Expected 'WINDOWED' or 'CONTINUOUS'", mode_str),
-                        position: Some(mode_token.position),
-                    }),
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!(
+                                "Invalid aggregation mode '{}'. Expected 'WINDOWED' or 'CONTINUOUS'",
+                                mode_str
+                            ),
+                            position: Some(mode_token.position),
+                        });
+                    }
                 });
             } else {
                 return Err(SqlError::ParseError {

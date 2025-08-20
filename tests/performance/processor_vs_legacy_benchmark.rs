@@ -132,7 +132,7 @@ async fn benchmark_group_by_performance() {
                     break;
                 }
             }
-            
+
             // Manually flush GROUP BY results after processing all records
             if let Err(e) = engine.flush_group_by_results(&query) {
                 println!("Warning: Failed to flush GROUP BY results: {:?}", e);
@@ -211,7 +211,7 @@ async fn benchmark_memory_usage() {
                     );
                 }
             }
-            
+
             // Flush GROUP BY results if it's a GROUP BY query
             if query_str.contains("GROUP BY") {
                 if let Err(e) = engine.flush_group_by_results(&query) {
@@ -332,7 +332,7 @@ async fn benchmark_query_complexity_scaling() {
                     successful_executions += 1;
                 }
             }
-            
+
             // Flush GROUP BY results if it's a GROUP BY query
             if query_str.contains("GROUP BY") {
                 if let Err(e) = engine.flush_group_by_results(&query) {

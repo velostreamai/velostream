@@ -59,7 +59,7 @@ pub enum AggregationMode {
     /// Similar to CDC (Change Data Capture) - provides real-time updates
     /// Use case: Live dashboards, real-time counters, immediate notifications
     Continuous,
-    
+
     /// Windowed aggregation - accumulates data within time/count windows
     /// Emits results only when windows close or at configured intervals
     /// Use case: Batch processing, periodic reports, time-series analysis
