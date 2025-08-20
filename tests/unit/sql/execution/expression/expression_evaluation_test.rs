@@ -59,6 +59,7 @@ async fn test_arithmetic_expressions() {
         having: None,
         order_by: None,
         limit: None,
+        aggregation_mode: None,
     };
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));
@@ -96,6 +97,7 @@ async fn test_boolean_expressions() {
         having: None,
         order_by: None,
         limit: None,
+        aggregation_mode: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -137,6 +139,7 @@ async fn test_complex_expression_evaluation() {
         having: None,
         order_by: None,
         limit: None,
+        aggregation_mode: None,
     };
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));

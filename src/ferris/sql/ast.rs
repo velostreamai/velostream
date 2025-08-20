@@ -52,6 +52,27 @@ The AST is designed to be:
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Aggregation mode for GROUP BY operations in streaming contexts
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AggregationMode {
+    /// Continuous aggregation - emits updated result for each input record
+    /// Similar to CDC (Change Data Capture) - provides real-time updates
+    /// Use case: Live dashboards, real-time counters, immediate notifications
+    Continuous,
+    
+    /// Windowed aggregation - accumulates data within time/count windows
+    /// Emits results only when windows close or at configured intervals
+    /// Use case: Batch processing, periodic reports, time-series analysis
+    Windowed,
+}
+
+impl Default for AggregationMode {
+    fn default() -> Self {
+        // Default to windowed for better performance in most streaming scenarios
+        AggregationMode::Windowed
+    }
+}
+
 /// Root AST node representing different types of streaming SQL queries.
 ///
 /// This enum encompasses all supported query types in the streaming SQL engine,
@@ -109,6 +130,8 @@ pub enum StreamingQuery {
         order_by: Option<Vec<OrderByExpr>>,
         /// Optional LIMIT for result set size control
         limit: Option<u64>,
+        /// Aggregation mode for GROUP BY operations
+        aggregation_mode: Option<AggregationMode>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
     ///

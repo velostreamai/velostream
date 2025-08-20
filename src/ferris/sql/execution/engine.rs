@@ -137,8 +137,8 @@ use super::internal::{
 use super::types::{FieldValue, StreamRecord};
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{
-    BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, SelectField,
-    StreamSource, StreamingQuery, TimeUnit, WindowSpec,
+    AggregationMode, BinaryOperator, Expr, JoinClause, JoinType, JoinWindow, LiteralValue, OverClause, 
+    SelectField, StreamSource, StreamingQuery, TimeUnit, WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
@@ -252,18 +252,14 @@ impl StreamExecutionEngine {
         // Update engine state from context - sync back the GROUP BY states
         self.group_states = context.group_by_states;
 
-        // Emit GROUP BY results if this is a GROUP BY query
-        if let StreamingQuery::Select {
-            group_by,
-            fields,
-            having,
-            ..
-        } = query
-        {
-            if group_by.is_some() {
-                self.emit_group_by_results(fields, having)?;
-            }
-        }
+        // NOTE: GROUP BY results emission moved to explicit triggers
+        // Emitting after every record was causing performance issues and incorrect results
+        // In a complete streaming implementation, GROUP BY results should be emitted based on:
+        // - Time windows (every N seconds)
+        // - Count windows (every N records) 
+        // - Memory pressure
+        // - Explicit flush commands
+        // For now, results accumulate in group_states and can be retrieved via explicit calls
 
         // Update engine state from context
         if result.should_count && result.record.is_some() {
@@ -718,6 +714,7 @@ impl StreamExecutionEngine {
                 having,
                 limit,
                 group_by,
+                aggregation_mode,
                 ..
             } => {
                 // Check limit first
@@ -748,6 +745,7 @@ impl StreamExecutionEngine {
                         group_exprs,
                         fields,
                         having,
+                        aggregation_mode,
                     );
                 }
 
@@ -3358,6 +3356,7 @@ impl StreamExecutionEngine {
         group_exprs: &[Expr],
         select_fields: &[SelectField],
         having_clause: &Option<Expr>,
+        aggregation_mode: &Option<AggregationMode>,
     ) -> Result<Option<StreamRecord>, SqlError> {
         // Generate a unique key for this query's GROUP BY state
         let query_key = format!("{:p}", query as *const _);
@@ -3397,7 +3396,7 @@ impl StreamExecutionEngine {
 
         // Get or create the group state
         // Update group accumulator and compute result
-        let result_record = {
+        let _result_record = {
             let group_state = self.group_states.get_mut(&query_key).unwrap();
 
             // Create or get the group accumulator
@@ -3544,14 +3543,32 @@ impl StreamExecutionEngine {
             }
         };
 
-        // Apply HAVING clause if present
-        if let Some(having_expr) = having_clause {
-            if !self.evaluate_having_expression(having_expr, &result_record)? {
-                return Ok(None);
+        // Determine behavior based on aggregation mode
+        let default_mode = AggregationMode::default();
+        let mode = aggregation_mode.as_ref().unwrap_or(&default_mode);
+        
+        match mode {
+            AggregationMode::Continuous => {
+                // Continuous mode: emit updated result for the affected group immediately
+                // This provides CDC-style updates where each input triggers an output
+                
+                // Apply HAVING clause if present
+                if let Some(having_expr) = having_clause {
+                    if !self.evaluate_having_expression(having_expr, &_result_record)? {
+                        return Ok(None); // Group doesn't satisfy HAVING condition
+                    }
+                }
+                
+                // Return the updated result for this group
+                Ok(Some(_result_record))
+            }
+            AggregationMode::Windowed => {
+                // Windowed mode: accumulate state, emit results only when windows close
+                // This is more efficient for high-throughput scenarios
+                // Results are emitted by emit_group_by_results() when appropriate
+                Ok(None)
             }
         }
-
-        Ok(Some(result_record))
     }
 
     /// Update accumulator for a specific field (static helper)
@@ -4543,6 +4560,21 @@ impl StreamExecutionEngine {
                 message: "Cannot compare incompatible types".to_string(),
                 query: None,
             }),
+        }
+    }
+
+    /// Manually flush all accumulated GROUP BY results for a specific query
+    pub fn flush_group_by_results(&mut self, query: &StreamingQuery) -> Result<(), SqlError> {
+        if let StreamingQuery::Select {
+            group_by: Some(_),
+            fields,
+            having,
+            ..
+        } = query
+        {
+            self.emit_group_by_results(fields, having)
+        } else {
+            Ok(())
         }
     }
 

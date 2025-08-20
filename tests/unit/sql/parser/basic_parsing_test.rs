@@ -20,6 +20,7 @@ mod tests {
                 where_clause,
                 window,
                 limit: _,
+        aggregation_mode: None,
                 ..
             } => {
                 assert_eq!(fields.len(), 1);
@@ -92,6 +93,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+        aggregation_mode: None,
                 ..
             } => {
                 assert!(window.is_some());
@@ -121,6 +123,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+        aggregation_mode: None,
                 ..
             } => {
                 assert!(window.is_some());
@@ -151,6 +154,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+        aggregation_mode: None,
                 ..
             } => {
                 assert!(window.is_some());
