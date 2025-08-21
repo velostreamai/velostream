@@ -860,7 +860,7 @@ impl TokenParser {
                         "WINDOWED".to_string()
                     },
                     TokenType::Continuous => {
-                        self.advance(); 
+                        self.advance();
                         "CONTINUOUS".to_string()
                     },
                     TokenType::Identifier => {

@@ -523,7 +523,7 @@ cargo doc --no-deps
 - No code movement
 - No logic changes
 - Only visibility changes
-- Well-tested code paths
+- Well-tested code pathscargo fmt --all -- --check
 
 ### Phase 2 (Extract Types): **LOW RISK**  
 - Simple code movement
