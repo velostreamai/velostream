@@ -5,4 +5,5 @@
 pub mod dml;
 pub mod join;
 pub mod limit;
+pub mod show;
 pub mod window;

@@ -195,6 +195,8 @@ impl StreamExecutionEngine {
             window_context: self.get_window_context_for_processors(query_id),
             join_context: JoinContext,
             group_by_states: HashMap::new(),
+            schemas: HashMap::new(), // TODO: Populate from SQL context when available
+            stream_handles: HashMap::new(), // TODO: Populate from SQL context when available
         }
     }
 
@@ -2695,26 +2697,18 @@ impl StreamExecutionEngine {
         use crate::ferris::sql::ast::SubqueryType;
 
         match subquery_type {
-            SubqueryType::Scalar => {
-                // Scalar subquery: should return a single value
-                // For streaming context, we'll simulate execution with mock data
-                // In production, this would execute the subquery against actual data
-                self.execute_scalar_subquery(query)
-            }
-            SubqueryType::Exists => {
-                // EXISTS subquery: returns true if subquery returns any rows
-                self.execute_exists_subquery(query)
-            }
-            SubqueryType::NotExists => {
-                // NOT EXISTS subquery: returns true if subquery returns no rows
-                self.execute_exists_subquery(query).map(|result| {
-                    if let FieldValue::Boolean(exists) = result {
-                        FieldValue::Boolean(!exists)
-                    } else {
-                        FieldValue::Boolean(false)
-                    }
-                })
-            }
+            SubqueryType::Scalar => Err(SqlError::ExecutionError {
+                message: "Scalar subqueries are not yet implemented.".to_string(),
+                query: None,
+            }),
+            SubqueryType::Exists => Err(SqlError::ExecutionError {
+                message: "EXISTS subqueries are not yet implemented.".to_string(),
+                query: None,
+            }),
+            SubqueryType::NotExists => Err(SqlError::ExecutionError {
+                message: "NOT EXISTS subqueries are not yet implemented.".to_string(),
+                query: None,
+            }),
             SubqueryType::In | SubqueryType::NotIn => {
                 // IN/NOT IN subquery: used in binary operations, not directly as values
                 Err(SqlError::ExecutionError {
@@ -2771,16 +2765,13 @@ impl StreamExecutionEngine {
         _query: &crate::ferris::sql::StreamingQuery,
         is_any: bool,
     ) -> Result<FieldValue, SqlError> {
-        log::debug!(
-            "Executing {}/{} subquery (mock implementation)",
-            if is_any { "ANY" } else { "ALL" },
-            if is_any { "SOME" } else { "ALL" }
-        );
-
-        // In production, this would execute the subquery and return the appropriate result
-        // For ANY: return true if any value satisfies the condition
-        // For ALL: return true if all values satisfy the condition
-        Ok(FieldValue::Boolean(is_any))
+        Err(SqlError::ExecutionError {
+            message: format!(
+                "{} subqueries are not yet implemented.",
+                if is_any { "ANY/SOME" } else { "ALL" }
+            ),
+            query: None,
+        })
     }
 
     /// Evaluate an IN subquery - check if a value exists in the subquery result set

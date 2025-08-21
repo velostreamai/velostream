@@ -2,15 +2,18 @@
 
 ## Overview
 
-FerrisStreams provides a comprehensive SQL interface for processing Kafka streams with native support for real-time analytics, JSON processing, and enterprise job management. This guide covers all available SQL features, functions, and commands.
+FerrisStreams provides a comprehensive SQL interface for processing Kafka streams with native support for real-time analytics, complete data lifecycle management (INSERT, UPDATE, DELETE), comprehensive schema introspection, logical operators (AND/OR) for complex conditional expressions, JSON processing, and enterprise job management. This guide covers all available SQL features, functions, and commands.
 
 ## Table of Contents
 
 1. [Basic Query Syntax](#basic-query-syntax)
-2. [GROUP BY Operations](#group-by-operations)
-3. [JOIN Operations](#join-operations)
-4. [Job Lifecycle Management](#job-lifecycle-management)
-4. [Built-in Functions](#built-in-functions)
+2. [Logical Operators and Compound Conditions](#logical-operators-and-compound-conditions)
+3. [Data Manipulation Language (DML)](#data-manipulation-language-dml)
+4. [GROUP BY Operations](#group-by-operations)
+5. [JOIN Operations](#join-operations)
+6. [Schema Management and Introspection](#schema-management-and-introspection)
+7. [Job Lifecycle Management](#job-lifecycle-management)
+8. [Built-in Functions](#built-in-functions)
    - [Window Functions](#window-functions)
    - [Statistical Functions](#statistical-functions)
    - [Aggregate Functions](#aggregate-functions)
@@ -21,12 +24,11 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
    - [CASE WHEN Expressions](#case-when-expressions)
    - [INTERVAL Arithmetic](#interval-arithmetic)
    - [Set Operations (IN/NOT IN)](#set-operations-in-not-in)
-5. [JSON Processing](#json-processing)
-6. [System Columns](#system-columns)
-7. [Window Operations](#window-operations)
-8. [Schema Management](#schema-management)
-9. [Type Conversion](#type-conversion)
-10. [Examples](#examples)
+9. [JSON Processing](#json-processing)
+10. [System Columns](#system-columns)
+11. [Window Operations](#window-operations)
+12. [Type Conversion](#type-conversion)
+13. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -48,6 +50,275 @@ FROM orders;
 
 -- Wildcard selection
 SELECT * FROM orders WHERE status = 'completed';
+```
+
+## Logical Operators and Compound Conditions
+
+FerrisStreams supports logical operators (AND, OR) for building complex conditional expressions in WHERE clauses, JOIN conditions, HAVING clauses, and any expression context.
+
+### Logical Operators
+
+#### AND Operator
+Combines conditions where **both** must be true:
+
+```sql
+-- Basic AND usage
+SELECT customer_id, amount, order_date
+FROM orders
+WHERE amount > 100.0 AND status = 'completed';
+
+-- Multiple AND conditions
+SELECT product_id, name, price, category
+FROM products
+WHERE price > 50.0 
+  AND category = 'electronics' 
+  AND in_stock = true;
+
+-- AND with different data types
+SELECT user_id, login_time, session_duration
+FROM user_sessions
+WHERE session_duration > 300 
+  AND login_time > '2024-01-01' 
+  AND user_type = 'premium';
+```
+
+#### OR Operator
+Combines conditions where **at least one** must be true:
+
+```sql
+-- Basic OR usage
+SELECT customer_id, status, priority
+FROM orders
+WHERE status = 'urgent' OR priority = 'high';
+
+-- Multiple OR conditions
+SELECT user_id, account_type, subscription_status
+FROM users
+WHERE account_type = 'premium' 
+   OR account_type = 'enterprise' 
+   OR subscription_status = 'trial';
+
+-- OR with mixed conditions
+SELECT order_id, amount, discount_code
+FROM orders
+WHERE amount > 1000.0 
+   OR discount_code IS NOT NULL 
+   OR customer_tier = 'VIP';
+```
+
+### Compound Conditions with AND/OR
+
+#### Combining AND and OR
+Operator precedence: AND has higher precedence than OR (use parentheses for clarity):
+
+```sql
+-- Without parentheses (AND evaluated first)
+SELECT customer_id, amount, status, priority
+FROM orders
+WHERE status = 'pending' AND amount > 100.0 OR priority = 'urgent';
+-- Equivalent to: (status = 'pending' AND amount > 100.0) OR priority = 'urgent'
+
+-- With explicit parentheses for clarity
+SELECT customer_id, amount, status, priority
+FROM orders
+WHERE (status = 'pending' AND amount > 100.0) OR priority = 'urgent';
+
+-- Different grouping with parentheses
+SELECT customer_id, amount, status, priority
+FROM orders
+WHERE status = 'pending' AND (amount > 100.0 OR priority = 'urgent');
+```
+
+#### Complex Nested Conditions
+
+```sql
+-- E-commerce order filtering
+SELECT order_id, customer_id, amount, status, payment_method
+FROM orders
+WHERE (status = 'confirmed' OR status = 'shipped')
+  AND (payment_method = 'credit_card' OR payment_method = 'paypal')
+  AND amount > 50.0
+  AND customer_id NOT IN (999, 1000);  -- Exclude test customers
+
+-- User activity analysis
+SELECT user_id, action_type, page_url, session_id
+FROM user_actions
+WHERE (action_type = 'click' OR action_type = 'view' OR action_type = 'purchase')
+  AND (page_url LIKE '%product%' OR page_url LIKE '%category%')
+  AND session_duration > 60
+  AND NOT (user_agent LIKE '%bot%' OR user_agent LIKE '%crawler%');
+
+-- IoT sensor data filtering
+SELECT sensor_id, reading_value, reading_type, alert_level
+FROM sensor_readings
+WHERE (reading_type = 'temperature' AND reading_value > 80.0)
+   OR (reading_type = 'humidity' AND reading_value > 90.0)
+   OR (reading_type = 'pressure' AND (reading_value < 980.0 OR reading_value > 1050.0))
+   AND sensor_status = 'active'
+   AND reading_timestamp > NOW() - INTERVAL '1' HOUR;
+```
+
+### Logical Operators in JOIN Conditions
+
+```sql
+-- JOIN with compound ON conditions
+SELECT o.order_id, o.amount, c.customer_name, p.product_name
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+INNER JOIN products p ON o.product_id = p.product_id
+                     AND (p.category = 'electronics' OR p.category = 'computers')
+                     AND p.price > 100.0
+WHERE o.status = 'completed' 
+  AND (o.amount > 500.0 OR c.customer_tier = 'premium');
+
+-- Complex JOIN with subqueries and logical operators
+SELECT u.user_id, u.username, p.product_name, o.order_date
+FROM users u
+LEFT JOIN orders o ON u.user_id = o.customer_id
+                   AND o.status = 'completed'
+                   AND o.order_date > '2024-01-01'
+LEFT JOIN products p ON o.product_id = p.product_id
+                     AND (p.in_stock = true OR p.backorder_allowed = true)
+WHERE (u.account_status = 'active' OR u.account_status = 'premium')
+  AND (o.order_id IS NOT NULL OR u.last_login > NOW() - INTERVAL '30' DAYS);
+```
+
+### Logical Operators in GROUP BY and HAVING
+
+```sql
+-- HAVING with compound conditions
+SELECT customer_id, 
+       COUNT(*) as order_count,
+       SUM(amount) as total_spent,
+       AVG(amount) as avg_order_value
+FROM orders
+WHERE status = 'completed'
+GROUP BY customer_id
+HAVING (COUNT(*) > 5 AND SUM(amount) > 1000.0)
+    OR (COUNT(*) > 10 AND AVG(amount) > 100.0)
+    OR SUM(amount) > 5000.0;
+
+-- Complex aggregation with logical filtering
+SELECT product_category,
+       brand,
+       COUNT(*) as sales_count,
+       SUM(amount) as total_revenue,
+       MAX(amount) as highest_sale
+FROM sales_transactions
+WHERE (transaction_date >= '2024-01-01' AND transaction_date < '2024-04-01')
+  AND (payment_status = 'completed' OR payment_status = 'settled')
+GROUP BY product_category, brand
+HAVING (COUNT(*) >= 50 AND SUM(amount) >= 10000.0)
+    OR (brand = 'Premium' AND COUNT(*) >= 20)
+ORDER BY total_revenue DESC;
+```
+
+### Advanced Patterns with Logical Operators
+
+#### Exclusion Patterns
+```sql
+-- Exclude multiple problematic conditions
+SELECT order_id, customer_id, amount, status
+FROM orders
+WHERE NOT (
+    (status = 'cancelled' OR status = 'refunded')
+    AND (amount < 10.0 OR customer_id IN (999, 1000))
+)
+AND order_date > '2024-01-01';
+```
+
+#### Range Simulation with OR
+```sql
+-- Simulate BETWEEN using OR (when BETWEEN is not available)
+SELECT user_id, age, registration_date
+FROM users
+WHERE (age >= 18 AND age <= 25)
+   OR (age >= 35 AND age <= 45)
+   OR (age >= 55 AND age <= 65);
+
+-- Business hours simulation
+SELECT transaction_id, amount, transaction_time
+FROM transactions
+WHERE EXTRACT('HOUR', transaction_time) >= 9
+  AND EXTRACT('HOUR', transaction_time) <= 17
+  AND (EXTRACT('DOW', transaction_time) >= 1 AND EXTRACT('DOW', transaction_time) <= 5);
+```
+
+#### Dynamic Filtering Patterns
+```sql
+-- Conditional filtering based on data characteristics
+SELECT event_id, user_id, event_type, event_data
+FROM user_events
+WHERE (event_type = 'purchase' AND CAST(JSON_VALUE(event_data, '$.amount'), 'FLOAT') > 100.0)
+   OR (event_type = 'signup' AND JSON_VALUE(event_data, '$.source') = 'organic')
+   OR (event_type = 'login' AND JSON_VALUE(event_data, '$.device_type') = 'mobile')
+   OR (event_type = 'view' AND JSON_VALUE(event_data, '$.page_category') IN ('premium', 'featured'));
+```
+
+### Performance Considerations
+
+#### Optimization Tips
+```sql
+-- Good: Most selective conditions first
+SELECT * FROM large_table
+WHERE rare_status = 'special'        -- Most selective first
+  AND (common_field > 100 OR common_field < 10)
+  AND date_field > '2024-01-01';
+
+-- Good: Use indexes effectively with AND
+SELECT * FROM orders
+WHERE customer_id = 12345            -- Indexed field
+  AND (status = 'pending' OR status = 'processing')
+  AND amount > 50.0;
+
+-- Consider: Complex OR conditions may benefit from UNION
+-- Instead of complex OR:
+SELECT * FROM events WHERE (type = 'A' AND value > 100) OR (type = 'B' AND value > 200);
+
+-- Consider using UNION for better performance:
+SELECT * FROM events WHERE type = 'A' AND value > 100
+UNION ALL
+SELECT * FROM events WHERE type = 'B' AND value > 200;
+```
+
+#### Short-Circuit Evaluation
+```sql
+-- Take advantage of short-circuit evaluation in AND
+SELECT * FROM orders
+WHERE customer_tier = 'premium'      -- Check this first (faster)
+  AND expensive_function(order_data) = 'valid';  -- Only if first condition is true
+
+-- In OR, put most likely conditions first
+SELECT * FROM user_sessions
+WHERE session_active = true         -- Most common case first
+   OR last_activity > NOW() - INTERVAL '5' MINUTES
+   OR special_override_flag = true;
+```
+
+### Common Patterns and Use Cases
+
+#### 1. Multi-Status Filtering
+```sql
+SELECT * FROM orders 
+WHERE status IN ('pending', 'confirmed', 'processing')
+-- Equivalent to:
+-- WHERE status = 'pending' OR status = 'confirmed' OR status = 'processing'
+```
+
+#### 2. Date Range with Exclusions
+```sql
+SELECT * FROM transactions
+WHERE transaction_date >= '2024-01-01'
+  AND transaction_date < '2024-04-01'
+  AND NOT (amount = 0.0 OR transaction_type = 'test');
+```
+
+#### 3. User Segmentation
+```sql
+SELECT user_id, segment FROM users
+WHERE (age >= 18 AND age <= 34 AND income_bracket = 'middle')  -- Young professional
+   OR (age >= 35 AND age <= 54 AND has_children = true)        -- Family segment  
+   OR (age >= 55 AND retirement_planning = true);              -- Pre-retirement
 ```
 
 ### CREATE STREAM AS SELECT (CSAS)
@@ -80,6 +351,178 @@ SELECT
     AVG(amount) as avg_order_value
 FROM orders
 GROUP BY customer_id;
+```
+
+## Data Manipulation Language (DML)
+
+FerrisStreams provides comprehensive DML (Data Manipulation Language) support for INSERT, UPDATE, and DELETE operations with streaming-first semantics. All DML operations maintain proper audit trails, generate tombstone records for deletions, and preserve data lineage.
+
+### INSERT Operations
+
+Insert new records into streams or tables with VALUES or SELECT sources.
+
+#### INSERT with VALUES
+
+```sql
+-- Single row insert
+INSERT INTO orders (order_id, customer_id, amount, status)
+VALUES (1001, 100, 250.50, 'pending');
+
+-- Multiple row insert
+INSERT INTO orders (order_id, customer_id, amount, status)
+VALUES 
+    (1002, 101, 89.99, 'completed'),
+    (1003, 102, 175.25, 'pending'),
+    (1004, 100, 320.00, 'shipped');
+
+-- Insert with expressions
+INSERT INTO products (product_id, name, price, discounted_price)
+VALUES (201, 'Widget Pro', 29.99, 29.99 * 0.9);
+```
+
+#### INSERT with SELECT
+
+```sql
+-- Insert from another stream/table
+INSERT INTO high_value_orders
+SELECT order_id, customer_id, amount, order_date
+FROM orders
+WHERE amount > 1000.0;
+
+-- Insert with aggregation
+INSERT INTO daily_summary
+SELECT 
+    DATE(order_date) as summary_date,
+    COUNT(*) as total_orders,
+    SUM(amount) as total_revenue,
+    AVG(amount) as avg_order_value
+FROM orders
+GROUP BY DATE(order_date);
+
+-- Insert with JOINs
+INSERT INTO enriched_orders
+SELECT 
+    o.order_id,
+    o.customer_id,
+    c.customer_name,
+    o.amount,
+    o.order_date
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.status = 'completed';
+```
+
+### UPDATE Operations
+
+Update existing records with conditional logic and expression-based assignments.
+
+```sql
+-- Simple update with WHERE clause
+UPDATE orders 
+SET status = 'shipped', shipped_date = NOW()
+WHERE order_id = 1001;
+
+-- Update with expressions
+UPDATE products
+SET price = price * 1.1,
+    updated_at = NOW()
+WHERE category = 'electronics';
+
+-- Complex conditional update
+UPDATE customers
+SET 
+    tier = CASE 
+        WHEN total_spent > 10000 THEN 'platinum'
+        WHEN total_spent > 5000 THEN 'gold'
+        WHEN total_spent > 1000 THEN 'silver'
+        ELSE 'bronze'
+    END,
+    last_updated = NOW()
+WHERE active = true;
+
+-- Update with subqueries
+UPDATE orders
+SET priority = 'high'
+WHERE customer_id IN (
+    SELECT customer_id 
+    FROM customers 
+    WHERE tier = 'platinum'
+);
+```
+
+### DELETE Operations
+
+Delete records with tombstone generation for streaming deletion semantics.
+
+```sql
+-- Simple delete with WHERE clause
+DELETE FROM orders 
+WHERE status = 'cancelled' AND order_date < '2024-01-01';
+
+-- Delete with complex conditions
+DELETE FROM products
+WHERE discontinued = true 
+  AND last_sold_date < NOW() - INTERVAL '1' YEAR;
+
+-- Delete with subqueries
+DELETE FROM user_sessions
+WHERE user_id IN (
+    SELECT user_id 
+    FROM users 
+    WHERE account_status = 'deleted'
+);
+
+-- Delete all records (use with caution)
+DELETE FROM temp_data;
+```
+
+#### Streaming DELETE Semantics
+
+FerrisStreams implements streaming-friendly DELETE operations:
+
+- **Tombstone Records**: DELETE operations generate tombstone records with `__deleted = true`
+- **Audit Trail**: Original timestamps and offsets are preserved in headers
+- **Key Preservation**: Primary key fields are maintained for proper partitioning
+- **Soft Delete Option**: Optional soft delete mode preserves original data
+
+```sql
+-- Tombstone record structure (generated automatically)
+{
+  "__deleted": true,
+  "__deleted_at": "2024-01-15T10:30:00Z",
+  "order_id": 1001,  -- Key fields preserved
+  -- Original fields are removed in tombstone mode
+}
+```
+
+### DML Best Practices
+
+#### Performance Optimization
+```sql
+-- Use bulk INSERT for better performance
+INSERT INTO orders (order_id, customer_id, amount)
+VALUES 
+    (1001, 100, 250.50),
+    (1002, 101, 89.99),
+    (1003, 102, 175.25);  -- Single operation vs multiple INSERTs
+
+-- Use selective WHERE clauses
+UPDATE orders SET status = 'processed' 
+WHERE status = 'pending' AND created_date > '2024-01-01';  -- Selective condition
+```
+
+#### Data Integrity
+```sql
+-- Validate before UPDATE/DELETE
+UPDATE orders 
+SET amount = amount * 1.1
+WHERE amount > 0 AND status != 'cancelled';  -- Prevent invalid updates
+
+-- Use transactions for related operations
+INSERT INTO order_items (order_id, product_id, quantity)
+VALUES (1001, 201, 2);
+UPDATE products SET inventory = inventory - 2 
+WHERE product_id = 201;
 ```
 
 ## GROUP BY Operations
@@ -2264,34 +2707,181 @@ SELECT
 FROM orders;
 ```
 
-## Schema Management
+## Schema Management and Introspection
 
-### DESCRIBE Command
+FerrisStreams provides comprehensive schema introspection capabilities for discovering and exploring streaming resources. All SHOW operations support pattern matching for efficient resource discovery.
+
+### Stream and Table Discovery
+
+#### SHOW STREAMS
+List all registered streams with their metadata and properties.
 
 ```sql
--- Describe stream/table schema
+-- Show all streams
+SHOW STREAMS;
+
+-- Sample output:
+-- stream_name | topic          | schema_id      | type
+-- orders      | order_events   | orders_v1      | STREAM
+-- customers   | customer_data  | customers_v1   | STREAM
+
+-- Show streams with pattern matching
+SHOW STREAMS LIKE 'order%';      -- Streams starting with 'order'
+SHOW STREAMS LIKE '%summary%';   -- Streams containing 'summary'
+SHOW STREAMS LIKE 'user_%';      -- Streams with 'user_' prefix
+```
+
+#### SHOW TABLES
+List all registered tables (materialized streams) with their metadata.
+
+```sql
+-- Show all tables
+SHOW TABLES;
+
+-- Sample output:
+-- table_name      | topic            | schema_id        | type
+-- daily_summary   | summary_topic    | summary_v1       | TABLE
+-- customer_stats  | stats_topic      | stats_v1         | TABLE
+
+-- Show tables with pattern matching
+SHOW TABLES LIKE 'daily_%';      -- Tables starting with 'daily_'
+SHOW TABLES LIKE '%_summary';    -- Tables ending with '_summary'
+```
+
+#### SHOW TOPICS
+List all Kafka topics from registered streams and tables.
+
+```sql
+-- Show all topics
+SHOW TOPICS;
+
+-- Sample output:
+-- topic_name     | registered
+-- order_events   | true
+-- customer_data  | true
+-- summary_topic  | true
+
+-- Show topics with pattern matching
+SHOW TOPICS LIKE '%_events';     -- Topics ending with '_events'
+```
+
+### Function Discovery
+
+#### SHOW FUNCTIONS
+List all available built-in functions with categories and descriptions.
+
+```sql
+-- Show all functions
+SHOW FUNCTIONS;
+
+-- Sample output:
+-- function_name | category    | description
+-- ABS           | Mathematical| Returns absolute value
+-- UPPER         | String      | Converts to uppercase
+-- COUNT         | Aggregate   | Counts non-null values
+-- ROW_NUMBER    | Window      | Row number within partition
+-- LAG           | Window      | Previous row value
+```
+
+### Schema Inspection
+
+#### DESCRIBE Command
+Get detailed schema information for streams and tables.
+
+```sql
+-- Describe stream/table schema with full metadata
 DESCRIBE orders;
 DESCRIBE STREAM orders;
 DESCRIBE TABLE customer_summary;
+
+-- Sample output:
+-- column_name | data_type | nullable | topic         | schema_id
+-- order_id    | Integer   | false    | order_events  | orders_v1
+-- customer_id | Integer   | false    | order_events  | orders_v1
+-- amount      | Float     | false    | order_events  | orders_v1
+-- order_date  | Timestamp | false    | order_events  | orders_v1
+-- status      | String    | true     | order_events  | orders_v1
 ```
 
-### SHOW Commands
+#### SHOW SCHEMA
+Display column schema for specific resources.
 
 ```sql
--- Discovery commands
-SHOW STREAMS;
-SHOW TABLES;
-SHOW TOPICS;
-SHOW FUNCTIONS;
-
--- With pattern matching
-SHOW STREAMS LIKE 'order%';
-SHOW TABLES LIKE 'customer_*';
-
--- Schema and metadata
+-- Show schema for a specific stream/table
 SHOW SCHEMA orders;
+
+-- Sample output:
+-- column_name | data_type | nullable
+-- order_id    | Integer   | false
+-- customer_id | Integer   | false
+-- amount      | Float     | false
+-- order_date  | Timestamp | false
+-- status      | String    | true
+```
+
+### Resource Properties
+
+#### SHOW PROPERTIES
+Display detailed properties and configuration for streams and tables.
+
+```sql
+-- Show properties for streams
 SHOW PROPERTIES STREAM orders;
+
+-- Sample output:
+-- property     | value
+-- id           | orders_stream_1
+-- topic        | order_events
+-- schema_id    | orders_schema_v1
+-- type         | STREAM
+-- field_count  | 5
+
+-- Show properties for tables
+SHOW PROPERTIES TABLE customer_summary;
+
+-- Sample output:
+-- property     | value
+-- id           | summary_table_1
+-- topic        | summary_topic
+-- schema_id    | summary_schema_v1
+-- type         | TABLE
+-- field_count  | 4
+```
+
+### Advanced Introspection
+
+#### SHOW PARTITIONS
+Display partition information for streams and topics.
+
+```sql
+-- Show partition information
 SHOW PARTITIONS orders;
+-- Note: Currently returns placeholder - full implementation planned for job management integration
+```
+
+### Pattern Matching
+
+FerrisStreams supports SQL LIKE pattern matching for all SHOW operations:
+
+```sql
+-- Wildcard patterns
+SHOW STREAMS LIKE '%';           -- All streams (equivalent to SHOW STREAMS)
+SHOW TABLES LIKE '_%';           -- Tables with at least one character
+
+-- Prefix matching
+SHOW STREAMS LIKE 'order%';      -- Streams starting with 'order'
+SHOW TOPICS LIKE 'kafka%';       -- Topics starting with 'kafka'
+
+-- Suffix matching
+SHOW STREAMS LIKE '%_events';    -- Streams ending with '_events'
+SHOW TABLES LIKE '%_summary';    -- Tables ending with '_summary'
+
+-- Substring matching
+SHOW STREAMS LIKE '%customer%';  -- Streams containing 'customer'
+SHOW TOPICS LIKE '%_data_%';     -- Topics containing '_data_'
+
+-- Exact matching
+SHOW STREAMS LIKE 'orders';      -- Exactly 'orders' stream
 ```
 
 ## Examples

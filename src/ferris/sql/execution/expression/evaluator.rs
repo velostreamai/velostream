@@ -93,19 +93,11 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(false)
                             }
-                            Expr::Subquery {
-                                query: _,
-                                subquery_type: _,
-                            } => {
-                                // For subqueries, use a mock implementation similar to the engine
-                                // In production, this would execute the actual subquery
-                                match &left_val {
-                                    FieldValue::Integer(n) => Ok(*n > 0), // Mock: positive numbers are "in" the subquery
-                                    FieldValue::String(s) => Ok(!s.is_empty()), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => Ok(*b), // Mock: true values are "in" the subquery
-                                    FieldValue::Null => Ok(false), // NULL is never "in" a subquery
-                                    _ => Ok(false), // Other types are not "in" the subquery by default
-                                }
+                            Expr::Subquery { .. } => {
+                                Err(SqlError::ExecutionError {
+                                    message: "IN subqueries are not yet implemented. Please use EXISTS instead.".to_string(),
+                                    query: None,
+                                })
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -134,20 +126,11 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(true)
                             }
-                            Expr::Subquery {
-                                query: _,
-                                subquery_type: _,
-                            } => {
-                                // For subqueries, use a mock implementation similar to the engine (inverted for NOT IN)
-                                // In production, this would execute the actual subquery
-                                let in_result = match &left_val {
-                                    FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
-                                    FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,    // NULL is never "in" a subquery
-                                    _ => false, // Other types are not "in" the subquery by default
-                                };
-                                Ok(!in_result) // NOT IN is the inverse of IN
+                            Expr::Subquery { .. } => {
+                                Err(SqlError::ExecutionError {
+                                    message: "NOT IN subqueries are not yet implemented. Please use NOT EXISTS instead.".to_string(),
+                                    query: None,
+                                })
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -222,22 +205,18 @@ impl ExpressionEvaluator {
                 // Handle subqueries in boolean context
                 use crate::ferris::sql::ast::SubqueryType;
                 match subquery_type {
-                    SubqueryType::Exists => {
-                        // For EXISTS subqueries, return a mock boolean (true)
-                        // In production, this would execute the subquery and return true if any rows exist
-                        Ok(true)
-                    }
-                    SubqueryType::NotExists => {
-                        // For NOT EXISTS subqueries, return a mock boolean (false)
-                        // In production, this would execute the subquery and return true if NO rows exist
-                        // Since our mock EXISTS returns true, NOT EXISTS should return false
-                        Ok(false)
-                    }
-                    SubqueryType::Scalar => {
-                        // For scalar subqueries in boolean context, evaluate the result as boolean
-                        // Mock implementation returns 1, which converts to true
-                        Ok(true)
-                    }
+                    SubqueryType::Exists => Err(SqlError::ExecutionError {
+                        message: "EXISTS subqueries are not yet implemented.".to_string(),
+                        query: None,
+                    }),
+                    SubqueryType::NotExists => Err(SqlError::ExecutionError {
+                        message: "NOT EXISTS subqueries are not yet implemented.".to_string(),
+                        query: None,
+                    }),
+                    SubqueryType::Scalar => Err(SqlError::ExecutionError {
+                        message: "Scalar subqueries are not yet implemented.".to_string(),
+                        query: None,
+                    }),
                     _ => Err(SqlError::ExecutionError {
                         message: format!(
                             "Unsupported subquery type in boolean context: {:?}",
@@ -429,19 +408,11 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(FieldValue::Boolean(false))
                             }
-                            Expr::Subquery {
-                                query: _,
-                                subquery_type: _,
-                            } => {
-                                // For subqueries, use a mock implementation similar to the engine
-                                let in_result = match &left_val {
-                                    FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
-                                    FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,    // NULL is never "in" a subquery
-                                    _ => false, // Other types are not "in" the subquery by default
-                                };
-                                Ok(FieldValue::Boolean(in_result))
+                            Expr::Subquery { .. } => {
+                                Err(SqlError::ExecutionError {
+                                    message: "IN subqueries are not yet implemented. Please use EXISTS instead.".to_string(),
+                                    query: None,
+                                })
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -464,19 +435,11 @@ impl ExpressionEvaluator {
                                 }
                                 Ok(FieldValue::Boolean(true))
                             }
-                            Expr::Subquery {
-                                query: _,
-                                subquery_type: _,
-                            } => {
-                                // For subqueries, use a mock implementation similar to the engine (inverted for NOT IN)
-                                let in_result = match &left_val {
-                                    FieldValue::Integer(n) => *n > 0, // Mock: positive numbers are "in" the subquery
-                                    FieldValue::String(s) => !s.is_empty(), // Mock: non-empty strings are "in" the subquery
-                                    FieldValue::Boolean(b) => *b, // Mock: true values are "in" the subquery
-                                    FieldValue::Null => false,    // NULL is never "in" a subquery
-                                    _ => false, // Other types are not "in" the subquery by default
-                                };
-                                Ok(FieldValue::Boolean(!in_result)) // NOT IN is the inverse of IN
+                            Expr::Subquery { .. } => {
+                                Err(SqlError::ExecutionError {
+                                    message: "NOT IN subqueries are not yet implemented. Please use NOT EXISTS instead.".to_string(),
+                                    query: None,
+                                })
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -502,20 +465,28 @@ impl ExpressionEvaluator {
                 use crate::ferris::sql::ast::SubqueryType;
                 match subquery_type {
                     SubqueryType::Scalar => {
-                        // For scalar subqueries, return a mock value (1)
-                        // In production, this would execute the subquery and return the scalar result
-                        Ok(FieldValue::Integer(1))
+                        Err(SqlError::ExecutionError {
+                            message: "Scalar subqueries are not yet implemented.".to_string(),
+                            query: None,
+                        })
                     }
                     SubqueryType::Exists => {
-                        // For EXISTS subqueries, return a mock boolean (true)
-                        // In production, this would execute the subquery and return true if any rows exist
-                        Ok(FieldValue::Boolean(true))
+                        Err(SqlError::ExecutionError {
+                            message: "EXISTS subqueries are not yet implemented.".to_string(),
+                            query: None,
+                        })
                     }
                     SubqueryType::NotExists => {
-                        // For NOT EXISTS subqueries, return a mock boolean (false)
-                        // In production, this would execute the subquery and return true if NO rows exist
-                        // Since our mock EXISTS returns true, NOT EXISTS should return false
-                        Ok(FieldValue::Boolean(false))
+                        Err(SqlError::ExecutionError {
+                            message: "NOT EXISTS subqueries are not yet implemented.".to_string(),
+                            query: None,
+                        })
+                    }
+                    SubqueryType::In | SubqueryType::NotIn => {
+                        Err(SqlError::ExecutionError {
+                            message: "IN/NOT IN subqueries are not yet implemented. Please use EXISTS/NOT EXISTS instead.".to_string(),
+                            query: None,
+                        })
                     }
                     _ => Err(SqlError::ExecutionError {
                         message: format!("Unsupported subquery type: {:?}", subquery_type),

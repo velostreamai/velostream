@@ -255,6 +255,7 @@ enum TokenType {
     Range,     // RANGE
     Between,   // BETWEEN
     And,       // AND
+    Or,        // OR
     Preceding, // PRECEDING
     Following, // FOLLOWING
     Current,   // CURRENT
@@ -371,6 +372,7 @@ impl StreamingSqlParser {
         keywords.insert("RANGE".to_string(), TokenType::Range);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
         keywords.insert("AND".to_string(), TokenType::And);
+        keywords.insert("OR".to_string(), TokenType::Or);
         keywords.insert("PRECEDING".to_string(), TokenType::Preceding);
         keywords.insert("FOLLOWING".to_string(), TokenType::Following);
         keywords.insert("CURRENT".to_string(), TokenType::Current);
@@ -1046,7 +1048,39 @@ impl TokenParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr, SqlError> {
-        self.parse_comparison()
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_logical_and()?;
+
+        while self.current_token().token_type == TokenType::Or {
+            self.advance(); // consume OR
+            let right = self.parse_logical_and()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Or,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_comparison()?;
+
+        while self.current_token().token_type == TokenType::And {
+            self.advance(); // consume AND
+            let right = self.parse_comparison()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::And,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, SqlError> {

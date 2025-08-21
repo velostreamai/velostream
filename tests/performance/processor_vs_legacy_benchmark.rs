@@ -315,7 +315,7 @@ async fn benchmark_query_complexity_scaling() {
         ),
     ];
 
-    let num_records = 1500;
+    let num_records = 150; // Reduced for CI performance
     let records: Vec<HashMap<String, InternalValue>> =
         (0..num_records).map(create_test_record).collect();
 

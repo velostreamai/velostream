@@ -5,8 +5,10 @@
 //! - Window processing
 //! - JOIN processing
 //! - LIMIT processing
+//! - SHOW/DESCRIBE processing
 
-use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use crate::ferris::sql::execution::StreamRecord;
+use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
 
@@ -139,6 +141,10 @@ pub struct ProcessorContext {
     pub join_context: JoinContext,
     /// GROUP BY processing state
     pub group_by_states: HashMap<String, crate::ferris::sql::execution::internal::GroupByState>,
+    /// Schema registry for introspection (SHOW/DESCRIBE operations)
+    pub schemas: HashMap<String, Schema>,
+    /// Stream handles registry
+    pub stream_handles: HashMap<String, StreamHandle>,
 }
 
 /// Window processing context
@@ -151,34 +157,8 @@ pub struct WindowContext {
     pub should_emit: bool,
 }
 
-/// JOIN processing context and utilities
-pub struct JoinContext;
-
-impl JoinContext {
-    pub fn get_right_record(
-        &self,
-        source: &crate::ferris::sql::ast::StreamSource,
-        _window: &Option<crate::ferris::sql::ast::JoinWindow>,
-    ) -> Result<Option<StreamRecord>, SqlError> {
-        // Implementation moved from engine.rs - delegate to JoinProcessor
-        match source {
-            crate::ferris::sql::ast::StreamSource::Stream(name)
-            | crate::ferris::sql::ast::StreamSource::Table(name) => {
-                if name == "empty_stream" {
-                    // Simulate no matching record
-                    return Ok(None);
-                }
-
-                // Create mock record
-                Ok(Some(JoinProcessor::create_mock_right_record(source)?))
-            }
-            crate::ferris::sql::ast::StreamSource::Subquery(subquery) => {
-                // Execute subquery to get right side records for JOIN
-                JoinProcessor::execute_subquery_for_join(subquery)
-            }
-        }
-    }
-}
+// Import join context
+pub use self::join_context::JoinContext;
 
 // Re-export processor modules
 pub use self::delete::DeleteProcessor;
@@ -193,52 +173,12 @@ pub use self::window::WindowProcessor;
 mod delete;
 mod insert;
 mod join;
+mod join_context;
 mod limit;
 mod select;
+mod show;
 mod update;
 mod window;
 
-// SHOW processor (simple inline implementation)
-struct ShowProcessor;
-
-impl ShowProcessor {
-    fn process(
-        query: &StreamingQuery,
-        record: &StreamRecord,
-        _context: &mut ProcessorContext,
-    ) -> Result<ProcessorResult, SqlError> {
-        if let StreamingQuery::Show {
-            resource_type,
-            pattern,
-        } = query
-        {
-            let mut fields = HashMap::new();
-            fields.insert(
-                "show_type".to_string(),
-                FieldValue::String(format!("{:?}", resource_type)),
-            );
-            if let Some(p) = pattern {
-                fields.insert("pattern".to_string(), FieldValue::String(p.clone()));
-            }
-
-            let result_record = StreamRecord {
-                fields,
-                timestamp: record.timestamp,
-                offset: record.offset,
-                partition: record.partition,
-                headers: record.headers.clone(),
-            };
-
-            Ok(ProcessorResult {
-                record: Some(result_record),
-                header_mutations: Vec::new(),
-                should_count: true,
-            })
-        } else {
-            Err(SqlError::ExecutionError {
-                message: "Invalid query type for ShowProcessor".to_string(),
-                query: None,
-            })
-        }
-    }
-}
+// Import processors
+use self::show::ShowProcessor;
