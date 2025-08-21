@@ -234,6 +234,57 @@ pub enum StreamingQuery {
         /// Target version to rollback to (optional - defaults to previous)
         target_version: Option<String>,
     },
+    /// INSERT INTO statement for adding records to streams/tables.
+    ///
+    /// Inserts new records into an existing stream or table. Supports both
+    /// explicit value insertion and insertion from SELECT queries.
+    InsertInto {
+        /// Target table or stream name
+        table_name: String,
+        /// Optional column names (if not specified, matches all columns in order)
+        columns: Option<Vec<String>>,
+        /// Source of data to insert
+        source: InsertSource,
+    },
+    /// UPDATE statement for modifying existing records.
+    ///
+    /// Updates records in a stream/table that match the specified condition.
+    /// In streaming contexts, this creates new records with updated values.
+    Update {
+        /// Target table or stream name
+        table_name: String,
+        /// Column assignments (column_name, new_value_expression)
+        assignments: Vec<(String, Expr)>,
+        /// Optional WHERE clause to filter which records to update
+        where_clause: Option<Expr>,
+    },
+    /// DELETE statement for removing records.
+    ///
+    /// In streaming contexts, DELETE typically creates tombstone records
+    /// or filters out matching records from downstream processing.
+    Delete {
+        /// Target table or stream name
+        table_name: String,
+        /// Optional WHERE clause to filter which records to delete
+        where_clause: Option<Expr>,
+    },
+}
+
+/// Source of data for INSERT operations.
+///
+/// Supports both explicit values and SELECT query results for insertion.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InsertSource {
+    /// Insert explicit values: INSERT INTO table VALUES (1, 'abc', true), (2, 'def', false)
+    Values {
+        /// List of value rows, where each row is a list of expressions
+        rows: Vec<Vec<Expr>>,
+    },
+    /// Insert from SELECT query: INSERT INTO table SELECT * FROM other_table WHERE condition
+    Select {
+        /// SELECT query providing the data to insert
+        query: Box<StreamingQuery>,
+    },
 }
 
 /// Deployment strategies for versioned job deployments.
@@ -616,6 +667,9 @@ impl StreamingQuery {
             StreamingQuery::ResumeJob { .. } => false, // RESUME commands don't use windows
             StreamingQuery::DeployJob { query, .. } => query.has_window(),
             StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't use windows
+            StreamingQuery::InsertInto { .. } => false,  // INSERT commands don't use windows
+            StreamingQuery::Update { .. } => false,      // UPDATE commands don't use windows
+            StreamingQuery::Delete { .. } => false,      // DELETE commands don't use windows
         }
     }
 
@@ -652,6 +706,63 @@ impl StreamingQuery {
             StreamingQuery::ResumeJob { .. } => Vec::new(), // RESUME commands don't reference columns
             StreamingQuery::DeployJob { query, .. } => query.get_columns(),
             StreamingQuery::RollbackJob { .. } => Vec::new(), // ROLLBACK commands don't reference columns
+            StreamingQuery::InsertInto {
+                table_name: _,
+                columns,
+                source,
+            } => {
+                let mut cols = Vec::new();
+                // Add explicit column names if specified
+                if let Some(column_names) = columns {
+                    cols.extend(column_names.clone());
+                }
+                // Add columns from source
+                match source {
+                    InsertSource::Values { rows } => {
+                        for row in rows {
+                            for expr in row {
+                                cols.extend(expr.get_columns());
+                            }
+                        }
+                    }
+                    InsertSource::Select { query } => {
+                        cols.extend(query.get_columns());
+                    }
+                }
+                cols.sort();
+                cols.dedup();
+                cols
+            }
+            StreamingQuery::Update {
+                table_name: _,
+                assignments,
+                where_clause,
+            } => {
+                let mut cols = Vec::new();
+                // Add columns from assignments
+                for (col_name, expr) in assignments {
+                    cols.push(col_name.clone());
+                    cols.extend(expr.get_columns());
+                }
+                // Add columns from WHERE clause
+                if let Some(where_expr) = where_clause {
+                    cols.extend(where_expr.get_columns());
+                }
+                cols.sort();
+                cols.dedup();
+                cols
+            }
+            StreamingQuery::Delete {
+                table_name: _,
+                where_clause,
+            } => {
+                let mut cols = Vec::new();
+                // Add columns from WHERE clause
+                if let Some(where_expr) = where_clause {
+                    cols.extend(where_expr.get_columns());
+                }
+                cols
+            }
         }
     }
 }

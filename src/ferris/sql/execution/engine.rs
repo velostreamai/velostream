@@ -697,6 +697,18 @@ impl StreamExecutionEngine {
                 self.query_matches_stream(query, stream_name)
             }
             StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't match streams
+            StreamingQuery::InsertInto { table_name, .. } => {
+                // INSERT matches the target table
+                table_name == stream_name
+            }
+            StreamingQuery::Update { table_name, .. } => {
+                // UPDATE matches the target table
+                table_name == stream_name
+            }
+            StreamingQuery::Delete { table_name, .. } => {
+                // DELETE matches the target table
+                table_name == stream_name
+            }
         }
     }
 
@@ -1119,6 +1131,56 @@ impl StreamExecutionEngine {
                     partition: record.partition,
                     headers: record.headers.clone(),
                 }))
+            }
+            StreamingQuery::InsertInto {
+                table_name,
+                columns: _,
+                source: _,
+            } => {
+                // INSERT INTO implementation
+                log::info!("Executing INSERT INTO {}", table_name);
+
+                // TODO: Implement INSERT processor
+                // For now, return an error indicating DML is not yet implemented
+                Err(SqlError::ExecutionError {
+                    message: format!(
+                        "INSERT INTO operations are not yet implemented in processors. Use legacy engine or implement INSERT processor."
+                    ),
+                    query: Some(format!("INSERT INTO {}", table_name)),
+                })
+            }
+            StreamingQuery::Update {
+                table_name,
+                assignments: _,
+                where_clause: _,
+            } => {
+                // UPDATE implementation
+                log::info!("Executing UPDATE {}", table_name);
+
+                // TODO: Implement UPDATE processor
+                // For now, return an error indicating DML is not yet implemented
+                Err(SqlError::ExecutionError {
+                    message: format!(
+                        "UPDATE operations are not yet implemented in processors. Use legacy engine or implement UPDATE processor."
+                    ),
+                    query: Some(format!("UPDATE {}", table_name)),
+                })
+            }
+            StreamingQuery::Delete {
+                table_name,
+                where_clause: _,
+            } => {
+                // DELETE implementation
+                log::info!("Executing DELETE FROM {}", table_name);
+
+                // TODO: Implement DELETE processor
+                // For now, return an error indicating DML is not yet implemented
+                Err(SqlError::ExecutionError {
+                    message: format!(
+                        "DELETE operations are not yet implemented in processors. Use legacy engine or implement DELETE processor."
+                    ),
+                    query: Some(format!("DELETE FROM {}", table_name)),
+                })
             }
         }
     }

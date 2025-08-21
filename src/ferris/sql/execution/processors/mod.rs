@@ -60,6 +60,62 @@ impl QueryProcessor {
                 // SHOW commands return metadata
                 ShowProcessor::process(query, record, context)
             }
+            StreamingQuery::InsertInto {
+                table_name,
+                columns,
+                source,
+            } => {
+                // Process INSERT INTO statement
+                match InsertProcessor::process_insert(table_name, columns, source, record) {
+                    Ok(insert_records) => {
+                        // Return the first insert record (or None if empty)
+                        // TODO: Handle multiple insert records properly
+                        let result_record = insert_records.into_iter().next();
+                        Ok(ProcessorResult {
+                            record: result_record,
+                            header_mutations: Vec::new(),
+                            should_count: true,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            StreamingQuery::Update {
+                table_name,
+                assignments,
+                where_clause,
+            } => {
+                // Process UPDATE statement
+                match UpdateProcessor::process_update(table_name, assignments, where_clause, record)
+                {
+                    Ok(updated_record) => {
+                        let should_count = updated_record.is_some();
+                        Ok(ProcessorResult {
+                            record: updated_record,
+                            header_mutations: Vec::new(),
+                            should_count,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            StreamingQuery::Delete {
+                table_name,
+                where_clause,
+            } => {
+                // Process DELETE statement
+                match DeleteProcessor::process_delete(table_name, where_clause, record) {
+                    Ok(tombstone_record) => {
+                        let should_count = tombstone_record.is_some();
+                        Ok(ProcessorResult {
+                            record: tombstone_record,
+                            header_mutations: Vec::new(),
+                            should_count,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             _ => {
                 // Handle other query types with placeholder
                 Err(SqlError::ExecutionError {
@@ -116,27 +172,30 @@ impl JoinContext {
                 // Create mock record
                 Ok(Some(JoinProcessor::create_mock_right_record(source)?))
             }
-            crate::ferris::sql::ast::StreamSource::Subquery(_) => {
-                // Subqueries not yet supported for JOIN operations
-                Err(SqlError::ExecutionError {
-                    message: "Subqueries in JOIN operations not yet supported".to_string(),
-                    query: None,
-                })
+            crate::ferris::sql::ast::StreamSource::Subquery(subquery) => {
+                // Execute subquery to get right side records for JOIN
+                JoinProcessor::execute_subquery_for_join(subquery)
             }
         }
     }
 }
 
 // Re-export processor modules
+pub use self::delete::DeleteProcessor;
+pub use self::insert::InsertProcessor;
 pub use self::join::JoinProcessor;
 pub use self::limit::LimitProcessor;
 pub use self::select::SelectProcessor;
+pub use self::update::UpdateProcessor;
 pub use self::window::WindowProcessor;
 
 // Internal processor modules
+mod delete;
+mod insert;
 mod join;
 mod limit;
 mod select;
+mod update;
 mod window;
 
 // SHOW processor (simple inline implementation)
