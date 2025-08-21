@@ -163,6 +163,7 @@ async fn benchmark_group_by_performance() {
 
 /// Benchmark memory usage patterns
 #[tokio::test]
+#[ignore] // Long-running memory benchmark - use `cargo test -- --ignored` to run
 async fn benchmark_memory_usage() {
     let parser = StreamingSqlParser::new();
     let (tx, mut rx) = mpsc::unbounded_channel();
