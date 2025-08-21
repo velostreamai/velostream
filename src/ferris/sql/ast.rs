@@ -112,7 +112,8 @@ impl Default for AggregationMode {
 ///         window: None,
 ///         order_by: None,
 ///         limit: Some(100),
-///     };
+///         aggregation_mode: None,
+///         emit_mode: None};
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
