@@ -66,6 +66,23 @@ pub enum AggregationMode {
     Windowed,
 }
 
+/// Emission mode for streaming query results
+///
+/// Controls when and how results are emitted from streaming queries.
+/// This can override the default behavior derived from aggregation mode.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EmitMode {
+    /// Emit changes immediately as they occur (CDC-style)
+    /// Each input record can trigger result emission
+    /// Similar to KSQL's "EMIT CHANGES"
+    Changes,
+
+    /// Emit results only at specific intervals or triggers
+    /// Accumulates results and emits in batches
+    /// Default behavior for windowed queries
+    Final,
+}
+
 impl Default for AggregationMode {
     fn default() -> Self {
         // Default to windowed for better performance in most streaming scenarios
@@ -132,6 +149,9 @@ pub enum StreamingQuery {
         limit: Option<u64>,
         /// Aggregation mode for GROUP BY operations
         aggregation_mode: Option<AggregationMode>,
+        /// Emission mode for controlling when results are emitted
+        /// Can override default behavior from aggregation mode
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
     ///

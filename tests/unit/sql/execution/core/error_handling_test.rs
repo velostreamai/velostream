@@ -59,6 +59,7 @@ async fn test_arithmetic_error_handling() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 

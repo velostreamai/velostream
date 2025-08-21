@@ -196,6 +196,11 @@ enum TokenType {
     Windowed,        // WINDOWED
     Continuous,      // CONTINUOUS
 
+    // Emit Mode Keywords
+    Emit,    // EMIT
+    Changes, // CHANGES
+    Final,   // FINAL
+
     // Literals and Identifiers
     Identifier, // Column names, table names, function names
     String,     // String literals ('hello', "world")
@@ -346,6 +351,11 @@ impl StreamingSqlParser {
         keywords.insert("AGGREGATION_MODE".to_string(), TokenType::AggregationMode);
         keywords.insert("WINDOWED".to_string(), TokenType::Windowed);
         keywords.insert("CONTINUOUS".to_string(), TokenType::Continuous);
+
+        // Emit Mode Keywords
+        keywords.insert("EMIT".to_string(), TokenType::Emit);
+        keywords.insert("CHANGES".to_string(), TokenType::Changes);
+        keywords.insert("FINAL".to_string(), TokenType::Final);
 
         keywords.insert("JOIN".to_string(), TokenType::Join);
         keywords.insert("INNER".to_string(), TokenType::Inner);
@@ -886,6 +896,31 @@ impl TokenParser {
             }
         }
 
+        // Parse optional EMIT clause
+        let mut emit_mode = None;
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+
+            let emit_token = self.current_token().clone();
+
+            match emit_token.token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Changes);
+                }
+                TokenType::Final => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Final);
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(emit_token.position),
+                    });
+                }
+            }
+        }
+
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
@@ -897,6 +932,7 @@ impl TokenParser {
             order_by,
             limit,
             aggregation_mode,
+            emit_mode,
         })
     }
 

@@ -715,6 +715,7 @@ impl StreamExecutionEngine {
                 limit,
                 group_by,
                 aggregation_mode,
+                window,
                 ..
             } => {
                 // Check limit first
@@ -739,13 +740,25 @@ impl StreamExecutionEngine {
 
                 // Handle GROUP BY if present
                 if let Some(group_exprs) = group_by {
+                    // Determine aggregation mode implicitly based on SQL structure
+                    let implicit_mode = if window.is_some() {
+                        // Window clause present = Windowed aggregation
+                        Some(AggregationMode::Windowed)
+                    } else {
+                        // No window clause = Continuous aggregation (immediate updates)
+                        Some(AggregationMode::Continuous)
+                    };
+
+                    // Use explicit mode if specified, otherwise use implicit mode
+                    let effective_mode = aggregation_mode.as_ref().or(implicit_mode.as_ref());
+
                     return self.handle_group_by_record(
                         query,
                         &joined_record,
                         group_exprs,
                         fields,
                         having,
-                        aggregation_mode,
+                        &effective_mode.cloned(),
                     );
                 }
 

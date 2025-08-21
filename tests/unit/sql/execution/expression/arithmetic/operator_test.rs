@@ -54,6 +54,7 @@ async fn test_like_operator() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
             aggregation_mode: None,
         };
 
@@ -117,6 +118,7 @@ async fn test_not_like_operator() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
             aggregation_mode: None,
         };
 
@@ -187,6 +189,7 @@ async fn test_like_operator_edge_cases() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
             aggregation_mode: None,
         };
 
@@ -226,6 +229,7 @@ async fn test_like_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -259,6 +263,7 @@ async fn test_like_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -336,6 +341,7 @@ async fn test_in_operator_basic() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
             aggregation_mode: None,
         };
 
@@ -398,6 +404,7 @@ async fn test_not_in_operator_basic() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
             aggregation_mode: None,
         };
 
@@ -446,6 +453,7 @@ async fn test_in_operator_with_null_values() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -477,6 +485,7 @@ async fn test_in_operator_with_null_values() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -526,6 +535,7 @@ async fn test_in_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -558,6 +568,7 @@ async fn test_in_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 

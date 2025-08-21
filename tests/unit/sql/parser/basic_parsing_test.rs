@@ -93,6 +93,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+                emit_mode: None,
                 aggregation_mode: None,
                 ..
             } => {
@@ -123,6 +124,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+                emit_mode: None,
                 aggregation_mode: None,
                 ..
             } => {
@@ -154,6 +156,7 @@ mod tests {
                 having: None,
                 order_by: None,
                 limit: None,
+                emit_mode: None,
                 aggregation_mode: None,
                 ..
             } => {

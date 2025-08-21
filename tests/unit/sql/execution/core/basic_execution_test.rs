@@ -61,6 +61,7 @@ async fn test_execute_simple_select() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -98,6 +99,7 @@ async fn test_execute_specific_columns() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -137,6 +139,7 @@ async fn test_execute_with_literals() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -171,6 +174,7 @@ async fn test_missing_column_returns_null() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -199,6 +203,7 @@ async fn test_multiple_records_processing() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -238,6 +243,7 @@ async fn test_null_value_handling() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 

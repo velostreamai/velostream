@@ -68,6 +68,7 @@ async fn test_windowed_execution_tumbling() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -123,6 +124,7 @@ async fn test_sliding_window_execution() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -159,6 +161,7 @@ async fn test_session_window_execution() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -213,6 +216,7 @@ async fn test_aggregation_functions() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 

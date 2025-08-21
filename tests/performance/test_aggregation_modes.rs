@@ -111,7 +111,9 @@ async fn test_continuous_aggregation_mode() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: Some(AggregationMode::Continuous), // Key difference!
+        emit_mode: None,
     };
 
     let mut engine = StreamExecutionEngine::new(tx.clone(), serialization_format.clone());

@@ -59,6 +59,7 @@ async fn test_arithmetic_expressions() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -97,6 +98,7 @@ async fn test_boolean_expressions() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 
@@ -139,6 +141,7 @@ async fn test_complex_expression_evaluation() {
         having: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
         aggregation_mode: None,
     };
 

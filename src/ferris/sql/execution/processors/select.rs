@@ -34,6 +34,9 @@ impl SelectProcessor {
             having,
             limit,
             group_by,
+            aggregation_mode,
+            window,
+            emit_mode,
             ..
         } = query
         {
@@ -64,12 +67,58 @@ impl SelectProcessor {
 
             // Handle GROUP BY if present
             if let Some(group_exprs) = group_by {
+                // Validate EMIT clause usage
+                if let Some(emit) = emit_mode {
+                    match emit {
+                        crate::ferris::sql::ast::EmitMode::Final => {
+                            // EMIT FINAL only makes sense with windowed queries
+                            if window.is_none() {
+                                return Err(SqlError::ExecutionError {
+                                    message: "EMIT FINAL can only be used with windowed aggregations (queries with WINDOW clause)".to_string(),
+                                    query: Some(format!("{:?}", query)),
+                                });
+                            }
+                        }
+                        crate::ferris::sql::ast::EmitMode::Changes => {
+                            // EMIT CHANGES is always valid
+                        }
+                    }
+                }
+
+                // Determine effective aggregation mode considering emit_mode override
+                let effective_mode = if let Some(emit) = emit_mode {
+                    // EMIT clause overrides all other modes
+                    Some(match emit {
+                        crate::ferris::sql::ast::EmitMode::Changes => {
+                            crate::ferris::sql::ast::AggregationMode::Continuous
+                        }
+                        crate::ferris::sql::ast::EmitMode::Final => {
+                            crate::ferris::sql::ast::AggregationMode::Windowed
+                        }
+                    })
+                } else {
+                    // Fall back to explicit aggregation_mode or implicit detection
+                    if let Some(mode) = aggregation_mode {
+                        Some(mode.clone())
+                    } else {
+                        // Determine aggregation mode implicitly based on SQL structure
+                        if window.is_some() {
+                            // Window clause present = Windowed aggregation
+                            Some(crate::ferris::sql::ast::AggregationMode::Windowed)
+                        } else {
+                            // No window clause = Continuous aggregation (immediate updates)
+                            Some(crate::ferris::sql::ast::AggregationMode::Continuous)
+                        }
+                    }
+                };
+
                 return Self::handle_group_by_record(
                     query,
                     &joined_record,
                     group_exprs,
                     fields,
                     having,
+                    &effective_mode,
                     context,
                 );
             }
@@ -183,6 +232,7 @@ impl SelectProcessor {
         group_exprs: &[Expr],
         fields: &[SelectField],
         having: &Option<Expr>,
+        aggregation_mode: &Option<crate::ferris::sql::ast::AggregationMode>,
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
         // Generate a unique key for this query's GROUP BY state
@@ -625,6 +675,17 @@ impl SelectProcessor {
                                 }
                             }
                         }
+                    } else {
+                        // Handle non-function expressions (e.g., boolean expressions, arithmetic)
+                        let field_name = if let Some(alias_name) = alias {
+                            alias_name.clone()
+                        } else {
+                            Self::get_expression_name(expr)
+                        };
+
+                        // Evaluate the expression using the original record
+                        let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
+                        result_fields.insert(field_name, value);
                     }
                 }
                 SelectField::Column(name) => {
@@ -667,19 +728,34 @@ impl SelectProcessor {
             }
         }
 
-        let final_record = StreamRecord {
-            fields: result_fields,
-            timestamp: record.timestamp,
-            offset: record.offset,
-            partition: record.partition,
-            headers: record.headers.clone(),
-        };
+        // Apply dual-mode aggregation behavior based on aggregation mode
+        match aggregation_mode {
+            Some(crate::ferris::sql::ast::AggregationMode::Windowed) => {
+                // Windowed mode: Accumulate but don't emit per-record results
+                // Results are only emitted when explicitly flushed (e.g., window closes)
+                Ok(ProcessorResult {
+                    record: None,
+                    header_mutations: Vec::new(),
+                    should_count: false,
+                })
+            }
+            Some(crate::ferris::sql::ast::AggregationMode::Continuous) | None => {
+                // Continuous mode: Emit results for each input record (CDC-style)
+                let final_record = StreamRecord {
+                    fields: result_fields,
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                };
 
-        Ok(ProcessorResult {
-            record: Some(final_record),
-            header_mutations: Vec::new(),
-            should_count: true,
-        })
+                Ok(ProcessorResult {
+                    record: Some(final_record),
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
+            }
+        }
     }
 
     /// Evaluate a GROUP BY expression to produce a grouping key
