@@ -55,7 +55,6 @@ async fn test_like_operator() {
             order_by: None,
             limit: None,
             emit_mode: None,
-            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -119,7 +118,6 @@ async fn test_not_like_operator() {
             order_by: None,
             limit: None,
             emit_mode: None,
-            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -190,7 +188,6 @@ async fn test_like_operator_edge_cases() {
             order_by: None,
             limit: None,
             emit_mode: None,
-            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -230,7 +227,6 @@ async fn test_like_operator_edge_cases() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -264,7 +260,6 @@ async fn test_like_operator_edge_cases() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -342,7 +337,6 @@ async fn test_in_operator_basic() {
             order_by: None,
             limit: None,
             emit_mode: None,
-            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -405,7 +399,6 @@ async fn test_not_in_operator_basic() {
             order_by: None,
             limit: None,
             emit_mode: None,
-            aggregation_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -454,7 +447,6 @@ async fn test_in_operator_with_null_values() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -486,7 +478,6 @@ async fn test_in_operator_with_null_values() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result_not_in = engine.execute(&query_not_in, record).await;
@@ -536,7 +527,6 @@ async fn test_in_operator_edge_cases() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result_large = engine.execute(&query_large, record.clone()).await;
@@ -569,7 +559,6 @@ async fn test_in_operator_edge_cases() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let result_duplicates = engine.execute(&query_duplicates, record).await;

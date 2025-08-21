@@ -34,7 +34,6 @@ impl SelectProcessor {
             having,
             limit,
             group_by,
-            aggregation_mode,
             window,
             emit_mode,
             ..
@@ -85,30 +84,18 @@ impl SelectProcessor {
                     }
                 }
 
-                // Determine effective aggregation mode considering emit_mode override
-                let effective_mode = if let Some(emit) = emit_mode {
-                    // EMIT clause overrides all other modes
-                    Some(match emit {
-                        crate::ferris::sql::ast::EmitMode::Changes => {
-                            crate::ferris::sql::ast::AggregationMode::Continuous
-                        }
-                        crate::ferris::sql::ast::EmitMode::Final => {
-                            crate::ferris::sql::ast::AggregationMode::Windowed
-                        }
-                    })
+                // Determine effective emit mode
+                let effective_emit_mode = if let Some(emit) = emit_mode {
+                    // Explicit EMIT clause is used directly
+                    Some(emit.clone())
                 } else {
-                    // Fall back to explicit aggregation_mode or implicit detection
-                    if let Some(mode) = aggregation_mode {
-                        Some(mode.clone())
+                    // Use intelligent defaults based on SQL structure
+                    if window.is_some() {
+                        // Window clause present = Default to EMIT FINAL
+                        Some(crate::ferris::sql::ast::EmitMode::Final)
                     } else {
-                        // Determine aggregation mode implicitly based on SQL structure
-                        if window.is_some() {
-                            // Window clause present = Windowed aggregation
-                            Some(crate::ferris::sql::ast::AggregationMode::Windowed)
-                        } else {
-                            // No window clause = Continuous aggregation (immediate updates)
-                            Some(crate::ferris::sql::ast::AggregationMode::Continuous)
-                        }
+                        // No window clause = Default to EMIT CHANGES
+                        Some(crate::ferris::sql::ast::EmitMode::Changes)
                     }
                 };
 
@@ -118,7 +105,7 @@ impl SelectProcessor {
                     group_exprs,
                     fields,
                     having,
-                    &effective_mode,
+                    &effective_emit_mode,
                     context,
                 );
             }
@@ -232,7 +219,7 @@ impl SelectProcessor {
         group_exprs: &[Expr],
         fields: &[SelectField],
         having: &Option<Expr>,
-        aggregation_mode: &Option<crate::ferris::sql::ast::AggregationMode>,
+        emit_mode: &Option<crate::ferris::sql::ast::EmitMode>,
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
         // Generate a unique key for this query's GROUP BY state
@@ -728,10 +715,14 @@ impl SelectProcessor {
             }
         }
 
-        // Apply dual-mode aggregation behavior based on aggregation mode
-        match aggregation_mode {
-            Some(crate::ferris::sql::ast::AggregationMode::Windowed) => {
-                // Windowed mode: Accumulate but don't emit per-record results
+        // Apply dual-mode aggregation behavior based on emit mode
+        use crate::ferris::sql::ast::EmitMode;
+        let default_mode = EmitMode::Changes;
+        let mode = emit_mode.as_ref().unwrap_or(&default_mode);
+
+        match mode {
+            EmitMode::Final => {
+                // EMIT FINAL: Accumulate but don't emit per-record results
                 // Results are only emitted when explicitly flushed (e.g., window closes)
                 Ok(ProcessorResult {
                     record: None,
@@ -739,8 +730,8 @@ impl SelectProcessor {
                     should_count: false,
                 })
             }
-            Some(crate::ferris::sql::ast::AggregationMode::Continuous) | None => {
-                // Continuous mode: Emit results for each input record (CDC-style)
+            EmitMode::Changes => {
+                // EMIT CHANGES: Emit results for each input record (CDC-style)
                 let final_record = StreamRecord {
                     fields: result_fields,
                     timestamp: record.timestamp,

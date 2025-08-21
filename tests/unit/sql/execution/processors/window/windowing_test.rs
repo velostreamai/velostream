@@ -69,7 +69,6 @@ async fn test_windowed_execution_tumbling() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     // Create records with specific timestamps to trigger window emission
@@ -125,7 +124,6 @@ async fn test_sliding_window_execution() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -162,7 +160,6 @@ async fn test_session_window_execution() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -217,7 +214,6 @@ async fn test_aggregation_functions() {
         order_by: None,
         limit: None,
         emit_mode: None,
-        aggregation_mode: None,
     };
 
     // Create records with specific timestamps to trigger window emission

@@ -93,7 +93,6 @@ mod tests {
                         order_by: None,
                         limit: None,
                         emit_mode: None,
-                        aggregation_mode: None,
                         ..
                     } => {
                         assert!(window.is_some());
@@ -412,7 +411,6 @@ mod tests {
                     order_by: None,
                     limit: None,
                     emit_mode: None,
-                    aggregation_mode: None,
                     fields,
                     ..
                 } => {

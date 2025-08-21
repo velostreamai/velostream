@@ -165,3 +165,28 @@ fn test_emit_final_parsing_without_window() {
         }
     }
 }
+
+#[tokio::test]
+async fn test_invalid_emit_mode_parsing() {
+    let parser = StreamingSqlParser::new();
+
+    // Test invalid EMIT mode
+    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id EMIT INVALID";
+    let result = parser.parse(query_str);
+
+    assert!(
+        result.is_err(),
+        "Query parsing should fail for invalid EMIT mode"
+    );
+
+    if let Err(err) = result {
+        let error_msg = err.to_string();
+        assert!(
+            error_msg.contains("Expected CHANGES or FINAL after EMIT")
+                || error_msg.contains("Invalid EMIT mode")
+                || error_msg.contains("INVALID"),
+            "Expected EMIT validation error, got: {}",
+            error_msg
+        );
+    }
+}

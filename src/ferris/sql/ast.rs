@@ -52,42 +52,21 @@ The AST is designed to be:
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Aggregation mode for GROUP BY operations in streaming contexts
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AggregationMode {
-    /// Continuous aggregation - emits updated result for each input record
-    /// Similar to CDC (Change Data Capture) - provides real-time updates
-    /// Use case: Live dashboards, real-time counters, immediate notifications
-    Continuous,
-
-    /// Windowed aggregation - accumulates data within time/count windows
-    /// Emits results only when windows close or at configured intervals
-    /// Use case: Batch processing, periodic reports, time-series analysis
-    Windowed,
-}
-
 /// Emission mode for streaming query results
 ///
 /// Controls when and how results are emitted from streaming queries.
-/// This can override the default behavior derived from aggregation mode.
+/// Uses KSQL-style EMIT semantics with intelligent defaults.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EmitMode {
     /// Emit changes immediately as they occur (CDC-style)
     /// Each input record can trigger result emission
-    /// Similar to KSQL's "EMIT CHANGES"
+    /// Usage: SELECT ... GROUP BY ... EMIT CHANGES
     Changes,
 
-    /// Emit results only at specific intervals or triggers
-    /// Accumulates results and emits in batches
-    /// Default behavior for windowed queries
+    /// Emit results only when windows close (requires WINDOW clause)
+    /// Accumulates results and emits complete windows
+    /// Usage: SELECT ... GROUP BY ... WINDOW ... EMIT FINAL
     Final,
-}
-
-impl Default for AggregationMode {
-    fn default() -> Self {
-        // Default to windowed for better performance in most streaming scenarios
-        AggregationMode::Windowed
-    }
 }
 
 /// Root AST node representing different types of streaming SQL queries.
@@ -112,7 +91,6 @@ impl Default for AggregationMode {
 ///         window: None,
 ///         order_by: None,
 ///         limit: Some(100),
-///         aggregation_mode: None,
 ///         emit_mode: None};
 /// }
 /// ```
@@ -148,10 +126,7 @@ pub enum StreamingQuery {
         order_by: Option<Vec<OrderByExpr>>,
         /// Optional LIMIT for result set size control
         limit: Option<u64>,
-        /// Aggregation mode for GROUP BY operations
-        aggregation_mode: Option<AggregationMode>,
         /// Emission mode for controlling when results are emitted
-        /// Can override default behavior from aggregation mode
         emit_mode: Option<EmitMode>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.

@@ -10,8 +10,23 @@ FROM table_name
 WHERE condition
 GROUP BY column1, expression, ...
 HAVING aggregate_condition
+[WINDOW window_spec]
+[EMIT {CHANGES | FINAL}]
 ORDER BY column1, ...
 ```
+
+### EMIT Modes (Optional)
+
+FerrisStreams supports KSQL-style EMIT clauses to control when GROUP BY results are emitted:
+
+- **`EMIT CHANGES`** - Continuous emission of results as data arrives (CDC-style)
+- **`EMIT FINAL`** - Emission of final results only when windows close (requires WINDOW clause)
+- **No EMIT clause** - Uses intelligent defaults based on query structure
+
+#### Default Behavior (when EMIT is not specified):
+
+- **With WINDOW clause**: Defaults to windowed aggregation (accumulate → emit when window closes)  
+- **Without WINDOW clause**: Defaults to continuous aggregation (emit updates immediately)
 
 ## Aggregate Functions
 
@@ -99,12 +114,58 @@ FROM order_items
 GROUP BY customer_id;
 ```
 
+### EMIT Mode Examples
+
+#### Continuous Aggregation (EMIT CHANGES)
+```sql
+-- Real-time dashboard - updates emitted immediately  
+SELECT 
+    category,
+    COUNT(*) as item_count,
+    AVG(price) as avg_price
+FROM products_topic
+GROUP BY category
+EMIT CHANGES;
+```
+
+#### Windowed Aggregation (EMIT FINAL)
+```sql
+-- Hourly sales reports - results emitted only when hour completes
+SELECT 
+    category,
+    COUNT(*) as hourly_sales,
+    SUM(amount) as hourly_revenue  
+FROM sales_stream
+GROUP BY category
+WINDOW TUMBLING(INTERVAL 1 HOUR)
+EMIT FINAL;
+```
+
+#### Default Behavior Examples
+```sql
+-- Default: Continuous aggregation (no WINDOW clause)
+SELECT customer_id, COUNT(*) 
+FROM orders 
+GROUP BY customer_id;  -- Updates emitted immediately
+
+-- Default: Windowed aggregation (has WINDOW clause)
+SELECT customer_id, COUNT(*)
+FROM orders 
+GROUP BY customer_id 
+WINDOW TUMBLING(INTERVAL 5 MINUTES);  -- Results emitted when window closes
+```
+
 ## Best Practices
 
 1. **Always include grouping columns in SELECT**: All non-aggregate columns in SELECT must be in GROUP BY
 2. **Use HAVING for aggregate conditions**: Use WHERE for pre-aggregation filtering, HAVING for post-aggregation
-3. **Consider performance**: GROUP BY operations can be memory-intensive with many groups
-4. **Handle NULLs appropriately**: NULL values are grouped together and excluded from most aggregates (except COUNT(*))
+3. **Choose appropriate EMIT mode**:
+   - Use `EMIT CHANGES` for real-time dashboards and CDC scenarios
+   - Use `EMIT FINAL` with windowed queries for batch reports  
+   - Omit EMIT clause to use intelligent defaults
+4. **Consider performance**: GROUP BY operations can be memory-intensive with many groups
+5. **Handle NULLs appropriately**: NULL values are grouped together and excluded from most aggregates (except COUNT(*))
+6. **EMIT FINAL validation**: `EMIT FINAL` can only be used with `WINDOW` clause - system validates this automatically
 
 ## Common Patterns
 

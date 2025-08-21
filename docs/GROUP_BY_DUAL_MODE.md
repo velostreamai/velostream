@@ -347,11 +347,11 @@ for (i, record) in records.enumerate() {
 
 1. **SQL Syntax Support**
    ```sql
-   -- Future syntax for mode specification
+   -- Current syntax for mode specification
    SELECT customer_id, COUNT(*) 
    FROM orders 
    GROUP BY customer_id 
-   WITH AGGREGATION_MODE = 'CONTINUOUS'
+   EMIT CHANGES
    ```
 
 2. **Time-Based Windows**
