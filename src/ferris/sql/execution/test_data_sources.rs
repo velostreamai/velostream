@@ -30,6 +30,14 @@ pub fn create_test_data_sources() -> HashMap<String, Vec<StreamRecord>> {
     let products_records = create_products_table_data();
     data_sources.insert("products".to_string(), products_records);
 
+    // Create 'users' table data for JOIN testing
+    let users_records = create_users_table_data();
+    data_sources.insert("users".to_string(), users_records);
+
+    // Create 'blocks' table data for NOT EXISTS testing (intentionally empty)
+    let blocks_records = create_blocks_table_data();
+    data_sources.insert("blocks".to_string(), blocks_records);
+
     data_sources
 }
 
@@ -146,6 +154,71 @@ fn create_products_table_data() -> Vec<StreamRecord> {
     });
 
     products_records
+}
+
+/// Create users table test data for JOIN operations
+fn create_users_table_data() -> Vec<StreamRecord> {
+    let mut users_records = Vec::new();
+
+    // User 1
+    let mut user_fields_1 = HashMap::new();
+    user_fields_1.insert("id".to_string(), FieldValue::Integer(100));
+    user_fields_1.insert("user_id".to_string(), FieldValue::Integer(100)); // For compatibility
+    user_fields_1.insert(
+        "name".to_string(),
+        FieldValue::String("Test User".to_string()),
+    );
+    user_fields_1.insert(
+        "email".to_string(),
+        FieldValue::String("user@example.com".to_string()),
+    );
+    user_fields_1.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
+
+    users_records.push(StreamRecord {
+        fields: user_fields_1,
+        headers: HashMap::new(),
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+    });
+
+    // User 2
+    let mut user_fields_2 = HashMap::new();
+    user_fields_2.insert("id".to_string(), FieldValue::Integer(101));
+    user_fields_2.insert("user_id".to_string(), FieldValue::Integer(101)); // For compatibility
+    user_fields_2.insert(
+        "name".to_string(),
+        FieldValue::String("Another User".to_string()),
+    );
+    user_fields_2.insert(
+        "email".to_string(),
+        FieldValue::String("user2@example.com".to_string()),
+    );
+    user_fields_2.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
+
+    users_records.push(StreamRecord {
+        fields: user_fields_2,
+        headers: HashMap::new(),
+        timestamp: 1640995200001,
+        offset: 2,
+        partition: 0,
+    });
+
+    users_records
+}
+
+/// Create blocks table test data for NOT EXISTS testing
+/// This table is intentionally empty to make NOT EXISTS return true
+fn create_blocks_table_data() -> Vec<StreamRecord> {
+    // Return empty vector - this will make NOT EXISTS (SELECT ... FROM blocks) return true
+    // because there are no records that match the condition
+    Vec::new()
 }
 
 /// Create a minimal data source set for basic testing

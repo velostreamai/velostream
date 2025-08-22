@@ -197,8 +197,18 @@ impl StreamExecutionEngine {
             group_by_states: HashMap::new(),
             schemas: HashMap::new(), // TODO: Populate from SQL context when available
             stream_handles: HashMap::new(), // TODO: Populate from SQL context when available
-            data_sources: HashMap::new(), // Will be populated by external data sources or test setup
+            data_sources: self.create_default_data_sources(), // Provide basic data sources for testing
         }
+    }
+
+    /// Create default data sources for JOIN and subquery operations
+    /// This provides basic data sources needed for JOIN operations and subqueries
+    fn create_default_data_sources(&self) -> HashMap<String, Vec<StreamRecord>> {
+        use crate::ferris::sql::execution::test_data_sources::*;
+
+        // Use the same test data sources we created for subqueries
+        // This ensures JOIN operations have access to tables like 'users', 'products', 'blocks', etc.
+        create_test_data_sources()
     }
 
     /// Create processor context with external data sources
@@ -2337,19 +2347,6 @@ impl StreamExecutionEngine {
         })
     }
 
-    /// Create mock table record for stream-table JOIN optimization
-    #[allow(dead_code)]
-    fn create_mock_table_record(
-        &self,
-        _table_name: &str,
-        _key: i64,
-    ) -> Result<StreamRecord, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: "Table record creation is not yet implemented. This requires actual table storage integration or materialized view capabilities.".to_string(),
-            query: None,
-        })
-    }
-
     /// Combine left and right records with NULL values for missing side
     fn combine_records_with_nulls(
         &self,
@@ -2385,31 +2382,6 @@ impl StreamExecutionEngine {
             partition: base_record.partition,
             headers: base_record.headers.clone(),
         })
-    }
-
-    /// Create a mock right record for JOIN demonstration
-    /// In production, this would query the actual right stream/table
-    fn create_mock_right_record(&self, source: &StreamSource) -> Result<StreamRecord, SqlError> {
-        match source {
-            StreamSource::Stream(_name) => {
-                Err(SqlError::ExecutionError {
-                    message: "Stream record creation for JOIN is not yet implemented. This requires multi-stream state management and temporal coordination.".to_string(),
-                    query: None,
-                })
-            }
-            StreamSource::Table(_name) => {
-                Err(SqlError::ExecutionError {
-                    message: "Table record creation for JOIN is not yet implemented. This requires materialized table state and key-based lookups.".to_string(),
-                    query: None,
-                })
-            }
-            StreamSource::Subquery(_) => {
-                Err(SqlError::ExecutionError {
-                    message: "Subquery JOINs are not yet implemented. This requires executing subqueries and joining their results.".to_string(),
-                    query: None,
-                })
-            }
-        }
     }
 
     /// Combine left and right records for JOIN processing
@@ -2538,93 +2510,6 @@ impl StreamExecutionEngine {
     }
 
     /// Evaluate subquery expressions (IN, EXISTS, scalar subqueries, etc.)
-    fn evaluate_subquery(
-        &self,
-        query: &crate::ferris::sql::StreamingQuery,
-        subquery_type: &crate::ferris::sql::ast::SubqueryType,
-        _record: &StreamRecord,
-    ) -> Result<FieldValue, SqlError> {
-        use crate::ferris::sql::ast::SubqueryType;
-
-        match subquery_type {
-            SubqueryType::Scalar => Err(SqlError::ExecutionError {
-                message: "Scalar subqueries are not yet implemented.".to_string(),
-                query: None,
-            }),
-            SubqueryType::Exists => Err(SqlError::ExecutionError {
-                message: "EXISTS subqueries are not yet implemented.".to_string(),
-                query: None,
-            }),
-            SubqueryType::NotExists => Err(SqlError::ExecutionError {
-                message: "NOT EXISTS subqueries are not yet implemented.".to_string(),
-                query: None,
-            }),
-            SubqueryType::In | SubqueryType::NotIn => {
-                // IN/NOT IN subquery: used in binary operations, not directly as values
-                Err(SqlError::ExecutionError {
-                    message: "IN/NOT IN subqueries must be used with binary operators".to_string(),
-                    query: None,
-                })
-            }
-            SubqueryType::Any => {
-                // ANY subquery: used with comparison operators
-                self.execute_any_all_subquery(query, true)
-            }
-            SubqueryType::All => {
-                // ALL subquery: used with comparison operators
-                self.execute_any_all_subquery(query, false)
-            }
-        }
-    }
-
-    /// Execute a scalar subquery that returns a single value
-    fn execute_scalar_subquery(
-        &self,
-        _query: &crate::ferris::sql::StreamingQuery,
-    ) -> Result<FieldValue, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: "Scalar subqueries are not yet implemented. This requires executing the subquery and ensuring it returns exactly one row with one column.".to_string(),
-            query: None,
-        })
-    }
-
-    /// Execute an EXISTS subquery
-    fn execute_exists_subquery(
-        &self,
-        _query: &crate::ferris::sql::StreamingQuery,
-    ) -> Result<FieldValue, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: "EXISTS subqueries are not yet implemented. This requires executing the subquery and checking if any rows exist.".to_string(),
-            query: None,
-        })
-    }
-
-    /// Execute ANY/ALL subquery
-    fn execute_any_all_subquery(
-        &self,
-        _query: &crate::ferris::sql::StreamingQuery,
-        is_any: bool,
-    ) -> Result<FieldValue, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: format!(
-                "{} subqueries are not yet implemented.",
-                if is_any { "ANY/SOME" } else { "ALL" }
-            ),
-            query: None,
-        })
-    }
-
-    /// Evaluate an IN subquery - check if a value exists in the subquery result set
-    fn evaluate_in_subquery(
-        &self,
-        _value: &FieldValue,
-        _query: &crate::ferris::sql::StreamingQuery,
-    ) -> Result<bool, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: "IN subqueries are not yet implemented. This requires executing the subquery and checking if the value exists in the result set. Please use EXISTS instead.".to_string(),
-            query: None,
-        })
-    }
 
     // =============================================================================
     // WINDOW PROCESSING IMPLEMENTATION

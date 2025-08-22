@@ -152,9 +152,22 @@ async fn test_insert_select() {
     let table_name = "target_table";
     let columns = Some(vec!["id".to_string(), "name".to_string()]);
 
-    // Create a mock SELECT query
+    // Create a mock SELECT query that selects the fields we need
     let select_query = StreamingQuery::Select {
-        fields: vec![], // Simplified for test
+        fields: vec![
+            ferrisstreams::ferris::sql::ast::SelectField::Expression {
+                expr: ferrisstreams::ferris::sql::ast::Expr::Literal(
+                    ferrisstreams::ferris::sql::ast::LiteralValue::Integer(42),
+                ),
+                alias: Some("id".to_string()),
+            },
+            ferrisstreams::ferris::sql::ast::SelectField::Expression {
+                expr: ferrisstreams::ferris::sql::ast::Expr::Literal(
+                    ferrisstreams::ferris::sql::ast::LiteralValue::String("test_name".to_string()),
+                ),
+                alias: Some("name".to_string()),
+            },
+        ],
         from: ferrisstreams::ferris::sql::ast::StreamSource::Table("source_table".to_string()),
         joins: None,
         where_clause: None,

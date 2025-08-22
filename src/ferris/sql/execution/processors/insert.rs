@@ -141,16 +141,114 @@ impl InsertProcessor {
 
         match query.as_ref() {
             StreamingQuery::Select { .. } => {
-                Err(SqlError::ExecutionError {
-                    message: "INSERT ... SELECT operations are not yet implemented. This requires executing the SELECT subquery and mapping results to target table columns.".to_string(),
-                    query: Some(format!("INSERT INTO {} SELECT ...", table_name)),
-                })
+                // Step 1: Create a processor context for the SELECT execution
+                let mut select_context = super::ProcessorContext {
+                    record_count: 0,
+                    max_records: None,
+                    window_context: None,
+                    join_context: super::JoinContext,
+                    group_by_states: std::collections::HashMap::new(),
+                    schemas: std::collections::HashMap::new(),
+                    stream_handles: std::collections::HashMap::new(),
+                    data_sources: std::collections::HashMap::new(),
+                };
+
+                // Step 2: Execute the SELECT query
+                let select_result =
+                    super::SelectProcessor::process(query, input_record, &mut select_context)?;
+
+                // Step 3: Extract the record from SELECT result
+                if let Some(select_record) = select_result.record {
+                    // Step 4: Map SELECT result to INSERT record
+                    let insert_record = Self::map_select_result_to_insert(
+                        table_name,
+                        columns,
+                        &select_record,
+                        input_record,
+                    )?;
+
+                    Ok(vec![insert_record])
+                } else {
+                    // SELECT returned no results, so INSERT nothing
+                    Ok(Vec::new())
+                }
             }
             _ => Err(SqlError::ExecutionError {
-                message: "INSERT ... SELECT supports only SELECT queries".to_string(),
+                message: "[INSERT-SELECT-001] INSERT ... SELECT supports only SELECT queries"
+                    .to_string(),
                 query: Some(format!("INSERT INTO {} SELECT ...", table_name)),
             }),
         }
+    }
+
+    /// Map SELECT result record to INSERT record with proper column alignment
+    fn map_select_result_to_insert(
+        table_name: &str,
+        target_columns: &Option<Vec<String>>,
+        select_record: &StreamRecord,
+        input_record: &StreamRecord,
+    ) -> Result<StreamRecord, SqlError> {
+        log::debug!("Mapping SELECT result to INSERT for table {}", table_name);
+
+        // Step 1: Get INSERT target columns (explicit or inferred)
+        let insert_columns = match target_columns {
+            Some(columns) => columns.clone(),
+            None => {
+                // When no explicit columns, use all fields from SELECT result
+                let mut columns: Vec<String> = select_record.fields.keys().cloned().collect();
+                columns.sort(); // Ensure consistent ordering
+                columns
+            }
+        };
+
+        // Step 2: Validate column count matches
+        let select_field_count = select_record.fields.len();
+        let insert_column_count = insert_columns.len();
+
+        if select_field_count != insert_column_count {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "[INSERT-SELECT-002] Column count mismatch: SELECT returns {} columns but INSERT expects {} columns",
+                    select_field_count, insert_column_count
+                ),
+                query: Some(format!("INSERT INTO {} SELECT ...", table_name)),
+            });
+        }
+
+        // Step 3: Map SELECT fields to INSERT columns by position
+        let mut insert_fields = HashMap::new();
+        let select_fields: Vec<(String, FieldValue)> = {
+            let mut fields: Vec<_> = select_record
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            fields.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by field name for consistent ordering
+            fields
+        };
+
+        for (i, target_column) in insert_columns.iter().enumerate() {
+            if let Some((_, field_value)) = select_fields.get(i) {
+                insert_fields.insert(target_column.clone(), field_value.clone());
+            } else {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "[INSERT-SELECT-003] Unable to map SELECT field {} to INSERT column {}",
+                        i, target_column
+                    ),
+                    query: Some(format!("INSERT INTO {} SELECT ...", table_name)),
+                });
+            }
+        }
+
+        // Step 4: Create INSERT record with proper metadata
+        Ok(StreamRecord {
+            fields: insert_fields,
+            headers: input_record.headers.clone(), // Preserve original headers
+            timestamp: select_record.timestamp.max(input_record.timestamp), // Use latest timestamp
+            offset: input_record.offset,           // Preserve INSERT context offset
+            partition: input_record.partition,     // Preserve INSERT context partition
+        })
     }
 
     /// Validate INSERT operation before processing
