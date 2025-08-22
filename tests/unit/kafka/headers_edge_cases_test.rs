@@ -170,7 +170,7 @@ fn test_headers_capacity_and_performance() {
     // Add many headers to test capacity handling
     for i in 0..50 {
         headers_with_capacity =
-            headers_with_capacity.insert(&format!("key{}", i), &format!("value{}", i));
+            headers_with_capacity.insert(format!("key{}", i), format!("value{}", i));
     }
 
     assert_eq!(headers_with_capacity.len(), 50);

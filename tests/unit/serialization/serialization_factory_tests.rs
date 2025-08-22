@@ -23,7 +23,7 @@ async fn test_factory_create_json_format_case_insensitive() {
 
     for format_name in &formats {
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format for '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format for '{}'", format_name));
         assert_eq!(format.format_name(), "JSON");
     }
 }
@@ -172,22 +172,22 @@ async fn test_format_interface_consistency() {
         }
 
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format '{}'", format_name));
 
         // Test basic functionality with standardized test data
         let test_record = create_basic_test_record();
 
         // Test serialization round trip
-        test_serialization_round_trip(format.as_ref(), &test_record).expect(&format!(
-            "Round trip should succeed for format '{}'",
-            format_name
-        ));
+        test_serialization_round_trip(format.as_ref(), &test_record)
+            .unwrap_or_else(|_| panic!("Round trip should succeed for format '{}'", format_name));
 
         // Test execution format round trip
-        test_execution_format_round_trip(format.as_ref(), &test_record).expect(&format!(
-            "Execution format round trip should succeed for format '{}'",
-            format_name
-        ));
+        test_execution_format_round_trip(format.as_ref(), &test_record).unwrap_or_else(|_| {
+            panic!(
+                "Execution format round trip should succeed for format '{}'",
+                format_name
+            )
+        });
 
         // Verify format name is not empty
         assert!(
@@ -283,18 +283,26 @@ async fn test_comprehensive_type_matrix_across_formats() {
         }
 
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format '{}'", format_name));
 
         // Test comprehensive type matrix
-        test_serialization_round_trip(format.as_ref(), &comprehensive_record).expect(&format!(
-            "Comprehensive type matrix should work for '{}'",
-            format_name
-        ));
+        test_serialization_round_trip(format.as_ref(), &comprehensive_record).unwrap_or_else(
+            |_| {
+                panic!(
+                    "Comprehensive type matrix should work for '{}'",
+                    format_name
+                )
+            },
+        );
 
-        test_execution_format_round_trip(format.as_ref(), &comprehensive_record).expect(&format!(
-            "Comprehensive execution format should work for '{}'",
-            format_name
-        ));
+        test_execution_format_round_trip(format.as_ref(), &comprehensive_record).unwrap_or_else(
+            |_| {
+                panic!(
+                    "Comprehensive execution format should work for '{}'",
+                    format_name
+                )
+            },
+        );
     }
 }
 
@@ -311,7 +319,7 @@ async fn test_edge_cases_across_formats() {
         }
 
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format '{}'", format_name));
 
         // Test edge cases (extract compatible fields for testing)
         let mut test_record = HashMap::new();
@@ -333,7 +341,7 @@ async fn test_edge_cases_across_formats() {
         );
 
         test_serialization_round_trip(format.as_ref(), &test_record)
-            .expect(&format!("Edge cases should work for '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Edge cases should work for '{}'", format_name));
     }
 }
 
@@ -350,10 +358,10 @@ async fn test_large_data_across_formats() {
         }
 
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format '{}'", format_name));
 
         test_serialization_round_trip(format.as_ref(), &large_data_record)
-            .expect(&format!("Large data should work for '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Large data should work for '{}'", format_name));
     }
 }
 
@@ -370,9 +378,9 @@ async fn test_null_handling_consistency_across_formats() {
         }
 
         let format = SerializationFormatFactory::create_format(format_name)
-            .expect(&format!("Should create format '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Should create format '{}'", format_name));
 
         test_serialization_round_trip(format.as_ref(), &null_record)
-            .expect(&format!("Null handling should work for '{}'", format_name));
+            .unwrap_or_else(|_| panic!("Null handling should work for '{}'", format_name));
     }
 }

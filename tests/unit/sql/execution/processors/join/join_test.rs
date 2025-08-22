@@ -73,7 +73,7 @@ async fn test_basic_inner_join() {
 
     // For now, expect an error since we haven't implemented the parser yet
     // Once the parser supports JOIN, this should succeed
-    assert!(result.is_err() || result.unwrap().len() > 0);
+    assert!(result.is_err() || !result.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -83,7 +83,7 @@ async fn test_join_with_alias() {
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;
-    assert!(result.is_err() || result.unwrap().len() > 0);
+    assert!(result.is_err() || !result.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn test_join_with_where_clause() {
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;
-    assert!(result.is_err() || result.unwrap().len() > 0);
+    assert!(result.is_err() || !result.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -103,7 +103,7 @@ async fn test_join_field_access() {
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;
-    assert!(result.is_err() || result.unwrap().len() > 0);
+    assert!(result.is_err() || !result.unwrap().is_empty());
 }
 
 #[tokio::test]

@@ -1,6 +1,8 @@
 // Integration Tests - Require running Kafka
 // These tests interact with actual Kafka instances and may be slow
 
+pub mod builder_pattern_test;
+pub mod emit_functionality_test;
 pub mod execution_engine_test;
 pub mod failure_recovery_test;
 pub mod kafka_advanced_test;

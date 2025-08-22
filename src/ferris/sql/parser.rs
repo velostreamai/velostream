@@ -191,6 +191,11 @@ enum TokenType {
     Metrics,    // METRICS
     Describe,   // DESCRIBE
 
+    // Emit Mode Keywords
+    Emit,    // EMIT
+    Changes, // CHANGES
+    Final,   // FINAL
+
     // Literals and Identifiers
     Identifier, // Column names, table names, function names
     String,     // String literals ('hello', "world")
@@ -250,6 +255,7 @@ enum TokenType {
     Range,     // RANGE
     Between,   // BETWEEN
     And,       // AND
+    Or,        // OR
     Preceding, // PRECEDING
     Following, // FOLLOWING
     Current,   // CURRENT
@@ -336,6 +342,12 @@ impl StreamingSqlParser {
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
+
+        // Emit Mode Keywords
+        keywords.insert("EMIT".to_string(), TokenType::Emit);
+        keywords.insert("CHANGES".to_string(), TokenType::Changes);
+        keywords.insert("FINAL".to_string(), TokenType::Final);
+
         keywords.insert("JOIN".to_string(), TokenType::Join);
         keywords.insert("INNER".to_string(), TokenType::Inner);
         keywords.insert("LEFT".to_string(), TokenType::Left);
@@ -360,6 +372,7 @@ impl StreamingSqlParser {
         keywords.insert("RANGE".to_string(), TokenType::Range);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
         keywords.insert("AND".to_string(), TokenType::And);
+        keywords.insert("OR".to_string(), TokenType::Or);
         keywords.insert("PRECEDING".to_string(), TokenType::Preceding);
         keywords.insert("FOLLOWING".to_string(), TokenType::Following);
         keywords.insert("CURRENT".to_string(), TokenType::Current);
@@ -818,6 +831,33 @@ impl TokenParser {
             );
         }
 
+        // Aggregation mode is now fully replaced by EMIT clauses
+
+        // Parse optional EMIT clause
+        let mut emit_mode = None;
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+
+            let emit_token = self.current_token().clone();
+
+            match emit_token.token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Changes);
+                }
+                TokenType::Final => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Final);
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(emit_token.position),
+                    });
+                }
+            }
+        }
+
         Ok(StreamingQuery::Select {
             fields,
             from: StreamSource::Stream(from_stream),
@@ -828,6 +868,7 @@ impl TokenParser {
             window,
             order_by,
             limit,
+            emit_mode,
         })
     }
 
@@ -1007,7 +1048,39 @@ impl TokenParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr, SqlError> {
-        self.parse_comparison()
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_logical_and()?;
+
+        while self.current_token().token_type == TokenType::Or {
+            self.advance(); // consume OR
+            let right = self.parse_logical_and()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Or,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_comparison()?;
+
+        while self.current_token().token_type == TokenType::And {
+            self.advance(); // consume AND
+            let right = self.parse_comparison()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::And,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, SqlError> {

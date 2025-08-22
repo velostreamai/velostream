@@ -165,6 +165,15 @@ pub enum SqlError {
         /// Description of the resource constraint or exhaustion
         message: String,
     },
+
+    /// Table or stream not found errors.
+    ///
+    /// Occurs when DML operations (INSERT, UPDATE, DELETE) reference
+    /// tables or streams that haven't been registered in the context.
+    TableNotFound {
+        /// Name of the table that was not found
+        table_name: String,
+    },
 }
 
 impl fmt::Display for SqlError {
@@ -224,6 +233,9 @@ impl fmt::Display for SqlError {
             }
             SqlError::ResourceError { resource, message } => {
                 write!(f, "Resource error for {}: {}", resource, message)
+            }
+            SqlError::TableNotFound { table_name } => {
+                write!(f, "Table '{}' not found", table_name)
             }
         }
     }

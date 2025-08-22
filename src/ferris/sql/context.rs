@@ -169,6 +169,55 @@ impl StreamingSqlContext {
                 // ROLLBACK commands don't need schema validation
                 Ok(())
             }
+            StreamingQuery::InsertInto {
+                table_name,
+                columns: _,
+                source: _,
+            } => {
+                // Validate INSERT command - check table exists and types match
+                if !self.registered_streams.contains_key(table_name) {
+                    return Err(SqlError::TableNotFound {
+                        table_name: table_name.clone(),
+                    });
+                }
+
+                // TODO: Add more comprehensive validation for INSERT
+                // - Column count/type compatibility
+                // - Value expression validation
+                Ok(())
+            }
+            StreamingQuery::Update {
+                table_name,
+                assignments: _,
+                where_clause: _,
+            } => {
+                // Validate UPDATE command - check table exists
+                if !self.registered_streams.contains_key(table_name) {
+                    return Err(SqlError::TableNotFound {
+                        table_name: table_name.clone(),
+                    });
+                }
+
+                // TODO: Add more comprehensive validation for UPDATE
+                // - Assignment expression validation
+                // - WHERE clause validation
+                Ok(())
+            }
+            StreamingQuery::Delete {
+                table_name,
+                where_clause: _,
+            } => {
+                // Validate DELETE command - check table exists
+                if !self.registered_streams.contains_key(table_name) {
+                    return Err(SqlError::TableNotFound {
+                        table_name: table_name.clone(),
+                    });
+                }
+
+                // TODO: Add more comprehensive validation for DELETE
+                // - WHERE clause validation
+                Ok(())
+            }
         }
     }
 
@@ -246,6 +295,18 @@ impl StreamingSqlContext {
             StreamingQuery::RollbackJob { name, .. } => {
                 // Use the job name as the stream identifier
                 name
+            }
+            StreamingQuery::InsertInto { table_name, .. } => {
+                // Use the table name as the stream identifier
+                table_name
+            }
+            StreamingQuery::Update { table_name, .. } => {
+                // Use the table name as the stream identifier
+                table_name
+            }
+            StreamingQuery::Delete { table_name, .. } => {
+                // Use the table name as the stream identifier
+                table_name
             }
         };
 

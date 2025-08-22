@@ -132,7 +132,7 @@ pub fn create_large_data_test_record() -> HashMap<String, FieldValue> {
     record.insert("large_field".to_string(), FieldValue::String(large_string));
 
     // Large array
-    let large_array: Vec<FieldValue> = (0..1000).map(|i| FieldValue::Integer(i)).collect();
+    let large_array: Vec<FieldValue> = (0..1000).map(FieldValue::Integer).collect();
     record.insert("large_array".to_string(), FieldValue::Array(large_array));
 
     // Large nested structure
@@ -257,10 +257,9 @@ pub fn assert_records_equivalent(
     assert_eq!(original.len(), deserialized.len(), "Record length mismatch");
 
     for (key, original_value) in original {
-        let deserialized_value = deserialized.get(key).expect(&format!(
-            "Key '{}' should exist in deserialized record",
-            key
-        ));
+        let deserialized_value = deserialized
+            .get(key)
+            .unwrap_or_else(|| panic!("Key '{}' should exist in deserialized record", key));
         assert_field_values_equivalent(original_value, deserialized_value);
     }
 }
@@ -274,7 +273,7 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
             for (key, orig_value) in original_map {
                 let deser_value = deserialized_map
                     .get(key)
-                    .expect(&format!("Key '{}' should exist in deserialized map", key));
+                    .unwrap_or_else(|| panic!("Key '{}' should exist in deserialized map", key));
                 assert_field_values_equivalent(orig_value, deser_value);
             }
         }
@@ -282,10 +281,9 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
         (FieldValue::Map(original_map), FieldValue::Struct(deserialized_map)) => {
             assert_eq!(original_map.len(), deserialized_map.len());
             for (key, orig_value) in original_map {
-                let deser_value = deserialized_map.get(key).expect(&format!(
-                    "Key '{}' should exist in deserialized struct",
-                    key
-                ));
+                let deser_value = deserialized_map
+                    .get(key)
+                    .unwrap_or_else(|| panic!("Key '{}' should exist in deserialized struct", key));
                 assert_field_values_equivalent(orig_value, deser_value);
             }
         }
@@ -302,7 +300,7 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
             for (key, orig_value) in original_map {
                 let deser_value = deserialized_map
                     .get(key)
-                    .expect(&format!("Key '{}' should exist", key));
+                    .unwrap_or_else(|| panic!("Key '{}' should exist", key));
                 assert_field_values_equivalent(orig_value, deser_value);
             }
         }
@@ -312,7 +310,7 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
             for (key, orig_value) in original_map {
                 let deser_value = deserialized_map
                     .get(key)
-                    .expect(&format!("Key '{}' should exist in struct", key));
+                    .unwrap_or_else(|| panic!("Key '{}' should exist in struct", key));
                 assert_field_values_equivalent(orig_value, deser_value);
             }
         }

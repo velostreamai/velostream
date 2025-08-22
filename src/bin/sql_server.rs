@@ -354,6 +354,9 @@ async fn execute_sql_query(
                                     .collect();
                                 InternalValue::Object(internal_obj)
                             }
+                            FieldValue::Interval { value, unit } => {
+                                InternalValue::String(format!("INTERVAL {} {:?}", value, unit))
+                            }
                         };
                         record_internal.insert(key.clone(), internal_value);
                     }

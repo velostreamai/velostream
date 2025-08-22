@@ -1,17 +1,15 @@
-// SQL Execution Tests
-// Tests for SQL query execution functionality - logically organized
+//! SQL Execution Tests
+//!
+//! Tests for SQL query execution functionality organized by component.
 
-// Core execution functionality
-pub mod basic_execution_test;
-pub mod error_handling_test;
-pub mod expression_evaluation_test;
-pub mod operator_test;
-pub mod window_processing_test;
-pub mod windowing_test;
+// Core execution functionality tests
+pub mod core;
 
-// Specialized features
-pub mod csas_ctas_test;
-pub mod group_by_test;
-pub mod join_test;
-pub mod limit_test;
-pub mod subquery_test;
+// Expression evaluation tests
+pub mod expression;
+
+// Aggregation tests
+pub mod aggregation;
+
+// Query processor tests
+pub mod processors;

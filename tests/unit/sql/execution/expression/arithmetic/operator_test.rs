@@ -54,6 +54,7 @@ async fn test_like_operator() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -116,6 +117,7 @@ async fn test_not_like_operator() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -185,6 +187,7 @@ async fn test_like_operator_edge_cases() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -223,6 +226,7 @@ async fn test_like_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -232,7 +236,7 @@ async fn test_like_operator_edge_cases() {
     let null_like_result = output.get("null_like_result").unwrap();
     match null_like_result {
         InternalValue::Boolean(result) => {
-            assert_eq!(*result, false, "NULL LIKE anything should return false");
+            assert!(!(*result), "NULL LIKE anything should return false");
         }
         _ => panic!("Expected boolean result for NULL LIKE operation"),
     }
@@ -255,6 +259,7 @@ async fn test_like_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -264,7 +269,7 @@ async fn test_like_operator_edge_cases() {
     let number_like_result = output.get("number_like_result").unwrap();
     match number_like_result {
         InternalValue::Boolean(result) => {
-            assert_eq!(*result, true, "\"123\" LIKE \"%3\" should match");
+            assert!(*result, "\"123\" LIKE \"%3\" should match");
         }
         _ => panic!("Expected boolean result for number LIKE operation"),
     }
@@ -331,6 +336,7 @@ async fn test_in_operator_basic() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -392,6 +398,7 @@ async fn test_not_in_operator_basic() {
             window: None,
             order_by: None,
             limit: None,
+            emit_mode: None,
         };
 
         let result = engine.execute(&query, record.clone()).await;
@@ -439,6 +446,7 @@ async fn test_in_operator_with_null_values() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result = engine.execute(&query, record.clone()).await;
@@ -446,7 +454,7 @@ async fn test_in_operator_with_null_values() {
 
     // NULL IN anything should not match
     let got_output = rx.try_recv().is_ok();
-    assert_eq!(got_output, false, "NULL IN list should not match");
+    assert!(!got_output, "NULL IN list should not match");
 
     // Test NOT IN with NULL - should also not match
     let query_not_in = StreamingQuery::Select {
@@ -469,6 +477,7 @@ async fn test_in_operator_with_null_values() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result_not_in = engine.execute(&query_not_in, record).await;
@@ -476,10 +485,7 @@ async fn test_in_operator_with_null_values() {
 
     // NULL NOT IN anything should also not match
     let got_output_not_in = rx.try_recv().is_ok();
-    assert_eq!(
-        got_output_not_in, false,
-        "NULL NOT IN list should not match"
-    );
+    assert!(!got_output_not_in, "NULL NOT IN list should not match");
 }
 
 #[tokio::test]
@@ -520,6 +526,7 @@ async fn test_in_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result_large = engine.execute(&query_large, record.clone()).await;
@@ -527,7 +534,7 @@ async fn test_in_operator_edge_cases() {
 
     // Should match since 5 is in 1..=100
     let got_output_large = rx.try_recv().is_ok();
-    assert_eq!(got_output_large, true, "Large list should match");
+    assert!(got_output_large, "Large list should match");
 
     // Test with duplicate values in list (should still work)
     let query_duplicates = StreamingQuery::Select {
@@ -551,6 +558,7 @@ async fn test_in_operator_edge_cases() {
         window: None,
         order_by: None,
         limit: None,
+        emit_mode: None,
     };
 
     let result_duplicates = engine.execute(&query_duplicates, record).await;
@@ -558,8 +566,8 @@ async fn test_in_operator_edge_cases() {
 
     // Should match
     let got_output_duplicates = rx.try_recv().is_ok();
-    assert_eq!(
-        got_output_duplicates, true,
+    assert!(
+        got_output_duplicates,
         "Duplicate values in list should still match"
     );
 }

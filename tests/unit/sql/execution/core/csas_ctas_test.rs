@@ -92,6 +92,7 @@ mod tests {
                         having: None,
                         order_by: None,
                         limit: None,
+                        emit_mode: None,
                         ..
                     } => {
                         assert!(window.is_some());
@@ -409,6 +410,7 @@ mod tests {
                     having: None,
                     order_by: None,
                     limit: None,
+                    emit_mode: None,
                     fields,
                     ..
                 } => {

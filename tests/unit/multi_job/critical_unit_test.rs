@@ -8,7 +8,6 @@
 
 use ferrisstreams::ferris::{JobStatus, MultiJobSqlServer};
 use std::time::Duration;
-use tokio::time::timeout;
 
 // Test helper functions
 async fn create_test_server(max_jobs: usize) -> MultiJobSqlServer {

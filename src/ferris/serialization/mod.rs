@@ -369,6 +369,18 @@ fn field_value_to_json(field_value: &FieldValue) -> Result<serde_json::Value, Se
             }
             Ok(serde_json::Value::Object(json_map))
         }
+        FieldValue::Interval { value, unit } => {
+            let mut interval_obj = serde_json::Map::new();
+            interval_obj.insert(
+                "value".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(*value)),
+            );
+            interval_obj.insert(
+                "unit".to_string(),
+                serde_json::Value::String(format!("{:?}", unit)),
+            );
+            Ok(serde_json::Value::Object(interval_obj))
+        }
     }
 }
 
@@ -429,6 +441,17 @@ fn field_value_to_internal(field_value: &FieldValue) -> Result<InternalValue, Se
                 internal_map.insert(k.clone(), field_value_to_internal(v)?);
             }
             Ok(InternalValue::Object(internal_map))
+        }
+        FieldValue::Interval { value, unit } => {
+            // Convert interval to milliseconds for output
+            let millis = match unit {
+                crate::ferris::sql::ast::TimeUnit::Millisecond => *value,
+                crate::ferris::sql::ast::TimeUnit::Second => *value * 1000,
+                crate::ferris::sql::ast::TimeUnit::Minute => *value * 60 * 1000,
+                crate::ferris::sql::ast::TimeUnit::Hour => *value * 60 * 60 * 1000,
+                crate::ferris::sql::ast::TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
+            };
+            Ok(InternalValue::Integer(millis))
         }
     }
 }
@@ -652,6 +675,9 @@ fn field_value_to_avro(
                 avro_fields.push((k.clone(), field_value_to_avro(v)?));
             }
             Ok(Value::Record(avro_fields))
+        }
+        FieldValue::Interval { value, unit } => {
+            Ok(Value::String(format!("INTERVAL {} {:?}", value, unit)))
         }
     }
 }

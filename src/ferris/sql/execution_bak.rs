@@ -694,7 +694,10 @@ impl StreamExecutionEngine {
                 // DEPLOY JOB matches if the underlying query matches
                 self.query_matches_stream(query, stream_name)
             }
-            StreamingQuery::RollbackJob { .. } => false, // ROLLBACK commands don't match streams
+            StreamingQuery::RollbackJob { .. } => false,
+            StreamingQuery::InsertInto { .. }
+            | StreamingQuery::Update { .. }
+            | StreamingQuery::Delete { .. } => false, // ROLLBACK commands don't match streams
         }
     }
 
@@ -1102,6 +1105,12 @@ impl StreamExecutionEngine {
                     headers: record.headers.clone(),
                 }))
             }
+            StreamingQuery::InsertInto { .. }
+            | StreamingQuery::Update { .. }
+            | StreamingQuery::Delete { .. } => Err(SqlError::ExecutionError {
+                message: "DML operations not supported in legacy engine".to_string(),
+                query: None,
+            }),
         }
     }
 

@@ -5,7 +5,7 @@ Tests for the enhanced CAST operation supporting DATE, TIMESTAMP, and DECIMAL ty
 These tests verify that all type conversions work correctly and handle edge cases.
 */
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine};
 use rust_decimal::Decimal;

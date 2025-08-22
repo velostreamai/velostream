@@ -2,6 +2,9 @@ use crate::unit::common::*;
 
 #[tokio::test]
 async fn test_producer_builder_basic() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test basic producer builder functionality
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -35,6 +38,9 @@ async fn test_producer_builder_basic() {
 
 #[tokio::test]
 async fn test_producer_builder_with_configuration() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test producer builder with custom configuration
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -60,6 +66,9 @@ async fn test_producer_builder_with_configuration() {
 
 #[tokio::test]
 async fn test_producer_builder_with_presets() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test producer builder with performance presets
     let high_throughput_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -124,6 +133,9 @@ async fn test_producer_builder_with_presets() {
 
 #[tokio::test]
 async fn test_producer_builder_with_config_object() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test producer builder with ProducerConfig object
     let config = ProducerConfig::new("localhost:9092", "builder-config-obj-topic")
         .client_id("config-obj-producer")
@@ -147,6 +159,9 @@ async fn test_producer_builder_with_config_object() {
 
 #[tokio::test]
 async fn test_consumer_builder_basic() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test basic consumer builder functionality
     let consumer_result = ConsumerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -176,6 +191,9 @@ async fn test_consumer_builder_basic() {
 
 #[tokio::test]
 async fn test_consumer_builder_with_presets() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test consumer builder with performance presets using ConsumerConfig
     let high_throughput_config = ConsumerConfig::new("localhost:9092", "ht-consumer-group")
         .client_id("ht-consumer")
@@ -240,6 +258,9 @@ async fn test_consumer_builder_with_presets() {
 
 #[tokio::test]
 async fn test_producer_builder_method_chaining() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test that builder methods can be chained in different orders
     let producer1_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -276,6 +297,9 @@ async fn test_producer_builder_method_chaining() {
 
 #[tokio::test]
 async fn test_builder_configuration_override() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test that later configuration calls override earlier ones
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -297,6 +321,9 @@ async fn test_builder_configuration_override() {
 
 #[tokio::test]
 async fn test_producer_builder_preset_override() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test that preset configurations can be overridden
     let producer_result = ProducerBuilder::<String, TestMessage, _, _>::new(
         "localhost:9092",
@@ -317,6 +344,9 @@ async fn test_producer_builder_preset_override() {
 
 #[tokio::test]
 async fn test_consumer_builder_with_custom_context() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test consumer builder with custom context
     use rdkafka::consumer::DefaultConsumerContext;
 
@@ -345,6 +375,9 @@ async fn test_consumer_builder_with_custom_context() {
 
 #[tokio::test]
 async fn test_producer_builder_with_custom_context() {
+    if !is_kafka_running() {
+        return;
+    }
     // Test producer builder with custom context
     use ferrisstreams::ferris::kafka::LoggingProducerContext;
 
@@ -424,7 +457,7 @@ async fn test_kafka_workflow() {
 
             let headers = Headers::new().insert("test-type", "e2e-builder").insert(
                 "timestamp",
-                &std::time::SystemTime::now()
+                std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()
