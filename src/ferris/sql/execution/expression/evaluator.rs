@@ -3,9 +3,11 @@
 //! This module implements the core expression evaluation logic that processes
 //! SQL expressions against streaming data records.
 
+use super::super::processors::ProcessorContext;
 use super::super::types::{FieldValue, StreamRecord};
 use super::arithmetic::ArithmeticOperations;
 use super::functions::BuiltinFunctions;
+use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
 
@@ -676,6 +678,261 @@ impl ExpressionEvaluator {
         match regex::Regex::new(&format!("^{}$", regex_pattern)) {
             Ok(re) => re.is_match(text),
             Err(_) => false,
+        }
+    }
+
+    /// Evaluates a boolean expression with subquery support
+    ///
+    /// This is the enhanced version of evaluate_expression that can handle subqueries
+    /// by delegating their execution to the provided SubqueryExecutor.
+    pub fn evaluate_expression_with_subqueries<T: SubqueryExecutor>(
+        expr: &Expr,
+        record: &StreamRecord,
+        subquery_executor: &T,
+        context: &ProcessorContext,
+    ) -> Result<bool, SqlError> {
+        match expr {
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
+                // Handle subqueries in boolean context
+                let result = evaluate_subquery_with_executor(
+                    subquery_executor,
+                    query,
+                    subquery_type,
+                    record,
+                    context,
+                    None,
+                )?;
+                Self::field_value_to_bool(&result)
+            }
+            _ => {
+                // For non-subquery expressions, delegate to enhanced value evaluator
+                let value = Self::evaluate_expression_value_with_subqueries(
+                    expr,
+                    record,
+                    subquery_executor,
+                    context,
+                )?;
+                Self::field_value_to_bool(&value)
+            }
+        }
+    }
+
+    /// Evaluates an expression value with subquery support
+    ///
+    /// This is the enhanced version of evaluate_expression_value that can handle subqueries
+    /// by delegating their execution to the provided SubqueryExecutor.
+    pub fn evaluate_expression_value_with_subqueries<T: SubqueryExecutor>(
+        expr: &Expr,
+        record: &StreamRecord,
+        subquery_executor: &T,
+        context: &ProcessorContext,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
+                // Handle subqueries based on their type
+                evaluate_subquery_with_executor(
+                    subquery_executor,
+                    query,
+                    subquery_type,
+                    record,
+                    context,
+                    None,
+                )
+            }
+            Expr::BinaryOp { left, op, right } => {
+                use crate::ferris::sql::ast::BinaryOperator;
+
+                // Handle IN/NOT IN operations that might involve subqueries
+                match op {
+                    BinaryOperator::In => {
+                        let left_val = Self::evaluate_expression_value_with_subqueries(
+                            left,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+
+                        // SQL semantics: NULL IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_subqueries(
+                                        value_expr,
+                                        record,
+                                        subquery_executor,
+                                        context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            Expr::Subquery { query, .. } => {
+                                let in_result = subquery_executor
+                                    .execute_in_subquery(&left_val, query, record, context)?;
+                                Ok(FieldValue::Boolean(in_result))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message:
+                                    "IN operator requires a list or subquery on the right side"
+                                        .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val = Self::evaluate_expression_value_with_subqueries(
+                            left,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+
+                        // SQL semantics: NULL NOT IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_subqueries(
+                                        value_expr,
+                                        record,
+                                        subquery_executor,
+                                        context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            Expr::Subquery { query, .. } => {
+                                let in_result = subquery_executor
+                                    .execute_in_subquery(&left_val, query, record, context)?;
+                                Ok(FieldValue::Boolean(!in_result))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message:
+                                    "NOT IN operator requires a list or subquery on the right side"
+                                        .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    _ => {
+                        // For other binary operations, recursively evaluate with subquery support
+                        let left_val = Self::evaluate_expression_value_with_subqueries(
+                            left,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+                        let right_val = Self::evaluate_expression_value_with_subqueries(
+                            right,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+
+                        // Use existing binary operation logic
+                        match op {
+                            BinaryOperator::Equal => Ok(FieldValue::Boolean(Self::values_equal(
+                                &left_val, &right_val,
+                            ))),
+                            BinaryOperator::NotEqual => Ok(FieldValue::Boolean(
+                                !Self::values_equal(&left_val, &right_val),
+                            )),
+                            BinaryOperator::LessThan => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp < 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::LessThanOrEqual => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp <= 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::GreaterThan => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp > 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::GreaterThanOrEqual => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp >= 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::And => Ok(FieldValue::Boolean(
+                                Self::field_value_to_bool(&left_val)?
+                                    && Self::field_value_to_bool(&right_val)?,
+                            )),
+                            BinaryOperator::Or => Ok(FieldValue::Boolean(
+                                Self::field_value_to_bool(&left_val)?
+                                    || Self::field_value_to_bool(&right_val)?,
+                            )),
+                            BinaryOperator::Like => match (&left_val, &right_val) {
+                                (FieldValue::String(text), FieldValue::String(pattern)) => {
+                                    Ok(FieldValue::Boolean(Self::match_pattern(text, pattern)))
+                                }
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Boolean(false))
+                                }
+                                _ => Err(SqlError::TypeError {
+                                    expected: "string".to_string(),
+                                    actual: "non-string".to_string(),
+                                    value: None,
+                                }),
+                            },
+                            BinaryOperator::NotLike => match (&left_val, &right_val) {
+                                (FieldValue::String(text), FieldValue::String(pattern)) => {
+                                    Ok(FieldValue::Boolean(!Self::match_pattern(text, pattern)))
+                                }
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Boolean(false))
+                                }
+                                _ => Err(SqlError::TypeError {
+                                    expected: "string".to_string(),
+                                    actual: "non-string".to_string(),
+                                    value: None,
+                                }),
+                            },
+                            BinaryOperator::Add => {
+                                ArithmeticOperations::add_values(&left_val, &right_val)
+                            }
+                            BinaryOperator::Subtract => {
+                                ArithmeticOperations::subtract_values(&left_val, &right_val)
+                            }
+                            BinaryOperator::Multiply => {
+                                ArithmeticOperations::multiply_values(&left_val, &right_val)
+                            }
+                            BinaryOperator::Divide => {
+                                ArithmeticOperations::divide_values(&left_val, &right_val)
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: format!(
+                                    "Binary operator {:?} not supported in value context",
+                                    op
+                                ),
+                                query: None,
+                            }),
+                        }
+                    }
+                }
+            }
+            _ => {
+                // For all other expressions, delegate to the original method
+                // since they don't involve subqueries
+                Self::evaluate_expression_value(expr, record)
+            }
         }
     }
 }

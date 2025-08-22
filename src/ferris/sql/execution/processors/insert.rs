@@ -139,47 +139,12 @@ impl InsertProcessor {
     ) -> Result<Vec<StreamRecord>, SqlError> {
         log::info!("Processing INSERT ... SELECT for table {}", table_name);
 
-        // TODO: Execute the SELECT query against available data
-        // For now, create a placeholder implementation
         match query.as_ref() {
-            StreamingQuery::Select { fields, .. } => {
-                log::debug!("INSERT ... SELECT with {} fields", fields.len());
-
-                // In a full implementation, this would:
-                // 1. Execute the SELECT query
-                // 2. Get result records
-                // 3. Map to target table columns
-                // 4. Return insert records
-
-                // For now, create a single mock record
-                let mut insert_fields = HashMap::new();
-
-                if let Some(column_names) = columns {
-                    // Map to specified columns with mock values
-                    for col_name in column_names {
-                        insert_fields.insert(
-                            col_name.clone(),
-                            FieldValue::String(format!("mock_value_{}", col_name)),
-                        );
-                    }
-                } else {
-                    // Create generic fields based on SELECT
-                    insert_fields.insert("id".to_string(), FieldValue::Integer(1));
-                    insert_fields.insert(
-                        "name".to_string(),
-                        FieldValue::String("select_result".to_string()),
-                    );
-                }
-
-                let insert_record = StreamRecord {
-                    fields: insert_fields,
-                    timestamp: input_record.timestamp,
-                    offset: input_record.offset,
-                    partition: input_record.partition,
-                    headers: input_record.headers.clone(),
-                };
-
-                Ok(vec![insert_record])
+            StreamingQuery::Select { .. } => {
+                Err(SqlError::ExecutionError {
+                    message: "INSERT ... SELECT operations are not yet implemented. This requires executing the SELECT subquery and mapping results to target table columns.".to_string(),
+                    query: Some(format!("INSERT INTO {} SELECT ...", table_name)),
+                })
             }
             _ => Err(SqlError::ExecutionError {
                 message: "INSERT ... SELECT supports only SELECT queries".to_string(),

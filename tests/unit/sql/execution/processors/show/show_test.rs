@@ -76,6 +76,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         group_by_states: HashMap::new(),
         schemas,
         stream_handles,
+        data_sources: HashMap::new(),
     }
 }
 
@@ -407,6 +408,7 @@ async fn test_show_streams_empty_context() {
         group_by_states: HashMap::new(),
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
+        data_sources: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

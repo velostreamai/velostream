@@ -2,7 +2,7 @@
 //!
 //! Handles all types of JOIN operations including INNER, LEFT, RIGHT, and FULL OUTER joins.
 
-use super::ProcessorContext;
+use super::{ProcessorContext, SelectProcessor};
 use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{JoinClause, JoinType, StreamSource};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord, expression::ExpressionEvaluator};
@@ -39,11 +39,17 @@ impl JoinProcessor {
             .get_right_record(&join_clause.right_source, &join_clause.window)?;
 
         match join_clause.join_type {
-            JoinType::Inner => Self::process_inner_join(left_record, right_record_opt, join_clause),
-            JoinType::Left => Self::process_left_join(left_record, right_record_opt, join_clause),
-            JoinType::Right => Self::process_right_join(left_record, right_record_opt, join_clause),
+            JoinType::Inner => {
+                Self::process_inner_join(left_record, right_record_opt, join_clause, context)
+            }
+            JoinType::Left => {
+                Self::process_left_join(left_record, right_record_opt, join_clause, context)
+            }
+            JoinType::Right => {
+                Self::process_right_join(left_record, right_record_opt, join_clause, context)
+            }
             JoinType::FullOuter => {
-                Self::process_full_outer_join(left_record, right_record_opt, join_clause)
+                Self::process_full_outer_join(left_record, right_record_opt, join_clause, context)
             }
         }
     }
@@ -53,11 +59,20 @@ impl JoinProcessor {
         left_record: &StreamRecord,
         right_record_opt: Option<StreamRecord>,
         join_clause: &JoinClause,
+        context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
         if let Some(right_record) = right_record_opt {
             let combined_record =
                 Self::combine_records(left_record, &right_record, &join_clause.right_alias)?;
-            if ExpressionEvaluator::evaluate_expression(&join_clause.condition, &combined_record)? {
+
+            // Create a SelectProcessor instance for subquery evaluation in JOIN conditions
+            let subquery_executor = SelectProcessor;
+            if ExpressionEvaluator::evaluate_expression_with_subqueries(
+                &join_clause.condition,
+                &combined_record,
+                &subquery_executor,
+                context,
+            )? {
                 Ok(combined_record)
             } else {
                 // INNER JOIN: if condition fails, no result
@@ -80,11 +95,20 @@ impl JoinProcessor {
         left_record: &StreamRecord,
         right_record_opt: Option<StreamRecord>,
         join_clause: &JoinClause,
+        context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
         if let Some(right_record) = right_record_opt {
             let combined_record =
                 Self::combine_records(left_record, &right_record, &join_clause.right_alias)?;
-            if ExpressionEvaluator::evaluate_expression(&join_clause.condition, &combined_record)? {
+
+            // Create a SelectProcessor instance for subquery evaluation in JOIN conditions
+            let subquery_executor = SelectProcessor;
+            if ExpressionEvaluator::evaluate_expression_with_subqueries(
+                &join_clause.condition,
+                &combined_record,
+                &subquery_executor,
+                context,
+            )? {
                 Ok(combined_record)
             } else {
                 // LEFT JOIN: if condition fails, use left record with NULL right fields
@@ -101,11 +125,20 @@ impl JoinProcessor {
         left_record: &StreamRecord,
         right_record_opt: Option<StreamRecord>,
         join_clause: &JoinClause,
+        context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
         if let Some(right_record) = right_record_opt {
             let combined_record =
                 Self::combine_records(left_record, &right_record, &join_clause.right_alias)?;
-            if ExpressionEvaluator::evaluate_expression(&join_clause.condition, &combined_record)? {
+
+            // Create a SelectProcessor instance for subquery evaluation in JOIN conditions
+            let subquery_executor = SelectProcessor;
+            if ExpressionEvaluator::evaluate_expression_with_subqueries(
+                &join_clause.condition,
+                &combined_record,
+                &subquery_executor,
+                context,
+            )? {
                 Ok(combined_record)
             } else {
                 // RIGHT JOIN: if condition fails, use right record with NULL left fields
@@ -125,11 +158,20 @@ impl JoinProcessor {
         left_record: &StreamRecord,
         right_record_opt: Option<StreamRecord>,
         join_clause: &JoinClause,
+        context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
         if let Some(right_record) = right_record_opt {
             let combined_record =
                 Self::combine_records(left_record, &right_record, &join_clause.right_alias)?;
-            if ExpressionEvaluator::evaluate_expression(&join_clause.condition, &combined_record)? {
+
+            // Create a SelectProcessor instance for subquery evaluation in JOIN conditions
+            let subquery_executor = SelectProcessor;
+            if ExpressionEvaluator::evaluate_expression_with_subqueries(
+                &join_clause.condition,
+                &combined_record,
+                &subquery_executor,
+                context,
+            )? {
                 Ok(combined_record)
             } else {
                 // FULL OUTER JOIN: if condition fails, could return both records with NULLs
@@ -233,101 +275,32 @@ impl JoinProcessor {
 
     /// Execute a subquery to get right side record for JOIN operations
     pub fn execute_subquery_for_join(
-        subquery: &crate::ferris::sql::StreamingQuery,
+        _subquery: &crate::ferris::sql::StreamingQuery,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        use std::collections::HashMap;
-
-        // For now, we'll create a simplified execution approach for subqueries in JOINs
-        // In a full implementation, this would need proper context passing and
-        // integration with the main execution engine
-
-        match subquery {
-            crate::ferris::sql::StreamingQuery::Select { .. } => {
-                // Create a mock result for subquery execution
-                // In production, this would execute the subquery against actual data
-                let mut fields = HashMap::new();
-                fields.insert("user_id".to_string(), FieldValue::Integer(100));
-                fields.insert("order_count".to_string(), FieldValue::Integer(5));
-                fields.insert("total_amount".to_string(), FieldValue::Float(1250.0));
-                fields.insert("category_id".to_string(), FieldValue::Integer(1));
-                fields.insert(
-                    "product_name".to_string(),
-                    FieldValue::String("Widget".to_string()),
-                );
-
-                Ok(Some(StreamRecord {
-                    fields,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    offset: 0,
-                    partition: 0,
-                    headers: HashMap::new(),
-                }))
-            }
-            _ => Err(SqlError::ExecutionError {
-                message: "Only SELECT subqueries are supported in JOIN operations".to_string(),
-                query: None,
-            }),
-        }
+        Err(SqlError::ExecutionError {
+            message: "Subquery execution in JOIN operations is not yet implemented. This requires executing the subquery against actual data and joining the results.".to_string(),
+            query: None,
+        })
     }
 
     /// Get mock right record for testing/simulation (moved from engine)
     pub fn create_mock_right_record(source: &StreamSource) -> Result<StreamRecord, SqlError> {
         match source {
-            StreamSource::Stream(name) | StreamSource::Table(name) => {
-                let mut fields = HashMap::new();
-
-                // Create different mock data based on stream/table name
-                match name.as_str() {
-                    "orders" => {
-                        fields.insert("order_id".to_string(), FieldValue::Integer(12345));
-                        fields.insert("customer_id".to_string(), FieldValue::Integer(67890));
-                        fields.insert("amount".to_string(), FieldValue::Float(99.99));
-                        fields.insert(
-                            "status".to_string(),
-                            FieldValue::String("confirmed".to_string()),
-                        );
-                    }
-                    "users" => {
-                        fields.insert("user_id".to_string(), FieldValue::Integer(67890));
-                        fields.insert(
-                            "name".to_string(),
-                            FieldValue::String("John Doe".to_string()),
-                        );
-                        fields.insert(
-                            "email".to_string(),
-                            FieldValue::String("john@example.com".to_string()),
-                        );
-                        fields.insert("age".to_string(), FieldValue::Integer(30));
-                    }
-                    "products" => {
-                        fields.insert("product_id".to_string(), FieldValue::Integer(54321));
-                        fields.insert("name".to_string(), FieldValue::String("Widget".to_string()));
-                        fields.insert("price".to_string(), FieldValue::Float(29.99));
-                        fields.insert(
-                            "category".to_string(),
-                            FieldValue::String("electronics".to_string()),
-                        );
-                    }
-                    _ => {
-                        // Generic mock record
-                        fields.insert("id".to_string(), FieldValue::Integer(1));
-                        fields.insert("name".to_string(), FieldValue::String("test".to_string()));
-                        fields.insert("value".to_string(), FieldValue::Float(42.0));
-                    }
-                }
-
-                Ok(StreamRecord {
-                    fields,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    offset: 0,
-                    partition: 0,
-                    headers: HashMap::new(),
+            StreamSource::Stream(_name) => {
+                Err(SqlError::ExecutionError {
+                    message: "Stream-to-stream JOIN operations are not yet implemented. This requires multi-stream coordination, windowing, and state management.".to_string(),
+                    query: None,
                 })
             }
-            StreamSource::Subquery(subquery) => {
-                // Execute subquery to get record
-                Self::execute_subquery_for_join(subquery)?.ok_or_else(|| SqlError::ExecutionError {
-                    message: "Subquery returned no results for JOIN operation".to_string(),
+            StreamSource::Table(_name) => {
+                Err(SqlError::ExecutionError {
+                    message: "Stream-to-table JOIN operations are not yet implemented. This requires materialized table state and key-based lookups.".to_string(),
+                    query: None,
+                })
+            }
+            StreamSource::Subquery(_) => {
+                Err(SqlError::ExecutionError {
+                    message: "Subquery JOINs are not yet implemented. This requires executing subqueries and joining their results.".to_string(),
                     query: None,
                 })
             }
