@@ -80,7 +80,9 @@ impl WindowFunctions {
             "FIRST_VALUE" => Self::evaluate_first_value_function(args, &window_context),
             "LAST_VALUE" => Self::evaluate_last_value_function(args, &window_context),
             "NTH_VALUE" => Self::evaluate_nth_value_function(args, record, &window_context),
-            "PERCENT_RANK" => Self::evaluate_percent_rank_function(args, over_clause, &window_context),
+            "PERCENT_RANK" => {
+                Self::evaluate_percent_rank_function(args, over_clause, &window_context)
+            }
             "CUME_DIST" => Self::evaluate_cume_dist_function(args, over_clause, &window_context),
             "NTILE" => Self::evaluate_ntile_function(args, record, &window_context),
             other => Err(SqlError::ExecutionError {
@@ -92,7 +94,7 @@ impl WindowFunctions {
             }),
         }
     }
-    
+
     /// Create enhanced window context from OVER clause
     fn create_window_context(
         over_clause: &OverClause,
@@ -101,29 +103,34 @@ impl WindowFunctions {
     ) -> Result<WindowContext, SqlError> {
         // Create ordered buffer based on ORDER BY clause
         let mut ordered_buffer = window_buffer.to_vec();
-        
+
         // Add current record to buffer for processing
         ordered_buffer.push(current_record.clone());
-        
+
         // Apply ORDER BY if specified
         if !over_clause.order_by.is_empty() {
             Self::sort_buffer_by_order(&mut ordered_buffer, &over_clause.order_by)?;
         }
-        
+
         // Find current position in ordered buffer
         let current_position = ordered_buffer
             .iter()
             .position(|r| Self::records_equal(r, current_record))
             .unwrap_or(ordered_buffer.len() - 1);
-        
+
         // Calculate partition bounds based on PARTITION BY
         let partition_bounds = if !over_clause.partition_by.is_empty() {
-            Self::calculate_partition_bounds(&ordered_buffer, current_position, &over_clause.partition_by, current_record)?
+            Self::calculate_partition_bounds(
+                &ordered_buffer,
+                current_position,
+                &over_clause.partition_by,
+                current_record,
+            )?
         } else {
             // No partitioning - entire buffer is one partition
             Some((0, ordered_buffer.len()))
         };
-        
+
         // Calculate window frame bounds
         let frame_bounds = Self::calculate_frame_bounds(
             &over_clause.window_frame,
@@ -131,7 +138,7 @@ impl WindowFunctions {
             &partition_bounds,
             &ordered_buffer,
         )?;
-        
+
         Ok(WindowContext {
             buffer: ordered_buffer,
             partition_bounds,
@@ -139,7 +146,7 @@ impl WindowFunctions {
             frame_bounds,
         })
     }
-    
+
     /// Sort buffer by ORDER BY clause
     fn sort_buffer_by_order(
         buffer: &mut [StreamRecord],
@@ -172,12 +179,12 @@ impl WindowFunctions {
         });
         Ok(())
     }
-    
+
     /// Compare field values for ordering
     fn compare_field_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
         use FieldValue::*;
-        
+        use std::cmp::Ordering;
+
         match (a, b) {
             (Null, Null) => Ordering::Equal,
             (Null, _) => Ordering::Less,
@@ -191,12 +198,12 @@ impl WindowFunctions {
             _ => Ordering::Equal,
         }
     }
-    
+
     /// Check if two records are equal (simplified comparison)
     fn records_equal(a: &StreamRecord, b: &StreamRecord) -> bool {
         a.timestamp == b.timestamp && a.offset == b.offset && a.partition == b.partition
     }
-    
+
     /// Calculate partition bounds for PARTITION BY clause
     fn calculate_partition_bounds(
         buffer: &[StreamRecord],
@@ -206,11 +213,11 @@ impl WindowFunctions {
     ) -> Result<Option<(usize, usize)>, SqlError> {
         // Get partition key for current record
         let current_key = Self::get_partition_key(current_record, partition_by)?;
-        
+
         // Find partition boundaries
         let mut start_idx = 0;
         let mut end_idx = buffer.len();
-        
+
         // Find partition start
         for i in 0..=current_position {
             let record_key = Self::get_partition_key(&buffer[i], partition_by)?;
@@ -219,7 +226,7 @@ impl WindowFunctions {
                 break;
             }
         }
-        
+
         // Find partition end
         for i in current_position..buffer.len() {
             let record_key = Self::get_partition_key(&buffer[i], partition_by)?;
@@ -228,10 +235,10 @@ impl WindowFunctions {
                 break;
             }
         }
-        
+
         Ok(Some((start_idx, end_idx)))
     }
-    
+
     /// Get partition key from record
     fn get_partition_key(
         record: &StreamRecord,
@@ -247,7 +254,7 @@ impl WindowFunctions {
         }
         Ok(key)
     }
-    
+
     /// Calculate window frame bounds
     fn calculate_frame_bounds(
         window_frame: &Option<WindowFrame>,
@@ -262,13 +269,13 @@ impl WindowFunctions {
                 return Ok(Some((-(current_position as i64), 0)));
             }
         };
-        
+
         // For now, use simplified frame calculation
         // In a complete implementation, this would handle ROWS/RANGE and various frame bounds
         let (start, end) = partition_bounds.unwrap_or((0, buffer.len()));
         let frame_start = start as i64 - current_position as i64;
         let frame_end = end as i64 - current_position as i64 - 1;
-        
+
         Ok(Some((frame_start, frame_end)))
     }
 
@@ -458,13 +465,13 @@ impl WindowFunctions {
                 query: Some(format!("RANK({} arguments)", args.len())),
             });
         }
-        
+
         // Enhanced RANK implementation with proper ORDER BY consideration
         if over_clause.order_by.is_empty() {
             // No ORDER BY clause - all rows have same rank (1)
             return Ok(FieldValue::Integer(1));
         }
-        
+
         // Calculate rank based on position and equal values
         let rank = if let Some((start_idx, _)) = window_context.partition_bounds {
             (window_context.current_position - start_idx + 1) as i64
@@ -489,13 +496,13 @@ impl WindowFunctions {
                 query: Some(format!("DENSE_RANK({} arguments)", args.len())),
             });
         }
-        
+
         // Enhanced DENSE_RANK implementation with proper ORDER BY consideration
         if over_clause.order_by.is_empty() {
             // No ORDER BY clause - all rows have same dense rank (1)
             return Ok(FieldValue::Integer(1));
         }
-        
+
         // For simplified implementation, DENSE_RANK behaves like RANK
         // In a complete implementation, this would count distinct values
         let dense_rank = if let Some((start_idx, _)) = window_context.partition_bounds {
@@ -526,7 +533,7 @@ impl WindowFunctions {
         } else {
             0
         };
-        
+
         if first_idx < window_context.buffer.len() {
             crate::ferris::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[first_idx])
         } else {
@@ -551,11 +558,11 @@ impl WindowFunctions {
         }
         // Return the value from the last record in the window frame
         let last_idx = if let Some((_, end_idx)) = window_context.partition_bounds {
-            end_idx - 1  // end_idx is exclusive
+            end_idx - 1 // end_idx is exclusive
         } else {
             window_context.buffer.len() - 1
         };
-        
+
         if last_idx < window_context.buffer.len() {
             crate::ferris::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[last_idx])
         } else {
@@ -606,9 +613,11 @@ impl WindowFunctions {
         };
 
         // Get the nth record from the window partition (1-indexed)
-        let (start_idx, end_idx) = window_context.partition_bounds.unwrap_or((0, window_context.buffer.len()));
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
         let partition_size = end_idx - start_idx;
-        
+
         if nth <= partition_size {
             let target_idx = start_idx + nth - 1; // Convert to 0-indexed
             if target_idx < window_context.buffer.len() {
@@ -642,11 +651,13 @@ impl WindowFunctions {
             // No ORDER BY clause - all rows have same percent rank (0.0)
             return Ok(FieldValue::Float(0.0));
         }
-        
-        let (start_idx, end_idx) = window_context.partition_bounds.unwrap_or((0, window_context.buffer.len()));
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
         let partition_size = end_idx - start_idx;
         let current_rank = window_context.current_position - start_idx + 1;
-        
+
         if partition_size <= 1 {
             Ok(FieldValue::Float(0.0))
         } else {
@@ -671,10 +682,12 @@ impl WindowFunctions {
             });
         }
         // Enhanced CUME_DIST() = current_position / partition_size
-        let (start_idx, end_idx) = window_context.partition_bounds.unwrap_or((0, window_context.buffer.len()));
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
         let partition_size = end_idx - start_idx;
         let current_position = window_context.current_position - start_idx + 1;
-        
+
         let cume_dist = current_position as f64 / partition_size as f64;
         Ok(FieldValue::Float(cume_dist))
     }
@@ -721,10 +734,12 @@ impl WindowFunctions {
         };
 
         // Calculate which tile the current row belongs to within its partition
-        let (start_idx, end_idx) = window_context.partition_bounds.unwrap_or((0, window_context.buffer.len()));
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
         let partition_size = end_idx - start_idx;
         let current_row = window_context.current_position - start_idx + 1;
-        
+
         // Calculate tile number (1-indexed)
         let rows_per_tile = (partition_size as f64 / tiles as f64).ceil() as i64;
         let tile_number = ((current_row - 1) as i64 / rows_per_tile) + 1;
