@@ -13,6 +13,11 @@ use crate::ferris::sql::execution::StreamRecord;
 pub struct JoinContext;
 
 impl JoinContext {
+    /// Create a new JoinContext instance
+    pub fn new() -> Self {
+        JoinContext
+    }
+
     /// Get right-side record for JOIN operations with real data source support
     pub fn get_right_record_with_context(
         &self,
@@ -39,7 +44,7 @@ impl JoinContext {
             }
             StreamSource::Subquery(subquery) => {
                 // Execute subquery to get right side records for JOIN
-                JoinProcessor::execute_subquery_for_join(subquery)
+                JoinProcessor::execute_subquery_for_join(subquery, context)
             }
         }
     }
@@ -55,11 +60,13 @@ impl JoinContext {
             record_count: 0,
             max_records: None,
             window_context: None,
-            join_context: JoinContext,
+            join_context: JoinContext::new(),
             group_by_states: std::collections::HashMap::new(),
             schemas: std::collections::HashMap::new(),
             stream_handles: std::collections::HashMap::new(),
             data_sources: std::collections::HashMap::new(),
+            persistent_window_states: Vec::new(),
+            dirty_window_states: 0,
         };
         self.get_right_record_with_context(source, window, &empty_context)
     }

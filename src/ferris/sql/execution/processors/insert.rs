@@ -146,11 +146,13 @@ impl InsertProcessor {
                     record_count: 0,
                     max_records: None,
                     window_context: None,
-                    join_context: super::JoinContext,
+                    join_context: super::JoinContext::new(),
                     group_by_states: std::collections::HashMap::new(),
                     schemas: std::collections::HashMap::new(),
                     stream_handles: std::collections::HashMap::new(),
                     data_sources: std::collections::HashMap::new(),
+                    persistent_window_states: Vec::new(),
+                    dirty_window_states: 0,
                 };
 
                 // Step 2: Execute the SELECT query

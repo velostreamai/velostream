@@ -7,7 +7,7 @@ use super::{
     HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor, ProcessorContext,
     ProcessorResult,
 };
-use crate::ferris::sql::ast::{Expr, LiteralValue, SelectField};
+use crate::ferris::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::ferris::sql::execution::{
     FieldValue, StreamRecord,
     aggregation::state::GroupByStateManager,
@@ -29,6 +29,7 @@ impl SelectProcessor {
     ) -> Result<ProcessorResult, SqlError> {
         if let StreamingQuery::Select {
             fields,
+            from,
             where_clause,
             joins,
             having,
@@ -39,6 +40,39 @@ impl SelectProcessor {
             ..
         } = query
         {
+            // Route windowed queries to WindowProcessor first
+            if let Some(window_spec) = window {
+                // Generate query ID based on stream name for consistent window state management
+                let query_id = match from {
+                    StreamSource::Stream(name) | StreamSource::Table(name) => {
+                        format!("select_{}_windowed", name)
+                    }
+                    StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
+                };
+
+                let window_result = crate::ferris::sql::execution::processors::WindowProcessor::process_windowed_query(
+                    &query_id,
+                    query,
+                    record,
+                    context,
+                )?;
+
+                if let Some(windowed_record) = window_result {
+                    return Ok(ProcessorResult {
+                        record: Some(windowed_record),
+                        header_mutations: Vec::new(),
+                        should_count: true,
+                    });
+                } else {
+                    // No window emission yet, but record was processed
+                    return Ok(ProcessorResult {
+                        record: None,
+                        header_mutations: Vec::new(),
+                        should_count: false,
+                    });
+                }
+            }
+
             // Check limit first
             if let Some(limit_value) = limit {
                 if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {

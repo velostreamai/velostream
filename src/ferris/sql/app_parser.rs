@@ -56,6 +56,7 @@ WINDOW TUMBLING(1h);
 ```
 */
 
+use crate::ferris::sql::ast::StreamSource;
 use crate::ferris::sql::{SqlError, StreamingQuery, StreamingSqlParser};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -354,12 +355,94 @@ impl SqlApplicationParser {
         }
     }
 
-    /// Extract dependencies from SQL statement
+    /// Extract dependencies from SQL statement using AST analysis
     fn extract_dependencies(&self, sql: &str) -> Vec<String> {
         let mut dependencies = Vec::new();
 
-        // Basic dependency extraction from SQL text
-        // This is a simplified implementation - could be enhanced with proper AST analysis
+        // Try to parse the SQL statement and extract dependencies from the AST
+        if let Ok(parsed_query) = self.sql_parser.parse(sql) {
+            self.extract_dependencies_from_ast(&parsed_query, &mut dependencies);
+        } else {
+            // Fallback to text-based extraction if parsing fails
+            dependencies = self.extract_dependencies_text_fallback(sql);
+        }
+
+        dependencies.sort();
+        dependencies.dedup();
+        dependencies
+    }
+
+    /// Extract dependencies from parsed AST
+    fn extract_dependencies_from_ast(
+        &self,
+        query: &StreamingQuery,
+        dependencies: &mut Vec<String>,
+    ) {
+        use crate::ferris::sql::ast::{InsertSource, StreamingQuery};
+
+        match query {
+            StreamingQuery::Select { from, joins, .. } => {
+                // Extract FROM clause dependencies
+                self.extract_source_dependencies(from, dependencies);
+
+                // Extract JOIN clause dependencies
+                if let Some(join_clauses) = joins {
+                    for join in join_clauses {
+                        self.extract_source_dependencies(&join.right_source, dependencies);
+                    }
+                }
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // Extract dependencies from the SELECT query that creates the stream
+                self.extract_dependencies_from_ast(as_select, dependencies);
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                // Extract dependencies from the SELECT query that creates the table
+                self.extract_dependencies_from_ast(as_select, dependencies);
+            }
+            StreamingQuery::StartJob { query, .. } => {
+                // Extract dependencies from the job query
+                self.extract_dependencies_from_ast(query, dependencies);
+            }
+            StreamingQuery::DeployJob { query, .. } => {
+                // Extract dependencies from the job query
+                self.extract_dependencies_from_ast(query, dependencies);
+            }
+            StreamingQuery::InsertInto { source, .. } => {
+                // The table being inserted into is not a dependency, but the source query is
+                match source {
+                    InsertSource::Select { query } => {
+                        self.extract_dependencies_from_ast(query, dependencies);
+                    }
+                    InsertSource::Values { .. } => {
+                        // VALUES clauses don't have dependencies
+                    }
+                }
+            }
+            // Other query types don't typically have dependencies we track
+            _ => {}
+        }
+    }
+
+    /// Extract dependencies from a StreamSource
+    fn extract_source_dependencies(&self, source: &StreamSource, dependencies: &mut Vec<String>) {
+        match source {
+            StreamSource::Stream(name) => {
+                dependencies.push(name.clone());
+            }
+            StreamSource::Table(name) => {
+                dependencies.push(name.clone());
+            }
+            StreamSource::Subquery(subquery) => {
+                // Recursively extract dependencies from subquery
+                self.extract_dependencies_from_ast(subquery, dependencies);
+            }
+        }
+    }
+
+    /// Fallback text-based dependency extraction for unparseable SQL
+    fn extract_dependencies_text_fallback(&self, sql: &str) -> Vec<String> {
+        let mut dependencies = Vec::new();
         let words: Vec<&str> = sql.split_whitespace().collect();
         let mut i = 0;
 
@@ -381,8 +464,6 @@ impl SqlApplicationParser {
             i += 1;
         }
 
-        dependencies.sort();
-        dependencies.dedup();
         dependencies
     }
 

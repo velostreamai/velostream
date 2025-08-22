@@ -8,6 +8,7 @@
 //! - SHOW/DESCRIBE processing
 
 use crate::ferris::sql::execution::StreamRecord;
+use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
@@ -130,12 +131,13 @@ impl QueryProcessor {
 }
 
 /// Context passed to processors containing shared state and utilities
+/// Optimized for high-performance multi-threading scenarios
 pub struct ProcessorContext {
     /// Current record count for limit checking
     pub record_count: u64,
     /// Maximum record count (for LIMIT)
     pub max_records: Option<u64>,
-    /// Window processing state
+    /// Window processing state (legacy - kept for compatibility)
     pub window_context: Option<WindowContext>,
     /// JOIN processing utilities
     pub join_context: JoinContext,
@@ -148,6 +150,13 @@ pub struct ProcessorContext {
     /// Data sources for subquery execution
     /// Maps table/stream name to available records for querying
     pub data_sources: HashMap<String, Vec<StreamRecord>>,
+
+    // === HIGH-PERFORMANCE WINDOW STATE MANAGEMENT ===
+    /// Persistent window states for queries processed in this context
+    /// Using Vec for cache efficiency - most contexts handle 1-2 queries
+    pub persistent_window_states: Vec<(String, WindowState)>,
+    /// Track which states were modified for efficient persistence (bit mask)
+    pub dirty_window_states: u32,
 }
 
 impl ProcessorContext {
@@ -165,6 +174,74 @@ impl ProcessorContext {
     /// Check if a data source exists
     pub fn has_data_source(&self, source_name: &str) -> bool {
         self.data_sources.contains_key(source_name)
+    }
+
+    // === HIGH-PERFORMANCE WINDOW STATE METHODS ===
+
+    /// Get or create a window state for a query (O(1) for small contexts, optimized for threading)
+    pub fn get_or_create_window_state(
+        &mut self,
+        query_id: &str,
+        window_spec: &crate::ferris::sql::ast::WindowSpec,
+    ) -> &mut WindowState {
+        // Check if window state already exists
+        for (idx, (stored_query_id, _)) in self.persistent_window_states.iter().enumerate() {
+            if stored_query_id == query_id {
+                // Mark as dirty for persistence
+                if idx < 32 {
+                    // Protect against bit mask overflow
+                    self.dirty_window_states |= 1 << (idx as u32);
+                }
+                // Return mutable reference (separate borrow)
+                return &mut self.persistent_window_states[idx].1;
+            }
+        }
+
+        // Create new state if not found (happens rarely)
+        let new_state = WindowState::new(window_spec.clone());
+        let new_idx = self.persistent_window_states.len();
+        self.persistent_window_states
+            .push((query_id.to_string(), new_state));
+
+        // Mark new state as dirty
+        if new_idx < 32 {
+            // Protect against bit mask overflow
+            self.dirty_window_states |= 1 << (new_idx as u32);
+        }
+
+        &mut self.persistent_window_states[new_idx].1
+    }
+
+    /// Get window state if it exists (read-only, no dirty marking)
+    pub fn get_window_state(&self, query_id: &str) -> Option<&WindowState> {
+        self.persistent_window_states
+            .iter()
+            .find(|(stored_query_id, _)| stored_query_id == query_id)
+            .map(|(_, window_state)| window_state)
+    }
+
+    /// Load window states from engine (called during context creation)
+    pub fn load_window_states(&mut self, states: Vec<(String, WindowState)>) {
+        self.persistent_window_states = states;
+        self.dirty_window_states = 0; // Start clean
+    }
+
+    /// Get modified window states for persistence (returns only changed states)
+    pub fn get_dirty_window_states(&self) -> Vec<(String, WindowState)> {
+        let mut dirty_states = Vec::new();
+
+        for (idx, (query_id, window_state)) in self.persistent_window_states.iter().enumerate() {
+            if idx < 32 && (self.dirty_window_states & (1 << idx)) != 0 {
+                dirty_states.push((query_id.clone(), window_state.clone()));
+            }
+        }
+
+        dirty_states
+    }
+
+    /// Clear dirty flags (called after persistence)
+    pub fn clear_dirty_flags(&mut self) {
+        self.dirty_window_states = 0;
     }
 }
 

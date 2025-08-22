@@ -320,7 +320,7 @@ pub enum ExecutionState {
 ///
 /// This structure maintains the buffered records and timing information
 /// needed for window-based query processing.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WindowState {
     /// Window specification from the query
     pub window_spec: WindowSpec,
