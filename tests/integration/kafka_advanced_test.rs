@@ -392,7 +392,11 @@ async fn test_high_throughput_scenario() {
     }
 
     let consume_duration = consume_start.elapsed();
-    consumer.commit().expect("Failed to commit");
+    
+    // Only commit if we actually received messages
+    if received_count > 0 {
+        consumer.commit().expect("Failed to commit");
+    }
 
     println!("High throughput test:");
     println!("  Sent {} messages in {:?}", message_count, send_duration);
@@ -479,7 +483,10 @@ async fn test_complex_enum_serialization() {
         }
     }
 
-    consumer.commit().expect("Failed to commit");
+    // Only commit if we actually received messages
+    if !received_orders.is_empty() {
+        consumer.commit().expect("Failed to commit");
+    }
     assert_eq!(received_orders.len(), orders.len());
 
     // Verify all enum variants were serialized/deserialized correctly
@@ -559,7 +566,10 @@ async fn test_concurrent_producers() {
         }
     }
 
-    consumer.commit().expect("Failed to commit consumer");
+    // Only commit if we actually received messages
+    if !received.is_empty() {
+        consumer.commit().expect("Failed to commit consumer");
+    }
 
     assert_eq!(received.len(), 2, "Should receive exactly 2 messages");
     assert!(received.contains(&user1), "Should receive user1");
