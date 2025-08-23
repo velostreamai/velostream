@@ -392,7 +392,7 @@ async fn test_high_throughput_scenario() {
     }
 
     let consume_duration = consume_start.elapsed();
-    
+
     // Only commit if we actually received messages
     if received_count > 0 {
         consumer.commit().expect("Failed to commit");
