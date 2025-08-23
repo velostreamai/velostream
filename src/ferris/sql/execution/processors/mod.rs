@@ -119,6 +119,24 @@ impl QueryProcessor {
                     Err(e) => Err(e),
                 }
             }
+            StreamingQuery::StartJob { .. }
+            | StreamingQuery::StopJob { .. }
+            | StreamingQuery::PauseJob { .. }
+            | StreamingQuery::ResumeJob { .. }
+            | StreamingQuery::DeployJob { .. } => {
+                // Process job management operations
+                let processor = JobProcessor::new();
+                match processor.process(query, context, record) {
+                    Ok(result_record) => {
+                        Ok(ProcessorResult {
+                            record: result_record,
+                            header_mutations: Vec::new(),
+                            should_count: false, // Job operations don't count toward LIMIT
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             _ => {
                 // Handle other query types with placeholder
                 Err(SqlError::ExecutionError {
@@ -157,9 +175,28 @@ pub struct ProcessorContext {
     pub persistent_window_states: Vec<(String, WindowState)>,
     /// Track which states were modified for efficient persistence (bit mask)
     pub dirty_window_states: u32,
+    /// Generic metadata storage for processors (e.g., job management)
+    pub metadata: HashMap<String, String>,
 }
 
 impl ProcessorContext {
+    /// Create a new processor context with a query ID
+    pub fn new(query_id: &str) -> Self {
+        Self {
+            record_count: 0,
+            max_records: None,
+            window_context: None,
+            join_context: JoinContext::new(),
+            group_by_states: HashMap::new(),
+            schemas: HashMap::new(),
+            stream_handles: HashMap::new(),
+            data_sources: HashMap::new(),
+            persistent_window_states: Vec::new(),
+            dirty_window_states: 0,
+            metadata: HashMap::new(),
+        }
+    }
+
     /// Set data sources for subquery execution
     /// This allows external systems to populate the context with available data
     pub fn set_data_sources(&mut self, data_sources: HashMap<String, Vec<StreamRecord>>) {
@@ -174,6 +211,16 @@ impl ProcessorContext {
     /// Check if a data source exists
     pub fn has_data_source(&self, source_name: &str) -> bool {
         self.data_sources.contains_key(source_name)
+    }
+
+    /// Set metadata value for job tracking or other purposes
+    pub fn set_metadata(&mut self, key: &str, value: &str) {
+        self.metadata.insert(key.to_string(), value.to_string());
+    }
+
+    /// Get metadata value
+    pub fn get_metadata(&self, key: &str) -> Option<&String> {
+        self.metadata.get(key)
     }
 
     // === HIGH-PERFORMANCE WINDOW STATE METHODS ===
@@ -261,6 +308,7 @@ pub use self::join_context::JoinContext;
 // Re-export processor modules
 pub use self::delete::DeleteProcessor;
 pub use self::insert::InsertProcessor;
+pub use self::job::JobProcessor;
 pub use self::join::JoinProcessor;
 pub use self::limit::LimitProcessor;
 pub use self::select::SelectProcessor;
@@ -270,6 +318,7 @@ pub use self::window::WindowProcessor;
 // Internal processor modules
 mod delete;
 mod insert;
+mod job;
 mod join;
 mod join_context;
 mod limit;

@@ -10,7 +10,7 @@ use super::{
 use crate::ferris::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::ferris::sql::execution::{
     FieldValue, StreamRecord,
-    aggregation::state::GroupByStateManager,
+    aggregation::{AccumulatorManager, state::GroupByStateManager},
     expression::{ExpressionEvaluator, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
 };
@@ -327,150 +327,27 @@ impl SelectProcessor {
             }
         }
 
-        // Update aggregates for each field used in SELECT
+        // Prepare aggregate expressions for AccumulatorManager
+        let mut aggregate_expressions = Vec::new();
         for field in fields {
-            match field {
-                SelectField::Expression { expr, alias } => {
-                    if let Expr::Function { name, args } = expr {
-                        match name.to_uppercase().as_str() {
-                            "COUNT" => {
-                                // For COUNT(column), track non-NULL values
-                                if !args.is_empty() {
-                                    if let Some(arg) = args.first() {
-                                        let value = ExpressionEvaluator::evaluate_expression_value(
-                                            arg, record,
-                                        )?;
-                                        if !matches!(value, FieldValue::Null) {
-                                            let field_key = if let Some(alias_name) = alias {
-                                                alias_name.clone()
-                                            } else {
-                                                "count".to_string()
-                                            };
-                                            accumulator.add_non_null_count(&field_key);
-                                        }
-                                    }
-                                }
-                                // For COUNT(*), we rely on the global count which is incremented for every record
-                            }
-                            "SUM" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("sum_{}", col_name)
-                                        };
-                                        Self::update_sum_accumulator(accumulator, &key, value)?;
-                                    }
-                                }
-                            }
-                            "AVG" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("avg_{}", col_name)
-                                        };
-                                        Self::update_numeric_accumulator(accumulator, &key, value)?;
-                                    }
-                                }
-                            }
-                            "MIN" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("min_{}", col_name)
-                                        };
-                                        Self::update_min_accumulator(accumulator, &key, value);
-                                    }
-                                }
-                            }
-                            "MAX" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("max_{}", col_name)
-                                        };
-                                        Self::update_max_accumulator(accumulator, &key, value);
-                                    }
-                                }
-                            }
-                            "STRING_AGG" | "GROUP_CONCAT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("string_agg_{}", col_name)
-                                        };
-                                        Self::update_string_accumulator(accumulator, &key, value);
-                                    }
-                                }
-                            }
-                            "VARIANCE" | "VAR" | "STDDEV" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("variance_{}", col_name)
-                                        };
-                                        Self::update_numeric_accumulator(accumulator, &key, value)?;
-                                    }
-                                }
-                            }
-                            "FIRST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("first_{}", col_name)
-                                        };
-                                        // Only set if not already set (first value)
-                                        if !accumulator.first_values.contains_key(&key) {
-                                            accumulator.first_values.insert(key, value.clone());
-                                        }
-                                    }
-                                }
-                            }
-                            "LAST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("last_{}", col_name)
-                                        };
-                                        // Always update to track the latest value
-                                        accumulator.last_values.insert(key, value.clone());
-                                    }
-                                }
-                            }
-                            "COUNT_DISTINCT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(value) = record.fields.get(col_name) {
-                                        let key = if let Some(alias_name) = alias {
-                                            alias_name.clone()
-                                        } else {
-                                            format!("count_distinct_{}", col_name)
-                                        };
-                                        Self::update_distinct_accumulator(accumulator, &key, value);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+            if let SelectField::Expression { expr, alias } = field {
+                if let Expr::Function { .. } = expr {
+                    let field_name = if let Some(alias_name) = alias {
+                        alias_name.clone()
+                    } else {
+                        Self::get_expression_name(expr)
+                    };
+                    aggregate_expressions.push((field_name, expr.clone()));
                 }
-                _ => {}
             }
         }
+
+        // Delegate to AccumulatorManager for proper accumulation
+        AccumulatorManager::process_record_into_accumulator(
+            accumulator,
+            record,
+            &aggregate_expressions,
+        )?;
 
         // For streaming GROUP BY, emit current aggregated result for this group
         // This follows the Flink-style streaming approach where results are updated incrementally
@@ -839,196 +716,17 @@ impl SelectProcessor {
         }
     }
 
-    /// Update sum accumulator
-    fn update_sum_accumulator(
-        accumulator: &mut GroupAccumulator,
-        key: &str,
-        value: &FieldValue,
-    ) -> Result<(), SqlError> {
-        match value {
-            FieldValue::Integer(i) => {
-                let current = accumulator.sums.get(key).unwrap_or(&0.0);
-                accumulator
-                    .sums
-                    .insert(key.to_string(), current + (*i as f64));
-            }
-            FieldValue::Float(f) => {
-                let current = accumulator.sums.get(key).unwrap_or(&0.0);
-                accumulator.sums.insert(key.to_string(), current + f);
-            }
-            FieldValue::Null => {
-                // Do nothing for NULL values in SUM
-            }
-            _ => {
-                return Err(SqlError::ExecutionError {
-                    message: format!("Cannot sum non-numeric value: {:?}", value),
-                    query: None,
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Update numeric values accumulator for AVG
-    fn update_numeric_accumulator(
-        accumulator: &mut GroupAccumulator,
-        key: &str,
-        value: &FieldValue,
-    ) -> Result<(), SqlError> {
-        match value {
-            FieldValue::Integer(i) => {
-                accumulator
-                    .numeric_values
-                    .entry(key.to_string())
-                    .or_default()
-                    .push(*i as f64);
-            }
-            FieldValue::Float(f) => {
-                accumulator
-                    .numeric_values
-                    .entry(key.to_string())
-                    .or_default()
-                    .push(*f);
-            }
-            FieldValue::Null => {
-                // Do nothing for NULL values in AVG
-            }
-            _ => {
-                return Err(SqlError::ExecutionError {
-                    message: format!("Cannot average non-numeric value: {:?}", value),
-                    query: None,
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Update min accumulator
-    fn update_min_accumulator(accumulator: &mut GroupAccumulator, key: &str, value: &FieldValue) {
-        // SQL MIN function should ignore NULL values completely
-        if matches!(value, FieldValue::Null) {
-            return;
-        }
-
-        match accumulator.mins.get(key) {
-            Some(current_min) => {
-                if Self::compare_field_values(value, current_min) == std::cmp::Ordering::Less {
-                    accumulator.mins.insert(key.to_string(), value.clone());
-                }
-            }
-            None => {
-                accumulator.mins.insert(key.to_string(), value.clone());
-            }
-        }
-    }
-
-    /// Update max accumulator
-    fn update_max_accumulator(accumulator: &mut GroupAccumulator, key: &str, value: &FieldValue) {
-        // SQL MAX function should ignore NULL values completely
-        if matches!(value, FieldValue::Null) {
-            return;
-        }
-
-        match accumulator.maxs.get(key) {
-            Some(current_max) => {
-                if Self::compare_field_values(value, current_max) == std::cmp::Ordering::Greater {
-                    accumulator.maxs.insert(key.to_string(), value.clone());
-                }
-            }
-            None => {
-                accumulator.maxs.insert(key.to_string(), value.clone());
-            }
-        }
-    }
-
-    /// Update string accumulator for STRING_AGG
-    fn update_string_accumulator(
-        accumulator: &mut GroupAccumulator,
-        key: &str,
-        value: &FieldValue,
-    ) {
-        if let FieldValue::String(s) = value {
-            accumulator
-                .string_values
-                .entry(key.to_string())
-                .or_default()
-                .push(s.clone());
-        } else if !matches!(value, FieldValue::Null) {
-            // Convert non-string, non-null values to strings
-            let string_value = match value {
-                FieldValue::Integer(i) => i.to_string(),
-                FieldValue::Float(f) => f.to_string(),
-                FieldValue::Boolean(b) => b.to_string(),
-                FieldValue::Timestamp(t) => t.to_string(),
-                _ => "".to_string(),
-            };
-            accumulator
-                .string_values
-                .entry(key.to_string())
-                .or_default()
-                .push(string_value);
-        }
-        // Skip NULL values
-    }
-
-    /// Update distinct values accumulator for COUNT_DISTINCT
-    fn update_distinct_accumulator(
-        accumulator: &mut GroupAccumulator,
-        key: &str,
-        value: &FieldValue,
-    ) {
-        if !matches!(value, FieldValue::Null) {
-            let value_string = match value {
-                FieldValue::String(s) => s.clone(),
-                FieldValue::Integer(i) => i.to_string(),
-                FieldValue::Float(f) => f.to_string(),
-                FieldValue::Boolean(b) => b.to_string(),
-                FieldValue::Timestamp(t) => t.to_string(),
-                _ => format!("{:?}", value),
-            };
-            accumulator
-                .distinct_values
-                .entry(key.to_string())
-                .or_default()
-                .insert(value_string);
-        }
-    }
-
-    /// Calculate sample variance of numeric values
+    /// Calculate variance for a set of numeric values (sample variance)
     fn calculate_variance(values: &[f64]) -> f64 {
         if values.len() <= 1 {
             return 0.0;
         }
 
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let sum_squares = values.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>();
+        let variance =
+            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64; // Sample variance uses n-1
 
-        // Use sample variance (divide by n-1)
-        sum_squares / (values.len() - 1) as f64
-    }
-
-    /// Compare field values for min/max operations
-    fn compare_field_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        match (a, b) {
-            (FieldValue::Null, FieldValue::Null) => Ordering::Equal,
-            (FieldValue::Null, _) => Ordering::Greater, // NULL is greater than any value
-            (_, FieldValue::Null) => Ordering::Less,
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => {
-                a.partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (FieldValue::Integer(a), FieldValue::Float(b)) => {
-                (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (FieldValue::Float(a), FieldValue::Integer(b)) => {
-                a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
-            }
-            (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
-            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a.cmp(b),
-            (FieldValue::Timestamp(a), FieldValue::Timestamp(b)) => a.cmp(b),
-            _ => Ordering::Equal,
-        }
+        variance
     }
 
     /// Evaluate expression with window and subquery support
@@ -1051,7 +749,7 @@ impl SelectProcessor {
     }
 
     /// Get expression name for result field
-    fn get_expression_name(expr: &Expr) -> String {
+    pub fn get_expression_name(expr: &Expr) -> String {
         match expr {
             Expr::Column(name) => name.clone(),
             Expr::Function { name, .. } => name.clone(),
