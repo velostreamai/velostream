@@ -175,7 +175,7 @@ async fn test_full_outer_join() {
 #[tokio::test]
 async fn test_windowed_join() {
     // Test JOIN with WITHIN clause for temporal joins
-    let query = "SELECT * FROM left_stream INNER JOIN right_stream ON left_stream.id = right_stream.right_id WITHIN INTERVAL '5' MINUTES";
+    let query = "SELECT * FROM left_stream INNER JOIN right_stream ON left_stream.id = right_stream.right_id WITHIN 5m";
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;
@@ -189,7 +189,7 @@ async fn test_windowed_join() {
 #[tokio::test]
 async fn test_windowed_join_seconds() {
     // Test JOIN with WITHIN clause using seconds
-    let query = "SELECT * FROM orders INNER JOIN payments p ON orders.id = p.order_id WITHIN INTERVAL '30' SECONDS";
+    let query = "SELECT * FROM orders INNER JOIN payments p ON orders.id = p.order_id WITHIN 30s";
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;
@@ -203,7 +203,8 @@ async fn test_windowed_join_seconds() {
 #[tokio::test]
 async fn test_windowed_join_hours() {
     // Test JOIN with WITHIN clause using hours
-    let query = "SELECT * FROM sessions LEFT JOIN events e ON sessions.user_id = e.user_id WITHIN INTERVAL '2' HOURS";
+    let query =
+        "SELECT * FROM sessions LEFT JOIN events e ON sessions.user_id = e.user_id WITHIN 2h";
 
     let result: Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> =
         execute_join_query(query).await;

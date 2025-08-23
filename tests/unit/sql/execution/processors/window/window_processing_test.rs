@@ -331,11 +331,7 @@ async fn test_window_with_having_clause() {
     let results = execute_windowed_test(query, records).await.unwrap();
 
     // Should only emit 1 result (first window that passes HAVING)
-    assert_eq!(
-        results.len(),
-        1,
-        "Should emit only windows passing HAVING clause"
-    );
+    assert_eq!(results.len(), 1, "Should emit only 1 result");
 
     if let Some(result) = results.first() {
         assert_eq!(result["order_count"], InternalValue::Integer(3));

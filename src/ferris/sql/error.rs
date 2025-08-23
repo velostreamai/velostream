@@ -244,12 +244,137 @@ impl fmt::Display for SqlError {
 impl std::error::Error for SqlError {}
 
 impl SqlError {
-    /// Create a parse error with position
+    /// Create a parse error with position and optional SQL text for enhanced reporting
     pub fn parse_error(message: impl Into<String>, position: Option<usize>) -> Self {
         SqlError::ParseError {
             message: message.into(),
             position,
         }
+    }
+
+    /// Create a parse error with enhanced context information
+    pub fn parse_error_with_context(
+        message: impl Into<String>,
+        position: Option<usize>,
+        sql_text: Option<&str>,
+    ) -> Self {
+        let mut error = SqlError::ParseError {
+            message: message.into(),
+            position,
+        };
+
+        if let (Some(pos), Some(sql)) = (position, sql_text) {
+            // Enhance the error message with line/column and snippet
+            if let SqlError::ParseError {
+                ref mut message, ..
+            } = error
+            {
+                let enhanced_msg = Self::enhance_parse_error_message(message, pos, sql);
+                *message = enhanced_msg;
+            }
+        }
+
+        error
+    }
+
+    /// Calculate line and column numbers from position
+    fn calculate_line_column(text: &str, position: usize) -> (usize, usize) {
+        let mut line = 1;
+        let mut column = 1;
+
+        for (i, ch) in text.char_indices() {
+            if i >= position {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                column = 1;
+            } else {
+                column += 1;
+            }
+        }
+
+        (line, column)
+    }
+
+    /// Extract a text snippet around the error position
+    fn extract_snippet(text: &str, position: usize, context_chars: usize) -> String {
+        let text_len = text.len();
+        if position >= text_len {
+            return text.to_string();
+        }
+
+        // Find snippet bounds
+        let start = position.saturating_sub(context_chars);
+        let end = std::cmp::min(position + context_chars, text_len);
+
+        // Extract the snippet
+        let snippet = &text[start..end];
+        let relative_pos = position - start;
+
+        // Create the snippet with cursor indicator
+        let lines: Vec<&str> = snippet.lines().collect();
+        if lines.is_empty() {
+            return format!("{}\n{:width$}^", snippet, "", width = relative_pos);
+        }
+
+        // Find which line contains the error
+        let mut current_pos = 0;
+        for (line_idx, line) in lines.iter().enumerate() {
+            let line_end = current_pos + line.len();
+            if relative_pos <= line_end {
+                let col_in_line = relative_pos - current_pos;
+                let mut result = String::new();
+
+                // Add context lines before
+                if line_idx > 0 {
+                    result.push_str(lines[line_idx - 1]);
+                    result.push('\n');
+                }
+
+                // Add the error line
+                result.push_str(line);
+                result.push('\n');
+
+                // Add cursor indicator
+                result.push_str(&" ".repeat(col_in_line));
+                result.push('^');
+
+                // Add context lines after
+                if line_idx + 1 < lines.len() {
+                    result.push('\n');
+                    result.push_str(lines[line_idx + 1]);
+                }
+
+                return result;
+            }
+            current_pos = line_end + 1; // +1 for newline
+        }
+
+        // Fallback
+        format!("{}\n{:width$}^", snippet, "", width = relative_pos)
+    }
+
+    /// Enhance parse error message with line/column and snippet
+    fn enhance_parse_error_message(
+        original_message: &str,
+        position: usize,
+        sql_text: &str,
+    ) -> String {
+        let (line, column) = Self::calculate_line_column(sql_text, position);
+        let snippet = Self::extract_snippet(sql_text, position, 50);
+
+        format!(
+            "{}\n  at line {}, column {}\n  |\n{}\n  |",
+            original_message,
+            line,
+            column,
+            snippet
+                .lines()
+                .map(|line| format!("  | {}", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
     }
 
     /// Create a schema error

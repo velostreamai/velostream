@@ -436,7 +436,12 @@ impl StreamingSqlParser {
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         let tokens = self.tokenize(sql)?;
-        self.parse_tokens(tokens)
+        self.parse_tokens_with_context(tokens, sql)
+    }
+
+    // Keep the old method for backward compatibility
+    fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
+        self.parse_tokens_with_context(tokens, "")
     }
 
     fn tokenize(&self, sql: &str) -> Result<Vec<Token>, SqlError> {
@@ -680,8 +685,12 @@ impl StreamingSqlParser {
         Ok(tokens)
     }
 
-    fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
-        let mut parser = TokenParser::new(tokens);
+    fn parse_tokens_with_context(
+        &self,
+        tokens: Vec<Token>,
+        sql_text: &str,
+    ) -> Result<StreamingQuery, SqlError> {
+        let mut parser = TokenParser::new(tokens, sql_text);
 
         match parser.current_token().token_type {
             TokenType::Select => parser.parse_select(),
@@ -694,22 +703,37 @@ impl StreamingSqlParser {
             TokenType::Deploy => parser.parse_deploy_job(),
             TokenType::Rollback => parser.parse_rollback_job(),
             TokenType::Describe => parser.parse_describe(),
-            _ => Err(SqlError::ParseError {
-                message: "Expected SELECT, CREATE, SHOW, LIST, START, STOP, PAUSE, RESUME, DEPLOY, ROLLBACK, or DESCRIBE statement".to_string(),
-                position: Some(parser.current_token().position)
-            })
+            _ => Err(parser.create_parse_error("Expected SELECT, CREATE, SHOW, LIST, START, STOP, PAUSE, RESUME, DEPLOY, ROLLBACK, or DESCRIBE statement"))
         }
     }
 }
 
-struct TokenParser {
+struct TokenParser<'a> {
     tokens: Vec<Token>,
     current: usize,
+    sql_text: &'a str,
 }
 
-impl TokenParser {
-    fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, current: 0 }
+impl<'a> TokenParser<'a> {
+    fn new(tokens: Vec<Token>, sql_text: &'a str) -> Self {
+        Self {
+            tokens,
+            current: 0,
+            sql_text,
+        }
+    }
+
+    /// Create an enhanced parse error with context
+    fn create_parse_error(&self, message: impl Into<String>) -> SqlError {
+        let position = if self.current < self.tokens.len() {
+            Some(self.tokens[self.current].position)
+        } else if !self.tokens.is_empty() {
+            Some(self.tokens[self.tokens.len() - 1].position)
+        } else {
+            None
+        };
+
+        SqlError::parse_error_with_context(message, position, Some(self.sql_text))
     }
 
     fn current_token(&self) -> &Token {
@@ -746,13 +770,10 @@ impl TokenParser {
             self.advance();
             Ok(token)
         } else {
-            Err(SqlError::ParseError {
-                message: format!(
-                    "Expected {:?}, found {:?} at position {}",
-                    expected, token.token_type, token.position
-                ),
-                position: Some(token.position),
-            })
+            Err(self.create_parse_error(format!(
+                "Expected {:?}, found {:?}",
+                expected, token.token_type
+            )))
         }
     }
 
@@ -824,10 +845,7 @@ impl TokenParser {
                 limit_token
                     .value
                     .parse::<u64>()
-                    .map_err(|_| SqlError::ParseError {
-                        message: "Invalid LIMIT value".to_string(),
-                        position: Some(limit_token.position),
-                    })?,
+                    .map_err(|_| self.create_parse_error("Invalid LIMIT value"))?,
             );
         }
 
@@ -960,10 +978,7 @@ impl TokenParser {
                 JoinType::FullOuter
             }
             _ => {
-                return Err(SqlError::ParseError {
-                    message: "Expected JOIN keyword".to_string(),
-                    position: Some(self.current_token().position),
-                });
+                return Err(self.create_parse_error("Expected JOIN keyword"));
             }
         };
 
@@ -1703,7 +1718,7 @@ impl TokenParser {
                 let gap = self.parse_duration(&gap_str)?;
                 WindowSpec::Session {
                     gap,
-                    partition_by: Vec::new(),
+                    partition_by: Vec::new(), // Will be populated from GROUP BY during execution
                 }
             }
             _ => {
@@ -1798,11 +1813,40 @@ impl TokenParser {
     }
 
     fn parse_duration(&self, duration_str: &str) -> Result<Duration, SqlError> {
-        if duration_str.ends_with('s') {
+        if duration_str.ends_with("ns") {
+            let nanos: u64 = duration_str[..duration_str.len() - 2]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid 'ns' duration: {}", duration_str),
+                    position: None,
+                })?;
+            Ok(Duration::from_nanos(nanos))
+        } else if duration_str.ends_with("us") || duration_str.ends_with("μs") {
+            let micros: u64 = if duration_str.ends_with("μs") {
+                // Unicode μ is 2 bytes, so we need to handle it differently
+                let end_pos = duration_str.len() - "μs".len();
+                duration_str[..end_pos].parse()
+            } else {
+                duration_str[..duration_str.len() - 2].parse()
+            }
+            .map_err(|_| SqlError::ParseError {
+                message: format!("Invalid 'us/μs' duration: {}", duration_str),
+                position: None,
+            })?;
+            Ok(Duration::from_micros(micros))
+        } else if duration_str.ends_with("ms") {
+            let millis: u64 = duration_str[..duration_str.len() - 2]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid 'ms' duration: {}", duration_str),
+                    position: None,
+                })?;
+            Ok(Duration::from_millis(millis))
+        } else if duration_str.ends_with('s') {
             let seconds: u64 = duration_str[..duration_str.len() - 1]
                 .parse()
                 .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid duration: {}", duration_str),
+                    message: format!("Invalid 's' duration: {}", duration_str),
                     position: None,
                 })?;
             Ok(Duration::from_secs(seconds))
@@ -1810,7 +1854,7 @@ impl TokenParser {
             let minutes: u64 = duration_str[..duration_str.len() - 1]
                 .parse()
                 .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid duration: {}", duration_str),
+                    message: format!("Invalid 'm' duration: {}", duration_str),
                     position: None,
                 })?;
             Ok(Duration::from_secs(minutes * 60))
@@ -1818,14 +1862,30 @@ impl TokenParser {
             let hours: u64 = duration_str[..duration_str.len() - 1]
                 .parse()
                 .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid duration: {}", duration_str),
+                    message: format!("Invalid 'h' duration: {}", duration_str),
                     position: None,
                 })?;
             Ok(Duration::from_secs(hours * 3600))
+        } else if duration_str.ends_with('d') {
+            let days: u64 = duration_str[..duration_str.len() - 1]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid 'd' duration: {}", duration_str),
+                    position: None,
+                })?;
+            Ok(Duration::from_secs(days * 3600 * 24))
+        } else if duration_str.ends_with('w') {
+            let week: u64 = duration_str[..duration_str.len() - 1]
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid 'w' duration: {}", duration_str),
+                    position: None,
+                })?;
+            Ok(Duration::from_secs(week * 3600 * 24 * 7))
         } else {
             // Default to seconds if no unit specified
             let seconds: u64 = duration_str.parse().map_err(|_| SqlError::ParseError {
-                message: format!("Invalid duration: {}", duration_str),
+                message: format!("Invalid/Unknown duration: {}", duration_str),
                 position: None,
             })?;
             Ok(Duration::from_secs(seconds))

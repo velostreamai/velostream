@@ -163,14 +163,12 @@ impl WindowFunctions {
                     Ok(val) => val,
                     Err(_) => continue, // Skip problematic expressions
                 };
-                
                 let cmp = Self::compare_field_values(&val_a, &val_b);
                 use crate::ferris::sql::ast::OrderDirection;
                 let result = match order_expr.direction {
                     OrderDirection::Desc => cmp.reverse(),
                     OrderDirection::Asc => cmp,
                 };
-                
                 if result != Ordering::Equal {
                     return result;
                 }

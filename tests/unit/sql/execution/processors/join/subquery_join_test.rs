@@ -375,9 +375,9 @@ async fn test_temporal_join_with_subquery() {
         INNER JOIN (
             SELECT user_id, amount
             FROM orders 
-            WHERE created_timestamp > NOW() - INTERVAL '1' HOUR
+            WHERE created_timestamp > NOW() - 1h
         ) recent_orders ON u.id = recent_orders.user_id
-        WITHIN INTERVAL '5' MINUTES
+        WITHIN 5m
     "#;
 
     let result = execute_subquery_join_test(query).await;
