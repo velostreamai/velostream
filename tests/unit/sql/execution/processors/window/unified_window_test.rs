@@ -43,6 +43,33 @@ mod unified_window_tests {
             WINDOW TUMBLING(1h)
             GROUP BY status
             HAVING COUNT(*) > 1
+            EMIT CHANGES
+        "#;
+
+        let records = vec![
+            TestDataBuilder::order_record(1, 100, 100.0, "completed", 0),
+            TestDataBuilder::order_record(2, 101, 200.0, "completed", 1800), // 30 min
+            TestDataBuilder::order_record(3, 102, 50.0, "pending", 2400),    // 40 min
+            TestDataBuilder::order_record(4, 103, 300.0, "completed", 3600), // Next hour
+        ];
+
+        let results = SqlExecutor::execute_query(sql, records).await;
+        WindowTestAssertions::assert_has_results(&results, "Tumbling Business Analysis");
+        WindowTestAssertions::print_results(&results, "Tumbling Business Analysis");
+    }
+
+    #[tokio::test]
+    async fn test_tumbling_business_scenarios_non_emit() {
+        let sql = r#"
+            SELECT
+                status,
+                COUNT(*) as order_count,
+                SUM(amount) as total_revenue,
+                AVG(amount) as avg_order_value
+            FROM orders
+            WINDOW TUMBLING(1h)
+            GROUP BY status
+            HAVING COUNT(*) > 1
         "#;
 
         let records = vec![

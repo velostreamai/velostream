@@ -512,22 +512,64 @@ impl StreamingSqlParser {
                     position += 1;
                 }
                 '-' => {
-                    tokens.push(Token {
-                        token_type: TokenType::Minus,
-                        value: "-".to_string(),
-                        position,
-                    });
+                    // Check for single-line comment "--"
                     chars.next();
                     position += 1;
+                    if let Some(&'-') = chars.peek() {
+                        // Single-line comment, consume until end of line
+                        chars.next(); // consume second '-'
+                        position += 1;
+                        while let Some(&ch) = chars.peek() {
+                            chars.next();
+                            position += 1;
+                            if ch == '\n' || ch == '\r' {
+                                break;
+                            }
+                        }
+                    } else {
+                        // Regular minus token
+                        tokens.push(Token {
+                            token_type: TokenType::Minus,
+                            value: "-".to_string(),
+                            position: position - 1, // Adjust position since we already advanced
+                        });
+                    }
                 }
                 '/' => {
-                    tokens.push(Token {
-                        token_type: TokenType::Divide,
-                        value: "/".to_string(),
-                        position,
-                    });
+                    // Check for multi-line comment "/*"
                     chars.next();
                     position += 1;
+                    if let Some(&'*') = chars.peek() {
+                        // Multi-line comment, consume until "*/"
+                        chars.next(); // consume '*'
+                        position += 1;
+                        let mut found_end = false;
+                        while let Some(&ch) = chars.peek() {
+                            chars.next();
+                            position += 1;
+                            if ch == '*' {
+                                if let Some(&'/') = chars.peek() {
+                                    chars.next(); // consume '/'
+                                    position += 1;
+                                    found_end = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !found_end {
+                            return Err(SqlError::ParseError {
+                                message: "Unterminated multi-line comment".to_string(),
+                                position: Some(position),
+                            });
+                        }
+                    } else {
+                        // Regular divide token
+                        tokens.push(Token {
+                            token_type: TokenType::Divide,
+                            value: "/".to_string(),
+                            position: position - 1, // Adjust position since we already advanced
+                        });
+                    }
                 }
                 '=' => {
                     tokens.push(Token {
@@ -1007,45 +1049,8 @@ impl<'a> TokenParser<'a> {
         let mut window = None;
         if self.current_token().token_type == TokenType::Within {
             self.advance();
-            self.expect_keyword("INTERVAL")?;
             let duration_str = self.parse_duration_token()?;
-            let time_unit = match self.current_token().token_type {
-                TokenType::Identifier => {
-                    let unit = self.current_token().value.to_uppercase();
-                    self.advance();
-                    match unit.as_str() {
-                        "MINUTES" | "MINUTE" => TimeUnit::Minute,
-                        "SECONDS" | "SECOND" => TimeUnit::Second,
-                        "HOURS" | "HOUR" => TimeUnit::Hour,
-                        _ => {
-                            return Err(SqlError::ParseError {
-                                message: format!("Unsupported time unit: {}", unit),
-                                position: Some(self.current_token().position),
-                            });
-                        }
-                    }
-                }
-                _ => TimeUnit::Second, // Default
-            };
-
-            // Parse the duration value and convert to Duration
-            let duration_value = duration_str
-                .chars()
-                .take_while(|c| c.is_numeric())
-                .collect::<String>()
-                .parse::<u64>()
-                .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid duration value: {}", duration_str),
-                    position: None,
-                })?;
-
-            // Convert to Duration based on time unit
-            let time_window = match time_unit {
-                TimeUnit::Second => Duration::from_secs(duration_value),
-                TimeUnit::Minute => Duration::from_secs(duration_value * 60),
-                TimeUnit::Hour => Duration::from_secs(duration_value * 3600),
-                _ => Duration::from_secs(duration_value), // Default to seconds
-            };
+            let time_window = self.parse_duration(&duration_str)?;
 
             window = Some(JoinWindow {
                 time_window,
