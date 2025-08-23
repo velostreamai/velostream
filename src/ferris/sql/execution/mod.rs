@@ -45,6 +45,7 @@ pub mod internal;
 pub mod processors;
 pub mod test_data_sources;
 pub mod types;
+pub mod utils;
 
 // Re-export public API only
 pub use engine::StreamExecutionEngine;

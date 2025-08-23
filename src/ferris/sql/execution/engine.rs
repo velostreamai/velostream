@@ -47,19 +47,19 @@ All other types and methods are internal implementation details.
 - **Expression Evaluation**: Full support for arithmetic, comparison, and logical expressions
 - **System Columns**: Access to Kafka metadata (_timestamp, _offset, _partition)
 - **Header Functions**: Built-in functions for Kafka message header access
-- **Aggregation Support**: Basic aggregation functions (COUNT, SUM, AVG)
+- **Aggregation Support**: Full aggregation functions with GROUP BY support (COUNT, SUM, AVG, MIN, MAX, STDDEV, etc.)
 - **Query Lifecycle**: Complete query management from start to stop
 - **Error Handling**: Comprehensive error reporting with context information
 
 ## Architecture
 
-The execution engine follows an event-driven architecture:
+The execution engine follows a processor-based architecture with clean delegation:
 
 1. **Query Registration**: Queries are registered and maintained in active state
-2. **Record Processing**: Incoming records trigger query evaluation
-3. **Expression Evaluation**: SQL expressions are evaluated against record data
+2. **Record Processing**: Incoming records trigger query evaluation via specialized processors
+3. **Expression Evaluation**: SQL expressions are evaluated using the ExpressionEvaluator module
 4. **Result Generation**: Query results are sent to output channels
-5. **State Management**: Query state and window buffers are maintained
+5. **State Management**: Query state is managed by dedicated processors and utilities
 
 ## Supported Operations
 
@@ -76,12 +76,11 @@ The execution engine follows an event-driven architecture:
 - Property-based configuration
 
 ### Built-in Functions
-- `COUNT(*)`: Record counting
-- `SUM(column)`: Numeric summation
-- `AVG(column)`: Average calculation
-- `HEADER(key)`: Kafka header value access
-- `HEADER_KEYS()`: List all header keys
-- `HAS_HEADER(key)`: Check header existence
+- **Aggregate Functions**: COUNT, SUM, AVG, MIN, MAX, STDDEV, VARIANCE
+- **Window Functions**: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE
+- **Header Functions**: HEADER, HEADER_KEYS, HAS_HEADER, SET_HEADER, REMOVE_HEADER
+- **String Functions**: UPPER, LOWER, LENGTH, SUBSTRING, CONCAT
+- **Date/Time Functions**: NOW, EXTRACT, DATE_ADD, DATEDIFF
 
 ## Examples
 
@@ -123,23 +122,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Performance Characteristics
 
 - **Memory Efficient**: Minimal memory allocation per record
-- **Low Latency**: Direct expression evaluation without intermediate representations
+- **Low Latency**: Optimized expression evaluation through specialized processors
 - **Streaming Native**: No buffering or batching unless required by windows
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::aggregation::{AccumulatorManager, AggregateFunctions, GroupByStateManager};
+use super::aggregation::AggregateFunctions;
 use super::expression::{ArithmeticOperations, BuiltinFunctions, ExpressionEvaluator};
 use super::internal::{
-    ExecutionMessage, ExecutionState, GroupAccumulator, GroupByState, HeaderMutation,
-    HeaderOperation, QueryExecution, WindowState,
+    ExecutionMessage, ExecutionState, GroupByState, HeaderMutation, HeaderOperation,
+    QueryExecution, WindowState,
 };
 use super::types::{FieldValue, StreamRecord};
+use super::utils::{FieldValueConverter, TimeExtractor};
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
-use crate::ferris::sql::StreamingQuery::Select;
 use crate::ferris::sql::ast::{
-    BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, OverClause, SelectField,
-    StreamSource, StreamingQuery, TimeUnit, WindowSpec,
+    Expr, JoinClause, JoinType, LiteralValue, OverClause, SelectField, StreamSource, StreamingQuery,
+    WindowSpec,
 };
 use crate::ferris::sql::error::SqlError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
@@ -197,8 +196,8 @@ impl StreamExecutionEngine {
             window_context: self.get_window_context_for_processors(query_id),
             join_context: JoinContext,
             group_by_states: HashMap::new(),
-            schemas: HashMap::new(), // TODO: Populate from SQL context when available
-            stream_handles: HashMap::new(), // TODO: Populate from SQL context when available
+            schemas: HashMap::new(),
+            stream_handles: HashMap::new(),
             data_sources: self.create_default_data_sources(), // Provide basic data sources for testing
 
             // Initialize high-performance window state management
@@ -432,7 +431,7 @@ impl StreamExecutionEngine {
         let fields_map: HashMap<String, FieldValue> = record
             .into_iter()
             .map(|(k, v)| {
-                let field_value = self.internal_to_field_value(v);
+                let field_value = FieldValueConverter::internal_to_field_value(v);
                 (k, field_value)
             })
             .collect();
@@ -511,59 +510,11 @@ impl StreamExecutionEngine {
 
         // Process result if any
         if let Some(result) = result {
-            // Convert result to InternalValue format
+            // Convert result to InternalValue format using utility
             let internal_result: HashMap<String, InternalValue> = result
                 .fields
                 .into_iter()
-                .map(|(k, v)| {
-                    let internal_value = match v {
-                        FieldValue::Integer(i) => InternalValue::Integer(i),
-                        FieldValue::Float(f) => InternalValue::Number(f),
-                        FieldValue::String(s) => InternalValue::String(s),
-                        FieldValue::Boolean(b) => InternalValue::Boolean(b),
-                        FieldValue::Null => InternalValue::Null,
-                        FieldValue::Date(d) => {
-                            InternalValue::String(d.format("%Y-%m-%d").to_string())
-                        }
-                        FieldValue::Timestamp(ts) => {
-                            InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
-                        }
-                        FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
-                        FieldValue::Array(arr) => {
-                            let internal_arr: Vec<InternalValue> = arr
-                                .into_iter()
-                                .map(|item| self.field_value_to_internal(item))
-                                .collect();
-                            InternalValue::Array(internal_arr)
-                        }
-                        FieldValue::Map(map) => {
-                            let internal_map: HashMap<String, InternalValue> = map
-                                .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
-                                .collect();
-                            InternalValue::Object(internal_map)
-                        }
-                        FieldValue::Struct(fields) => {
-                            let internal_map: HashMap<String, InternalValue> = fields
-                                .into_iter()
-                                .map(|(k, v)| (k, self.field_value_to_internal(v)))
-                                .collect();
-                            InternalValue::Object(internal_map)
-                        }
-                        FieldValue::Interval { value, unit } => {
-                            // Convert interval to milliseconds for output
-                            let millis = match unit {
-                                TimeUnit::Millisecond => value,
-                                TimeUnit::Second => value * 1000,
-                                TimeUnit::Minute => value * 60 * 1000,
-                                TimeUnit::Hour => value * 60 * 60 * 1000,
-                                TimeUnit::Day => value * 24 * 60 * 60 * 1000,
-                            };
-                            InternalValue::Integer(millis)
-                        }
-                    };
-                    (k, internal_value)
-                })
+                .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
                 .collect();
 
             // Send result through both channels
@@ -740,9 +691,7 @@ impl StreamExecutionEngine {
     }
 
     /// Flush any pending window results by processing a final trigger record  
-    /// Flushes all pending windowed aggregations.
-    ///
-    /// Forces emission of any buffered window results.
+    /// Forces emission of any buffered window results for all active queries.
     pub async fn flush_windows(&mut self) -> Result<(), SqlError> {
         // Create a trigger record with a very high timestamp to force window emission
         let trigger_record = StreamRecord {
@@ -845,101 +794,6 @@ impl StreamExecutionEngine {
 
     // EXPRESSION EVALUATION FUNCTIONS
     // =============================================================================
-
-    #[doc(hidden)]
-    pub fn values_equal(&self, left: &FieldValue, right: &FieldValue) -> bool {
-        match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
-            (FieldValue::Float(a), FieldValue::Float(b)) => (a - b).abs() < f64::EPSILON,
-            (FieldValue::String(a), FieldValue::String(b)) => a == b,
-            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
-            (FieldValue::Null, FieldValue::Null) => true,
-            (FieldValue::Array(a), FieldValue::Array(b)) => {
-                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| self.values_equal(x, y))
-            }
-            (FieldValue::Map(a), FieldValue::Map(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .all(|(k, v)| b.get(k).is_some_and(|bv| self.values_equal(v, bv)))
-            }
-            (FieldValue::Struct(a), FieldValue::Struct(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .all(|(k, v)| b.get(k).is_some_and(|bv| self.values_equal(v, bv)))
-            }
-            _ => false,
-        }
-    }
-
-    /// Compare values with numeric type coercion for IN operations
-    #[doc(hidden)]
-    pub fn values_equal_with_coercion(&self, left: &FieldValue, right: &FieldValue) -> bool {
-        match (left, right) {
-            // Exact type matches
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => a == b,
-            (FieldValue::Float(a), FieldValue::Float(b)) => (a - b).abs() < f64::EPSILON,
-            (FieldValue::String(a), FieldValue::String(b)) => a == b,
-            (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a == b,
-
-            // Numeric coercion: Integer and Float should be comparable
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64 - b).abs() < f64::EPSILON,
-            (FieldValue::Float(a), FieldValue::Integer(b)) => (a - *b as f64).abs() < f64::EPSILON,
-
-            // Complex types (same as values_equal)
-            (FieldValue::Array(a), FieldValue::Array(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| self.values_equal_with_coercion(x, y))
-            }
-            (FieldValue::Map(a), FieldValue::Map(b)) => {
-                a.len() == b.len()
-                    && a.iter().all(|(k, v)| {
-                        b.get(k)
-                            .is_some_and(|bv| self.values_equal_with_coercion(v, bv))
-                    })
-            }
-            (FieldValue::Struct(a), FieldValue::Struct(b)) => {
-                a.len() == b.len()
-                    && a.iter().all(|(k, v)| {
-                        b.get(k)
-                            .is_some_and(|bv| self.values_equal_with_coercion(v, bv))
-                    })
-            }
-
-            // NULL values should not match anything in IN context
-            (FieldValue::Null, _) | (_, FieldValue::Null) => false,
-
-            // All other combinations don't match
-            _ => false,
-        }
-    }
-
-    fn compare_values<F>(
-        &self,
-        left: &FieldValue,
-        right: &FieldValue,
-        op: F,
-    ) -> Result<bool, SqlError>
-    where
-        F: Fn(f64, f64) -> bool,
-    {
-        let (left_num, right_num) = match (left, right) {
-            (FieldValue::Integer(a), FieldValue::Integer(b)) => (*a as f64, *b as f64),
-            (FieldValue::Float(a), FieldValue::Float(b)) => (*a, *b),
-            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64, *b),
-            (FieldValue::Float(a), FieldValue::Integer(b)) => (*a, *b as f64),
-            _ => {
-                return Err(SqlError::TypeError {
-                    expected: "numeric".to_string(),
-                    actual: "non-numeric".to_string(),
-                    value: None,
-                });
-            }
-        };
-
-        Ok(op(left_num, right_num))
-    }
 
     #[doc(hidden)]
     pub fn add_values(
@@ -1718,53 +1572,6 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Convert FieldValue to InternalValue for pluggable serialization
-    fn field_value_to_internal(&self, value: FieldValue) -> InternalValue {
-        match value {
-            FieldValue::Integer(i) => InternalValue::Integer(i),
-            FieldValue::Float(f) => InternalValue::Number(f),
-            FieldValue::String(s) => InternalValue::String(s),
-            FieldValue::Boolean(b) => InternalValue::Boolean(b),
-            FieldValue::Null => InternalValue::Null,
-            FieldValue::Date(d) => InternalValue::String(d.format("%Y-%m-%d").to_string()),
-            FieldValue::Timestamp(ts) => {
-                InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
-            }
-            FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
-            FieldValue::Array(arr) => {
-                let internal_arr: Vec<InternalValue> = arr
-                    .into_iter()
-                    .map(|item| self.field_value_to_internal(item))
-                    .collect();
-                InternalValue::Array(internal_arr)
-            }
-            FieldValue::Map(map) => {
-                let internal_map: HashMap<String, InternalValue> = map
-                    .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
-                    .collect();
-                InternalValue::Object(internal_map)
-            }
-            FieldValue::Struct(fields) => {
-                let internal_map: HashMap<String, InternalValue> = fields
-                    .into_iter()
-                    .map(|(k, v)| (k, self.field_value_to_internal(v)))
-                    .collect();
-                InternalValue::Object(internal_map)
-            }
-            FieldValue::Interval { value, unit } => {
-                // Convert interval to milliseconds for output
-                let millis = match unit {
-                    TimeUnit::Millisecond => value,
-                    TimeUnit::Second => value * 1000,
-                    TimeUnit::Minute => value * 60 * 1000,
-                    TimeUnit::Hour => value * 60 * 60 * 1000,
-                    TimeUnit::Day => value * 24 * 60 * 60 * 1000,
-                };
-                InternalValue::Integer(millis)
-            }
-        }
-    }
 
     /// Process JOIN clauses and combine records
     fn process_joins(
@@ -1983,31 +1790,6 @@ impl StreamExecutionEngine {
         })
     }
 
-    /// Convert InternalValue to FieldValue for pluggable serialization
-    fn internal_to_field_value(&self, value: InternalValue) -> FieldValue {
-        match value {
-            InternalValue::Integer(i) => FieldValue::Integer(i),
-            InternalValue::Number(f) => FieldValue::Float(f),
-            InternalValue::String(s) => FieldValue::String(s),
-            InternalValue::Boolean(b) => FieldValue::Boolean(b),
-            InternalValue::Null => FieldValue::Null,
-            InternalValue::Array(arr) => {
-                let field_arr: Vec<FieldValue> = arr
-                    .into_iter()
-                    .map(|item| self.internal_to_field_value(item))
-                    .collect();
-                FieldValue::Array(field_arr)
-            }
-            InternalValue::Object(map) => {
-                let field_map: HashMap<String, FieldValue> = map
-                    .into_iter()
-                    .map(|(k, v)| (k, self.internal_to_field_value(v)))
-                    .collect();
-                FieldValue::Map(field_map)
-            }
-        }
-    }
-
     // =============================================================================
     // HEADER MUTATION FUNCTIONS
     // =============================================================================
@@ -2085,39 +1867,6 @@ impl StreamExecutionEngine {
     // WINDOW PROCESSING IMPLEMENTATION
     // =============================================================================
 
-    /// Extract event time from record using specified time column or default timestamp
-    fn extract_event_time(&self, record: &StreamRecord, time_column: Option<&str>) -> i64 {
-        Self::extract_event_time_static(record, time_column)
-    }
-
-    /// Static version of extract_event_time that doesn't borrow self
-    fn extract_event_time_static(record: &StreamRecord, time_column: Option<&str>) -> i64 {
-        if let Some(column_name) = time_column {
-            // Extract time from specified column
-            if let Some(field_value) = record.fields.get(column_name) {
-                match field_value {
-                    FieldValue::Integer(ts) => *ts,
-                    FieldValue::Float(ts) => *ts as i64,
-                    FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
-                    FieldValue::String(s) => {
-                        // Try to parse as timestamp
-                        s.parse::<i64>().unwrap_or(record.timestamp)
-                    }
-                    _ => record.timestamp, // Fallback to record timestamp
-                }
-            } else {
-                record.timestamp // Column not found, use record timestamp
-            }
-        } else {
-            record.timestamp // Use record timestamp (processing time)
-        }
-    }
-
-    /// Align timestamp to window boundary for tumbling windows
-    fn align_to_window_boundary(&self, timestamp: i64, window_size_ms: i64) -> i64 {
-        (timestamp / window_size_ms) * window_size_ms
-    }
-
     /// Check if window should emit based on window specification and current time
     fn should_emit_window(
         &self,
@@ -2129,7 +1878,7 @@ impl StreamExecutionEngine {
             WindowSpec::Tumbling { size, .. } => {
                 let window_size_ms = size.as_millis() as i64;
                 let current_window_start =
-                    self.align_to_window_boundary(current_time, window_size_ms);
+                    TimeExtractor::align_to_window_boundary(current_time, window_size_ms);
 
                 // For tumbling windows, only emit when:
                 // 1. This is the first window (last_emit == 0) AND we have the first record past window size
@@ -2174,27 +1923,6 @@ impl StreamExecutionEngine {
             message: format!("No field found with suffixes: {:?}", suffixes),
             query: None,
         })
-    }
-
-    /// Compare values and return boolean result
-    fn compare_values_for_boolean(
-        &self,
-        left: &FieldValue,
-        right: &FieldValue,
-        op: &BinaryOperator,
-    ) -> Result<bool, SqlError> {
-        match op {
-            BinaryOperator::Equal => Ok(self.values_equal(left, right)),
-            BinaryOperator::NotEqual => Ok(!self.values_equal(left, right)),
-            BinaryOperator::GreaterThan => self.compare_values(left, right, |a, b| a > b),
-            BinaryOperator::LessThan => self.compare_values(left, right, |a, b| a < b),
-            BinaryOperator::GreaterThanOrEqual => self.compare_values(left, right, |a, b| a >= b),
-            BinaryOperator::LessThanOrEqual => self.compare_values(left, right, |a, b| a <= b),
-            _ => Err(SqlError::ExecutionError {
-                message: "Invalid comparison operator".to_string(),
-                query: None,
-            }),
-        }
     }
 
     /// Convert a FieldValue to a string suitable for grouping
@@ -2253,7 +1981,7 @@ impl StreamExecutionEngine {
                                 .clone();
 
                             match expr {
-                                Expr::Function { name, args } => {
+                                Expr::Function { name: _, args: _ } => {
                                     // Delegate to AggregateFunctions module for proper handling
                                     match AggregateFunctions::compute_field_aggregate_value(
                                         &field_name,
@@ -2391,11 +2119,11 @@ impl StreamExecutionEngine {
                 };
 
                 // Convert to internal record and send
-                let mut internal_record = HashMap::new();
-                for (key, field_value) in &output_record.fields {
-                    let internal_value = self.field_value_to_internal(field_value.clone());
-                    internal_record.insert(key.clone(), internal_value);
-                }
+                let internal_record: HashMap<String, InternalValue> = output_record
+                    .fields
+                    .into_iter()
+                    .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
+                    .collect();
 
                 if self.output_sender.send(internal_record).is_err() {
                     // Channel closed, continue processing
