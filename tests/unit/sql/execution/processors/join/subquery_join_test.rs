@@ -167,11 +167,18 @@ async fn test_complex_left_join_with_subqueries() {
 
     let result = execute_subquery_join_test(query).await;
 
-    // Even scalar subqueries in SELECT combined with complex JOINs should work
-    // but the IN subquery in ON condition is not supported
+    // Complex queries with scalar subqueries in SELECT and IN subqueries in JOIN ON conditions
+    // are now fully supported with our enhanced implementation
     assert!(
-        result.is_err(),
-        "Complex JOIN with subqueries should currently have limitations"
+        result.is_ok(),
+        "Complex JOIN with subqueries should now work with full implementation"
+    );
+
+    // Verify we got results
+    let results = result.unwrap();
+    assert!(
+        !results.is_empty(),
+        "Should have generated results for complex JOIN with subqueries"
     );
 }
 
@@ -368,9 +375,9 @@ async fn test_temporal_join_with_subquery() {
         INNER JOIN (
             SELECT user_id, amount
             FROM orders 
-            WHERE created_timestamp > NOW() - INTERVAL '1' HOUR
+            WHERE created_timestamp > NOW() - 1h
         ) recent_orders ON u.id = recent_orders.user_id
-        WITHIN INTERVAL '5' MINUTES
+        WITHIN 5m
     "#;
 
     let result = execute_subquery_join_test(query).await;

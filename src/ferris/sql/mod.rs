@@ -6,7 +6,6 @@ pub mod ast;
 pub mod context;
 pub mod error;
 pub mod execution;
-pub mod execution_bak;
 pub mod parser;
 pub mod schema;
 

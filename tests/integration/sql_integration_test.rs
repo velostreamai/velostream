@@ -47,9 +47,11 @@ mod tests {
         if let Some(s) = status {
             record.insert("status".to_string(), InternalValue::String(s.to_string()));
         }
+        // Use safe, controlled timestamp to avoid arithmetic overflow
+        let safe_timestamp = 1000 + (order_id * 1000); // Each record 1 second apart
         record.insert(
             "timestamp".to_string(),
-            InternalValue::Integer(chrono::Utc::now().timestamp()),
+            InternalValue::Integer(safe_timestamp),
         );
         record
     }
@@ -337,14 +339,35 @@ mod tests {
             .parse("SELECT COUNT(*) AS session_count FROM orders WINDOW SESSION(30s)")
             .unwrap();
 
-        // Execute with records
-        let record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute(&query, record).await;
-        assert!(result.is_ok());
+        // Execute with multiple records to trigger session window
+        // First record starts a session
+        let record1 = create_order_record(1, 100, 299.99, Some("pending"));
+        let result1 = engine.execute(&query, record1).await;
+        assert!(result1.is_ok());
 
-        // Check output
-        let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("session_count"));
+        // Second record after session gap (30s + buffer) to close the session
+        // Using timestamps that are far apart to trigger session boundary
+        let mut record2_data = create_order_record(2, 100, 199.99, Some("completed"));
+        // Set timestamp to be 35 seconds after the first record (exceeds 30s session gap)
+        record2_data.insert("timestamp".to_string(), InternalValue::Integer(36000)); // 36 seconds
+        let result2 = engine.execute(&query, record2_data).await;
+        assert!(result2.is_ok());
+
+        // Check for session window output - should have emission from first session
+        let mut output_found = false;
+        for _ in 0..10 {
+            // Try multiple times as session windows can be async
+            if let Ok(output) = rx.try_recv() {
+                if output.contains_key("session_count") {
+                    output_found = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            output_found,
+            "Expected session_count output from session window"
+        );
     }
 
     #[tokio::test]

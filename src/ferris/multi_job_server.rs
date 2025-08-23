@@ -470,22 +470,39 @@ impl MultiJobSqlServer {
         let mut failed_jobs = Vec::new();
 
         for job_name in &app.resources.jobs {
-            // In a real implementation, we would extract the actual SQL query for each job
-            // For now, we'll use a placeholder query
-            let mock_query = format!(
-                "SELECT * FROM {}",
-                default_topic.as_deref().unwrap_or("default_topic")
-            );
-            let topic = default_topic
-                .as_deref()
-                .unwrap_or("default_topic")
-                .to_string();
+            // Extract the actual SQL query for this job from the application statements
+            let job_sql = match app.statements.iter().find(|stmt| {
+                matches!(
+                    stmt.statement_type,
+                    crate::ferris::sql::app_parser::StatementType::StartJob
+                        | crate::ferris::sql::app_parser::StatementType::DeployJob
+                ) && stmt.name.as_ref() == Some(job_name)
+            }) {
+                Some(stmt) => stmt.sql.clone(),
+                None => {
+                    // Fallback to a basic query if job not found in statements
+                    warn!(
+                        "Job '{}' not found in application statements, using default query",
+                        job_name
+                    );
+                    format!(
+                        "SELECT * FROM {}",
+                        default_topic.as_deref().unwrap_or("default_topic")
+                    )
+                }
+            };
+
+            // Extract topic from the SQL or use default
+            let topic = self
+                .extract_topic_from_sql(&job_sql)
+                .or_else(|| default_topic.as_deref().map(|s| s.to_string()))
+                .unwrap_or_else(|| "default_topic".to_string());
 
             match self
                 .deploy_job(
                     job_name.clone(),
                     app.metadata.version.clone(),
-                    mock_query,
+                    job_sql,
                     topic,
                 )
                 .await
@@ -539,6 +556,33 @@ impl MultiJobSqlServer {
     /// Get base group ID
     pub fn base_group_id(&self) -> &str {
         &self.base_group_id
+    }
+
+    /// Extract topic name from SQL query
+    fn extract_topic_from_sql(&self, sql: &str) -> Option<String> {
+        let upper_sql = sql.to_uppercase();
+
+        // Look for FROM clause and extract topic/table name
+        if let Some(from_pos) = upper_sql.find(" FROM ") {
+            let after_from = &sql[from_pos + 6..];
+            let words: Vec<&str> = after_from.split_whitespace().collect();
+            if !words.is_empty() {
+                let topic_name = words[0].trim_end_matches(',').trim_end_matches(';').trim();
+                return Some(topic_name.to_string());
+            }
+        }
+
+        // Look for INSERT INTO clause and extract target table
+        if let Some(insert_pos) = upper_sql.find("INSERT INTO ") {
+            let after_insert = &sql[insert_pos + 12..];
+            let words: Vec<&str> = after_insert.split_whitespace().collect();
+            if !words.is_empty() {
+                let table_name = words[0].trim_end_matches('(').trim();
+                return Some(table_name.to_string());
+            }
+        }
+
+        None
     }
 }
 

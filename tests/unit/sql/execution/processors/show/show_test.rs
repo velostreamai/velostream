@@ -72,11 +72,13 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         record_count: 0,
         max_records: None,
         window_context: None,
-        join_context: JoinContext,
+        join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
         schemas,
         stream_handles,
         data_sources: HashMap::new(),
+        persistent_window_states: Vec::new(),
+        dirty_window_states: 0,
     }
 }
 
@@ -404,11 +406,13 @@ async fn test_show_streams_empty_context() {
         record_count: 0,
         max_records: None,
         window_context: None,
-        join_context: JoinContext,
+        join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
         data_sources: HashMap::new(),
+        persistent_window_states: Vec::new(),
+        dirty_window_states: 0,
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

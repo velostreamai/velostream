@@ -23,7 +23,7 @@ async fn main() {
     // Test 1: Parse EMIT CHANGES
     println!("1️⃣ Testing EMIT CHANGES parsing...");
     let parser = StreamingSqlParser::new();
-    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(INTERVAL 5 MINUTES) EMIT CHANGES";
+    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m) EMIT CHANGES";
 
     match parser.parse(query_str) {
         Ok(query) => {
@@ -81,7 +81,7 @@ async fn main() {
 
     // This query should use windowed aggregation (due to WINDOW clause)
     // But EMIT CHANGES should override it to continuous emission
-    let override_query = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(INTERVAL 5 MINUTES) EMIT CHANGES";
+    let override_query = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m) EMIT CHANGES";
 
     match parser.parse(override_query) {
         Ok(query) => {

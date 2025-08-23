@@ -569,11 +569,14 @@ impl ExpressionEvaluator {
                 over_clause,
             } => {
                 // Delegate to window function evaluator
+                // For now, use empty window buffer - this should be populated by WindowProcessor
+                let empty_buffer: Vec<crate::ferris::sql::execution::StreamRecord> = Vec::new();
                 super::WindowFunctions::evaluate_window_function(
                     function_name,
                     args,
                     over_clause,
                     record,
+                    &empty_buffer,
                 )
             }
         }
