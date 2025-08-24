@@ -196,6 +196,7 @@ impl StreamExecutionEngine {
             persistent_window_states: Vec::with_capacity(2), // Most contexts handle 1-2 queries
             dirty_window_states: 0,
             metadata: HashMap::new(),
+            performance_monitor: None,
         };
 
         // Load window states efficiently (only for queries we're processing)

@@ -9,9 +9,11 @@
 
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::execution::internal::WindowState;
+use crate::ferris::sql::execution::performance::{PerformanceMonitor, QueryTracker};
 use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Main processor coordination interface
 pub struct QueryProcessor;
@@ -49,17 +51,67 @@ impl QueryProcessor {
         record: &StreamRecord,
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
+        Self::process_query_with_monitoring(query, record, context, None)
+    }
+
+    /// Process a query with optional performance monitoring
+    pub fn process_query_with_monitoring(
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        performance_monitor: Option<&PerformanceMonitor>,
+    ) -> Result<ProcessorResult, SqlError> {
+        let query_text = format!("{:?}", query); // Simple query representation
+
+        // Start performance tracking if monitor is provided
+        let mut tracker = performance_monitor.map(|monitor| {
+            let mut tracker = monitor.start_query_tracking(&query_text);
+            tracker.add_records_processed(1); // Count this record
+            tracker
+        });
+
+        let result = Self::process_query_internal(query, record, context, tracker.as_mut());
+
+        // Finish performance tracking if monitor is provided
+        if let (Some(monitor), Some(tracker)) = (performance_monitor, tracker) {
+            monitor.finish_query_tracking(tracker);
+        }
+
+        result
+    }
+
+    /// Internal query processing with optional performance tracking
+    fn process_query_internal(
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        tracker: Option<&mut QueryTracker>,
+    ) -> Result<ProcessorResult, SqlError> {
         match query {
-            StreamingQuery::Select { .. } => SelectProcessor::process(query, record, context),
+            StreamingQuery::Select { .. } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("SelectProcessor");
+                }
+                SelectProcessor::process(query, record, context)
+            }
             StreamingQuery::CreateStream { as_select, .. } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("SelectProcessor");
+                }
                 // Process the underlying SELECT query
                 SelectProcessor::process(as_select, record, context)
             }
             StreamingQuery::CreateTable { as_select, .. } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("SelectProcessor");
+                }
                 // Process the underlying SELECT query for materialized table
                 SelectProcessor::process(as_select, record, context)
             }
             StreamingQuery::Show { .. } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("ShowProcessor");
+                }
                 // SHOW commands return metadata
                 ShowProcessor::process(query, record, context)
             }
@@ -68,6 +120,9 @@ impl QueryProcessor {
                 columns,
                 source,
             } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("InsertProcessor");
+                }
                 // Process INSERT INTO statement
                 match InsertProcessor::process_insert(table_name, columns, source, record) {
                     Ok(insert_records) => {
@@ -88,6 +143,9 @@ impl QueryProcessor {
                 assignments,
                 where_clause,
             } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("UpdateProcessor");
+                }
                 // Process UPDATE statement
                 match UpdateProcessor::process_update(table_name, assignments, where_clause, record)
                 {
@@ -106,6 +164,9 @@ impl QueryProcessor {
                 table_name,
                 where_clause,
             } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("DeleteProcessor");
+                }
                 // Process DELETE statement
                 match DeleteProcessor::process_delete(table_name, where_clause, record) {
                     Ok(tombstone_record) => {
@@ -124,6 +185,9 @@ impl QueryProcessor {
             | StreamingQuery::PauseJob { .. }
             | StreamingQuery::ResumeJob { .. }
             | StreamingQuery::DeployJob { .. } => {
+                if let Some(tracker) = tracker {
+                    tracker.start_processor("JobProcessor");
+                }
                 // Process job management operations
                 let processor = JobProcessor::new();
                 match processor.process(query, context, record) {
@@ -177,6 +241,10 @@ pub struct ProcessorContext {
     pub dirty_window_states: u32,
     /// Generic metadata storage for processors (e.g., job management)
     pub metadata: HashMap<String, String>,
+
+    // === PERFORMANCE MONITORING ===
+    /// Optional performance monitor for query tracking
+    pub performance_monitor: Option<Arc<PerformanceMonitor>>,
 }
 
 impl ProcessorContext {
@@ -194,7 +262,18 @@ impl ProcessorContext {
             persistent_window_states: Vec::new(),
             dirty_window_states: 0,
             metadata: HashMap::new(),
+            performance_monitor: None,
         }
+    }
+
+    /// Set performance monitor for query tracking
+    pub fn set_performance_monitor(&mut self, monitor: Arc<PerformanceMonitor>) {
+        self.performance_monitor = Some(monitor);
+    }
+
+    /// Get performance monitor if available
+    pub fn get_performance_monitor(&self) -> Option<&Arc<PerformanceMonitor>> {
+        self.performance_monitor.as_ref()
     }
 
     /// Set metadata value for job tracking or other purposes
