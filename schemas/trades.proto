@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package ferrisstreams.financial;
+
+import "google/protobuf/timestamp.proto";
+
+// Industry-standard decimal representation for financial data
+message Decimal {
+  // Scaled integer value (e.g., 1234567 for $123.4567 with scale=4)
+  int64 units = 1;
+  
+  // Number of digits after the decimal point
+  int32 scale = 2;
+}
+
+// Trading side enumeration
+enum TradeSide {
+  TRADE_SIDE_UNSPECIFIED = 0;
+  TRADE_SIDE_BUY = 1;
+  TRADE_SIDE_SELL = 2;
+}
+
+// Financial trading record with exact precision
+message Trade {
+  // Trading symbol (e.g., "AAPL", "GOOGL")
+  string symbol = 1;
+  
+  // Trade price with exact decimal precision
+  Decimal price = 2;
+  
+  // Number of shares/units traded
+  int64 quantity = 3;
+  
+  // Trade execution timestamp
+  google.protobuf.Timestamp timestamp = 4;
+  
+  // Trade side (buy/sell)
+  TradeSide side = 5;
+  
+  // Optional unique trade identifier
+  string trade_id = 6;
+  
+  // Optional venue/exchange identifier
+  string venue = 7;
+}

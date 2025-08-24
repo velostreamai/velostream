@@ -205,7 +205,7 @@ curl http://localhost:9080/metrics/report
 ### Supporting Infrastructure
 - **Kafka**: Message streaming platform (Port 9092)
 - **Zookeeper**: Kafka coordination (Port 2181)
-- **Schema Registry**: Avro schema management (Port 8081) - **NEW**
+- **Schema Registry**: Future Avro schema management (not yet implemented)
 - **Kafka UI**: Web-based Kafka management interface (Port 8085)
 - **Multi-Format Producer**: Test data generator for all formats - **NEW**
 
@@ -347,7 +347,7 @@ sql:
 # Basic Configuration
 RUST_LOG=info                              # Logging level
 KAFKA_BROKERS=kafka:29092                  # Kafka connection
-SCHEMA_REGISTRY_URL=http://schema-registry:8081  # Avro schema registry
+SCHEMA_REGISTRY_URL=http://schema-registry:8081  # Future schema registry (not yet implemented)
 FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf  # Available formats
 
 # Performance Tuning
@@ -462,6 +462,88 @@ curl -X POST http://localhost:8080/sql \
 # Internally uses: Decimal{units: 10000000, scale: 4} for $1000.00
 ```
 
+## 📄 Schema Files
+
+FerrisStreams requires schema files for structured data formats (Avro and Protobuf). JSON format works schema-less.
+
+### Required Schema Files by Format
+
+| Format | Schema File Required | File Extension | Description |
+|--------|---------------------|----------------|-------------|
+| JSON | ❌ No | - | Schema-less, auto-detects types |
+| Avro | ✅ Yes | `.avsc` | Avro schema definition |
+| Protobuf | ✅ Yes | `.proto` | Protobuf message definition |
+
+### Example Schema Files
+
+#### Financial Trading Avro Schema (`/app/schemas/trades.avsc`)
+```json
+{
+  "type": "record",
+  "name": "Trade",
+  "namespace": "com.ferrisstreams.financial",
+  "fields": [
+    {"name": "symbol", "type": "string"},
+    {
+      "name": "price", 
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 18,
+      "scale": 4
+    },
+    {"name": "quantity", "type": "long"},
+    {"name": "timestamp", "type": "long", "logicalType": "timestamp-millis"},
+    {"name": "side", "type": {"type": "enum", "name": "Side", "symbols": ["BUY", "SELL"]}}
+  ]
+}
+```
+
+#### Financial Trading Protobuf Schema (`/app/schemas/trades.proto`)
+```protobuf
+syntax = "proto3";
+
+package ferrisstreams.financial;
+
+import "google/protobuf/timestamp.proto";
+
+message Decimal {
+  int64 units = 1;    // Scaled integer value
+  int32 scale = 2;    // Decimal places
+}
+
+enum Side {
+  BUY = 0;
+  SELL = 1;
+}
+
+message Trade {
+  string symbol = 1;
+  Decimal price = 2;
+  int64 quantity = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  Side side = 5;
+}
+```
+
+### Schema File Volume Mounts
+```bash
+# Mount schema directory in Docker
+docker run -d \
+  -v $(pwd)/schemas:/app/schemas:ro \
+  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
+  ferrisstreams:latest
+```
+
+### Docker Compose Schema Mount
+```yaml
+services:
+  ferris-streams:
+    volumes:
+      - ./schemas:/app/schemas:ro          # Schema files (read-only)
+      - ./sql-config.yaml:/app/sql-config.yaml
+      - ./examples:/app/examples:ro
+```
+
 ## 🚀 Usage Examples
 
 ### 1. Execute Real-Time Analytics
@@ -491,12 +573,14 @@ docker exec ferris-streams ferris-sql stream \
   --brokers kafka:29092 \
   --continuous
 
-# Streaming with output topic
+# Streaming with output topic and Avro schema
 docker exec ferris-streams ferris-sql stream \
   --query "SELECT customer_id, SUM(amount) as total FROM orders GROUP BY customer_id" \
   --input-topic orders \
   --output-topic customer_totals \
   --brokers kafka:29092 \
+  --format avro \
+  --avro-schema /app/schemas/orders.avsc \
   --continuous
 
 # Streaming with windowing (runs continuously)
@@ -551,22 +635,24 @@ docker exec ferris-streams ferris-sql execute \
 
 #### Continuous IoT Monitoring
 ```bash
-# Real-time temperature monitoring (keeps running)
+# Real-time temperature monitoring with Avro schema (keeps running)
 docker exec ferris-streams ferris-sql stream \
   --query "
     SELECT 
-      JSON_VALUE(payload, '$.device_id') as device_id,
-      AVG(CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT')) as avg_temp,
-      MAX(CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT')) as max_temp,
+      device_id,
+      AVG(value) as avg_temp,
+      MAX(value) as max_temp,
       COUNT(*) as reading_count
     FROM sensor_data 
-    WHERE JSON_VALUE(payload, '$.sensor_type') = 'temperature'
+    WHERE sensor_type = 'TEMPERATURE'
     WINDOW TUMBLING (INTERVAL 5 MINUTES)
-    GROUP BY JSON_VALUE(payload, '$.device_id')
+    GROUP BY device_id
   " \
   --input-topic iot_sensors \
   --output-topic temperature_alerts \
   --brokers kafka:29092 \
+  --format avro \
+  --avro-schema /app/schemas/iot_sensors.avsc \
   --continuous \
   --window-size 300
 
@@ -591,23 +677,42 @@ docker exec ferris-streams ferris-sql stream \
 
 #### Real-Time Trading Analysis
 ```bash
-# Continuous trading analysis (financial precision)
+# Continuous trading analysis with Protobuf schema (financial precision)
 docker exec ferris-streams ferris-sql stream \
   --query "
     SELECT 
       symbol,
-      CAST(price AS DECIMAL(18,4)) as price,
+      price,
       quantity,
-      CAST(price AS DECIMAL(18,4)) * quantity as total_value,
-      timestamp() as trade_time
+      price * quantity as total_value,
+      timestamp
     FROM trades 
-    WHERE CAST(price AS DECIMAL(18,4)) > '100.0000'
+    WHERE price > '100.0000'
   " \
   --input-topic trades \
   --output-topic processed_trades \
   --brokers kafka:29092 \
-  --continuous \
-  --format json  # Uses ScaledInteger for exact precision
+  --format protobuf \
+  --proto-file /app/schemas/trades.proto \
+  --continuous
+
+# Same query with Avro schema and Flink-compatible decimals
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      symbol,
+      price,
+      quantity,
+      price * quantity as total_value
+    FROM trades 
+    WHERE price > '100.0000'
+  " \
+  --input-topic trades \
+  --output-topic processed_trades \
+  --brokers kafka:29092 \
+  --format avro \
+  --avro-schema /app/schemas/trades.avsc \
+  --continuous
 
 # Moving average calculation (continuous)
 docker exec ferris-streams ferris-sql stream \
@@ -651,7 +756,9 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 | `--window-size N` | Window size in seconds | `--window-size 300` |
 | `--input-topic` | Source Kafka topic | `--input-topic orders` |
 | `--output-topic` | Destination Kafka topic | `--output-topic results` |
-| `--format` | Serialization format | `--format json` |
+| `--format` | Serialization format | `--format json\|avro\|protobuf` |
+| `--avro-schema` | Avro schema file (required for Avro) | `--avro-schema /app/schemas/orders.avsc` |
+| `--proto-file` | Protobuf definition file (required for Protobuf) | `--proto-file /app/schemas/trade.proto` |
 
 ## 📊 Monitoring & Operations
 

@@ -1,0 +1,61 @@
+{
+  "type": "record",
+  "name": "SensorReading",
+  "namespace": "com.ferrisstreams.iot",
+  "doc": "IoT sensor reading with flexible payload structure",
+  "fields": [
+    {
+      "name": "device_id",
+      "type": "string",
+      "doc": "Unique device identifier"
+    },
+    {
+      "name": "sensor_type",
+      "type": {
+        "type": "enum",
+        "name": "SensorType",
+        "symbols": ["TEMPERATURE", "HUMIDITY", "PRESSURE", "MOTION", "LIGHT"]
+      },
+      "doc": "Type of sensor measurement"
+    },
+    {
+      "name": "value",
+      "type": "double",
+      "doc": "Sensor reading value"
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "doc": "Measurement unit (e.g., 'C', 'F', '%', 'hPa')"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Reading timestamp in milliseconds"
+    },
+    {
+      "name": "location",
+      "type": ["null", {
+        "type": "record",
+        "name": "Location",
+        "fields": [
+          {"name": "latitude", "type": "double"},
+          {"name": "longitude", "type": "double"},
+          {"name": "altitude", "type": ["null", "double"], "default": null}
+        ]
+      }],
+      "default": null,
+      "doc": "Optional GPS location"
+    },
+    {
+      "name": "metadata",
+      "type": ["null", {
+        "type": "map",
+        "values": "string"
+      }],
+      "default": null,
+      "doc": "Optional additional sensor metadata"
+    }
+  ]
+}
