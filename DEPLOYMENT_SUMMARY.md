@@ -466,24 +466,73 @@ curl -X POST http://localhost:8080/sql \
 
 ### 1. Execute Real-Time Analytics
 
+#### One-Time Query Execution
 ```bash
-# Single SQL query
-docker exec ferris-sql-single ferris-sql execute \
+# Single SQL query (exits after processing current data)
+docker exec ferris-streams ferris-sql execute \
   --query "SELECT customer_id, amount FROM orders WHERE amount > 1000" \
   --topic orders \
-  --brokers kafka:9092
+  --brokers kafka:29092
 
-# Multi-job application
-docker exec ferris-sql-multi ferris-sql-multi deploy-app \
+# With result limit
+docker exec ferris-streams ferris-sql execute \
+  --query "SELECT * FROM orders ORDER BY timestamp DESC" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --limit 100
+```
+
+#### Continuous Streaming Queries
+```bash
+# Continuous streaming query (keeps running)
+docker exec ferris-streams ferris-sql stream \
+  --query "SELECT customer_id, amount FROM orders WHERE amount > 1000" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --continuous
+
+# Streaming with output topic
+docker exec ferris-streams ferris-sql stream \
+  --query "SELECT customer_id, SUM(amount) as total FROM orders GROUP BY customer_id" \
+  --input-topic orders \
+  --output-topic customer_totals \
+  --brokers kafka:29092 \
+  --continuous
+
+# Streaming with windowing (runs continuously)
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      customer_id, 
+      COUNT(*) as order_count,
+      SUM(amount) as total_amount
+    FROM orders 
+    WINDOW TUMBLING (INTERVAL 1 MINUTE)
+    GROUP BY customer_id
+  " \
+  --input-topic orders \
+  --output-topic customer_metrics \
+  --brokers kafka:29092 \
+  --continuous \
+  --window-size 60
+```
+
+#### Multi-Job Application Deployment
+```bash
+# Deploy multiple streaming jobs from SQL file
+docker exec ferris-streams ferris-sql-multi deploy-app \
   --file /app/examples/ecommerce_analytics.sql \
-  --brokers kafka:9092 \
-  --default-topic orders
+  --brokers kafka:29092 \
+  --default-topic orders \
+  --continuous  # Keep all jobs running
 ```
 
 ### 2. IoT Sensor Monitoring
 
+#### One-Time Sensor Data Analysis
 ```bash
-docker exec ferris-sql-single ferris-sql execute \
+# Analyze current sensor readings (exits after processing)
+docker exec ferris-streams ferris-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
@@ -496,18 +545,113 @@ docker exec ferris-sql-single ferris-sql execute \
     WHERE JSON_VALUE(payload, '$.sensor_type') = 'temperature'
   " \
   --topic iot_sensors \
-  --brokers kafka:9092 \
+  --brokers kafka:29092 \
   --limit 1000
+```
+
+#### Continuous IoT Monitoring
+```bash
+# Real-time temperature monitoring (keeps running)
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      JSON_VALUE(payload, '$.device_id') as device_id,
+      AVG(CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT')) as avg_temp,
+      MAX(CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT')) as max_temp,
+      COUNT(*) as reading_count
+    FROM sensor_data 
+    WHERE JSON_VALUE(payload, '$.sensor_type') = 'temperature'
+    WINDOW TUMBLING (INTERVAL 5 MINUTES)
+    GROUP BY JSON_VALUE(payload, '$.device_id')
+  " \
+  --input-topic iot_sensors \
+  --output-topic temperature_alerts \
+  --brokers kafka:29092 \
+  --continuous \
+  --window-size 300
+
+# Continuous alert generation
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      JSON_VALUE(payload, '$.device_id') as device_id,
+      JSON_VALUE(payload, '$.temperature') as temperature,
+      timestamp() as alert_time,
+      'TEMPERATURE_HIGH' as alert_type
+    FROM sensor_data 
+    WHERE CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') > 75.0
+  " \
+  --input-topic iot_sensors \
+  --output-topic emergency_alerts \
+  --brokers kafka:29092 \
+  --continuous
 ```
 
 ### 3. Financial Trading Analytics
 
+#### Real-Time Trading Analysis
 ```bash
-docker exec ferris-sql-multi ferris-sql-multi deploy-app \
+# Continuous trading analysis (financial precision)
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      symbol,
+      CAST(price AS DECIMAL(18,4)) as price,
+      quantity,
+      CAST(price AS DECIMAL(18,4)) * quantity as total_value,
+      timestamp() as trade_time
+    FROM trades 
+    WHERE CAST(price AS DECIMAL(18,4)) > '100.0000'
+  " \
+  --input-topic trades \
+  --output-topic processed_trades \
+  --brokers kafka:29092 \
+  --continuous \
+  --format json  # Uses ScaledInteger for exact precision
+
+# Moving average calculation (continuous)
+docker exec ferris-streams ferris-sql stream \
+  --query "
+    SELECT 
+      symbol,
+      AVG(CAST(price AS DECIMAL(18,4))) OVER (
+        PARTITION BY symbol 
+        ORDER BY timestamp 
+        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+      ) as moving_avg_5,
+      price,
+      timestamp
+    FROM trades
+  " \
+  --input-topic trades \
+  --output-topic trade_indicators \
+  --brokers kafka:29092 \
+  --continuous
+
+# Multi-job financial application deployment
+docker exec ferris-streams ferris-sql-multi deploy-app \
   --file /app/examples/financial_trading.sql \
-  --brokers kafka:9092 \
-  --default-topic trades
+  --brokers kafka:29092 \
+  --default-topic trades \
+  --continuous  # Keep all trading jobs running
 ```
+
+#### Command Reference
+
+| Command | Purpose | Exit Behavior |
+|---------|---------|---------------|
+| `ferris-sql execute` | One-time query execution | Exits after processing current data |
+| `ferris-sql stream` | Continuous streaming query | Keeps running until stopped |
+| `ferris-sql-multi deploy-app` | Deploy multiple jobs | Manages job lifecycle |
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--continuous` | Keep query running continuously | `--continuous` |
+| `--limit N` | Process only N records then exit | `--limit 1000` |
+| `--window-size N` | Window size in seconds | `--window-size 300` |
+| `--input-topic` | Source Kafka topic | `--input-topic orders` |
+| `--output-topic` | Destination Kafka topic | `--output-topic results` |
+| `--format` | Serialization format | `--format json` |
 
 ## 📊 Monitoring & Operations
 
