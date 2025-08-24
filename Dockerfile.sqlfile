@@ -1,0 +1,87 @@
+# FerrisStreams SQL File Deployment
+FROM rust:1.85-bookworm as builder
+
+# Configure Git and Cargo to handle SSL issues
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libsasl2-dev \
+    libzstd-dev \
+    liblz4-dev \
+    librdkafka-dev \
+    ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Configure Cargo registry
+RUN mkdir -p ~/.cargo && \
+    echo '[http]' >> ~/.cargo/config.toml && \
+    echo 'check-revoke = false' >> ~/.cargo/config.toml && \
+    echo 'timeout = 60' >> ~/.cargo/config.toml && \
+    echo '[net]' >> ~/.cargo/config.toml && \
+    echo 'retry = 3' >> ~/.cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy source for dependency build
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
+
+# Build dependencies
+RUN cargo build --release --bin ferris-sql-multi
+
+# Copy source code
+COPY src ./src
+COPY examples ./examples
+
+# Build the application
+RUN touch src/main.rs src/bin/multi_job_sql_server.rs
+RUN cargo build --release --bin ferris-sql-multi
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    libsasl2-2 \
+    libzstd1 \
+    liblz4-1 \
+    librdkafka1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create ferris user
+RUN useradd -r -s /bin/false -d /app ferris
+
+WORKDIR /app
+
+# Copy binary from builder stage
+COPY --from=builder /app/target/release/ferris-sql-multi /usr/local/bin/
+
+# Copy configuration
+COPY sql-config.yaml ./
+
+# Create directories
+RUN mkdir -p /app/sql-files /app/logs /app/data && chown -R ferris:ferris /app
+
+# Switch to non-root user
+USER ferris
+
+# Expose ports (SQL + Metrics)
+EXPOSE 8080 9080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD [ "ferris-sql-multi", "--help" ] || exit 1
+
+# Default command - expects SQL_FILE environment variable
+CMD ["sh", "-c", "ferris-sql-multi deploy-app --file ${SQL_FILE:-/app/sql-files/app.sql} --brokers ${KAFKA_BROKERS:-kafka:9092}"]

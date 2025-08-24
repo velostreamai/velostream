@@ -1,0 +1,74 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.ferrisstreams.ecommerce",
+  "doc": "E-commerce order record with financial precision",
+  "fields": [
+    {
+      "name": "order_id",
+      "type": "string",
+      "doc": "Unique order identifier"
+    },
+    {
+      "name": "customer_id",
+      "type": "string",
+      "doc": "Customer identifier"
+    },
+    {
+      "name": "amount",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 18,
+      "scale": 2,
+      "doc": "Order amount with 2 decimal places (currency precision)"
+    },
+    {
+      "name": "currency",
+      "type": {
+        "type": "enum",
+        "name": "Currency",
+        "symbols": ["USD", "EUR", "GBP", "JPY"]
+      },
+      "default": "USD",
+      "doc": "Order currency"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum", 
+        "name": "OrderStatus",
+        "symbols": ["PENDING", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"]
+      },
+      "default": "PENDING",
+      "doc": "Current order status"
+    },
+    {
+      "name": "created_at",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Order creation timestamp"
+    },
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "OrderItem",
+          "fields": [
+            {"name": "product_id", "type": "string"},
+            {"name": "quantity", "type": "int"},
+            {
+              "name": "unit_price",
+              "type": "bytes",
+              "logicalType": "decimal",
+              "precision": 18,
+              "scale": 2
+            }
+          ]
+        }
+      },
+      "doc": "List of items in the order"
+    }
+  ]
+}

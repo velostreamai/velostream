@@ -1,4 +1,6 @@
-# FerrisStreams SQL Deployment Guide
+# FerrisStreams Native SQL Deployment Guide
+
+> **⚠️ For Development Only**: This guide covers native binary deployment. For production deployment with containers, financial precision, and multi-format serialization, see **[DEPLOYMENT_SUMMARY.md](../DEPLOYMENT_SUMMARY.md)**
 
 ## Overview
 

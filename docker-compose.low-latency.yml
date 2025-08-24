@@ -1,0 +1,56 @@
+# FerrisStreams Low Latency Docker Compose Override
+# Use: docker-compose -f docker-compose.yml -f docker-compose.low-latency.yml up
+
+version: '3.8'
+
+services:
+  # Override the main FerrisStreams service for low latency
+  ferris-streams:
+    environment:
+      - RUST_LOG=warn                           # Minimal logging
+      - FERRIS_PERFORMANCE_PROFILE=low_latency
+      - KAFKA_LINGER_MS=0                       # No batching delay
+      - KAFKA_BATCH_SIZE=1                      # Immediate send
+      - KAFKA_FETCH_MAX_WAIT_MS=1               # 1ms max wait
+      - KAFKA_FETCH_MIN_BYTES=1                 # Don't wait for batches
+      - SQL_WORKER_THREADS=8                    # More processing threads
+      - SQL_MEMORY_LIMIT_MB=4096                # More memory
+    volumes:
+      - ./sql-config-low-latency.yaml:/app/sql-config.yaml
+      - ./examples:/app/examples:ro
+      - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'              # Dedicate 4 CPUs
+          memory: 6G               # 6GB memory limit
+        reservations:
+          cpus: '2.0'              # Reserve 2 CPUs
+          memory: 4G               # Reserve 4GB memory
+
+  # Kafka optimized for low latency
+  kafka:
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Low latency Kafka settings
+      KAFKA_NUM_NETWORK_THREADS: 8
+      KAFKA_NUM_IO_THREADS: 16
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      # Disable log segment rolling for speed
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824    # 1GB segments
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
+
+  # Remove data producer for cleaner low-latency setup
+  multi-format-producer:
+    profiles:
+      - testing  # Only run when testing profile is enabled

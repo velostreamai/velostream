@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package ferris.serialization;
+
+// Decimal representation for exact financial arithmetic
+// Compatible with industry standards like Google Money API
+message Decimal {
+  // The scaled integer value (e.g., 1234567 for $123.4567 with scale=4)
+  int64 units = 1;
+  
+  // Number of digits after the decimal point (e.g., 4 for 4 decimal places)
+  int32 scale = 2;
+}
+
+// Generic field value for dynamic records
+message FieldValue {
+  oneof value {
+    string string_value = 1;
+    int64 integer_value = 2;
+    double float_value = 3;
+    bool boolean_value = 4;
+    Decimal decimal_value = 5;     // Our financial precision type
+    FieldArray array_value = 6;
+    FieldMap map_value = 7;
+    string timestamp_value = 8;    // ISO 8601 format
+    string date_value = 9;         // YYYY-MM-DD format
+  }
+}
+
+// Array of field values
+message FieldArray {
+  repeated FieldValue values = 1;
+}
+
+// Map/object of field values  
+message FieldMap {
+  map<string, FieldValue> fields = 1;
+}
+
+// Complete record for serialization
+message StreamRecord {
+  map<string, FieldValue> fields = 1;
+  int64 timestamp = 2;             // Unix timestamp in milliseconds
+  string stream_id = 3;            // Optional stream identifier
+}

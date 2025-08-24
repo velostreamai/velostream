@@ -5,6 +5,7 @@
 use super::{ProcessorContext, SelectProcessor};
 use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{JoinClause, JoinType, StreamSource};
+use crate::ferris::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord, expression::ExpressionEvaluator};
 use std::collections::HashMap;
 
@@ -25,6 +26,122 @@ impl JoinProcessor {
         }
 
         Ok(result_record)
+    }
+
+    /// Process batch JOIN with hash join optimization
+    pub fn process_batch_joins(
+        left_records: Vec<StreamRecord>,
+        join_clauses: &[JoinClause],
+        context: &mut ProcessorContext,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        if join_clauses.is_empty() {
+            return Ok(left_records);
+        }
+
+        // For now, process first join clause with hash join if beneficial
+        let join_clause = &join_clauses[0];
+
+        // Get right records for the join
+        let right_records = Self::get_right_records_batch(&join_clause.right_source, context)?;
+
+        // Determine join strategy based on data sizes
+        let strategy = Self::select_join_strategy(left_records.len(), right_records.len());
+
+        match strategy {
+            JoinStrategy::HashJoin => {
+                Self::execute_hash_join(left_records, right_records, join_clause, context)
+            }
+            _ => {
+                // Fall back to nested loop for small datasets
+                Self::execute_nested_loop_batch(left_records, right_records, join_clause, context)
+            }
+        }
+    }
+
+    /// Select optimal join strategy based on cardinalities
+    fn select_join_strategy(left_size: usize, right_size: usize) -> JoinStrategy {
+        // Use hash join if one side is significantly larger
+        // and both sides have reasonable size
+        if (left_size > 100 || right_size > 100)
+            && (left_size > right_size * 2 || right_size > left_size * 2)
+        {
+            JoinStrategy::HashJoin
+        } else {
+            JoinStrategy::NestedLoop
+        }
+    }
+
+    /// Execute hash join for batch processing
+    fn execute_hash_join(
+        left_records: Vec<StreamRecord>,
+        right_records: Vec<StreamRecord>,
+        join_clause: &JoinClause,
+        context: &mut ProcessorContext,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        // Build hash join executor
+        let mut executor = HashJoinBuilder::new()
+            .with_strategy(JoinStrategy::HashJoin)
+            .build(join_clause.clone())?;
+
+        // Execute hash join
+        executor.execute(left_records, right_records, context)
+    }
+
+    /// Execute nested loop join for batch processing
+    fn execute_nested_loop_batch(
+        left_records: Vec<StreamRecord>,
+        right_records: Vec<StreamRecord>,
+        join_clause: &JoinClause,
+        context: &mut ProcessorContext,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        let mut results = Vec::new();
+
+        for left_record in &left_records {
+            for right_record in &right_records {
+                match Self::try_join_records(left_record, right_record, join_clause, context) {
+                    Ok(combined) => results.push(combined),
+                    Err(_) => continue, // Skip non-matching records
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Try to join two records based on join condition
+    fn try_join_records(
+        left_record: &StreamRecord,
+        right_record: &StreamRecord,
+        join_clause: &JoinClause,
+        context: &ProcessorContext,
+    ) -> Result<StreamRecord, SqlError> {
+        let combined_record =
+            Self::combine_records(left_record, right_record, &join_clause.right_alias)?;
+
+        let subquery_executor = SelectProcessor;
+        if ExpressionEvaluator::evaluate_expression_with_subqueries(
+            &join_clause.condition,
+            &combined_record,
+            &subquery_executor,
+            context,
+        )? {
+            Ok(combined_record)
+        } else {
+            Err(SqlError::ExecutionError {
+                message: "Join condition not met".to_string(),
+                query: None,
+            })
+        }
+    }
+
+    /// Get batch of right records for join
+    fn get_right_records_batch(
+        _source: &StreamSource,
+        _context: &ProcessorContext,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        // Simplified: return empty vector for now
+        // In production, fetch records from source
+        Ok(Vec::new())
     }
 
     /// Process a single JOIN clause

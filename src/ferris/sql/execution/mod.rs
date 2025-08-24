@@ -39,9 +39,11 @@
 //! All other types and methods are internal implementation details.
 
 pub mod aggregation;
+pub mod algorithms;
 pub mod engine;
 pub mod expression;
 pub mod internal;
+pub mod performance;
 pub mod processors;
 #[cfg(test)]
 pub mod test_data_sources;

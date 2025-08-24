@@ -3,7 +3,7 @@ use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::{
     FieldValue, SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine,
-    StreamingSqlParser,
+    StreamingSqlParser, execution::performance::PerformanceMonitor,
 };
 use log::{error, info, warn};
 use serde_json::Value;
@@ -42,6 +42,14 @@ enum Commands {
         /// Maximum concurrent jobs
         #[arg(long, default_value = "10")]
         max_jobs: usize,
+
+        /// Enable performance monitoring
+        #[arg(long)]
+        enable_metrics: bool,
+
+        /// Metrics endpoint port (if different from server port)
+        #[arg(long)]
+        metrics_port: Option<u16>,
     },
     /// Deploy a SQL application from a .sql file
     DeployApp {
@@ -74,6 +82,7 @@ pub struct MultiJobSqlServer {
     base_group_id: String,
     max_jobs: usize,
     job_counter: Arc<Mutex<u64>>,
+    performance_monitor: Option<Arc<PerformanceMonitor>>,
 }
 
 #[derive(Debug)]
@@ -90,7 +99,7 @@ pub struct RunningJob {
     pub metrics: JobMetrics,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum JobStatus {
     Starting,
     Running,
@@ -99,7 +108,7 @@ pub enum JobStatus {
     Failed(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct JobMetrics {
     pub records_processed: u64,
     pub records_per_second: f64,
@@ -122,12 +131,86 @@ impl Default for JobMetrics {
 
 impl MultiJobSqlServer {
     pub fn new(brokers: String, base_group_id: String, max_jobs: usize) -> Self {
+        Self::new_with_monitoring(brokers, base_group_id, max_jobs, false)
+    }
+
+    pub fn new_with_monitoring(
+        brokers: String,
+        base_group_id: String,
+        max_jobs: usize,
+        enable_monitoring: bool,
+    ) -> Self {
+        let performance_monitor = if enable_monitoring {
+            let monitor = Arc::new(PerformanceMonitor::new());
+            info!("Performance monitoring enabled for multi-job SQL server");
+            Some(monitor)
+        } else {
+            None
+        };
+
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             brokers,
             base_group_id,
             max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
+            performance_monitor,
+        }
+    }
+
+    /// Get performance metrics (if monitoring is enabled)
+    pub fn get_performance_metrics(&self) -> Option<String> {
+        self.performance_monitor
+            .as_ref()
+            .map(|monitor| monitor.export_prometheus_metrics())
+    }
+
+    /// Get performance health status
+    pub fn get_health_status(&self) -> Option<String> {
+        self.performance_monitor.as_ref().map(|monitor| {
+            let health = monitor.health_check();
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": format!("{:?}", health.status),
+                "issues": health.issues,
+                "warnings": health.warnings,
+                "metrics": monitor.get_current_metrics(),
+                "job_count": self.jobs.try_read().map(|jobs| jobs.len()).unwrap_or(0)
+            }))
+            .unwrap_or_else(|_| "Error serializing health status".to_string())
+        })
+    }
+
+    /// Get detailed performance report
+    pub fn get_performance_report(&self) -> Option<String> {
+        self.performance_monitor.as_ref().map(|monitor| {
+            format!(
+                "{}\n\n=== Job Information ===\n{}",
+                monitor.get_performance_report(),
+                self.get_job_summary()
+            )
+        })
+    }
+
+    /// Get summary of all jobs
+    fn get_job_summary(&self) -> String {
+        if let Ok(jobs) = self.jobs.try_read() {
+            if jobs.is_empty() {
+                "No active jobs".to_string()
+            } else {
+                let mut summary = format!("Active Jobs: {}\n", jobs.len());
+                for (name, job) in jobs.iter() {
+                    summary.push_str(&format!(
+                        "  - {}: {} (records: {}, rps: {:.1})\n",
+                        name,
+                        format!("{:?}", job.status),
+                        job.metrics.records_processed,
+                        job.metrics.records_per_second
+                    ));
+                }
+                summary
+            }
+        } else {
+            "Unable to read job information".to_string()
         }
     }
 
@@ -176,10 +259,14 @@ impl MultiJobSqlServer {
 
         // Create execution engine for this job
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-        let execution_engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(
-            output_sender,
-            Arc::new(JsonFormat),
-        )));
+        let mut execution_engine = StreamExecutionEngine::new(output_sender, Arc::new(JsonFormat));
+
+        // Enable performance monitoring for this job if available
+        if let Some(monitor) = &self.performance_monitor {
+            execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
+        }
+
+        let execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
 
         // Clone data for the job task
         let brokers = self.brokers.clone();
@@ -271,6 +358,9 @@ impl MultiJobSqlServer {
                                 FieldValue::Float(f) => InternalValue::Number(*f),
                                 FieldValue::Boolean(b) => InternalValue::Boolean(*b),
                                 FieldValue::Null => InternalValue::Null,
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    InternalValue::ScaledNumber(*value, *scale)
+                                }
                                 FieldValue::Date(d) => {
                                     InternalValue::String(d.format("%Y-%m-%d").to_string())
                                 }
@@ -562,7 +652,7 @@ impl MultiJobSqlServer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct JobSummary {
     pub name: String,
     pub version: String,
@@ -577,6 +667,8 @@ async fn start_multi_job_server(
     port: u16,
     group_id: String,
     max_jobs: usize,
+    enable_metrics: bool,
+    metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Starting FerrisStreams Multi-Job SQL Server on port {}",
@@ -584,7 +676,30 @@ async fn start_multi_job_server(
     );
     info!("Max concurrent jobs: {}", max_jobs);
 
-    let server = MultiJobSqlServer::new(brokers.clone(), group_id.clone(), max_jobs);
+    let server = MultiJobSqlServer::new_with_monitoring(
+        brokers.clone(),
+        group_id.clone(),
+        max_jobs,
+        enable_metrics,
+    );
+
+    if enable_metrics {
+        let metrics_port = metrics_port.unwrap_or(port + 1000); // Default to main port + 1000
+        info!(
+            "Performance monitoring enabled - metrics available on port {}",
+            metrics_port
+        );
+
+        // Start metrics server (reuse the same one from sql_server.rs)
+        let server_clone = server.clone();
+        tokio::spawn(async move {
+            start_metrics_server_multi(server_clone, metrics_port)
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Failed to start metrics server: {}", e);
+                });
+        });
+    }
 
     info!("Multi-job SQL server ready - no jobs deployed");
     info!("Use 'deploy-app' command or HTTP API to deploy SQL applications");
@@ -609,6 +724,155 @@ async fn start_multi_job_server(
     }
 }
 
+/// Start a simple HTTP server for metrics endpoints (multi-job version)
+async fn start_metrics_server_multi(
+    server: MultiJobSqlServer,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    info!("Multi-job metrics server listening on port {}", port);
+
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, addr)) => {
+                info!("Multi-job metrics request from: {}", addr);
+                let server = server.clone();
+
+                tokio::spawn(async move {
+                    let mut buffer = [0; 1024];
+                    loop {
+                        match stream.try_read(&mut buffer) {
+                            Ok(0) => return,
+                            Ok(n) => {
+                                let request = String::from_utf8_lossy(&buffer[0..n]);
+                                let response =
+                                    handle_multi_metrics_request(request.as_ref(), &server).await;
+
+                                if let Err(e) = stream.try_write(response.as_bytes()) {
+                                    error!("Failed to write response: {}", e);
+                                }
+                                return;
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                tokio::task::yield_now().await;
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to read from socket: {}", e);
+                                return;
+                            }
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                error!("Failed to accept connection: {}", e);
+            }
+        }
+    }
+}
+
+/// Handle HTTP metrics requests for multi-job server
+async fn handle_multi_metrics_request(request: &str, server: &MultiJobSqlServer) -> String {
+    // Parse the request path
+    let path = if let Some(first_line) = request.lines().next() {
+        if let Some(path_part) = first_line.split_whitespace().nth(1) {
+            path_part
+        } else {
+            "/"
+        }
+    } else {
+        "/"
+    };
+
+    match path {
+        "/metrics" => {
+            // Prometheus metrics endpoint
+            if let Some(metrics) = server.get_performance_metrics() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    metrics.len(),
+                    metrics
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nMetrics not enabled".to_string()
+            }
+        }
+        "/health" => {
+            // Health check endpoint
+            if let Some(health) = server.get_health_status() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    health.len(),
+                    health
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nHealth monitoring not enabled".to_string()
+            }
+        }
+        "/report" => {
+            // Detailed performance report
+            if let Some(report) = server.get_performance_report() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    report.len(),
+                    report
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nPerformance monitoring not enabled".to_string()
+            }
+        }
+        "/jobs" => {
+            // Job status endpoint
+            let jobs = server.list_jobs().await;
+            let job_info = serde_json::to_string_pretty(&jobs)
+                .unwrap_or_else(|_| "Error serializing job information".to_string());
+
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                job_info.len(),
+                job_info
+            )
+        }
+        "/" => {
+            // Root endpoint with available endpoints
+            let response_body = if server.performance_monitor.is_some() {
+                r#"{
+    "service": "ferris-sql-multi-server",
+    "status": "running",
+    "endpoints": {
+        "/metrics": "Prometheus metrics export",
+        "/health": "System health status (JSON)",
+        "/report": "Detailed performance report (text)",
+        "/jobs": "List all running jobs (JSON)"
+    },
+    "monitoring": "enabled"
+}"#
+            } else {
+                r#"{
+    "service": "ferris-sql-multi-server", 
+    "status": "running",
+    "endpoints": {
+        "/jobs": "List all running jobs (JSON)"
+    },
+    "monitoring": "disabled",
+    "note": "Use --enable-metrics to enable performance monitoring"
+}"#
+            };
+
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            )
+        }
+        _ => "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nEndpoint not found"
+            .to_string(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> ferrisstreams::ferris::error::FerrisResult<()> {
     // Initialize logging
@@ -622,8 +886,18 @@ async fn main() -> ferrisstreams::ferris::error::FerrisResult<()> {
             port,
             group_id,
             max_jobs,
+            enable_metrics,
+            metrics_port,
         } => {
-            start_multi_job_server(brokers, port, group_id, max_jobs).await?;
+            start_multi_job_server(
+                brokers,
+                port,
+                group_id,
+                max_jobs,
+                enable_metrics,
+                metrics_port,
+            )
+            .await?;
         }
         Commands::DeployApp {
             file,

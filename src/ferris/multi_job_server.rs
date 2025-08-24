@@ -826,6 +826,7 @@ fn internal_to_field_value(
         InternalValue::Integer(i) => FieldValue::Integer(*i),
         InternalValue::Boolean(b) => FieldValue::Boolean(*b),
         InternalValue::Null => FieldValue::Null,
+        InternalValue::ScaledNumber(value, scale) => FieldValue::ScaledInteger(*value, *scale),
         InternalValue::Array(arr) => {
             let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
             FieldValue::Array(field_arr)

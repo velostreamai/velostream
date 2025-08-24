@@ -242,6 +242,25 @@ impl AccumulatorManager {
             }
             FieldValue::Date(date) => date.to_string(),
             FieldValue::Decimal(decimal) => decimal.to_string(),
+            FieldValue::ScaledInteger(value, scale) => {
+                // Format as decimal with appropriate precision
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = value / divisor;
+                let fractional_part = (value % divisor).abs();
+                if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!(
+                        "{}.{:0width$}",
+                        integer_part,
+                        fractional_part,
+                        width = *scale as usize
+                    )
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+                }
+            }
             FieldValue::Interval { value, unit } => format!("{}_{:?}", value, unit),
         }
     }

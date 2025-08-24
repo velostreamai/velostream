@@ -1,0 +1,47 @@
+{
+  "type": "record",
+  "name": "Trade",
+  "namespace": "com.ferrisstreams.financial",
+  "doc": "Financial trading record with exact decimal precision",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol (e.g., AAPL, GOOGL)"
+    },
+    {
+      "name": "price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 18,
+      "scale": 4,
+      "doc": "Trade price with 4 decimal places precision"
+    },
+    {
+      "name": "quantity",
+      "type": "long",
+      "doc": "Number of shares/units traded"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Trade execution timestamp in milliseconds"
+    },
+    {
+      "name": "side",
+      "type": {
+        "type": "enum",
+        "name": "Side",
+        "symbols": ["BUY", "SELL"]
+      },
+      "doc": "Trade side - buy or sell"
+    },
+    {
+      "name": "trade_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Optional unique trade identifier"
+    }
+  ]
+}

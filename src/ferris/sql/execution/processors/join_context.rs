@@ -68,6 +68,7 @@ impl JoinContext {
             persistent_window_states: Vec::new(),
             dirty_window_states: 0,
             metadata: std::collections::HashMap::new(),
+            performance_monitor: None,
         };
         self.get_right_record_with_context(source, window, &empty_context)
     }

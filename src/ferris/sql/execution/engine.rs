@@ -155,6 +155,9 @@ pub struct StreamExecutionEngine {
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
+    // Performance monitoring
+    performance_monitor:
+        Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>,
 }
 
 // =============================================================================
@@ -175,7 +178,23 @@ impl StreamExecutionEngine {
             _serialization_format,
             record_count: 0,
             group_states: HashMap::new(),
+            performance_monitor: None,
         }
+    }
+
+    /// Set performance monitor for tracking query execution metrics
+    pub fn set_performance_monitor(
+        &mut self,
+        monitor: Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>,
+    ) {
+        self.performance_monitor = monitor;
+    }
+
+    /// Get reference to performance monitor if enabled
+    pub fn performance_monitor(
+        &self,
+    ) -> Option<&Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>> {
+        self.performance_monitor.as_ref()
     }
 
     /// Create processor context for new processor-based execution
@@ -196,6 +215,7 @@ impl StreamExecutionEngine {
             persistent_window_states: Vec::with_capacity(2), // Most contexts handle 1-2 queries
             dirty_window_states: 0,
             metadata: HashMap::new(),
+            performance_monitor: self.performance_monitor.as_ref().map(|m| Arc::clone(m)),
         };
 
         // Load window states efficiently (only for queries we're processing)

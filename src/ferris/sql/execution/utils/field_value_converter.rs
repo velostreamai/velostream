@@ -24,6 +24,7 @@ impl FieldValueConverter {
                 InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
             }
             FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
+            FieldValue::ScaledInteger(value, scale) => InternalValue::ScaledNumber(value, scale),
             FieldValue::Array(arr) => {
                 let internal_arr: Vec<InternalValue> =
                     arr.into_iter().map(Self::field_value_to_internal).collect();
@@ -65,6 +66,7 @@ impl FieldValueConverter {
             InternalValue::String(s) => FieldValue::String(s),
             InternalValue::Boolean(b) => FieldValue::Boolean(b),
             InternalValue::Null => FieldValue::Null,
+            InternalValue::ScaledNumber(value, scale) => FieldValue::ScaledInteger(value, scale),
             InternalValue::Array(arr) => {
                 let field_arr: Vec<FieldValue> =
                     arr.into_iter().map(Self::internal_to_field_value).collect();
