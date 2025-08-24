@@ -146,7 +146,7 @@ for (key, value) in headers.iter() {
 
 ## 🚀 Deployment
 
-- **[DEPLOYMENT_SUMMARY.md](DEPLOYMENT_SUMMARY.md)** - **Complete production deployment guide**
+- **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - **Complete production deployment guide**
   - Docker + Kubernetes deployment
   - Financial precision arithmetic (42x performance)
   - Multi-format serialization (JSON/Avro/Protobuf)
