@@ -39,6 +39,7 @@
 //! All other types and methods are internal implementation details.
 
 pub mod aggregation;
+pub mod algorithms;
 pub mod engine;
 pub mod expression;
 pub mod internal;
