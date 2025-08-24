@@ -6,7 +6,6 @@ Provides memory, throughput, and processor-specific metrics.
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -383,7 +382,6 @@ impl Default for AtomicMetricsCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use std::time::Duration;
 
     #[test]

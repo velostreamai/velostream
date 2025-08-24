@@ -36,7 +36,7 @@ pub use client_config_builder::ClientConfigBuilder;
 pub use common_config::{CommonKafkaConfig, HasCommonConfig};
 pub use headers::Headers;
 pub use message::Message;
-pub use performance_presets::{PerformancePresets, presets};
+pub use performance_presets::{presets, PerformancePresets};
 
 // Conditional exports for feature-gated serializers
 #[cfg(feature = "protobuf")]
