@@ -1,5 +1,5 @@
 //! High-performance Protobuf types for financial data serialization
-//! 
+//!
 //! This module contains protobuf message definitions optimized for:
 //! - Exact financial precision with ScaledInteger -> Decimal message
 //! - Maximum performance with direct binary serialization

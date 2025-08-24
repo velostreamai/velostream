@@ -250,12 +250,17 @@ impl AccumulatorManager {
                 if fractional_part == 0 {
                     integer_part.to_string()
                 } else {
-                    format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
-                        .trim_end_matches('0')
-                        .trim_end_matches('.')
-                        .to_string()
+                    format!(
+                        "{}.{:0width$}",
+                        integer_part,
+                        fractional_part,
+                        width = *scale as usize
+                    )
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
                 }
-            },
+            }
             FieldValue::Interval { value, unit } => format!("{}_{:?}", value, unit),
         }
     }

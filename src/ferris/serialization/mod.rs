@@ -365,13 +365,18 @@ fn field_value_to_json(field_value: &FieldValue) -> Result<serde_json::Value, Se
             let decimal_str = if fractional_part == 0 {
                 integer_part.to_string()
             } else {
-                format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
-                    .to_string()
+                format!(
+                    "{}.{:0width$}",
+                    integer_part,
+                    fractional_part,
+                    width = *scale as usize
+                )
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
             };
             Ok(serde_json::Value::String(decimal_str))
-        },
+        }
         FieldValue::Array(arr) => {
             let json_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_json).collect();
             Ok(serde_json::Value::Array(json_arr?))
@@ -413,20 +418,22 @@ fn json_to_field_value(json_value: &serde_json::Value) -> Result<FieldValue, Ser
                 // This looks like a decimal string - try to parse as ScaledInteger
                 let before_decimal = &s[..decimal_pos];
                 let after_decimal = &s[decimal_pos + 1..];
-                
+
                 // Validate it's all digits
-                if before_decimal.chars().all(|c| c.is_ascii_digit() || c == '-') 
-                    && after_decimal.chars().all(|c| c.is_ascii_digit()) {
-                    
+                if before_decimal
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == '-')
+                    && after_decimal.chars().all(|c| c.is_ascii_digit())
+                {
                     let scale = after_decimal.len() as u8;
                     let scaled_value = format!("{}{}", before_decimal, after_decimal);
-                    
+
                     if let Ok(value) = scaled_value.parse::<i64>() {
                         return Ok(FieldValue::ScaledInteger(value, scale));
                     }
                 }
             }
-            
+
             // Not a decimal format, treat as regular string
             Ok(FieldValue::String(s.clone()))
         }
@@ -712,13 +719,18 @@ fn field_value_to_avro(
             let decimal_str = if fractional_part == 0 {
                 integer_part.to_string()
             } else {
-                format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
-                    .to_string()
+                format!(
+                    "{}.{:0width$}",
+                    integer_part,
+                    fractional_part,
+                    width = *scale as usize
+                )
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
             };
             Ok(Value::String(decimal_str))
-        },
+        }
         FieldValue::Array(arr) => {
             let avro_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_avro).collect();
             Ok(Value::Array(avro_arr?))

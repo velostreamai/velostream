@@ -76,7 +76,10 @@ impl FieldValue {
     pub fn is_numeric(&self) -> bool {
         matches!(
             self,
-            FieldValue::Integer(_) | FieldValue::Float(_) | FieldValue::Decimal(_) | FieldValue::ScaledInteger(_, _)
+            FieldValue::Integer(_)
+                | FieldValue::Float(_)
+                | FieldValue::Decimal(_)
+                | FieldValue::ScaledInteger(_, _)
         )
     }
 
@@ -102,12 +105,17 @@ impl FieldValue {
                 if fractional_part == 0 {
                     integer_part.to_string()
                 } else {
-                    format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
-                        .trim_end_matches('0')
-                        .trim_end_matches('.')
-                        .to_string()
+                    format!(
+                        "{}.{:0width$}",
+                        integer_part,
+                        fractional_part,
+                        width = *scale as usize
+                    )
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
                 }
-            },
+            }
             FieldValue::Array(arr) => {
                 let elements: Vec<String> = arr.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", elements.join(", "))
@@ -353,7 +361,9 @@ impl FieldValue {
             }
             // Support casting to SCALED_INTEGER with default *scale of 4 (financial standard)
             "SCALED_INTEGER" => match self {
-                FieldValue::ScaledInteger(value, scale) => Ok(FieldValue::ScaledInteger(value, scale)),
+                FieldValue::ScaledInteger(value, scale) => {
+                    Ok(FieldValue::ScaledInteger(value, scale))
+                }
                 FieldValue::Integer(i) => Ok(FieldValue::ScaledInteger(i * 10000, 4)), // Default to 4 decimal places
                 FieldValue::Float(f) => {
                     let scaled_value = (f * 10000.0).round() as i64;
@@ -369,7 +379,7 @@ impl FieldValue {
                         Err(_) => Err(SqlError::ExecutionError {
                             message: format!("Cannot cast '{}' to SCALED_INTEGER", s),
                             query: None,
-                        })
+                        }),
                     }
                 }
                 FieldValue::Decimal(d) => {
@@ -380,16 +390,18 @@ impl FieldValue {
                         Err(_) => Err(SqlError::ExecutionError {
                             message: format!("Cannot cast DECIMAL {} to SCALED_INTEGER", d),
                             query: None,
-                        })
+                        }),
                     }
                 }
-                FieldValue::Boolean(b) => Ok(FieldValue::ScaledInteger(if b { 10000 } else { 0 }, 4)),
+                FieldValue::Boolean(b) => {
+                    Ok(FieldValue::ScaledInteger(if b { 10000 } else { 0 }, 4))
+                }
                 FieldValue::Null => Ok(FieldValue::Null),
                 _ => Err(SqlError::ExecutionError {
                     message: format!("Cannot cast {} to SCALED_INTEGER", self.type_name()),
                     query: None,
                 }),
-            }
+            },
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported cast target type: {}", target_type),
                 query: None,
@@ -409,7 +421,7 @@ impl FieldValue {
             (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a + b)),
             (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 + b)),
             (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a + *b as f64)),
-            
+
             // ScaledInteger arithmetic - exact precision
             (FieldValue::ScaledInteger(a, scale_a), FieldValue::ScaledInteger(b, scale_b)) => {
                 if *scale_a == *scale_b {
@@ -420,7 +432,10 @@ impl FieldValue {
                     let max_scale = (*scale_a).max(*scale_b);
                     let factor_a = 10_i64.pow((max_scale - *scale_a) as u32);
                     let factor_b = 10_i64.pow((max_scale - *scale_b) as u32);
-                    Ok(FieldValue::ScaledInteger(*a * factor_a + *b * factor_b, max_scale))
+                    Ok(FieldValue::ScaledInteger(
+                        *a * factor_a + *b * factor_b,
+                        max_scale,
+                    ))
                 }
             }
             (FieldValue::ScaledInteger(a, scale), FieldValue::Integer(b)) => {
@@ -491,7 +506,7 @@ impl FieldValue {
             (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a - b)),
             (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 - b)),
             (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a - *b as f64)),
-            
+
             // ScaledInteger arithmetic - exact precision
             (FieldValue::ScaledInteger(a, scale_a), FieldValue::ScaledInteger(b, scale_b)) => {
                 if *scale_a == *scale_b {
@@ -502,7 +517,10 @@ impl FieldValue {
                     let max_scale = (*scale_a).max(*scale_b);
                     let factor_a = 10_i64.pow((max_scale - *scale_a) as u32);
                     let factor_b = 10_i64.pow((max_scale - *scale_b) as u32);
-                    Ok(FieldValue::ScaledInteger(a * factor_a - b * factor_b, max_scale))
+                    Ok(FieldValue::ScaledInteger(
+                        a * factor_a - b * factor_b,
+                        max_scale,
+                    ))
                 }
             }
             (FieldValue::ScaledInteger(a, scale), FieldValue::Integer(b)) => {
@@ -565,7 +583,7 @@ impl FieldValue {
             (FieldValue::Float(a), FieldValue::Float(b)) => Ok(FieldValue::Float(a * b)),
             (FieldValue::Integer(a), FieldValue::Float(b)) => Ok(FieldValue::Float(*a as f64 * b)),
             (FieldValue::Float(a), FieldValue::Integer(b)) => Ok(FieldValue::Float(a * *b as f64)),
-            
+
             // ScaledInteger multiplication - result *scale is sum of *scales
             (FieldValue::ScaledInteger(a, scale_a), FieldValue::ScaledInteger(b, scale_b)) => {
                 let result_scale = *scale_a + *scale_b;
@@ -650,7 +668,7 @@ impl FieldValue {
                     Ok(FieldValue::Float(a / *b as f64))
                 }
             }
-            
+
             // ScaledInteger division - preserve precision by scaling numerator
             (FieldValue::ScaledInteger(a, scale_a), FieldValue::ScaledInteger(b, scale_b)) => {
                 if *b == 0 {

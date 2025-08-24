@@ -149,7 +149,7 @@ impl HashJoinTable {
                     // Hash the scaled integer directly for consistent performance
                     value.hash(&mut hasher);
                     scale.hash(&mut hasher);
-                },
+                }
                 FieldValue::Array(_)
                 | FieldValue::Map(_)
                 | FieldValue::Struct(_)
