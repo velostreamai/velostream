@@ -144,6 +144,17 @@ for (key, value) in headers.iter() {
 }
 ```
 
+## 🚀 Deployment
+
+- **[DEPLOYMENT_SUMMARY.md](DEPLOYMENT_SUMMARY.md)** - **Complete production deployment guide**
+  - Docker + Kubernetes deployment
+  - Financial precision arithmetic (42x performance)
+  - Multi-format serialization (JSON/Avro/Protobuf)
+  - Performance configuration profiles
+  - Schema file management
+  
+- **[docs/NATIVE_SQL_DEPLOYMENT.md](docs/NATIVE_SQL_DEPLOYMENT.md)** - Native binary deployment (development only)
+
 ## 📚 Examples
 
 ### Basic Usage

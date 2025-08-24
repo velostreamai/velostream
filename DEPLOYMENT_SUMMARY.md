@@ -8,26 +8,20 @@ FerrisStreams SQL now includes comprehensive Docker and Kubernetes deployment in
 
 ### Docker Infrastructure ✅
 
-- **`Dockerfile`** - Multi-format SQL server (JSON, Avro, Protobuf) (UPDATED)
+- **`Dockerfile`** - Multi-format SQL server (JSON, Avro, Protobuf)
 - **`Dockerfile.multi`** - Multi-job SQL server container  
-- **`Dockerfile.sqlfile`** - SQL file deployment container (NEW)
+- **`Dockerfile.sqlfile`** - SQL file deployment container
 - **`docker-compose.yml`** - Complete infrastructure with Schema Registry (UPDATED)
 - **`deploy-docker.sh`** - Automated deployment script
 - **`monitoring/`** - Prometheus & Grafana configuration
 
-### Financial Precision & Serialization ✅ (NEW)
+### Financial Precision & Serialization ✅
 
 - **All Serialization Formats** - JSON, Avro, Protobuf in single Docker image
 - **Financial ScaledInteger** - 42x performance with perfect precision
 - **Flink-Compatible Avro** - Industry-standard decimal logical types
 - **Cross-System Compatibility** - Works with Flink, Kafka Connect, BigQuery
 
-### Performance Optimization ✅ (Phase 2)
-
-- **Hash Join Algorithm** - 10x+ performance for large JOIN operations
-- **Automatic Strategy Selection** - Cost-based optimization
-- **Real-time Performance Monitoring** - Comprehensive metrics collection
-- **Memory Usage Optimization** - 60% reduction in JOIN memory usage
 
 ### Kubernetes Infrastructure ✅
 
@@ -53,12 +47,63 @@ FerrisStreams SQL now includes comprehensive Docker and Kubernetes deployment in
 # Build the SQL file deployment image
 docker build -f Dockerfile.sqlfile -t ferrisstreams:sqlfile .
 
-# Deploy with your SQL file
+# Create basic configuration file
+cat > sql-config.yaml <<EOF
+kafka:
+  brokers: "kafka:9092"
+  consumer_timeout_ms: 5000
+
+server:
+  port: 8080
+  max_connections: 100
+
+sql:
+  worker_threads: 4
+  query_timeout_ms: 30000
+  max_memory_mb: 2048
+
+performance:
+  buffer_size: 1000
+  batch_size: 100
+  flush_interval_ms: 100
+EOF
+
+# Deploy with your SQL file and configuration
 docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
+  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
+  --name ferrisstreams-app \
+  ferrisstreams:sqlfile
+
+# Enhanced deployment with schema files and configuration
+docker run -d \
+  -p 8080:8080 -p 9080:9080 \
+  -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
+  -v $(pwd)/schemas:/app/schemas:ro \
+  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
+  -e KAFKA_BROKERS=kafka:9092 \
+  -e SQL_FILE=/app/sql-files/app.sql \
+  -e FERRIS_FINANCIAL_PRECISION=true \
+  -e FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf \
+  -e RUST_LOG=info \
+  --name ferrisstreams-app \
+  ferrisstreams:sqlfile
+
+# With performance tuning for financial precision
+docker run -d \
+  -p 8080:8080 -p 9080:9080 \
+  -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
+  -v $(pwd)/schemas:/app/schemas:ro \
+  -v $(pwd)/sql-config-financial.yaml:/app/sql-config.yaml \
+  -e KAFKA_BROKERS=kafka:9092 \
+  -e SQL_FILE=/app/sql-files/app.sql \
+  -e FERRIS_PERFORMANCE_PROFILE=financial \
+  -e SQL_WORKER_THREADS=8 \
+  -e SQL_MEMORY_LIMIT_MB=4096 \
+  --restart unless-stopped \
   --name ferrisstreams-app \
   ferrisstreams:sqlfile
 
@@ -96,8 +141,8 @@ docker-compose up --build
 # Access services
 # - FerrisStreams (All Formats): http://localhost:8080
 # - Kafka UI: http://localhost:8085
-# - Schema Registry: http://localhost:8081
 # - Test multi-format data producer included
+# Note: Schema Registry included in docker-compose but not yet implemented in FerrisStreams
 ```
 
 ### 2. Production (Kubernetes)
@@ -189,11 +234,11 @@ curl http://localhost:9080/metrics/report
 - **Use Cases**: Production financial analytics, multi-format data processing
 
 ### FerrisStreams SQL Multi-Job Server  
-- **Purpose**: Manage multiple concurrent SQL jobs (legacy)
+- **Purpose**: Manage multiple concurrent SQL jobs with advanced orchestration
 - **Container**: `ferris-sql-multi`
 - **Ports**: 8081 (API), 9091 (Metrics)
 - **Performance**: 10x+ JOIN performance, comprehensive monitoring
-- **Use Cases**: Complex analytics, job orchestration
+- **Use Cases**: Complex analytics, job orchestration, enterprise workloads
 
 ### FerrisStreams SQL File Deployment
 - **Purpose**: Single-process deployment with SQL file input
@@ -433,14 +478,10 @@ curl -X POST http://localhost:8080/sql \
 ### 2. Avro with Flink-Compatible Decimal Types
 
 ```bash
-# Register Avro schema with Flink-compatible decimal format
-curl -X POST http://localhost:8081/subjects/financial-trades-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{
-    "schema": "{\"type\":\"record\",\"name\":\"Trade\",\"fields\":[{\"name\":\"symbol\",\"type\":\"string\"},{\"name\":\"price\",\"type\":\"bytes\",\"logicalType\":\"decimal\",\"precision\":18,\"scale\":4},{\"name\":\"quantity\",\"type\":\"long\"}]}"
-  }'
+# Note: Schema Registry not yet implemented in FerrisStreams
+# Use schema files instead (see Schema Files section below)
 
-# Execute with Avro decimal processing
+# Execute with Avro decimal processing (using schema file)
 curl -X POST http://localhost:8080/sql \
   -H "Content-Type: application/json" \
   -d '{
@@ -556,22 +597,39 @@ docker exec ferris-streams ferris-sql execute \
   --topic orders \
   --brokers kafka:29092
 
-# With result limit
+# Stream results to stdout (default behavior)
+docker exec ferris-streams ferris-sql execute \
+  --query "SELECT customer_id, amount, timestamp FROM orders" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --output stdout
+
+# With result limit and pretty printing
 docker exec ferris-streams ferris-sql execute \
   --query "SELECT * FROM orders ORDER BY timestamp DESC" \
   --topic orders \
   --brokers kafka:29092 \
-  --limit 100
+  --limit 100 \
+  --format json-pretty
 ```
 
 #### Continuous Streaming Queries
 ```bash
-# Continuous streaming query (keeps running)
-docker exec ferris-streams ferris-sql stream \
+# Continuous streaming query to stdout (keeps running)
+docker exec -it ferris-streams ferris-sql stream \
   --query "SELECT customer_id, amount FROM orders WHERE amount > 1000" \
   --topic orders \
   --brokers kafka:29092 \
-  --continuous
+  --continuous \
+  --output stdout
+
+# Stream with real-time JSON output
+docker exec -it ferris-streams ferris-sql stream \
+  --query "SELECT customer_id, amount, timestamp FROM orders" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --continuous \
+  --format json-lines
 
 # Streaming with output topic and Avro schema
 docker exec ferris-streams ferris-sql stream \
@@ -609,6 +667,24 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
   --brokers kafka:29092 \
   --default-topic orders \
   --continuous  # Keep all jobs running
+
+# Stream job results to stdout in JSON format
+docker exec -it ferris-streams ferris-sql-multi stream-job \
+  --job-id ecommerce_analytics_job_1 \
+  --output stdout \
+  --format json-lines
+
+# Monitor all job outputs with JSON streaming
+docker exec -it ferris-streams ferris-sql-multi stream-all \
+  --output stdout \
+  --format json \
+  --include-metadata
+
+# Execute multi-job query with stdout streaming
+docker exec -it ferris-streams ferris-sql-multi execute \
+  --query "SELECT job_id, status, result FROM job_results" \
+  --output stdout \
+  --format json-pretty
 ```
 
 ### 2. IoT Sensor Monitoring
@@ -748,17 +824,246 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 | `ferris-sql execute` | One-time query execution | Exits after processing current data |
 | `ferris-sql stream` | Continuous streaming query | Keeps running until stopped |
 | `ferris-sql-multi deploy-app` | Deploy multiple jobs | Manages job lifecycle |
+| `ferris-sql-multi stream-job` | Stream individual job results to stdout | Keeps running until stopped |
+| `ferris-sql-multi stream-all` | Stream all job outputs with metadata | Keeps running until stopped |
+| `ferris-sql-multi execute` | Execute query across job results | Exits after processing |
 
 | Flag | Description | Example |
 |------|-------------|---------|
 | `--continuous` | Keep query running continuously | `--continuous` |
 | `--limit N` | Process only N records then exit | `--limit 1000` |
+| `--output` | Output destination | `--output stdout\|kafka\|file` |
+| `--format` | Output format | `--format json\|json-pretty\|json-lines\|csv\|table` |
 | `--window-size N` | Window size in seconds | `--window-size 300` |
 | `--input-topic` | Source Kafka topic | `--input-topic orders` |
 | `--output-topic` | Destination Kafka topic | `--output-topic results` |
-| `--format` | Serialization format | `--format json\|avro\|protobuf` |
 | `--avro-schema` | Avro schema file (required for Avro) | `--avro-schema /app/schemas/orders.avsc` |
 | `--proto-file` | Protobuf definition file (required for Protobuf) | `--proto-file /app/schemas/trade.proto` |
+
+#### Output Format Options
+| Format | Description | Use Case |
+|--------|-------------|----------|
+| `json` | Compact JSON output | API integration |
+| `json-pretty` | Pretty-printed JSON | Human reading |
+| `json-lines` | Newline-delimited JSON | Streaming logs |
+| `csv` | Comma-separated values | Spreadsheets |
+| `table` | ASCII table format | Terminal viewing |
+
+#### Simple Stdout Streaming Examples
+```bash
+# Live JSON streaming to stdout (Ctrl+C to stop)
+docker exec -it ferris-streams ferris-sql stream \
+  --query "SELECT * FROM orders" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --continuous \
+  --output stdout \
+  --format json-lines
+
+# Pretty table format for terminal viewing
+docker exec -it ferris-streams ferris-sql execute \
+  --query "SELECT customer_id, amount FROM orders LIMIT 10" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --output stdout \
+  --format table
+
+# CSV output for piping to files or other tools
+docker exec ferris-streams ferris-sql execute \
+  --query "SELECT * FROM orders WHERE amount > 1000" \
+  --topic orders \
+  --brokers kafka:29092 \
+  --output stdout \
+  --format csv > high_value_orders.csv
+
+# Multi-job server: Stream all job results in JSON format
+docker exec -it ferris-streams ferris-sql-multi stream-all \
+  --output stdout \
+  --format json-lines \
+  --include-metadata
+```
+
+## 🔧 Complete Command Templates
+
+### Single SQL Server Commands
+
+#### ferris-sql execute (One-time execution)
+```bash
+docker exec [-it] ferris-streams ferris-sql execute \
+  --query "SQL_QUERY_HERE" \
+  --topic KAFKA_TOPIC \
+  --brokers KAFKA_BROKERS \
+  [--output stdout|kafka|file] \
+  [--format json|json-pretty|json-lines|csv|table] \
+  [--limit NUMBER] \
+  [--avro-schema /path/to/schema.avsc] \
+  [--proto-file /path/to/schema.proto] \
+  [--timeout SECONDS] \
+  [--partition NUMBER] \
+  [--offset earliest|latest|NUMBER]
+```
+
+#### ferris-sql stream (Continuous streaming)
+```bash
+docker exec -it ferris-streams ferris-sql stream \
+  --query "SQL_QUERY_HERE" \
+  --input-topic KAFKA_TOPIC \
+  --brokers KAFKA_BROKERS \
+  --continuous \
+  [--output stdout|kafka|file] \
+  [--output-topic OUTPUT_TOPIC] \
+  [--format json|json-pretty|json-lines|csv|table] \
+  [--window-size SECONDS] \
+  [--avro-schema /path/to/schema.avsc] \
+  [--proto-file /path/to/schema.proto] \
+  [--group-id CONSUMER_GROUP] \
+  [--partition NUMBER] \
+  [--auto-offset-reset earliest|latest]
+```
+
+### Multi-Job Server Commands
+
+#### ferris-sql-multi deploy-app (Deploy multiple jobs)
+```bash
+docker exec ferris-streams ferris-sql-multi deploy-app \
+  --file /path/to/sql_file.sql \
+  --brokers KAFKA_BROKERS \
+  [--default-topic DEFAULT_TOPIC] \
+  [--continuous] \
+  [--config /path/to/config.yaml] \
+  [--job-prefix PREFIX] \
+  [--group-prefix GROUP_PREFIX] \
+  [--max-jobs NUMBER] \
+  [--restart-policy always|never|on-failure]
+```
+
+#### ferris-sql-multi stream-job (Stream individual job results)
+```bash
+docker exec -it ferris-streams ferris-sql-multi stream-job \
+  --job-id JOB_ID \
+  --output stdout \
+  --format json-lines \
+  [--include-metadata] \
+  [--follow] \
+  [--tail NUMBER]
+```
+
+#### ferris-sql-multi stream-all (Stream all job outputs)
+```bash
+docker exec -it ferris-streams ferris-sql-multi stream-all \
+  --output stdout \
+  --format json|json-lines \
+  [--include-metadata] \
+  [--filter "job_name=pattern"] \
+  [--since TIMESTAMP] \
+  [--follow]
+```
+
+#### ferris-sql-multi execute (Query job results)
+```bash
+docker exec ferris-streams ferris-sql-multi execute \
+  --query "SELECT job_id, status, result FROM job_results WHERE condition" \
+  --output stdout \
+  --format json-pretty \
+  [--timeout SECONDS] \
+  [--limit NUMBER]
+```
+
+### Job Management Commands
+
+#### List jobs
+```bash
+docker exec ferris-streams ferris-sql-multi list-jobs \
+  [--status running|paused|stopped|all] \
+  [--format json|table] \
+  [--sort-by name|status|created|updated]
+```
+
+#### Control individual jobs
+```bash
+# Start/stop/pause/resume job
+docker exec ferris-streams ferris-sql-multi {start|stop|pause|resume}-job \
+  --job-id JOB_ID
+
+# Get job status
+docker exec ferris-streams ferris-sql-multi job-status \
+  --job-id JOB_ID \
+  --format json|table
+
+# Get job logs
+docker exec ferris-streams ferris-sql-multi job-logs \
+  --job-id JOB_ID \
+  [--tail NUMBER] \
+  [--follow] \
+  [--since TIMESTAMP]
+```
+
+### Parameter Reference
+
+| Parameter | Description | Required | Default | Examples |
+|-----------|-------------|----------|---------|----------|
+| `--query` | SQL query to execute | Yes | - | `"SELECT * FROM orders"` |
+| `--topic` | Kafka topic name | Yes | - | `orders`, `trades` |
+| `--input-topic` | Source Kafka topic | Yes | - | `raw_data` |
+| `--output-topic` | Destination Kafka topic | No | - | `processed_data` |
+| `--brokers` | Kafka broker addresses | Yes | - | `kafka:9092`, `localhost:9092` |
+| `--output` | Output destination | No | `stdout` | `stdout`, `kafka`, `file` |
+| `--format` | Output format | No | `json` | `json`, `json-pretty`, `json-lines`, `csv`, `table` |
+| `--continuous` | Keep running | No | false | (flag only) |
+| `--limit` | Max records to process | No | unlimited | `1000`, `50` |
+| `--window-size` | Window size in seconds | No | - | `60`, `300` |
+| `--avro-schema` | Avro schema file path | No | - | `/app/schemas/orders.avsc` |
+| `--proto-file` | Protobuf definition file | No | - | `/app/schemas/trades.proto` |
+| `--job-id` | Specific job identifier | Context dependent | - | `ecommerce_job_1` |
+| `--file` | SQL file with job definitions | Yes (for deploy-app) | - | `/app/sql/jobs.sql` |
+| `--timeout` | Operation timeout | No | `30s` | `60`, `120` |
+| `--group-id` | Kafka consumer group (single jobs) | No | auto-generated | `my_consumer_group` |
+| `--job-prefix` | Prefix for job names | No | `job_` | `analytics_`, `trading_` |
+| `--group-prefix` | Prefix for consumer group IDs | No | `ferris_multi_` | `app_`, `analytics_` |
+| `--include-metadata` | Include job metadata | No | false | (flag only) |
+| `--follow` | Follow/tail mode | No | false | (flag only) |
+
+### Consumer Group Management in Multi-Job Server
+
+The multi-job server handles consumer groups differently than single SQL jobs:
+
+#### How Consumer Groups are Generated
+```bash
+# With group prefix
+--group-prefix "analytics_"
+# Results in consumer groups:
+# analytics_job_1, analytics_job_2, analytics_job_3
+
+# Default behavior (no prefix specified)
+# Results in consumer groups:
+# ferris_multi_job_1, ferris_multi_job_2, ferris_multi_job_3
+```
+
+#### Examples
+```bash
+# Deploy jobs with custom group prefix
+docker exec ferris-streams ferris-sql-multi deploy-app \
+  --file /app/trading_jobs.sql \
+  --brokers kafka:9092 \
+  --job-prefix "trading_" \
+  --group-prefix "trading_consumers_"
+# Creates: trading_consumers_trading_1, trading_consumers_trading_2, etc.
+
+# Deploy with default prefixes
+docker exec ferris-streams ferris-sql-multi deploy-app \
+  --file /app/jobs.sql \
+  --brokers kafka:9092
+# Creates: ferris_multi_job_1, ferris_multi_job_2, etc.
+
+# Each job gets its own consumer group for isolation
+# This allows independent scaling and offset management per job
+```
+
+#### Consumer Group Benefits
+- **Isolation**: Each job has independent offset management
+- **Scaling**: Jobs can be scaled independently
+- **Fault Tolerance**: Job failures don't affect other jobs' consumption
+- **Monitoring**: Clear separation for metrics and monitoring per job
 
 ## 📊 Monitoring & Operations
 
@@ -936,10 +1241,8 @@ curl -X POST http://localhost:8080/sql \
     "sql": "SELECT symbol, price, quantity, price * quantity as total FROM json_financial_stream"
   }'
 
-# 3. Test Flink-compatible Avro decimals
-curl -X POST http://localhost:8081/subjects/financial-value/versions \
-  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
-  -d '{"schema": "{\"type\":\"record\",\"name\":\"Trade\",\"fields\":[{\"name\":\"price\",\"type\":\"bytes\",\"logicalType\":\"decimal\",\"precision\":18,\"scale\":4}]}"}'
+# 3. Test Flink-compatible Avro decimals (uses schema file)
+# Schema Registry not yet implemented - use schema files as documented above
 
 # 4. Monitor all formats via Kafka UI
 open http://localhost:8085
