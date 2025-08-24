@@ -1,0 +1,106 @@
+# FerrisStreams Financial Precision Configuration
+# Optimized for exact decimal arithmetic and financial compliance
+
+kafka:
+  brokers: "localhost:9092"
+  security_protocol: "PLAINTEXT"
+  group_id: "ferris-sql-financial"
+  client_id: "ferris-sql-finance"
+  
+  # Reliability-focused settings for financial data
+  acks: "all"                  # Full acknowledgments for data integrity
+  retries: 3                   # Retry failed sends
+  batch_size: 16384            # 16KB batches (balanced)
+  linger_ms: 10                # Small batching window
+  buffer_memory: 67108864      # 64MB buffer
+  compression_type: "gzip"     # Good compression for storage
+  enable_idempotence: true     # Exactly-once semantics
+  max_in_flight_requests_per_connection: 1  # Strict ordering
+  
+  # Reliable consumer settings
+  fetch_min_bytes: 1024        # 1KB minimum fetch
+  fetch_max_wait_ms: 100       # 100ms wait for batching
+  max_poll_records: 500        # Moderate batch sizes
+  session_timeout_ms: 30000    # Stable timeouts
+  heartbeat_interval_ms: 10000
+  auto_offset_reset: "earliest"  # Process all financial data
+  enable_auto_commit: false    # Manual commit for control
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  max_connections: 200         # Conservative connection limit
+  request_timeout_ms: 60000    # Allow time for complex financial queries
+  keep_alive_timeout_ms: 120000
+
+sql:
+  max_memory_mb: 2048          # Sufficient memory for financial calculations
+  worker_threads: 4            # Conservative threading
+  query_timeout_ms: 180000     # 3 minute timeout for reports
+  max_result_rows: 50000       # Large enough for financial reports
+  
+  # Financial-specific settings
+  enable_financial_types: true # Enable ScaledInteger arithmetic
+  precision_mode: "exact"      # No approximations allowed
+  scale_validation: true       # Validate decimal scales strictly
+  financial_rounding: "banker" # Banker's rounding for fairness
+
+logging:
+  level: "info"                # Detailed logging for audit trails
+  format: "json"               # Structured logs for compliance
+  file: "ferris-financial.log"
+  enable_audit_log: true       # Track all financial operations
+  audit_log_file: "ferris-audit.log"
+
+monitoring:
+  enable_metrics: true
+  metrics_port: 9090
+  health_check_interval_ms: 5000
+  enable_financial_metrics: true  # Track precision and calculations
+
+jobs:
+  max_concurrent_jobs: 20      # Moderate concurrency for stability
+  job_timeout_ms: 1800000      # 30 minute timeout for complex reports
+  enable_job_persistence: true # Always persist financial jobs
+  job_storage_path: "/app/data/financial-jobs"
+  job_audit_enabled: true     # Audit all job operations
+
+performance:
+  buffer_size: 1000            # Balanced buffer size
+  batch_size: 100              # Conservative batch size
+  flush_interval_ms: 50        # Regular flushes for reliability
+  enable_compression: true     # Compress financial data
+  enable_checksums: true      # Validate data integrity
+  
+serialization:
+  default_format: "json"       # JSON for transparency and debugging
+  financial_precision: true    # REQUIRED: Enable ScaledInteger
+  decimal_places: 4            # 4 decimal places for currency
+  validate_precision: true     # Strict validation
+  
+  # Multi-format support for different systems
+  formats: ["json", "avro", "protobuf"]
+  
+  # JSON settings
+  json:
+    pretty_print: false        # Compact JSON for efficiency
+    decimal_as_string: true    # Always use decimal strings
+  
+  # Avro settings for integration
+  avro:
+    use_decimal_logical_type: true
+    decimal_precision: 18      # Max precision
+    decimal_scale: 4          # 4 decimal places
+    validate_schema: true     # Strict schema validation
+  
+  # Protobuf settings
+  protobuf:
+    use_decimal_messages: true # Use Decimal{units, scale} format
+    validate_scale: true      # Validate scale consistency
+
+# Financial compliance settings
+compliance:
+  enable_audit_trail: true    # Track all operations
+  data_retention_days: 2555   # 7 years retention
+  encryption_at_rest: false   # Set to true for production
+  pci_compliance_mode: false  # Enable for payment processing

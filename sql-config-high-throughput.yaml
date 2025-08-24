@@ -1,0 +1,72 @@
+# FerrisStreams High Throughput Configuration
+# Optimized for >100k messages/second processing
+
+kafka:
+  brokers: "localhost:9092"
+  security_protocol: "PLAINTEXT"
+  group_id: "ferris-sql-high-throughput"
+  client_id: "ferris-sql-bulk"
+  
+  # High throughput producer settings
+  acks: "1"                    # Balance between speed and reliability
+  retries: 3                   # Some retries for reliability
+  batch_size: 65536            # 64KB batches for efficiency
+  linger_ms: 5                 # 5ms batching window
+  buffer_memory: 134217728     # 128MB buffer for large volumes
+  compression_type: "lz4"      # Fast compression to save bandwidth
+  max_in_flight_requests_per_connection: 5  # Pipeline requests
+  
+  # High throughput consumer settings
+  fetch_min_bytes: 50000       # Wait for larger batches (50KB)
+  fetch_max_wait_ms: 500       # 500ms maximum wait for batching
+  max_poll_records: 5000       # Large batches for efficiency
+  max_partition_fetch_bytes: 1048576  # 1MB per partition
+  session_timeout_ms: 30000    # Longer timeouts for stability
+  heartbeat_interval_ms: 10000
+  auto_offset_reset: "earliest"
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  max_connections: 500         # Reasonable connection limit
+  request_timeout_ms: 30000    # Longer timeouts for large requests
+  keep_alive_timeout_ms: 60000
+
+sql:
+  max_memory_mb: 8192          # Lots of memory for large datasets
+  worker_threads: 16           # Many workers for parallel processing
+  query_timeout_ms: 300000     # 5 minute timeout for complex queries
+  max_result_rows: 100000      # Allow larger result sets
+
+logging:
+  level: "info"                # Balanced logging
+  format: "json"
+  file: "ferris-high-throughput.log"
+
+monitoring:
+  enable_metrics: true
+  metrics_port: 9090
+  health_check_interval_ms: 5000
+
+jobs:
+  max_concurrent_jobs: 100     # Many concurrent jobs
+  job_timeout_ms: 1800000      # 30 minute job timeout
+  enable_job_persistence: true # Persist jobs for reliability
+  job_storage_path: "/app/data/jobs"
+
+performance:
+  buffer_size: 10000           # Large buffers for batching
+  batch_size: 1000             # Large batches
+  flush_interval_ms: 100       # Batch writes every 100ms
+  enable_compression: true     # Compress to save bandwidth
+  
+serialization:
+  default_format: "avro"       # Avro for compact binary format
+  financial_precision: true    # Enable ScaledInteger
+  decimal_places: 4
+  
+  # Avro-specific settings
+  avro:
+    use_decimal_logical_type: true
+    decimal_precision: 18
+    decimal_scale: 4

@@ -211,22 +211,200 @@ curl http://localhost:9080/metrics/report
 
 ## 🔧 Configuration
 
+### Performance Profiles
+
+#### 1. Low Latency Configuration (< 10ms)
+
+**sql-config-low-latency.yaml:**
+```yaml
+# Ultra-low latency configuration
+kafka:
+  brokers: "kafka:29092"
+  # Low latency producer settings
+  acks: "1"                    # Fast acknowledgments
+  retries: 0                   # No retries for speed
+  batch_size: 1                # Send immediately
+  linger_ms: 0                 # No batching delay
+  buffer_memory: 33554432      # 32MB buffer
+  
+  # Low latency consumer settings
+  fetch_min_bytes: 1           # Don't wait for batches
+  fetch_max_wait_ms: 1         # 1ms max wait
+  max_poll_records: 10         # Small batches
+  session_timeout_ms: 6000     # Fast failure detection
+  heartbeat_interval_ms: 2000  # Frequent heartbeats
+
+server:
+  port: 8080
+  max_connections: 1000        # High concurrency
+  request_timeout_ms: 5000     # Fast timeouts
+
+sql:
+  worker_threads: 8            # More threads
+  query_timeout_ms: 10000      # 10s query limit
+  max_memory_mb: 4096          # More memory
+
+performance:
+  buffer_size: 100             # Small buffers for speed
+  batch_size: 10               # Tiny batches
+  flush_interval_ms: 1         # Immediate flush
+  enable_compression: false    # No compression overhead
+```
+
+**Docker deployment:**
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -v $(pwd)/sql-config-low-latency.yaml:/app/sql-config.yaml \
+  -e RUST_LOG=warn \
+  --name ferris-low-latency \
+  ferrisstreams:latest
+```
+
+#### 2. High Throughput Configuration (>100k msgs/sec)
+
+**sql-config-high-throughput.yaml:**
+```yaml
+kafka:
+  brokers: "kafka:29092"
+  # High throughput producer settings
+  acks: "1"
+  batch_size: 65536            # 64KB batches
+  linger_ms: 5                 # 5ms batching window
+  buffer_memory: 134217728     # 128MB buffer
+  compression_type: "lz4"      # Fast compression
+  
+  # High throughput consumer settings
+  fetch_min_bytes: 50000       # Wait for larger batches
+  fetch_max_wait_ms: 500       # 500ms max wait
+  max_poll_records: 5000       # Large batches
+  max_partition_fetch_bytes: 1048576  # 1MB per partition
+
+sql:
+  worker_threads: 16           # Many workers
+  max_memory_mb: 8192          # Lots of memory
+  
+performance:
+  buffer_size: 10000           # Large buffers
+  batch_size: 1000             # Big batches
+  flush_interval_ms: 100       # Batch writes
+  enable_compression: true     # Save bandwidth
+```
+
+#### 3. Financial Precision Configuration
+
+**sql-config-financial.yaml:**
+```yaml
+kafka:
+  brokers: "kafka:29092"
+  # Reliability for financial data
+  acks: "all"                  # Full acknowledgments
+  retries: 3                   # Retry on failure
+  enable_idempotence: true     # Exactly-once semantics
+  
+serialization:
+  default_format: "json"       # Start with JSON
+  financial_precision: true    # Enable ScaledInteger
+  decimal_places: 4            # 4 decimal places default
+  
+sql:
+  # Financial arithmetic optimizations
+  enable_financial_types: true
+  precision_mode: "exact"      # No approximations
+  scale_validation: true       # Validate decimal scales
+```
+
+#### 4. Cross-System Compatibility Configuration
+
+**sql-config-compatibility.yaml:**
+```yaml
+kafka:
+  brokers: "kafka:29092"
+  
+serialization:
+  formats: ["json", "avro", "protobuf"]
+  
+  # Avro settings for Flink compatibility
+  avro:
+    use_decimal_logical_type: true
+    decimal_precision: 18
+    decimal_scale: 4
+    
+  # Protobuf settings
+  protobuf:
+    use_decimal_messages: true
+    
+schema_registry:
+  url: "http://schema-registry:8081"
+  auth_type: "none"
+  
+sql:
+  cross_system_mode: true      # Enable compatibility features
+```
+
 ### Environment Variables
 ```bash
+# Basic Configuration
 RUST_LOG=info                              # Logging level
 KAFKA_BROKERS=kafka:29092                  # Kafka connection
 SCHEMA_REGISTRY_URL=http://schema-registry:8081  # Avro schema registry
 FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf  # Available formats
+
+# Performance Tuning
 SQL_MAX_JOBS=20                            # Job limits
 SQL_MEMORY_LIMIT_MB=1024                   # Memory constraints
+SQL_WORKER_THREADS=4                       # Processing threads
+FERRIS_PERFORMANCE_PROFILE=standard       # standard|low_latency|high_throughput
+
+# Financial Precision
+FERRIS_FINANCIAL_PRECISION=true           # Enable ScaledInteger
+FERRIS_DEFAULT_DECIMAL_PLACES=4           # Default precision
+
+# Kafka Tuning (override config file)
+KAFKA_BATCH_SIZE=16384                     # Producer batch size
+KAFKA_LINGER_MS=5                          # Producer batching delay
+KAFKA_FETCH_MIN_BYTES=1                    # Consumer fetch minimum
+KAFKA_MAX_POLL_RECORDS=500                 # Consumer batch size
+```
+
+### Docker Compose Override Examples
+
+#### Low Latency Setup
+```yaml
+# docker-compose.low-latency.yml
+version: '3.8'
+services:
+  ferris-streams:
+    environment:
+      - FERRIS_PERFORMANCE_PROFILE=low_latency
+      - KAFKA_LINGER_MS=0
+      - KAFKA_BATCH_SIZE=1
+      - KAFKA_FETCH_MAX_WAIT_MS=1
+    volumes:
+      - ./sql-config-low-latency.yaml:/app/sql-config.yaml
+```
+
+#### High Throughput Setup
+```yaml
+# docker-compose.high-throughput.yml
+version: '3.8'
+services:
+  ferris-streams:
+    environment:
+      - FERRIS_PERFORMANCE_PROFILE=high_throughput
+      - SQL_WORKER_THREADS=16
+      - SQL_MEMORY_LIMIT_MB=8192
+    volumes:
+      - ./sql-config-high-throughput.yaml:/app/sql-config.yaml
 ```
 
 ### Volume Mounts
 ```bash
-./sql-config.yaml:/app/sql-config.yaml    # Configuration
-./examples:/app/examples                  # SQL applications
-sql-logs:/app/logs                        # Log persistence
-sql-data:/app/data                        # Data persistence
+./sql-config.yaml:/app/sql-config.yaml              # Main configuration
+./sql-config-low-latency.yaml:/app/sql-config.yaml  # Low latency config
+./examples:/app/examples                            # SQL applications
+sql-logs:/app/logs                                  # Log persistence
+sql-data:/app/data                                  # Data persistence
 ```
 
 ## 💰 Financial Data Examples
