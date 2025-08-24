@@ -1,28 +1,34 @@
-# FerrisStreams SQL Infrastructure
+# FerrisStreams with All Serialization Formats (JSON, Avro, Protobuf)
 version: '3.8'
 
 services:
-  # Kafka with KRaft (no Zookeeper needed)
+  # Apache Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ferris-network
+
   kafka:
-    image: confluentinc/cp-kafka:7.4.3
-    container_name: ferris-kafka
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
     ports:
       - "9092:9092"
-      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
-      KAFKA_NODE_ID: 1
-      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
@@ -34,101 +40,105 @@ services:
       retries: 5
       start_period: 30s
 
-  # Kafka UI for management
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: ferris-kafka-ui
+  # Schema Registry for Avro serialization
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    hostname: schema-registry
+    container_name: schema-registry
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
     ports:
-      - "8090:8080"
+      - "8081:8081"
     environment:
-      KAFKA_CLUSTERS_0_NAME: ferris-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      DYNAMIC_CONFIG_ENABLED: true
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
     networks:
       - ferris-network
-    restart: unless-stopped
 
-  # FerrisStreams SQL Server (single job)
-  ferris-sql-single:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: ferris-sql-single
+  # FerrisStreams with ALL serialization formats (JSON, Avro, Protobuf)
+  ferris-streams:
+    build: .
+    container_name: ferris-streams
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
+      - schema-registry
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "8080:8080"  # SQL API
+      - "9090:9090"  # Management API
     environment:
       - RUST_LOG=info
-      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_BROKERS=kafka:29092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf
     volumes:
-      - ./sql-config.yaml:/app/sql-config.yaml:ro
-      - sql-logs:/app/logs
-      - sql-data:/app/data
-    networks:
-      - ferris-network
-    command: ["ferris-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-single"]
-    healthcheck:
-      test: ["CMD", "ferris-sql", "--help"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  # FerrisStreams Multi-Job SQL Server
-  ferris-sql-multi:
-    build: 
-      context: .
-      dockerfile: Dockerfile.multi
-    container_name: ferris-sql-multi
-    depends_on:
-      kafka:
-        condition: service_healthy
-    ports:
-      - "8081:8080"
-      - "9091:9090"
-    environment:
-      - RUST_LOG=info
-      - KAFKA_BROKERS=kafka:9092
-    volumes:
-      - ./sql-config.yaml:/app/sql-config.yaml:ro
       - ./examples:/app/examples:ro
-      - multi-sql-logs:/app/logs
-      - multi-sql-data:/app/data
+      - ./data:/app/data
     networks:
       - ferris-network
-    command: ["ferris-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-multi", "--max-jobs", "20"]
+    command: >
+      ferris-sql-multi
+      --host 0.0.0.0
+      --port 8080
+      --kafka-brokers kafka:29092
     healthcheck:
       test: ["CMD", "ferris-sql-multi", "--help"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    restart: unless-stopped
 
-  # Data producer for testing
-  data-producer:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: ferris-data-producer
+  # Multi-format data producer
+  multi-format-producer:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: multi-format-producer
     depends_on:
-      kafka:
-        condition: service_healthy
-    environment:
-      - RUST_LOG=info
+      - kafka
+      - schema-registry
+      - ferris-streams
     volumes:
-      - ./examples:/app/examples:ro
+      - ./test-data:/test-data:ro
     networks:
       - ferris-network
-    command: ["sh", "-c", "sleep 60 && echo 'Data producer ready for manual execution. Use: docker exec -it ferris-data-producer bash'"]
-    restart: "no"
+    command: >
+      bash -c "
+        # Wait for services
+        sleep 15
+        
+        # Create topics for each format
+        kafka-topics --bootstrap-server kafka:29092 --create --topic json-financial --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:29092 --create --topic avro-trades --partitions 3 --replication-factor 1 --if-not-exists  
+        kafka-topics --bootstrap-server kafka:29092 --create --topic proto-positions --partitions 3 --replication-factor 1 --if-not-exists
+        
+        echo 'Topics created. Producing multi-format financial data...'
+        
+        # Produce JSON financial data with ScaledInteger precision
+        for i in {1..100}; do
+          echo '{\"symbol\":\"AAPL\",\"price\":\"150.2567\",\"quantity\":100,\"total\":\"15025.67\",\"timestamp\":\"2024-01-01T10:00:$${i}Z\"}' | kafka-console-producer --broker-list kafka:29092 --topic json-financial
+          echo '{\"symbol\":\"GOOGL\",\"price\":\"2750.89\",\"quantity\":50,\"total\":\"137544.50\",\"timestamp\":\"2024-01-01T10:00:$${i}Z\"}' | kafka-console-producer --broker-list kafka:29092 --topic json-financial
+          sleep 2
+        done
+        
+        echo 'Multi-format data production complete. Container will stay running for debugging.'
+        tail -f /dev/null
+      "
+
+  # Kafka UI for monitoring all formats
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "8085:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=ferris-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+      - KAFKA_CLUSTERS_0_SCHEMAREGISTRY=http://schema-registry:8081
+      - DYNAMIC_CONFIG_ENABLED=true
+    networks:
+      - ferris-network
 
   # Prometheus for monitoring (optional)
   prometheus:

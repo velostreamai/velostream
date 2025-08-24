@@ -1,11 +1,12 @@
-# FerrisStreams SQL Server Docker Image
+# FerrisStreams SQL Server Docker Image with All Serialization Formats
+# Supports JSON, Avro, and Protobuf serialization
 FROM rust:1.85-bookworm as builder
 
 # Configure Git and Cargo to handle SSL issues
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt
 
-# Install system dependencies and update CA certificates
+# Install system dependencies including protobuf compiler
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -14,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     liblz4-dev \
     librdkafka-dev \
     ca-certificates \
+    cmake \
+    build-essential \
+    protobuf-compiler \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,23 +33,23 @@ RUN mkdir -p ~/.cargo && \
     echo 'retry = 3' >> ~/.cargo/config.toml && \
     echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy manifests and build script
+COPY Cargo.toml Cargo.lock build.rs ./
 
 # Create dummy source file to build dependencies first
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sql_server.rs && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
-# Build dependencies
-RUN cargo build --release --bin ferris-sql --bin ferris-sql-multi
+# Build dependencies with ALL serialization features enabled
+RUN cargo build --release --features "avro,protobuf" --bin ferris-sql --bin ferris-sql-multi
 
 # Copy source code
 COPY src ./src
 COPY examples ./examples
 
-# Build the actual application
+# Build the actual application with all serialization features
 RUN touch src/main.rs src/bin/sql_server.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --bin ferris-sql --bin ferris-sql-multi
+RUN cargo build --release --features "avro,protobuf" --bin ferris-sql --bin ferris-sql-multi
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -87,5 +91,11 @@ EXPOSE 8080 9090
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD [ "ferris-sql", "--help" ] || exit 1
 
-# Default command - run SQL server
-CMD ["ferris-sql", "server", "--brokers", "kafka:9092", "--port", "8080"]
+# Default command - run multi-job SQL server with all serialization support
+CMD ["ferris-sql-multi", "--host", "0.0.0.0", "--port", "8080"]
+
+# Build metadata
+LABEL org.opencontainers.image.title="FerrisStreams"
+LABEL org.opencontainers.image.description="High-performance streaming SQL engine with JSON, Avro, and Protobuf support"
+LABEL org.opencontainers.image.version="1.0.0"
+LABEL org.opencontainers.image.features="json,avro,protobuf,financial-precision"

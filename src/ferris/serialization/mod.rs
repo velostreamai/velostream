@@ -407,7 +407,29 @@ fn field_value_to_json(field_value: &FieldValue) -> Result<serde_json::Value, Se
 
 fn json_to_field_value(json_value: &serde_json::Value) -> Result<FieldValue, SerializationError> {
     match json_value {
-        serde_json::Value::String(s) => Ok(FieldValue::String(s.clone())),
+        serde_json::Value::String(s) => {
+            // Try to parse as decimal string (ScaledInteger)
+            if let Some(decimal_pos) = s.find('.') {
+                // This looks like a decimal string - try to parse as ScaledInteger
+                let before_decimal = &s[..decimal_pos];
+                let after_decimal = &s[decimal_pos + 1..];
+                
+                // Validate it's all digits
+                if before_decimal.chars().all(|c| c.is_ascii_digit() || c == '-') 
+                    && after_decimal.chars().all(|c| c.is_ascii_digit()) {
+                    
+                    let scale = after_decimal.len() as u8;
+                    let scaled_value = format!("{}{}", before_decimal, after_decimal);
+                    
+                    if let Ok(value) = scaled_value.parse::<i64>() {
+                        return Ok(FieldValue::ScaledInteger(value, scale));
+                    }
+                }
+            }
+            
+            // Not a decimal format, treat as regular string
+            Ok(FieldValue::String(s.clone()))
+        }
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Ok(FieldValue::Integer(i))
