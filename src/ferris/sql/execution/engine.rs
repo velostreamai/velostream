@@ -785,43 +785,7 @@ impl StreamExecutionEngine {
             }
         }
     }
-
-    // =============================================================================
-    // WINDOW FUNCTIONS
-    // =============================================================================
-
-    /// Optimized stream-table JOIN processing
-    /// Tables are materialized views with key-based lookups, streams are continuous data
-    #[allow(dead_code)]
-    fn process_stream_table_join(
-        &self,
-        _stream_record: &StreamRecord,
-        _table_source: &StreamSource,
-        _join_condition: &Expr,
-        _join_type: &JoinType,
-    ) -> Result<Option<StreamRecord>, SqlError> {
-        Err(SqlError::ExecutionError {
-            message: "Stream-table JOIN operations are not yet implemented. This requires materialized table state, key-based lookups, and proper streaming join semantics.".to_string(),
-            query: None,
-        })
-    }
-
-    /// Convert a FieldValue to a string suitable for grouping
-
-    /// Convert a literal value to a group key string
-    fn literal_to_group_key(&self, literal: &LiteralValue) -> String {
-        match literal {
-            LiteralValue::String(s) => s.clone(),
-            LiteralValue::Integer(i) => i.to_string(),
-            LiteralValue::Float(f) => f.to_string(),
-            LiteralValue::Boolean(b) => b.to_string(),
-            LiteralValue::Null => "NULL".to_string(),
-            LiteralValue::Interval { value, unit } => {
-                format!("INTERVAL {} {:?}", value, unit)
-            }
-        }
-    }
-
+    
     /// Manually flush all accumulated GROUP BY results for a specific query
     pub fn flush_group_by_results(&mut self, query: &StreamingQuery) -> Result<(), SqlError> {
         if let StreamingQuery::Select {
