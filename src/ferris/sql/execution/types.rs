@@ -784,7 +784,7 @@ impl FieldValue {
     /// # Examples
     /// ```
     /// use ferrisstreams::ferris::sql::execution::types::FieldValue;
-    /// 
+    ///
     /// // Create a financial value for $123.45 with 4 decimal places
     /// let price = FieldValue::from_financial_f64(123.45, 4);
     /// // This stores 1234500 internally with scale=4
