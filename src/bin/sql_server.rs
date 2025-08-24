@@ -3,12 +3,16 @@ use ferrisstreams::ferris::{
     error::{FerrisError, FerrisResult},
     kafka::{JsonSerializer, KafkaConsumer},
     serialization::{InternalValue, JsonFormat, SerializationFormat},
-    sql::{FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser},
+    sql::{
+        FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser,
+        execution::performance::PerformanceMonitor,
+    },
 };
 use log::{error, info, warn};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{RwLock, mpsc};
+use tokio::net::TcpListener;
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]
@@ -34,6 +38,14 @@ enum Commands {
         /// Consumer group ID
         #[arg(long, default_value = "ferris-sql-server")]
         group_id: String,
+        
+        /// Enable performance monitoring
+        #[arg(long)]
+        enable_metrics: bool,
+        
+        /// Metrics endpoint port (if different from server port)
+        #[arg(long)]
+        metrics_port: Option<u16>,
     },
     /// Execute a single SQL query
     Execute {
@@ -63,6 +75,7 @@ enum Commands {
 pub struct SqlJobManager {
     jobs: Arc<RwLock<HashMap<String, ActiveJob>>>,
     execution_engine: Arc<StreamExecutionEngine>,
+    performance_monitor: Option<Arc<PerformanceMonitor>>,
 }
 
 #[derive(Clone)]
@@ -85,19 +98,61 @@ pub enum JobStatus {
 
 impl SqlJobManager {
     pub fn new() -> Self {
+        Self::new_with_monitoring(false)
+    }
+    
+    pub fn new_with_monitoring(enable_monitoring: bool) -> Self {
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
 
         // Create serialization format (JSON by default)
         let serialization_format = Arc::new(JsonFormat);
-        let execution_engine = Arc::new(StreamExecutionEngine::new(
+        let mut execution_engine = StreamExecutionEngine::new(
             output_sender,
             serialization_format,
-        ));
+        );
+        
+        // Set up performance monitoring if enabled
+        let performance_monitor = if enable_monitoring {
+            let monitor = Arc::new(PerformanceMonitor::new());
+            execution_engine.set_performance_monitor(Some(Arc::clone(&monitor)));
+            info!("Performance monitoring enabled for SQL server");
+            Some(monitor)
+        } else {
+            None
+        };
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            execution_engine,
+            execution_engine: Arc::new(execution_engine),
+            performance_monitor,
         }
+    }
+    
+    /// Get performance metrics (if monitoring is enabled)
+    pub fn get_performance_metrics(&self) -> Option<String> {
+        self.performance_monitor.as_ref().map(|monitor| {
+            monitor.export_prometheus_metrics()
+        })
+    }
+    
+    /// Get performance health status
+    pub fn get_health_status(&self) -> Option<String> {
+        self.performance_monitor.as_ref().map(|monitor| {
+            let health = monitor.health_check();
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": format!("{:?}", health.status),
+                "issues": health.issues,
+                "warnings": health.warnings,
+                "metrics": monitor.get_current_metrics()
+            })).unwrap_or_else(|_| "Error serializing health status".to_string())
+        })
+    }
+    
+    /// Get detailed performance report
+    pub fn get_performance_report(&self) -> Option<String> {
+        self.performance_monitor.as_ref().map(|monitor| {
+            monitor.get_performance_report()
+        })
     }
 
     pub async fn deploy_job(
@@ -399,10 +454,25 @@ async fn start_sql_server(
     brokers: String,
     port: u16,
     group_id: String,
+    enable_metrics: bool,
+    metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting FerrisStreams SQL Server on port {}", port);
 
-    let job_manager = SqlJobManager::new();
+    let job_manager = SqlJobManager::new_with_monitoring(enable_metrics);
+    
+    if enable_metrics {
+        let metrics_port = metrics_port.unwrap_or(port + 1000); // Default to main port + 1000
+        info!("Performance monitoring enabled - metrics available on port {}", metrics_port);
+        
+        // Start metrics server
+        let job_manager_clone = job_manager.clone();
+        tokio::spawn(async move {
+            start_metrics_server(job_manager_clone, metrics_port).await.unwrap_or_else(|e| {
+                error!("Failed to start metrics server: {}", e);
+            });
+        });
+    }
 
     // In a real implementation, you would:
     // 1. Start an HTTP server (using axum, warp, or actix-web)
@@ -438,6 +508,133 @@ async fn start_sql_server(
     }
 }
 
+/// Start a simple HTTP server for metrics endpoints
+async fn start_metrics_server(
+    job_manager: SqlJobManager,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
+    info!("Metrics server listening on port {}", port);
+
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, addr)) => {
+                info!("Metrics request from: {}", addr);
+                let job_manager = job_manager.clone();
+                
+                tokio::spawn(async move {
+                    let mut buffer = [0; 1024];
+                    match stream.try_read(&mut buffer) {
+                        Ok(0) => return,
+                        Ok(n) => {
+                            let request = String::from_utf8_lossy(&buffer[0..n]);
+                            let response = handle_metrics_request(request.as_ref(), &job_manager).await;
+                            
+                            if let Err(e) = stream.try_write(response.as_bytes()) {
+                                error!("Failed to write response: {}", e);
+                            }
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            continue;
+                        }
+                        Err(e) => {
+                            error!("Failed to read from socket: {}", e);
+                            return;
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                error!("Failed to accept connection: {}", e);
+            }
+        }
+    }
+}
+
+/// Handle HTTP metrics requests
+async fn handle_metrics_request(request: &str, job_manager: &SqlJobManager) -> String {
+    // Parse the request path
+    let path = if let Some(first_line) = request.lines().next() {
+        if let Some(path_part) = first_line.split_whitespace().nth(1) {
+            path_part
+        } else {
+            "/"
+        }
+    } else {
+        "/"
+    };
+
+    match path {
+        "/metrics" => {
+            // Prometheus metrics endpoint
+            if let Some(metrics) = job_manager.get_performance_metrics() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    metrics.len(),
+                    metrics
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nMetrics not enabled".to_string()
+            }
+        }
+        "/health" => {
+            // Health check endpoint
+            if let Some(health) = job_manager.get_health_status() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    health.len(),
+                    health
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nHealth monitoring not enabled".to_string()
+            }
+        }
+        "/report" => {
+            // Detailed performance report
+            if let Some(report) = job_manager.get_performance_report() {
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    report.len(),
+                    report
+                )
+            } else {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nPerformance monitoring not enabled".to_string()
+            }
+        }
+        "/" => {
+            // Root endpoint with available metrics endpoints
+            let response_body = if job_manager.performance_monitor.is_some() {
+                r#"{
+    "service": "ferris-sql-server",
+    "status": "running",
+    "endpoints": {
+        "/metrics": "Prometheus metrics export",
+        "/health": "System health status (JSON)",
+        "/report": "Detailed performance report (text)"
+    },
+    "monitoring": "enabled"
+}"#
+            } else {
+                r#"{
+    "service": "ferris-sql-server", 
+    "status": "running",
+    "monitoring": "disabled",
+    "note": "Use --enable-metrics to enable performance monitoring"
+}"#
+            };
+            
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            )
+        }
+        _ => {
+            "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nEndpoint not found".to_string()
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> FerrisResult<()> {
     // Initialize logging
@@ -450,8 +647,10 @@ async fn main() -> FerrisResult<()> {
             brokers,
             port,
             group_id,
+            enable_metrics,
+            metrics_port,
         } => {
-            start_sql_server(brokers, port, group_id).await?;
+            start_sql_server(brokers, port, group_id, enable_metrics, metrics_port).await?;
         }
         Commands::Execute {
             query,

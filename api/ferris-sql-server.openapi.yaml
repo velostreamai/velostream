@@ -1,0 +1,412 @@
+openapi: 3.0.3
+info:
+  title: FerrisStreams SQL Server API
+  description: |
+    Performance monitoring and metrics API for FerrisStreams SQL Server.
+    
+    The FerrisStreams SQL Server processes SQL queries on Kafka streams with optional 
+    performance monitoring capabilities. When monitoring is enabled, this API provides
+    real-time metrics, health checks, and performance reports.
+    
+    ## Getting Started
+    
+    Start the server with monitoring enabled:
+    ```bash
+    cargo run --bin ferris-sql server --enable-metrics --port 8080 --metrics-port 9080
+    ```
+    
+    ## Features
+    - Real-time performance metrics in Prometheus format
+    - Automated health checks with configurable thresholds  
+    - Detailed performance reports with query pattern analysis
+    - Zero overhead when monitoring is disabled
+    
+  version: 1.0.0
+  contact:
+    name: FerrisStreams
+    url: https://github.com/anthropics/ferrisstreams
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:9080
+    description: Default metrics server (main port + 1000)
+  - url: http://localhost:8080
+    description: Main SQL server (when metrics on same port)
+
+paths:
+  /:
+    get:
+      summary: Server information and available endpoints
+      description: |
+        Returns basic server information and lists all available API endpoints.
+        This endpoint is always available regardless of monitoring configuration.
+      operationId: getServerInfo
+      responses:
+        '200':
+          description: Server information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInfo'
+              examples:
+                monitoring_enabled:
+                  summary: Server with monitoring enabled
+                  value:
+                    service: "ferris-sql-server"
+                    status: "running"
+                    endpoints:
+                      "/metrics": "Prometheus metrics export"
+                      "/health": "System health status (JSON)"
+                      "/report": "Detailed performance report (text)"
+                    monitoring: "enabled"
+                monitoring_disabled:
+                  summary: Server with monitoring disabled
+                  value:
+                    service: "ferris-sql-server"
+                    status: "running"
+                    monitoring: "disabled"
+                    note: "Use --enable-metrics to enable performance monitoring"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics export
+      description: |
+        Exports performance metrics in Prometheus format for monitoring dashboards.
+        
+        ## Available Metrics
+        - `ferrisstreams_queries_total` - Total number of queries executed
+        - `ferrisstreams_records_processed_total` - Total records processed
+        - `ferrisstreams_bytes_processed_total` - Total bytes processed  
+        - `ferrisstreams_memory_allocated_bytes` - Current memory allocation
+        - `ferrisstreams_throughput_records_per_second` - Current throughput
+        
+        Only available when performance monitoring is enabled.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: prometheus
+                example: |
+                  # HELP ferrisstreams_queries_total Total number of queries executed
+                  # TYPE ferrisstreams_queries_total counter
+                  ferrisstreams_queries_total 1234
+                  
+                  # HELP ferrisstreams_records_processed_total Total number of records processed
+                  # TYPE ferrisstreams_records_processed_total counter
+                  ferrisstreams_records_processed_total 125000
+                  
+                  # HELP ferrisstreams_memory_allocated_bytes Total memory allocated
+                  # TYPE ferrisstreams_memory_allocated_bytes gauge
+                  ferrisstreams_memory_allocated_bytes 1048576
+                  
+                  # HELP ferrisstreams_throughput_records_per_second Current records per second
+                  # TYPE ferrisstreams_throughput_records_per_second gauge
+                  ferrisstreams_throughput_records_per_second 127.3
+        '503':
+          description: Metrics not available (monitoring disabled)
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Metrics not enabled"
+
+  /health:
+    get:
+      summary: System health status
+      description: |
+        Returns detailed system health information including performance metrics,
+        warnings, and critical issues.
+        
+        ## Health Thresholds
+        - **Critical**: Average query latency > 1000ms
+        - **Warning**: Throughput < 10 records/sec or memory usage > 1GB
+        
+        Only available when performance monitoring is enabled.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Health monitoring not available
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Health monitoring not enabled"
+
+  /report:
+    get:
+      summary: Detailed performance report
+      description: |
+        Returns a comprehensive performance report including:
+        - Overall system metrics
+        - Recent performance trends  
+        - Top query patterns by frequency
+        - Slow query analysis
+        - Health status summary
+        
+        Only available when performance monitoring is enabled.
+      operationId: getPerformanceReport
+      responses:
+        '200':
+          description: Performance report in human-readable format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  =====================================
+                  FerrisStreams Performance Report
+                  =====================================
+                  Generated: 2025-01-24 10:30:00 UTC
+                  Status: Healthy
+                  
+                  === Overall Metrics ===
+                  Total Queries: 1,234
+                  Average Execution Time: 45.2ms
+                  P95 Execution Time: 128.5ms
+                  Throughput: 127.3 records/sec
+                  Total Records Processed: 125,000
+                  Memory Usage: 1.5 MB
+                  
+                  === Recent Performance ===
+                  Last Hour: 245 queries, avg 42.1ms, 156.2 rps
+                  
+                  === Top Query Patterns ===
+                  1. SELECT * FROM users WHERE id = ? - 456 executions
+                  2. SELECT COUNT(*) FROM orders - 234 executions  
+                  3. SELECT * FROM products WHERE price > ? - 123 executions
+                  
+                  Health Issues: None
+                  Warnings: None
+        '503':
+          description: Performance monitoring not available
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Performance monitoring not enabled"
+
+components:
+  schemas:
+    ServerInfo:
+      type: object
+      properties:
+        service:
+          type: string
+          example: "ferris-sql-server"
+          description: Service identifier
+        status:
+          type: string
+          enum: [running, starting, stopping]
+          example: "running"
+          description: Current server status
+        monitoring:
+          type: string
+          enum: [enabled, disabled]
+          example: "enabled"
+          description: Performance monitoring status
+        endpoints:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            "/metrics": "Prometheus metrics export"
+            "/health": "System health status (JSON)"
+            "/report": "Detailed performance report (text)"
+          description: Available API endpoints with descriptions
+        note:
+          type: string
+          example: "Use --enable-metrics to enable performance monitoring"
+          description: Additional information (when monitoring disabled)
+      required:
+        - service
+        - status
+        - monitoring
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Healthy, Warning, Critical]
+          example: "Healthy"
+          description: Overall system health status
+        issues:
+          type: array
+          items:
+            type: string
+          example: []
+          description: Critical performance issues requiring attention
+        warnings:
+          type: array
+          items:
+            type: string
+          example: ["Low throughput: 8.5 records/sec (threshold: 10.0)"]
+          description: Performance warnings that should be monitored
+        metrics:
+          $ref: '#/components/schemas/PerformanceMetrics'
+      required:
+        - status
+        - issues
+        - warnings
+        - metrics
+
+    PerformanceMetrics:
+      type: object
+      properties:
+        memory:
+          $ref: '#/components/schemas/MemoryMetrics'
+        throughput:
+          $ref: '#/components/schemas/ThroughputMetrics'
+        processors:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ProcessorMetrics'
+          description: Per-processor performance metrics
+        total_queries:
+          type: integer
+          format: int64
+          example: 1234
+          description: Total number of queries executed
+        total_execution_time:
+          type: string
+          format: duration
+          example: "55.234s"
+          description: Total execution time across all queries
+      required:
+        - memory
+        - throughput
+        - processors
+        - total_queries
+
+    MemoryMetrics:
+      type: object
+      properties:
+        allocated_bytes:
+          type: integer
+          format: int64
+          example: 1048576
+          description: Currently allocated memory in bytes
+        peak_memory_bytes:
+          type: integer
+          format: int64
+          example: 2097152
+          description: Peak memory usage during execution in bytes
+        group_by_memory_bytes:
+          type: integer
+          format: int64
+          example: 524288
+          description: Memory used by GROUP BY operations in bytes
+        window_memory_bytes:
+          type: integer
+          format: int64
+          example: 262144
+          description: Memory used by window functions in bytes
+        join_memory_bytes:
+          type: integer
+          format: int64
+          example: 131072
+          description: Memory used by JOIN operations in bytes
+        allocation_count:
+          type: integer
+          format: int64
+          example: 456
+          description: Total number of memory allocations
+      required:
+        - allocated_bytes
+        - peak_memory_bytes
+
+    ThroughputMetrics:
+      type: object
+      properties:
+        records_per_second:
+          type: number
+          format: double
+          example: 127.3
+          description: Records processed per second
+        bytes_per_second:
+          type: number
+          format: double
+          example: 12730.0
+          description: Bytes processed per second
+        queries_per_second:
+          type: number
+          format: double
+          example: 5.2
+          description: Queries executed per second
+        avg_query_latency_ms:
+          type: number
+          format: double
+          example: 45.2
+          description: Average query execution time in milliseconds
+        p50_latency_ms:
+          type: number
+          format: double
+          example: 32.1
+          description: 50th percentile query latency in milliseconds
+        p95_latency_ms:
+          type: number
+          format: double
+          example: 128.5
+          description: 95th percentile query latency in milliseconds
+        p99_latency_ms:
+          type: number
+          format: double
+          example: 256.7
+          description: 99th percentile query latency in milliseconds
+      required:
+        - records_per_second
+        - bytes_per_second
+        - queries_per_second
+
+    ProcessorMetrics:
+      type: object
+      properties:
+        processor_name:
+          type: string
+          example: "SelectProcessor"
+          description: Name of the SQL processor
+        records_processed:
+          type: integer
+          format: int64
+          example: 5000
+          description: Number of records processed by this processor
+        execution_time:
+          type: string
+          format: duration
+          example: "2.345s"
+          description: Total execution time for this processor
+        success_count:
+          type: integer
+          format: int64
+          example: 4950
+          description: Number of successful executions
+        error_count:
+          type: integer
+          format: int64
+          example: 50
+          description: Number of failed executions
+        memory_usage:
+          $ref: '#/components/schemas/MemoryMetrics'
+      required:
+        - processor_name
+        - records_processed
+        - success_count
+        - error_count
+
+tags:
+  - name: monitoring
+    description: Performance monitoring and metrics
+  - name: health
+    description: System health and status checks

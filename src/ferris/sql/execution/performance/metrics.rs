@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// Memory usage metrics
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct MemoryMetrics {
     /// Total memory allocated (bytes)
     pub allocated_bytes: u64,
@@ -54,7 +54,7 @@ impl MemoryMetrics {
 }
 
 /// Throughput metrics
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ThroughputMetrics {
     /// Records processed per second
     pub records_per_second: f64,
@@ -115,7 +115,7 @@ impl ThroughputMetrics {
 }
 
 /// Per-processor performance metrics
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct ProcessorMetrics {
     /// Processor name
     pub processor_name: String,
@@ -180,7 +180,7 @@ impl ProcessorMetrics {
 }
 
 /// Overall performance metrics for the SQL engine
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PerformanceMetrics {
     /// Memory usage metrics
     pub memory: MemoryMetrics,
@@ -193,8 +193,10 @@ pub struct PerformanceMetrics {
     /// Total execution time across all queries
     pub total_execution_time: Duration,
     /// Metrics collection start time
+    #[serde(skip)]
     pub start_time: Instant,
     /// Last update time
+    #[serde(skip)]
     pub last_update: Instant,
 }
 
