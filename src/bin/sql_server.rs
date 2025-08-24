@@ -1,18 +1,18 @@
 use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::{
-    error::{FerrisError, FerrisResult},
+    error::FerrisResult,
     kafka::{JsonSerializer, KafkaConsumer},
-    serialization::{InternalValue, JsonFormat, SerializationFormat},
+    serialization::{InternalValue, JsonFormat},
     sql::{
-        execution::performance::PerformanceMonitor, FieldValue, SqlError, StreamExecutionEngine, StreamRecord,
-        StreamingSqlParser,
+        FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser,
+        execution::performance::PerformanceMonitor,
     },
 };
 use log::{error, info, warn};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]
@@ -38,11 +38,11 @@ enum Commands {
         /// Consumer group ID
         #[arg(long, default_value = "ferris-sql-server")]
         group_id: String,
-        
+
         /// Enable performance monitoring
         #[arg(long)]
         enable_metrics: bool,
-        
+
         /// Metrics endpoint port (if different from server port)
         #[arg(long)]
         metrics_port: Option<u16>,
@@ -100,17 +100,14 @@ impl SqlJobManager {
     pub fn new() -> Self {
         Self::new_with_monitoring(false)
     }
-    
+
     pub fn new_with_monitoring(enable_monitoring: bool) -> Self {
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
 
         // Create serialization format (JSON by default)
         let serialization_format = Arc::new(JsonFormat);
-        let mut execution_engine = StreamExecutionEngine::new(
-            output_sender,
-            serialization_format,
-        );
-        
+        let mut execution_engine = StreamExecutionEngine::new(output_sender, serialization_format);
+
         // Set up performance monitoring if enabled
         let performance_monitor = if enable_monitoring {
             let monitor = Arc::new(PerformanceMonitor::new());
@@ -127,14 +124,14 @@ impl SqlJobManager {
             performance_monitor,
         }
     }
-    
+
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
-        self.performance_monitor.as_ref().map(|monitor| {
-            monitor.export_prometheus_metrics()
-        })
+        self.performance_monitor
+            .as_ref()
+            .map(|monitor| monitor.export_prometheus_metrics())
     }
-    
+
     /// Get performance health status
     pub fn get_health_status(&self) -> Option<String> {
         self.performance_monitor.as_ref().map(|monitor| {
@@ -144,15 +141,16 @@ impl SqlJobManager {
                 "issues": health.issues,
                 "warnings": health.warnings,
                 "metrics": monitor.get_current_metrics()
-            })).unwrap_or_else(|_| "Error serializing health status".to_string())
+            }))
+            .unwrap_or_else(|_| "Error serializing health status".to_string())
         })
     }
-    
+
     /// Get detailed performance report
     pub fn get_performance_report(&self) -> Option<String> {
-        self.performance_monitor.as_ref().map(|monitor| {
-            monitor.get_performance_report()
-        })
+        self.performance_monitor
+            .as_ref()
+            .map(|monitor| monitor.get_performance_report())
     }
 
     pub async fn deploy_job(
@@ -460,17 +458,22 @@ async fn start_sql_server(
     info!("Starting FerrisStreams SQL Server on port {}", port);
 
     let job_manager = SqlJobManager::new_with_monitoring(enable_metrics);
-    
+
     if enable_metrics {
         let metrics_port = metrics_port.unwrap_or(port + 1000); // Default to main port + 1000
-        info!("Performance monitoring enabled - metrics available on port {}", metrics_port);
-        
+        info!(
+            "Performance monitoring enabled - metrics available on port {}",
+            metrics_port
+        );
+
         // Start metrics server
         let job_manager_clone = job_manager.clone();
         tokio::spawn(async move {
-            start_metrics_server(job_manager_clone, metrics_port).await.unwrap_or_else(|e| {
-                error!("Failed to start metrics server: {}", e);
-            });
+            start_metrics_server(job_manager_clone, metrics_port)
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Failed to start metrics server: {}", e);
+                });
         });
     }
 
@@ -521,25 +524,30 @@ async fn start_metrics_server(
             Ok((mut stream, addr)) => {
                 info!("Metrics request from: {}", addr);
                 let job_manager = job_manager.clone();
-                
+
                 tokio::spawn(async move {
                     let mut buffer = [0; 1024];
-                    match stream.try_read(&mut buffer) {
-                        Ok(0) => return,
-                        Ok(n) => {
-                            let request = String::from_utf8_lossy(&buffer[0..n]);
-                            let response = handle_metrics_request(request.as_ref(), &job_manager).await;
-                            
-                            if let Err(e) = stream.try_write(response.as_bytes()) {
-                                error!("Failed to write response: {}", e);
+                    loop {
+                        match stream.try_read(&mut buffer) {
+                            Ok(0) => return,
+                            Ok(n) => {
+                                let request = String::from_utf8_lossy(&buffer[0..n]);
+                                let response =
+                                    handle_metrics_request(request.as_ref(), &job_manager).await;
+
+                                if let Err(e) = stream.try_write(response.as_bytes()) {
+                                    error!("Failed to write response: {}", e);
+                                }
+                                return;
                             }
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            continue;
-                        }
-                        Err(e) => {
-                            error!("Failed to read from socket: {}", e);
-                            return;
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                tokio::task::yield_now().await;
+                                continue;
+                            }
+                            Err(e) => {
+                                error!("Failed to read from socket: {}", e);
+                                return;
+                            }
                         }
                     }
                 });
@@ -622,16 +630,15 @@ async fn handle_metrics_request(request: &str, job_manager: &SqlJobManager) -> S
     "note": "Use --enable-metrics to enable performance monitoring"
 }"#
             };
-            
+
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 response_body.len(),
                 response_body
             )
         }
-        _ => {
-            "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nEndpoint not found".to_string()
-        }
+        _ => "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nEndpoint not found"
+            .to_string(),
     }
 }
 

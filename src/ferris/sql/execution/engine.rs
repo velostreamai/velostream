@@ -156,7 +156,8 @@ pub struct StreamExecutionEngine {
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
     // Performance monitoring
-    performance_monitor: Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>,
+    performance_monitor:
+        Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>,
 }
 
 // =============================================================================
@@ -182,12 +183,17 @@ impl StreamExecutionEngine {
     }
 
     /// Set performance monitor for tracking query execution metrics
-    pub fn set_performance_monitor(&mut self, monitor: Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>) {
+    pub fn set_performance_monitor(
+        &mut self,
+        monitor: Option<Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>>,
+    ) {
         self.performance_monitor = monitor;
     }
 
     /// Get reference to performance monitor if enabled
-    pub fn performance_monitor(&self) -> Option<&Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>> {
+    pub fn performance_monitor(
+        &self,
+    ) -> Option<&Arc<crate::ferris::sql::execution::performance::PerformanceMonitor>> {
         self.performance_monitor.as_ref()
     }
 

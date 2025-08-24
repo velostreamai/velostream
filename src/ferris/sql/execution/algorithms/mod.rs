@@ -8,4 +8,4 @@ Provides high-performance alternatives to basic implementations.
 pub mod hash_join;
 
 // Re-export public API
-pub use hash_join::{HashJoinBuilder, HashJoinExecutor, JoinStrategy};
+pub use hash_join::{HashJoinBuilder, JoinStrategy};

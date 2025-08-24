@@ -6,13 +6,13 @@ Provides 10x+ performance improvement over nested loop joins for large relations
 */
 
 use crate::ferris::sql::SqlError;
-use crate::ferris::sql::ast::{Expr, JoinClause, JoinType, BinaryOperator};
-use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use crate::ferris::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType};
 use crate::ferris::sql::execution::expression::ExpressionEvaluator;
 use crate::ferris::sql::execution::processors::{ProcessorContext, SelectProcessor};
+use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 /// Strategy for JOIN execution
 #[derive(Debug, Clone, PartialEq)]
@@ -53,12 +53,12 @@ impl JoinStatistics {
         // 1. One relation is significantly smaller
         // 2. Memory is sufficient
         // 3. Expected output is not too large
-        
-        let size_ratio = self.left_cardinality.max(self.right_cardinality) as f64 / 
-                        self.left_cardinality.min(self.right_cardinality).max(1) as f64;
-        
+
+        let size_ratio = self.left_cardinality.max(self.right_cardinality) as f64
+            / self.left_cardinality.min(self.right_cardinality).max(1) as f64;
+
         let memory_required = self.estimate_memory_usage();
-        
+
         if size_ratio > 2.0 && memory_required < self.available_memory {
             JoinStrategy::HashJoin
         } else if self.left_cardinality < 100 || self.right_cardinality < 100 {
@@ -108,7 +108,10 @@ impl HashJoinTable {
         context: &ProcessorContext,
     ) -> Result<(), SqlError> {
         let hash_key = self.compute_hash_key(&record, context)?;
-        self.buckets.entry(hash_key).or_insert_with(Vec::new).push(record);
+        self.buckets
+            .entry(hash_key)
+            .or_insert_with(Vec::new)
+            .push(record);
         self.record_count += 1;
         Ok(())
     }
@@ -120,20 +123,18 @@ impl HashJoinTable {
         _context: &ProcessorContext,
     ) -> Result<u64, SqlError> {
         let mut hasher = DefaultHasher::new();
-        
+
         for expr in &self.key_exprs {
             // Get field value from expression
             let value = match expr {
-                Expr::Column(name) => {
-                    record.fields.get(name).cloned().unwrap_or(FieldValue::Null)
-                }
+                Expr::Column(name) => record.fields.get(name).cloned().unwrap_or(FieldValue::Null),
                 _ => {
                     // For complex expressions, evaluate as boolean and hash that
                     let result = ExpressionEvaluator::evaluate_expression(expr, record)?;
                     FieldValue::Boolean(result)
                 }
             };
-            
+
             // Hash the field value
             match value {
                 FieldValue::Null => 0u64.hash(&mut hasher),
@@ -144,15 +145,18 @@ impl HashJoinTable {
                 FieldValue::Date(d) => d.to_string().hash(&mut hasher),
                 FieldValue::Timestamp(ts) => ts.to_string().hash(&mut hasher),
                 FieldValue::Decimal(d) => d.to_string().hash(&mut hasher),
-                FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) | FieldValue::Interval { .. } => {
+                FieldValue::Array(_)
+                | FieldValue::Map(_)
+                | FieldValue::Struct(_)
+                | FieldValue::Interval { .. } => {
                     return Err(SqlError::ExecutionError {
                         message: "Cannot use complex type as join key".to_string(),
                         query: None,
-                    })
+                    });
                 }
             }
         }
-        
+
         Ok(hasher.finish())
     }
 
@@ -163,8 +167,10 @@ impl HashJoinTable {
         context: &ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let hash_key = self.compute_hash_key(probe_record, context)?;
-        
-        Ok(self.buckets.get(&hash_key)
+
+        Ok(self
+            .buckets
+            .get(&hash_key)
             .map(|records| records.clone())
             .unwrap_or_else(Vec::new))
     }
@@ -212,14 +218,15 @@ impl HashJoinExecutor {
         context: &ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let candidates = self.hash_table.probe(probe_record, context)?;
-        
+
         // Apply join condition to filter candidates
         let mut results = Vec::new();
         let subquery_executor = SelectProcessor;
-        
+
         for candidate in candidates {
-            let combined = Self::combine_records(probe_record, &candidate, &self.join_clause.right_alias)?;
-            
+            let combined =
+                Self::combine_records(probe_record, &candidate, &self.join_clause.right_alias)?;
+
             if ExpressionEvaluator::evaluate_expression_with_subqueries(
                 &self.join_clause.condition,
                 &combined,
@@ -229,7 +236,7 @@ impl HashJoinExecutor {
                 results.push(combined);
             }
         }
-        
+
         Ok(results)
     }
 
@@ -242,13 +249,25 @@ impl HashJoinExecutor {
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let left_len = left_records.len();
         let right_len = right_records.len();
-        
+
         // Determine which side to build hash table from (smaller side)
-        let (build_records, probe_records, swap_sides, orig_left, orig_right) = 
+        let (build_records, probe_records, swap_sides, orig_left, orig_right) =
             if left_len <= right_len {
-                (left_records.clone(), right_records.clone(), false, left_records, right_records)
+                (
+                    left_records.clone(),
+                    right_records.clone(),
+                    false,
+                    left_records,
+                    right_records,
+                )
             } else {
-                (right_records.clone(), left_records.clone(), true, left_records, right_records)
+                (
+                    right_records.clone(),
+                    left_records.clone(),
+                    true,
+                    left_records,
+                    right_records,
+                )
             };
 
         // Build phase
@@ -267,7 +286,8 @@ impl HashJoinExecutor {
             JoinType::Left => {
                 // Add unmatched left records with null right side
                 if !swap_sides {
-                    let mut unmatched = self.add_unmatched_left_records(&results, &orig_left, context)?;
+                    let mut unmatched =
+                        self.add_unmatched_left_records(&results, &orig_left, context)?;
                     results.append(&mut unmatched);
                 }
                 Ok(results)
@@ -275,15 +295,18 @@ impl HashJoinExecutor {
             JoinType::Right => {
                 // Add unmatched right records with null left side
                 if swap_sides {
-                    let mut unmatched = self.add_unmatched_right_records(&results, &orig_right, context)?;
+                    let mut unmatched =
+                        self.add_unmatched_right_records(&results, &orig_right, context)?;
                     results.append(&mut unmatched);
                 }
                 Ok(results)
             }
             JoinType::FullOuter => {
                 // Add unmatched records from both sides
-                let mut unmatched_left = self.add_unmatched_left_records(&results, &orig_left, context)?;
-                let mut unmatched_right = self.add_unmatched_right_records(&results, &orig_right, context)?;
+                let mut unmatched_left =
+                    self.add_unmatched_left_records(&results, &orig_left, context)?;
+                let mut unmatched_right =
+                    self.add_unmatched_right_records(&results, &orig_right, context)?;
                 results.append(&mut unmatched_left);
                 results.append(&mut unmatched_right);
                 Ok(results)
@@ -298,7 +321,7 @@ impl HashJoinExecutor {
         right_alias: &Option<String>,
     ) -> Result<StreamRecord, SqlError> {
         let mut combined_fields = left.fields.clone();
-        
+
         // Add right record fields with optional alias prefix
         for (key, value) in &right.fields {
             let prefixed_key = if let Some(alias) = right_alias {
@@ -308,7 +331,7 @@ impl HashJoinExecutor {
             };
             combined_fields.insert(prefixed_key, value.clone());
         }
-        
+
         Ok(StreamRecord {
             fields: combined_fields,
             timestamp: left.timestamp.max(right.timestamp),
@@ -325,21 +348,20 @@ impl HashJoinExecutor {
         left_records: &[StreamRecord],
         _context: &ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
-        let matched_left: HashSet<_> = matched.iter()
-            .map(|r| self.extract_left_key(r))
-            .collect();
-        
+        let matched_left: HashSet<_> = matched.iter().map(|r| self.extract_left_key(r)).collect();
+
         let mut unmatched = Vec::new();
         for left_record in left_records {
             let key = self.extract_left_key(left_record);
             if !matched_left.contains(&key) {
                 // Create record with null right side
                 let null_right = self.create_null_right_record();
-                let combined = Self::combine_records(left_record, &null_right, &self.join_clause.right_alias)?;
+                let combined =
+                    Self::combine_records(left_record, &null_right, &self.join_clause.right_alias)?;
                 unmatched.push(combined);
             }
         }
-        
+
         Ok(unmatched)
     }
 
@@ -350,21 +372,20 @@ impl HashJoinExecutor {
         right_records: &[StreamRecord],
         _context: &ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
-        let matched_right: HashSet<_> = matched.iter()
-            .map(|r| self.extract_right_key(r))
-            .collect();
-        
+        let matched_right: HashSet<_> = matched.iter().map(|r| self.extract_right_key(r)).collect();
+
         let mut unmatched = Vec::new();
         for right_record in right_records {
             let key = self.extract_right_key(right_record);
             if !matched_right.contains(&key) {
                 // Create record with null left side
                 let null_left = self.create_null_left_record();
-                let combined = Self::combine_records(&null_left, right_record, &self.join_clause.right_alias)?;
+                let combined =
+                    Self::combine_records(&null_left, right_record, &self.join_clause.right_alias)?;
                 unmatched.push(combined);
             }
         }
-        
+
         Ok(unmatched)
     }
 
@@ -444,9 +465,9 @@ impl HashJoinBuilder {
     pub fn build(self, join_clause: JoinClause) -> Result<HashJoinExecutor, SqlError> {
         // Extract join keys from condition
         let key_exprs = Self::extract_join_keys(&join_clause.condition)?;
-        
+
         let mut executor = HashJoinExecutor::new(join_clause, key_exprs);
-        
+
         // Set strategy based on statistics if available
         if let Some(stats) = self.statistics {
             executor.strategy = if self.strategy == JoinStrategy::Auto {
@@ -457,7 +478,7 @@ impl HashJoinBuilder {
         } else {
             executor.strategy = self.strategy;
         }
-        
+
         Ok(executor)
     }
 
@@ -469,7 +490,7 @@ impl HashJoinBuilder {
             Expr::BinaryOp { left, op, .. } if *op == BinaryOperator::Equal => {
                 Ok(vec![*left.clone()])
             }
-            _ => Ok(vec![])
+            _ => Ok(vec![]),
         }
     }
 }
@@ -492,16 +513,16 @@ mod tests {
             available_memory: 1024 * 1024,
             selectivity: 0.1,
         };
-        
+
         assert_eq!(stats.select_strategy(), JoinStrategy::HashJoin);
-        
+
         let stats_small = JoinStatistics {
             left_cardinality: 10,
             right_cardinality: 5,
             available_memory: 1024 * 1024,
             selectivity: 0.5,
         };
-        
+
         assert_eq!(stats_small.select_strategy(), JoinStrategy::NestedLoop);
     }
 
@@ -509,11 +530,11 @@ mod tests {
     fn test_hash_table_operations() {
         let key_exprs = vec![Expr::Column("id".to_string())];
         let mut hash_table = HashJoinTable::new(key_exprs);
-        
+
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(1));
         fields.insert("name".to_string(), FieldValue::String("test".to_string()));
-        
+
         let record = StreamRecord {
             fields,
             timestamp: 0,
@@ -521,12 +542,12 @@ mod tests {
             partition: 0,
             headers: HashMap::new(),
         };
-        
+
         let context = ProcessorContext::new("test");
-        
+
         hash_table.insert_record(record.clone(), &context).unwrap();
         assert_eq!(hash_table.record_count, 1);
-        
+
         let matches = hash_table.probe(&record, &context).unwrap();
         assert_eq!(matches.len(), 1);
     }
@@ -539,7 +560,7 @@ mod tests {
             available_memory: 10 * 1024 * 1024,
             selectivity: 0.01,
         };
-        
+
         let estimated = stats.estimate_memory_usage();
         assert!(estimated < stats.available_memory);
         assert_eq!(estimated, 100 * 100); // smaller side * 100 bytes

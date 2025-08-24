@@ -6,9 +6,9 @@ Provides easy-to-use API for tracking query performance and system metrics.
 */
 
 use super::metrics::PerformanceMetrics;
-use super::statistics::{StatisticsCollector, WindowStatistics};
 use super::query_performance::QueryPerformance;
 use super::query_tracker::QueryTracker;
+use super::statistics::{StatisticsCollector, WindowStatistics};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 

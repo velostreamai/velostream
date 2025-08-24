@@ -5,7 +5,7 @@ Real-time query execution tracking for performance monitoring.
 Provides lifecycle management and metrics collection during query execution.
 */
 
-use super::{query_performance::QueryPerformance, metrics::MemoryMetrics};
+use super::{metrics::MemoryMetrics, query_performance::QueryPerformance};
 use std::time::Instant;
 
 /// Performance tracking token for query lifecycle
@@ -106,8 +106,8 @@ impl QueryTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_query_tracker_creation() {
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn test_processor_tracking() {
         let mut tracker = QueryTracker::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         // Start tracking processor
         tracker.start_processor("SelectProcessor");
         assert!(tracker.is_tracking_processor());
@@ -132,35 +132,50 @@ mod tests {
         // Finish processor
         tracker.finish_current_processor();
         assert!(!tracker.is_tracking_processor());
-        assert!(tracker.performance.processor_times.contains_key("SelectProcessor"));
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("SelectProcessor")
+        );
     }
 
     #[test]
     fn test_multiple_processors() {
         let mut tracker = QueryTracker::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         // Track first processor
         tracker.start_processor("SelectProcessor");
         thread::sleep(Duration::from_millis(1));
-        
+
         // Track second processor (should finish first automatically)
         tracker.start_processor("FilterProcessor");
         thread::sleep(Duration::from_millis(1));
-        
+
         tracker.finish_current_processor();
 
         // Should have both processors tracked
-        assert!(tracker.performance.processor_times.contains_key("SelectProcessor"));
-        assert!(tracker.performance.processor_times.contains_key("FilterProcessor"));
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("SelectProcessor")
+        );
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("FilterProcessor")
+        );
     }
 
     #[test]
     fn test_metrics_updates() {
         let mut tracker = QueryTracker::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         tracker.add_records_processed(100);
         tracker.add_bytes_processed(1000);
-        
+
         let mut memory_metrics = MemoryMetrics::default();
         memory_metrics.allocated_bytes = 2048;
         tracker.update_memory_metrics(memory_metrics);
@@ -173,12 +188,12 @@ mod tests {
     #[test]
     fn test_finish_tracking() {
         let mut tracker = QueryTracker::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         tracker.start_processor("SelectProcessor");
         thread::sleep(Duration::from_millis(2));
-        
+
         let performance = tracker.finish();
-        
+
         assert!(performance.execution_time > Duration::from_millis(1));
         assert!(performance.processor_times.contains_key("SelectProcessor"));
     }
@@ -186,12 +201,12 @@ mod tests {
     #[test]
     fn test_elapsed_time_tracking() {
         let mut tracker = QueryTracker::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         thread::sleep(Duration::from_millis(1));
-        
+
         tracker.start_processor("SelectProcessor");
         thread::sleep(Duration::from_millis(1));
-        
+
         assert!(tracker.total_elapsed() > Duration::from_millis(1));
         assert!(tracker.current_processor_elapsed().unwrap() > Duration::from_nanos(1));
     }

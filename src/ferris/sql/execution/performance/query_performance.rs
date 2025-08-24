@@ -130,8 +130,10 @@ mod tests {
     fn test_processor_breakdown() {
         let mut perf = QueryPerformance::new("q1".to_string(), "SELECT * FROM test".to_string());
         perf.execution_time = Duration::from_millis(100);
-        perf.processor_times.insert("SelectProcessor".to_string(), Duration::from_millis(60));
-        perf.processor_times.insert("FilterProcessor".to_string(), Duration::from_millis(40));
+        perf.processor_times
+            .insert("SelectProcessor".to_string(), Duration::from_millis(60));
+        perf.processor_times
+            .insert("FilterProcessor".to_string(), Duration::from_millis(40));
 
         let breakdown = perf.processor_time_breakdown();
         assert_eq!(breakdown.get("SelectProcessor").unwrap(), &60.0);
@@ -141,7 +143,7 @@ mod tests {
     #[test]
     fn test_efficiency_check() {
         let mut perf = QueryPerformance::new("q1".to_string(), "SELECT * FROM test".to_string());
-        
+
         // Efficient query
         perf.execution_time = Duration::from_millis(500);
         perf.records_processed = 1000;

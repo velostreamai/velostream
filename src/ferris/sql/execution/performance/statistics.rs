@@ -6,9 +6,9 @@ This module tracks query execution patterns, resource usage, and performance tre
 */
 
 use super::QueryPerformance;
-use super::metrics::{MemoryMetrics, PerformanceMetrics, ThroughputMetrics};
+use super::metrics::{PerformanceMetrics, ThroughputMetrics};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Rolling window of query statistics

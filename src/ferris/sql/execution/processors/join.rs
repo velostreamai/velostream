@@ -5,8 +5,8 @@
 use super::{ProcessorContext, SelectProcessor};
 use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{JoinClause, JoinType, StreamSource};
+use crate::ferris::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord, expression::ExpressionEvaluator};
-use crate::ferris::sql::execution::algorithms::{HashJoinBuilder, HashJoinExecutor, JoinStrategy};
 use std::collections::HashMap;
 
 /// JOIN processing utilities
@@ -40,13 +40,13 @@ impl JoinProcessor {
 
         // For now, process first join clause with hash join if beneficial
         let join_clause = &join_clauses[0];
-        
+
         // Get right records for the join
         let right_records = Self::get_right_records_batch(&join_clause.right_source, context)?;
-        
+
         // Determine join strategy based on data sizes
         let strategy = Self::select_join_strategy(left_records.len(), right_records.len());
-        
+
         match strategy {
             JoinStrategy::HashJoin => {
                 Self::execute_hash_join(left_records, right_records, join_clause, context)
@@ -62,8 +62,9 @@ impl JoinProcessor {
     fn select_join_strategy(left_size: usize, right_size: usize) -> JoinStrategy {
         // Use hash join if one side is significantly larger
         // and both sides have reasonable size
-        if (left_size > 100 || right_size > 100) && 
-           (left_size > right_size * 2 || right_size > left_size * 2) {
+        if (left_size > 100 || right_size > 100)
+            && (left_size > right_size * 2 || right_size > left_size * 2)
+        {
             JoinStrategy::HashJoin
         } else {
             JoinStrategy::NestedLoop
@@ -81,7 +82,7 @@ impl JoinProcessor {
         let mut executor = HashJoinBuilder::new()
             .with_strategy(JoinStrategy::HashJoin)
             .build(join_clause.clone())?;
-        
+
         // Execute hash join
         executor.execute(left_records, right_records, context)
     }
@@ -94,7 +95,7 @@ impl JoinProcessor {
         context: &mut ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let mut results = Vec::new();
-        
+
         for left_record in &left_records {
             for right_record in &right_records {
                 match Self::try_join_records(left_record, right_record, join_clause, context) {
@@ -103,7 +104,7 @@ impl JoinProcessor {
                 }
             }
         }
-        
+
         Ok(results)
     }
 
@@ -114,8 +115,9 @@ impl JoinProcessor {
         join_clause: &JoinClause,
         context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
-        let combined_record = Self::combine_records(left_record, right_record, &join_clause.right_alias)?;
-        
+        let combined_record =
+            Self::combine_records(left_record, right_record, &join_clause.right_alias)?;
+
         let subquery_executor = SelectProcessor;
         if ExpressionEvaluator::evaluate_expression_with_subqueries(
             &join_clause.condition,

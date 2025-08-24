@@ -43,6 +43,8 @@ pub use query_performance::QueryPerformance;
 pub use query_tracker::QueryTracker;
 
 // Re-export public API - Metrics & Monitoring
-pub use metrics::{AtomicMetricsCollector, MemoryMetrics, PerformanceMetrics, ProcessorMetrics, ThroughputMetrics};
+pub use metrics::{
+    AtomicMetricsCollector, MemoryMetrics, PerformanceMetrics, ProcessorMetrics, ThroughputMetrics,
+};
 pub use monitor::PerformanceMonitor;
 pub use statistics::{QueryStatistics, StatisticsCollector};
