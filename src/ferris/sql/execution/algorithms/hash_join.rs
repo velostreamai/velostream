@@ -145,6 +145,11 @@ impl HashJoinTable {
                 FieldValue::Date(d) => d.to_string().hash(&mut hasher),
                 FieldValue::Timestamp(ts) => ts.to_string().hash(&mut hasher),
                 FieldValue::Decimal(d) => d.to_string().hash(&mut hasher),
+                FieldValue::ScaledInteger(value, scale) => {
+                    // Hash the scaled integer directly for consistent performance
+                    value.hash(&mut hasher);
+                    scale.hash(&mut hasher);
+                },
                 FieldValue::Array(_)
                 | FieldValue::Map(_)
                 | FieldValue::Struct(_)

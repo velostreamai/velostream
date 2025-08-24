@@ -358,6 +358,7 @@ impl MultiJobSqlServer {
                                 FieldValue::Float(f) => InternalValue::Number(*f),
                                 FieldValue::Boolean(b) => InternalValue::Boolean(*b),
                                 FieldValue::Null => InternalValue::Null,
+                                FieldValue::ScaledInteger(value, scale) => InternalValue::ScaledNumber(*value, *scale),
                                 FieldValue::Date(d) => {
                                     InternalValue::String(d.format("%Y-%m-%d").to_string())
                                 }

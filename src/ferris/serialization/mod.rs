@@ -74,6 +74,9 @@
 pub use crate::ferris::sql::{FieldValue, SqlError};
 use std::collections::HashMap;
 
+#[cfg(feature = "protobuf")]
+mod protobuf_types;
+
 /// Trait for pluggable serialization formats
 ///
 /// This trait provides a consistent interface for different serialization formats
@@ -215,6 +218,8 @@ pub enum InternalValue {
     Integer(i64),
     Boolean(bool),
     Null,
+    /// Scaled integer for financial precision (value, scale)
+    ScaledNumber(i64, u8),
     Array(Vec<InternalValue>),
     Object(HashMap<String, InternalValue>),
 }
@@ -351,6 +356,22 @@ fn field_value_to_json(field_value: &FieldValue) -> Result<serde_json::Value, Se
             ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         )),
         FieldValue::Decimal(dec) => Ok(serde_json::Value::String(dec.to_string())),
+        FieldValue::ScaledInteger(value, scale) => {
+            // Serialize as standard decimal string for cross-system compatibility
+            // This ensures other JSON consumers can read the value as a normal decimal number
+            let divisor = 10_i64.pow(*scale as u32);
+            let integer_part = value / divisor;
+            let fractional_part = (value % divisor).abs();
+            let decimal_str = if fractional_part == 0 {
+                integer_part.to_string()
+            } else {
+                format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            };
+            Ok(serde_json::Value::String(decimal_str))
+        },
         FieldValue::Array(arr) => {
             let json_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_json).collect();
             Ok(serde_json::Value::Array(json_arr?))
@@ -424,6 +445,7 @@ fn field_value_to_internal(field_value: &FieldValue) -> Result<InternalValue, Se
             ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         )),
         FieldValue::Decimal(dec) => Ok(InternalValue::String(dec.to_string())),
+        FieldValue::ScaledInteger(value, scale) => Ok(InternalValue::ScaledNumber(*value, *scale)),
         FieldValue::Array(arr) => {
             let internal_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_internal).collect();
             Ok(InternalValue::Array(internal_arr?))
@@ -465,6 +487,7 @@ fn internal_to_field_value(
         InternalValue::Number(f) => Ok(FieldValue::Float(*f)),
         InternalValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
         InternalValue::Null => Ok(FieldValue::Null),
+        InternalValue::ScaledNumber(value, scale) => Ok(FieldValue::ScaledInteger(*value, *scale)),
         InternalValue::Array(arr) => {
             let field_arr: Result<Vec<_>, _> = arr.iter().map(internal_to_field_value).collect();
             Ok(FieldValue::Array(field_arr?))
@@ -658,6 +681,22 @@ fn field_value_to_avro(
             ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         )),
         FieldValue::Decimal(dec) => Ok(Value::String(dec.to_string())),
+        FieldValue::ScaledInteger(value, scale) => {
+            // Serialize as standard decimal string for cross-system compatibility
+            // Avro consumers can read this as a string and parse as decimal
+            let divisor = 10_i64.pow(*scale as u32);
+            let integer_part = value / divisor;
+            let fractional_part = (value % divisor).abs();
+            let decimal_str = if fractional_part == 0 {
+                integer_part.to_string()
+            } else {
+                format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            };
+            Ok(Value::String(decimal_str))
+        },
         FieldValue::Array(arr) => {
             let avro_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_avro).collect();
             Ok(Value::Array(avro_arr?))

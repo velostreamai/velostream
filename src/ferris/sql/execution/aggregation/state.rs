@@ -41,6 +41,17 @@ impl GroupByStateManager {
             FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
             FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
             FieldValue::Decimal(dec) => dec.to_string(),
+            FieldValue::ScaledInteger(value, scale) => {
+                // Format as decimal with appropriate precision for group key
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = value / divisor;
+                let fractional_part = (value % divisor).abs();
+                if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
+                }
+            },
             FieldValue::Array(arr) => {
                 // For arrays, create a string representation
                 let elements: Vec<String> =

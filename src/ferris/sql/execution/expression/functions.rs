@@ -896,6 +896,7 @@ impl BuiltinFunctions {
                 FieldValue::Date(_)
                 | FieldValue::Timestamp(_)
                 | FieldValue::Decimal(_)
+                | FieldValue::ScaledInteger(_, _)
                 | FieldValue::Array(_)
                 | FieldValue::Map(_)
                 | FieldValue::Struct(_)
@@ -1272,6 +1273,20 @@ impl BuiltinFunctions {
             FieldValue::Date(date) => date.format("%Y-%m-%d").to_string(),
             FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S").to_string(),
             FieldValue::Decimal(dec) => dec.to_string(),
+            FieldValue::ScaledInteger(value, scale) => {
+                // Use to_display_string for consistent formatting
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = value / divisor;
+                let fractional_part = (value % divisor).abs();
+                if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!("{}.{:0width$}", integer_part, fractional_part, width = *scale as usize)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .to_string()
+                }
+            },
             FieldValue::Array(arr) => {
                 let strings: Vec<String> = arr.iter().map(Self::value_to_string).collect();
                 format!("[{}]", strings.join(", "))

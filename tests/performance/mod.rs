@@ -7,3 +7,4 @@
 pub mod kafka_performance_tests;
 pub mod query_performance_tests;
 pub mod serialization_performance_tests;
+pub mod financial_precision_benchmark;
