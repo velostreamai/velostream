@@ -5,10 +5,10 @@ High-level interface for performance monitoring and statistics collection.
 Provides easy-to-use API for tracking query performance and system metrics.
 */
 
-use super::metrics::{MemoryMetrics, PerformanceMetrics};
+use super::metrics::PerformanceMetrics;
 use super::statistics::{StatisticsCollector, WindowStatistics};
-use super::{QueryPerformance, QueryTracker};
-use std::sync::Arc;
+use super::query_performance::QueryPerformance;
+use super::query_tracker::QueryTracker;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
