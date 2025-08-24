@@ -197,22 +197,6 @@ impl ProcessorContext {
         }
     }
 
-    /// Set data sources for subquery execution
-    /// This allows external systems to populate the context with available data
-    pub fn set_data_sources(&mut self, data_sources: HashMap<String, Vec<StreamRecord>>) {
-        self.data_sources = data_sources;
-    }
-
-    /// Add a single data source for subquery execution
-    pub fn add_data_source(&mut self, source_name: String, records: Vec<StreamRecord>) {
-        self.data_sources.insert(source_name, records);
-    }
-
-    /// Check if a data source exists
-    pub fn has_data_source(&self, source_name: &str) -> bool {
-        self.data_sources.contains_key(source_name)
-    }
-
     /// Set metadata value for job tracking or other purposes
     pub fn set_metadata(&mut self, key: &str, value: &str) {
         self.metadata.insert(key.to_string(), value.to_string());

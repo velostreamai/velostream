@@ -43,6 +43,7 @@ pub mod engine;
 pub mod expression;
 pub mod internal;
 pub mod processors;
+#[cfg(test)]
 pub mod test_data_sources;
 pub mod types;
 pub mod utils;

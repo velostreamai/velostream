@@ -130,14 +130,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use super::aggregation::AggregateFunctions;
 use super::expression::ExpressionEvaluator;
 use super::internal::{
-    ExecutionMessage, ExecutionState, GroupByState, HeaderMutation, QueryExecution, WindowState,
+    ExecutionMessage, ExecutionState, GroupByState, QueryExecution, WindowState,
 };
 use super::types::{FieldValue, StreamRecord};
 use super::utils::FieldValueConverter;
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
-use crate::ferris::sql::ast::{
-    Expr, JoinClause, JoinType, LiteralValue, SelectField, StreamSource, StreamingQuery,
-};
+use crate::ferris::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -180,7 +178,7 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Step 1.3: Create processor context for new processor-based execution
+    /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
@@ -192,7 +190,7 @@ impl StreamExecutionEngine {
             group_by_states: HashMap::new(),
             schemas: HashMap::new(),
             stream_handles: HashMap::new(),
-            data_sources: self.create_default_data_sources(), // Provide basic data sources for testing
+            data_sources: HashMap::new(), // No default data sources - must be provided externally
 
             // Initialize high-performance window state management
             persistent_window_states: Vec::with_capacity(2), // Most contexts handle 1-2 queries
@@ -206,29 +204,7 @@ impl StreamExecutionEngine {
         context
     }
 
-    /// Create default data sources for JOIN and subquery operations
-    /// This provides basic data sources needed for JOIN operations and subqueries
-    fn create_default_data_sources(&self) -> HashMap<String, Vec<StreamRecord>> {
-        use crate::ferris::sql::execution::test_data_sources::*;
-
-        // Use the same test data sources we created for subqueries
-        // This ensures JOIN operations have access to tables like 'users', 'products', 'blocks', etc.
-        create_test_data_sources()
-    }
-
-    /// Create processor context with external data sources
-    /// This allows tests and external systems to inject data sources for subqueries
-    pub fn create_processor_context_with_data_sources(
-        &self,
-        query_id: &str,
-        data_sources: HashMap<String, Vec<StreamRecord>>,
-    ) -> ProcessorContext {
-        let mut context = self.create_processor_context(query_id);
-        context.set_data_sources(data_sources);
-        context
-    }
-
-    /// Step 1.3: Helper method to create window context for processors
+    /// Helper method to create window context for processors
     fn get_window_context_for_processors(&self, query_id: &str) -> Option<WindowContext> {
         // Check if this query has window state in the engine
         if let Some(execution) = self.active_queries.get(query_id) {
@@ -357,7 +333,7 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Step 3.2: Header mutation application handler
+    /// Header mutation application handler
     fn apply_header_mutations(
         &mut self,
         mutations: &[ProcessorHeaderMutation],
@@ -785,7 +761,7 @@ impl StreamExecutionEngine {
             }
         }
     }
-    
+
     /// Manually flush all accumulated GROUP BY results for a specific query
     pub fn flush_group_by_results(&mut self, query: &StreamingQuery) -> Result<(), SqlError> {
         if let StreamingQuery::Select {
