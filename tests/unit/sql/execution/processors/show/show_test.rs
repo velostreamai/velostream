@@ -79,6 +79,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         data_sources: HashMap::new(),
         persistent_window_states: Vec::new(),
         dirty_window_states: 0,
+        metadata: HashMap::new(),
     }
 }
 
@@ -413,6 +414,7 @@ async fn test_show_streams_empty_context() {
         data_sources: HashMap::new(),
         persistent_window_states: Vec::new(),
         dirty_window_states: 0,
+        metadata: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

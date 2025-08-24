@@ -5,7 +5,6 @@
 
 use super::super::processors::ProcessorContext;
 use super::super::types::{FieldValue, StreamRecord};
-use super::arithmetic::ArithmeticOperations;
 use super::functions::BuiltinFunctions;
 use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
@@ -323,16 +322,10 @@ impl ExpressionEvaluator {
 
                 match op {
                     // Arithmetic operators
-                    BinaryOperator::Add => ArithmeticOperations::add_values(&left_val, &right_val),
-                    BinaryOperator::Subtract => {
-                        ArithmeticOperations::subtract_values(&left_val, &right_val)
-                    }
-                    BinaryOperator::Multiply => {
-                        ArithmeticOperations::multiply_values(&left_val, &right_val)
-                    }
-                    BinaryOperator::Divide => {
-                        ArithmeticOperations::divide_values(&left_val, &right_val)
-                    }
+                    BinaryOperator::Add => left_val.add(&right_val),
+                    BinaryOperator::Subtract => left_val.subtract(&right_val),
+                    BinaryOperator::Multiply => left_val.multiply(&right_val),
+                    BinaryOperator::Divide => left_val.divide(&right_val),
 
                     // Comparison operators - return boolean values
                     BinaryOperator::Equal => Ok(FieldValue::Boolean(Self::values_equal(
@@ -908,18 +901,10 @@ impl ExpressionEvaluator {
                                     value: None,
                                 }),
                             },
-                            BinaryOperator::Add => {
-                                ArithmeticOperations::add_values(&left_val, &right_val)
-                            }
-                            BinaryOperator::Subtract => {
-                                ArithmeticOperations::subtract_values(&left_val, &right_val)
-                            }
-                            BinaryOperator::Multiply => {
-                                ArithmeticOperations::multiply_values(&left_val, &right_val)
-                            }
-                            BinaryOperator::Divide => {
-                                ArithmeticOperations::divide_values(&left_val, &right_val)
-                            }
+                            BinaryOperator::Add => left_val.add(&right_val),
+                            BinaryOperator::Subtract => left_val.subtract(&right_val),
+                            BinaryOperator::Multiply => left_val.multiply(&right_val),
+                            BinaryOperator::Divide => left_val.divide(&right_val),
                             _ => Err(SqlError::ExecutionError {
                                 message: format!(
                                     "Binary operator {:?} not supported in value context",

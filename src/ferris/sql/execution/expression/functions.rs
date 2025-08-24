@@ -992,77 +992,7 @@ impl BuiltinFunctions {
             }
         };
 
-        Self::cast_value(value, &target_type)
-    }
-
-    // Helper function for type casting
-    fn cast_value(value: FieldValue, target_type: &str) -> Result<FieldValue, SqlError> {
-        match target_type {
-            "INTEGER" | "INT" | "BIGINT" => match value {
-                FieldValue::String(s) => s.parse::<i64>().map(FieldValue::Integer).map_err(|_| {
-                    SqlError::ExecutionError {
-                        message: format!("Cannot cast '{}' to INTEGER", s),
-                        query: None,
-                    }
-                }),
-                FieldValue::Float(f) => Ok(FieldValue::Integer(f as i64)),
-                FieldValue::Boolean(b) => Ok(FieldValue::Integer(if b { 1 } else { 0 })),
-                FieldValue::Integer(i) => Ok(FieldValue::Integer(i)),
-                FieldValue::Null => Ok(FieldValue::Null),
-                _ => Err(SqlError::ExecutionError {
-                    message: format!("Cannot cast {:?} to INTEGER", value),
-                    query: None,
-                }),
-            },
-            "FLOAT" | "DOUBLE" | "REAL" => match value {
-                FieldValue::String(s) => {
-                    s.parse::<f64>()
-                        .map(FieldValue::Float)
-                        .map_err(|_| SqlError::ExecutionError {
-                            message: format!("Cannot cast '{}' to FLOAT", s),
-                            query: None,
-                        })
-                }
-                FieldValue::Integer(i) => Ok(FieldValue::Float(i as f64)),
-                FieldValue::Boolean(b) => Ok(FieldValue::Float(if b { 1.0 } else { 0.0 })),
-                FieldValue::Float(f) => Ok(FieldValue::Float(f)),
-                FieldValue::Null => Ok(FieldValue::Null),
-                _ => Err(SqlError::ExecutionError {
-                    message: format!("Cannot cast {:?} to FLOAT", value),
-                    query: None,
-                }),
-            },
-            "STRING" | "VARCHAR" | "TEXT" => match value {
-                FieldValue::String(s) => Ok(FieldValue::String(s)),
-                FieldValue::Integer(i) => Ok(FieldValue::String(i.to_string())),
-                FieldValue::Float(f) => Ok(FieldValue::String(f.to_string())),
-                FieldValue::Boolean(b) => Ok(FieldValue::String(b.to_string())),
-                FieldValue::Null => Ok(FieldValue::Null),
-                _ => Ok(FieldValue::String(value.to_display_string())),
-            },
-            "BOOLEAN" | "BOOL" => match value {
-                FieldValue::String(s) => match s.to_lowercase().as_str() {
-                    "true" | "1" | "yes" | "on" => Ok(FieldValue::Boolean(true)),
-                    "false" | "0" | "no" | "off" => Ok(FieldValue::Boolean(false)),
-                    _ => Err(SqlError::ExecutionError {
-                        message: format!("Cannot cast '{}' to BOOLEAN", s),
-                        query: None,
-                    }),
-                },
-                FieldValue::Integer(i) => Ok(FieldValue::Boolean(i != 0)),
-                FieldValue::Float(f) => Ok(FieldValue::Boolean(f != 0.0)),
-                FieldValue::Boolean(b) => Ok(FieldValue::Boolean(b)),
-                FieldValue::Null => Ok(FieldValue::Null),
-                _ => Err(SqlError::ExecutionError {
-                    message: format!("Cannot cast {:?} to BOOLEAN", value),
-                    query: None,
-                }),
-            },
-            _ => Err(SqlError::ExecutionError {
-                message: format!("Unsupported cast target type: {}", target_type),
-                query: None,
-            }),
-        }
+        value.cast_to(&target_type)
     }
 
     // System Functions

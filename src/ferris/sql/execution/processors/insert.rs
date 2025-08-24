@@ -153,6 +153,7 @@ impl InsertProcessor {
                     data_sources: std::collections::HashMap::new(),
                     persistent_window_states: Vec::new(),
                     dirty_window_states: 0,
+                    metadata: std::collections::HashMap::new(),
                 };
 
                 // Step 2: Execute the SELECT query
