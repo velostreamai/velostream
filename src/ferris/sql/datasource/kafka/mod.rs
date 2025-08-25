@@ -49,6 +49,7 @@ use crate::ferris::sql::datasource::{
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use crate::ferris::sql::schema::{FieldDefinition, Schema};
 use async_trait::async_trait;
+use futures::StreamExt;
 use rdkafka::error::KafkaError;
 use std::collections::HashMap;
 use std::error::Error;
@@ -338,45 +339,51 @@ struct KafkaDataReader {
 #[async_trait]
 impl DataReader for KafkaDataReader {
     async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        match self.consumer.poll(Duration::from_millis(1000)).await {
-            Ok(message) => {
-                let mut fields = HashMap::new();
+        // Use stream() instead of poll() for better async performance
+        let mut stream = self.consumer.stream();
+        match tokio::time::timeout(Duration::from_millis(1000), stream.next()).await {
+            Ok(Some(result)) => match result {
+                Ok(message) => {
+                    let mut fields = HashMap::new();
 
-                // Add key if present
-                if let Some(key) = message.key() {
-                    fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                } else {
-                    fields.insert("key".to_string(), FieldValue::Null);
-                }
-
-                // Add value
-                fields.insert(
-                    "value".to_string(),
-                    FieldValue::String(message.value().clone()),
-                );
-
-                // Convert headers
-                let mut header_map = HashMap::new();
-                for (key, value) in message.headers().iter() {
-                    if let Some(v) = value {
-                        header_map.insert(key.clone(), v.clone());
+                    // Add key if present
+                    if let Some(key) = message.key() {
+                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
+                    } else {
+                        fields.insert("key".to_string(), FieldValue::Null);
                     }
+
+                    // Add value
+                    fields.insert(
+                        "value".to_string(),
+                        FieldValue::String(message.value().clone()),
+                    );
+
+                    // Convert headers
+                    let mut header_map = HashMap::new();
+                    for (key, value) in message.headers().iter() {
+                        if let Some(v) = value {
+                            header_map.insert(key.clone(), v.clone());
+                        }
+                    }
+
+                    let record = StreamRecord {
+                        fields,
+                        timestamp: message
+                            .timestamp()
+                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
+                        offset: message.offset(),
+                        partition: message.partition(),
+                        headers: header_map,
+                    };
+
+                    Ok(Some(record))
                 }
-
-                let record = StreamRecord {
-                    fields,
-                    timestamp: message
-                        .timestamp()
-                        .unwrap_or(chrono::Utc::now().timestamp_millis()),
-                    offset: message.offset(),
-                    partition: message.partition(),
-                    headers: header_map,
-                };
-
-                Ok(Some(record))
-            }
-            Err(ConsumerError::Timeout) => Ok(None),
-            Err(err) => Err(Box::new(err)),
+                Err(ConsumerError::Timeout) => Ok(None),
+                Err(err) => Err(Box::new(err)),
+            },
+            Ok(None) => Ok(None), // Stream ended
+            Err(_) => Ok(None), // Timeout
         }
     }
 
