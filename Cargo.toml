@@ -1,8 +1,14 @@
 [package]
 name = "ferrisstreams"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.85.0"
+edition = "2021"
+rust-version = "1.70.0"
+license = "Apache-2.0"
+authors = ["FerrisStreams Contributors"]
+description = "High-performance stream processing engine with SQL support"
+repository = "https://github.com/bluemonk3y/ferris_streams"
+keywords = ["streaming", "sql", "kafka", "data-processing", "real-time"]
+categories = ["database-implementations", "asynchronous", "data-structures"]
 
 [dependencies]
 pretty_env_logger = "0.5.0"
