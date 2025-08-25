@@ -1,14 +1,12 @@
 //! Kafka data reader implementation
 
-use async_trait::async_trait;
-use futures::StreamExt;
 use crate::ferris::kafka::{
-    kafka_error::ConsumerError,
-    serialization::JsonSerializer,
-    KafkaConsumer,
+    kafka_error::ConsumerError, serialization::JsonSerializer, KafkaConsumer,
 };
 use crate::ferris::sql::datasource::{DataReader, SourceOffset};
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use async_trait::async_trait;
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;

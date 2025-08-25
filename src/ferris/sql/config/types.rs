@@ -1,10 +1,10 @@
 //! Configuration type definitions
 
+use super::connection_string::ParseError;
+use super::environment::ConfigSource;
+use super::validation::ValidationError;
 use std::collections::HashMap;
 use std::fmt;
-use super::environment::ConfigSource;
-use super::connection_string::ParseError;
-use super::validation::ValidationError;
 
 /// Complete data source configuration
 #[derive(Debug, Clone, PartialEq)]
@@ -274,7 +274,11 @@ impl fmt::Display for ConfigError {
                 parameter, value, expected
             ),
             ConfigError::MissingParameter { parameter, context } => {
-                write!(f, "Missing required parameter '{}' in {}", parameter, context)
+                write!(
+                    f,
+                    "Missing required parameter '{}' in {}",
+                    parameter, context
+                )
             }
             ConfigError::UnsupportedScheme { scheme, supported } => write!(
                 f,

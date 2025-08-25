@@ -1,9 +1,9 @@
 //! Data source type definitions
 
+use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use crate::ferris::sql::error::SqlError;
 
 /// Source-specific offset/position information
 #[derive(Debug, Clone, PartialEq)]

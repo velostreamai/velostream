@@ -5,8 +5,8 @@ use crate::ferris::sql::schema::Schema;
 use async_trait::async_trait;
 use std::error::Error;
 
-use super::types::{SinkMetadata, SourceMetadata, SourceOffset};
 use super::config::{SinkConfig, SourceConfig};
+use super::types::{SinkMetadata, SourceMetadata, SourceOffset};
 
 /// Core trait for data input sources
 ///

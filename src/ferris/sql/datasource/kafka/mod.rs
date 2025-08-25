@@ -36,19 +36,15 @@
 //! }
 //! ```
 
-pub mod error;
-pub mod data_source;
 pub mod data_sink;
+pub mod data_source;
+pub mod error;
 pub mod reader;
 pub mod writer;
 
 // Re-export key types for backward compatibility
-pub use error::KafkaDataSourceError;
-pub use data_source::KafkaDataSource;
 pub use data_sink::KafkaDataSink;
+pub use data_source::KafkaDataSource;
+pub use error::KafkaDataSourceError;
 pub use reader::KafkaDataReader;
 pub use writer::KafkaDataWriter;
-
-
-
-

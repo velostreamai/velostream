@@ -1,12 +1,9 @@
 //! Kafka data writer implementation
 
-use async_trait::async_trait;
-use crate::ferris::kafka::{
-    Headers, KafkaProducer,
-    serialization::JsonSerializer,
-};
+use crate::ferris::kafka::{serialization::JsonSerializer, Headers, KafkaProducer};
 use crate::ferris::sql::datasource::DataWriter;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use async_trait::async_trait;
 use std::error::Error;
 
 /// Kafka DataWriter implementation

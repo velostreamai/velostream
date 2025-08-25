@@ -47,5 +47,3 @@ pub use config::{ConnectionString, SinkConfig, SourceConfig};
 pub use registry::{create_sink, create_source, DataSourceRegistry};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
-
-
