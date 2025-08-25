@@ -66,10 +66,7 @@ pub enum RecoveryError {
         last_error: String,
     },
     /// Dead letter queue operation failed
-    DeadLetterError {
-        queue: String,
-        message: String,
-    },
+    DeadLetterError { queue: String, message: String },
     /// Resource pool exhausted
     ResourceExhausted {
         resource_type: String,
@@ -92,27 +89,59 @@ pub enum RecoveryError {
 impl std::fmt::Display for RecoveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecoveryError::CircuitOpen { service, last_failure, retry_after } => {
-                write!(f, "Circuit breaker open for '{}': {} (retry in {:?})", 
-                       service, last_failure, retry_after)
+            RecoveryError::CircuitOpen {
+                service,
+                last_failure,
+                retry_after,
+            } => {
+                write!(
+                    f,
+                    "Circuit breaker open for '{}': {} (retry in {:?})",
+                    service, last_failure, retry_after
+                )
             }
-            RecoveryError::RetryExhausted { operation, attempts, last_error } => {
-                write!(f, "Retry exhausted for '{}' after {} attempts: {}", 
-                       operation, attempts, last_error)
+            RecoveryError::RetryExhausted {
+                operation,
+                attempts,
+                last_error,
+            } => {
+                write!(
+                    f,
+                    "Retry exhausted for '{}' after {} attempts: {}",
+                    operation, attempts, last_error
+                )
             }
             RecoveryError::DeadLetterError { queue, message } => {
                 write!(f, "Dead letter queue '{}' error: {}", queue, message)
             }
-            RecoveryError::ResourceExhausted { resource_type, current_usage, max_capacity } => {
-                write!(f, "Resource '{}' exhausted: {}/{}", 
-                       resource_type, current_usage, max_capacity)
+            RecoveryError::ResourceExhausted {
+                resource_type,
+                current_usage,
+                max_capacity,
+            } => {
+                write!(
+                    f,
+                    "Resource '{}' exhausted: {}/{}",
+                    resource_type, current_usage, max_capacity
+                )
             }
-            RecoveryError::HealthCheckFailed { component, check_type, details } => {
-                write!(f, "Health check failed for '{}' ({}): {}", 
-                       component, check_type, details)
+            RecoveryError::HealthCheckFailed {
+                component,
+                check_type,
+                details,
+            } => {
+                write!(
+                    f,
+                    "Health check failed for '{}' ({}): {}",
+                    component, check_type, details
+                )
             }
             RecoveryError::RecoveryTimeout { operation, timeout } => {
-                write!(f, "Recovery timeout for '{}' after {:?}", operation, timeout)
+                write!(
+                    f,
+                    "Recovery timeout for '{}' after {:?}",
+                    operation, timeout
+                )
             }
         }
     }
@@ -227,8 +256,8 @@ impl CircuitBreaker {
                         drop(last_failure);
                         self.transition_to_half_open().await;
                     } else {
-                        let retry_after = self.config.recovery_timeout - 
-                                         start_time.duration_since(failure_time);
+                        let retry_after =
+                            self.config.recovery_timeout - start_time.duration_since(failure_time);
                         return Err(RecoveryError::CircuitOpen {
                             service: self.name.clone(),
                             last_failure: "Circuit breaker is open".to_string(),
@@ -260,9 +289,10 @@ impl CircuitBreaker {
         if self.config.enable_metrics {
             let mut metrics = self.metrics.lock().await;
             metrics.total_requests += 1;
-            metrics.avg_response_time_ms = 
-                (metrics.avg_response_time_ms * (metrics.total_requests - 1) as f64 + 
-                 execution_time.as_millis() as f64) / metrics.total_requests as f64;
+            metrics.avg_response_time_ms = (metrics.avg_response_time_ms
+                * (metrics.total_requests - 1) as f64
+                + execution_time.as_millis() as f64)
+                / metrics.total_requests as f64;
         }
 
         match result {
@@ -279,7 +309,10 @@ impl CircuitBreaker {
                 })
             }
             Err(_timeout) => {
-                let timeout_error = format!("Operation timed out after {:?}", self.config.request_timeout);
+                let timeout_error = format!(
+                    "Operation timed out after {:?}",
+                    self.config.request_timeout
+                );
                 self.record_failure(timeout_error.clone()).await;
                 Err(RecoveryError::RecoveryTimeout {
                     operation: self.name.clone(),
@@ -307,13 +340,13 @@ impl CircuitBreaker {
     pub async fn reset(&self) {
         let mut state = self.state.lock().await;
         *state = CircuitState::Closed;
-        
+
         let mut failure_count = self.failure_count.lock().await;
         *failure_count = 0;
-        
+
         let mut success_count = self.success_count.lock().await;
         *success_count = 0;
-        
+
         let mut last_failure = self.last_failure_time.lock().await;
         *last_failure = None;
     }
@@ -330,7 +363,7 @@ impl CircuitBreaker {
             CircuitState::HalfOpen => {
                 let mut success_count = self.success_count.lock().await;
                 *success_count += 1;
-                
+
                 if *success_count >= self.config.success_threshold {
                     drop(success_count);
                     self.transition_to_closed().await;
@@ -572,27 +605,23 @@ impl RetryPolicy {
     fn should_retry(&self, error: &RecoveryError) -> bool {
         if self.retry_conditions.is_empty() {
             // Default retry conditions
-            matches!(error, 
-                RecoveryError::RecoveryTimeout { .. } |
-                RecoveryError::CircuitOpen { .. }
+            matches!(
+                error,
+                RecoveryError::RecoveryTimeout { .. } | RecoveryError::CircuitOpen { .. }
             )
         } else {
-            self.retry_conditions.iter().any(|condition| {
-                match condition {
-                    RetryCondition::OnError(error_type) => {
-                        error.to_string().contains(error_type)
-                    }
+            self.retry_conditions
+                .iter()
+                .any(|condition| match condition {
+                    RetryCondition::OnError(error_type) => error.to_string().contains(error_type),
                     RetryCondition::OnTimeout => {
                         matches!(error, RecoveryError::RecoveryTimeout { .. })
                     }
                     RetryCondition::OnCircuitOpen => {
                         matches!(error, RecoveryError::CircuitOpen { .. })
                     }
-                    RetryCondition::Custom(condition_fn) => {
-                        condition_fn(error)
-                    }
-                }
-            })
+                    RetryCondition::Custom(condition_fn) => condition_fn(error),
+                })
         }
     }
 
@@ -601,9 +630,7 @@ impl RetryPolicy {
             BackoffStrategy::Fixed => current_delay,
             BackoffStrategy::Linear { increment } => current_delay + *increment,
             BackoffStrategy::Exponential { multiplier } => {
-                Duration::from_millis(
-                    ((current_delay.as_millis() as f64) * multiplier) as u64
-                )
+                Duration::from_millis(((current_delay.as_millis() as f64) * multiplier) as u64)
             }
         };
 
@@ -763,7 +790,7 @@ impl DeadLetterQueue {
     /// Add a failed message to the dead letter queue
     pub async fn enqueue(&self, message: FailedMessage) -> RecoveryResult<()> {
         let mut messages = self.failed_messages.write().await;
-        
+
         // Check capacity
         if messages.len() >= self.config.max_messages {
             // Remove oldest message if at capacity
@@ -785,7 +812,7 @@ impl DeadLetterQueue {
     /// Retrieve failed messages for manual processing
     pub async fn dequeue(&self, count: usize) -> RecoveryResult<Vec<FailedMessage>> {
         let mut messages = self.failed_messages.write().await;
-        
+
         let drain_count = std::cmp::min(count, messages.len());
         let drained: Vec<_> = messages.drain(0..drain_count).collect();
 
@@ -813,9 +840,7 @@ impl DeadLetterQueue {
         let now = Instant::now();
         let initial_count = messages.len();
 
-        messages.retain(|msg| {
-            now.duration_since(msg.failed_at) < self.config.message_ttl
-        });
+        messages.retain(|msg| now.duration_since(msg.failed_at) < self.config.message_ttl);
 
         let expired_count = initial_count - messages.len();
 
@@ -924,17 +949,25 @@ impl HealthMonitor {
     /// Register a component for health monitoring
     pub async fn register_component(&self, name: String) {
         let mut components = self.components.write().await;
-        components.insert(name.clone(), ComponentHealth {
-            name,
-            status: HealthStatus::Unknown,
-            last_check: Instant::now(),
-            consecutive_failures: 0,
-            details: HashMap::new(),
-        });
+        components.insert(
+            name.clone(),
+            ComponentHealth {
+                name,
+                status: HealthStatus::Unknown,
+                last_check: Instant::now(),
+                consecutive_failures: 0,
+                details: HashMap::new(),
+            },
+        );
     }
 
     /// Update health status of a component
-    pub async fn update_health(&self, component: &str, status: HealthStatus, details: HashMap<String, String>) {
+    pub async fn update_health(
+        &self,
+        component: &str,
+        status: HealthStatus,
+        details: HashMap<String, String>,
+    ) {
         let mut components = self.components.write().await;
         if let Some(health) = components.get_mut(component) {
             health.status = status;
@@ -1024,7 +1057,9 @@ mod tests {
         let cb = CircuitBreaker::new("test".to_string());
         assert_eq!(cb.state().await, CircuitState::Closed);
 
-        let result = cb.call(async { Ok::<_, SqlError>("success".to_string()) }).await;
+        let result = cb
+            .call(async { Ok::<_, SqlError>("success".to_string()) })
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
     }
@@ -1037,15 +1072,15 @@ mod tests {
             .build();
 
         // First failure
-        let _ = cb.call(async { 
-            Err::<String, _>(SqlError::execution_error("test error", None)) 
-        }).await;
+        let _ = cb
+            .call(async { Err::<String, _>(SqlError::execution_error("test error", None)) })
+            .await;
         assert_eq!(cb.state().await, CircuitState::Closed);
 
         // Second failure should open the circuit
-        let _ = cb.call(async { 
-            Err::<String, _>(SqlError::execution_error("test error", None)) 
-        }).await;
+        let _ = cb
+            .call(async { Err::<String, _>(SqlError::execution_error("test error", None)) })
+            .await;
         assert_eq!(cb.state().await, CircuitState::Open);
     }
 
@@ -1056,9 +1091,9 @@ mod tests {
             .initial_delay(Duration::from_millis(1))
             .build();
 
-        let result = policy.execute(|| {
-            Box::pin(async { Ok::<_, RecoveryError>("success".to_string()) })
-        }).await;
+        let result = policy
+            .execute(|| Box::pin(async { Ok::<_, RecoveryError>("success".to_string()) }))
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
@@ -1071,14 +1106,16 @@ mod tests {
             .initial_delay(Duration::from_millis(1))
             .build();
 
-        let result = policy.execute(|| {
-            Box::pin(async { 
-                Err::<String, _>(RecoveryError::RecoveryTimeout {
-                    operation: "test".to_string(),
-                    timeout: Duration::from_millis(100),
+        let result = policy
+            .execute(|| {
+                Box::pin(async {
+                    Err::<String, _>(RecoveryError::RecoveryTimeout {
+                        operation: "test".to_string(),
+                        timeout: Duration::from_millis(100),
+                    })
                 })
             })
-        }).await;
+            .await;
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -1115,13 +1152,15 @@ mod tests {
         let monitor = HealthMonitor::new();
 
         monitor.register_component("database".to_string()).await;
-        
+
         // Initially unknown
         let health = monitor.component_health("database").await.unwrap();
         assert_eq!(health.status, HealthStatus::Unknown);
 
         // Update to healthy
-        monitor.update_health("database", HealthStatus::Healthy, HashMap::new()).await;
+        monitor
+            .update_health("database", HealthStatus::Healthy, HashMap::new())
+            .await;
         let health = monitor.component_health("database").await.unwrap();
         assert_eq!(health.status, HealthStatus::Healthy);
 

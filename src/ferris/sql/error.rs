@@ -1,8 +1,8 @@
 /*!
 # SQL Error Handling & Recovery
 
-This module provides comprehensive error handling and recovery mechanisms for the 
-streaming SQL engine, including resilience patterns, retry strategies, and 
+This module provides comprehensive error handling and recovery mechanisms for the
+streaming SQL engine, including resilience patterns, retry strategies, and
 automatic recovery capabilities.
 
 ## Error Categories
@@ -101,8 +101,8 @@ pub mod recovery;
 
 // Re-export recovery types for easy access
 pub use recovery::{
-    CircuitBreaker, CircuitBreakerConfig, CircuitState, RetryPolicy, BackoffStrategy,
-    DeadLetterQueue, HealthMonitor, HealthStatus, RecoveryError, RecoveryResult,
+    BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitState, DeadLetterQueue,
+    HealthMonitor, HealthStatus, RecoveryError, RecoveryResult, RetryPolicy,
 };
 
 use std::fmt;
