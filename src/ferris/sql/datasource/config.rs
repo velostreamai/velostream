@@ -44,6 +44,14 @@ pub enum SourceConfig {
         cdc_format: CdcFormat,
         properties: HashMap<String, String>,
     },
+    /// ClickHouse source configuration
+    ClickHouse {
+        connection_string: String,
+        database: String,
+        table: String,
+        query: Option<String>,
+        properties: HashMap<String, String>,
+    },
     /// Generic configuration for custom sources
     Generic {
         source_type: String,
@@ -83,6 +91,13 @@ pub enum SinkConfig {
         catalog_uri: String,
         warehouse: String,
         namespace: String,
+        table: String,
+        properties: HashMap<String, String>,
+    },
+    /// ClickHouse sink configuration
+    ClickHouse {
+        connection_string: String,
+        database: String,
         table: String,
         properties: HashMap<String, String>,
     },
@@ -328,6 +343,36 @@ impl ConnectionString {
                     properties: self.params.clone(),
                 })
             }
+            "clickhouse" => {
+                let connection_string = match (&self.host, self.port) {
+                    (Some(host), Some(port)) => format!("{}:{}", host, port),
+                    (Some(host), None) => format!("{}:8123", host), // Default HTTP port
+                    _ => return Err(DataSourceError::Configuration(
+                        "ClickHouse source requires host".to_string()
+                    )),
+                };
+                
+                let database = self.path.trim_start_matches('/').to_string();
+                if database.is_empty() {
+                    return Err(DataSourceError::Configuration(
+                        "ClickHouse source requires database".to_string()
+                    ));
+                }
+
+                let table = self.params.get("table")
+                    .ok_or_else(|| DataSourceError::Configuration(
+                        "ClickHouse source requires table parameter".to_string()
+                    ))?
+                    .clone();
+
+                Ok(SourceConfig::ClickHouse {
+                    connection_string,
+                    database,
+                    table,
+                    query: self.params.get("query").cloned(),
+                    properties: self.params.clone(),
+                })
+            }
             _ => Ok(SourceConfig::Generic {
                 source_type: self.scheme.clone(),
                 properties: self.params.clone(),
@@ -404,6 +449,35 @@ impl ConnectionString {
                         .clone(),
                     namespace: format!("{}.{}", table_parts[0], table_parts[1]),
                     table: table_parts[2].to_string(),
+                    properties: self.params.clone(),
+                })
+            }
+            "clickhouse" => {
+                let connection_string = match (&self.host, self.port) {
+                    (Some(host), Some(port)) => format!("{}:{}", host, port),
+                    (Some(host), None) => format!("{}:8123", host), // Default HTTP port
+                    _ => return Err(DataSourceError::Configuration(
+                        "ClickHouse sink requires host".to_string()
+                    )),
+                };
+                
+                let database = self.path.trim_start_matches('/').to_string();
+                if database.is_empty() {
+                    return Err(DataSourceError::Configuration(
+                        "ClickHouse sink requires database".to_string()
+                    ));
+                }
+
+                let table = self.params.get("table")
+                    .ok_or_else(|| DataSourceError::Configuration(
+                        "ClickHouse sink requires table parameter".to_string()
+                    ))?
+                    .clone();
+
+                Ok(SinkConfig::ClickHouse {
+                    connection_string,
+                    database,
+                    table,
                     properties: self.params.clone(),
                 })
             }

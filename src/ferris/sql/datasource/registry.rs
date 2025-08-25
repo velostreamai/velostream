@@ -4,11 +4,13 @@
 //! It allows for dynamic registration and creation of data sources and sinks based on URI schemes.
 
 use crate::ferris::sql::datasource::{DataSource, DataSink, DataSourceError, SourceConfig, SinkConfig, ConnectionString};
+use crate::ferris::sql::datasource::kafka::{KafkaDataSource, KafkaDataSink};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-type SourceFactory = Box<dyn Fn(SourceConfig) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
-type SinkFactory = Box<dyn Fn(SinkConfig) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
+// Simplified type-erased factories
+type SourceFactory = Box<dyn Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
+type SinkFactory = Box<dyn Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
 
 /// Registry for managing data source and sink factories
 pub struct DataSourceRegistry {
@@ -27,10 +29,31 @@ impl DataSourceRegistry {
 
     /// Create a registry with default implementations
     pub fn with_defaults() -> Self {
-        let registry = Self::new();
+        let mut registry = Self::new();
         
-        // Default implementations will be added in Day 3
-        // For now, return empty registry
+        // Register Kafka adapter
+        registry.register_source("kafka", |config| {
+            match config {
+                SourceConfig::Kafka { brokers, topic, group_id, .. } => {
+                    let mut kafka_source = KafkaDataSource::new(brokers, topic);
+                    if let Some(gid) = group_id {
+                        kafka_source = kafka_source.with_group_id(gid);
+                    }
+                    Ok(Box::new(kafka_source))
+                }
+                _ => Err("Invalid configuration for Kafka source".into()),
+            }
+        });
+
+        registry.register_sink("kafka", |config| {
+            match config {
+                SinkConfig::Kafka { brokers, topic, .. } => {
+                    let kafka_sink = KafkaDataSink::new(brokers, topic);
+                    Ok(Box::new(kafka_sink))
+                }
+                _ => Err("Invalid configuration for Kafka sink".into()),
+            }
+        });
         
         registry
     }
@@ -38,7 +61,7 @@ impl DataSourceRegistry {
     /// Register a source factory for a specific scheme
     pub fn register_source<F>(&mut self, scheme: &str, factory: F)
     where
-        F: Fn(SourceConfig) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+        F: Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
     {
         self.source_factories.insert(scheme.to_string(), Box::new(factory));
     }
@@ -46,13 +69,13 @@ impl DataSourceRegistry {
     /// Register a sink factory for a specific scheme  
     pub fn register_sink<F>(&mut self, scheme: &str, factory: F)
     where
-        F: Fn(SinkConfig) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+        F: Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
     {
         self.sink_factories.insert(scheme.to_string(), Box::new(factory));
     }
 
     /// Create a data source from a URI
-    pub fn create_source(&self, uri: &str) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, DataSourceError> {
+    pub fn create_source(&self, uri: &str) -> Result<Box<dyn DataSource>, DataSourceError> {
         let conn = ConnectionString::parse(uri)?;
         let config = conn.to_source_config()?;
         
@@ -65,7 +88,7 @@ impl DataSourceRegistry {
     }
 
     /// Create a data sink from a URI
-    pub fn create_sink(&self, uri: &str) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, DataSourceError> {
+    pub fn create_sink(&self, uri: &str) -> Result<Box<dyn DataSink>, DataSourceError> {
         let conn = ConnectionString::parse(uri)?;
         let config = conn.to_sink_config()?;
         
@@ -116,7 +139,7 @@ pub fn global_registry() -> Arc<Mutex<DataSourceRegistry>> {
 }
 
 /// Convenience function to create a data source from URI using global registry
-pub fn create_source(uri: &str) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, DataSourceError> {
+pub fn create_source(uri: &str) -> Result<Box<dyn DataSource>, DataSourceError> {
     let registry = global_registry();
     let registry = registry.lock()
         .map_err(|_| DataSourceError::Configuration("Failed to acquire registry lock".to_string()))?;
@@ -124,7 +147,7 @@ pub fn create_source(uri: &str) -> Result<Box<dyn DataSource<Error = Box<dyn std
 }
 
 /// Convenience function to create a data sink from URI using global registry  
-pub fn create_sink(uri: &str) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, DataSourceError> {
+pub fn create_sink(uri: &str) -> Result<Box<dyn DataSink>, DataSourceError> {
     let registry = global_registry();
     let registry = registry.lock()
         .map_err(|_| DataSourceError::Configuration("Failed to acquire registry lock".to_string()))?;
@@ -134,7 +157,7 @@ pub fn create_sink(uri: &str) -> Result<Box<dyn DataSink<Error = Box<dyn std::er
 /// Register a source factory globally
 pub fn register_global_source<F>(scheme: &str, factory: F)
 where
-    F: Fn(SourceConfig) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+    F: Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
 {
     let registry = global_registry();
     let mut registry = registry.lock()
@@ -145,7 +168,7 @@ where
 /// Register a sink factory globally
 pub fn register_global_sink<F>(scheme: &str, factory: F) 
 where
-    F: Fn(SinkConfig) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+    F: Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
 {
     let registry = global_registry();
     let mut registry = registry.lock()
@@ -169,7 +192,7 @@ impl RegistryBuilder {
     /// Add a source factory
     pub fn with_source<F>(mut self, scheme: &str, factory: F) -> Self
     where
-        F: Fn(SourceConfig) -> Result<Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+        F: Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
     {
         self.registry.register_source(scheme, factory);
         self
@@ -178,7 +201,7 @@ impl RegistryBuilder {
     /// Add a sink factory
     pub fn with_sink<F>(mut self, scheme: &str, factory: F) -> Self
     where
-        F: Fn(SinkConfig) -> Result<Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
+        F: Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
     {
         self.registry.register_sink(scheme, factory);
         self
@@ -281,8 +304,8 @@ mod tests {
     #[test]
     fn test_registry_builder() {
         let registry = RegistryBuilder::new()
-            .with_source("mock", |_config| Ok(Box::new(MockSource) as Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>))
-            .with_sink("mock", |_config| Ok(Box::new(MockSink) as Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>))
+            .with_source("mock", |_config| Ok(Box::new(MockSource) as Box<dyn DataSource>))
+            .with_sink("mock", |_config| Ok(Box::new(MockSink) as Box<dyn DataSink>))
             .build();
 
         assert!(registry.supports_source("mock"));
@@ -293,9 +316,9 @@ mod tests {
     #[test] 
     fn test_scheme_listing() {
         let registry = RegistryBuilder::new()
-            .with_source("test1", |_| Ok(Box::new(MockSource) as Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>))
-            .with_source("test2", |_| Ok(Box::new(MockSource) as Box<dyn DataSource<Error = Box<dyn std::error::Error + Send + Sync>>>))
-            .with_sink("sink1", |_| Ok(Box::new(MockSink) as Box<dyn DataSink<Error = Box<dyn std::error::Error + Send + Sync>>>))
+            .with_source("test1", |_| Ok(Box::new(MockSource) as Box<dyn DataSource>))
+            .with_source("test2", |_| Ok(Box::new(MockSource) as Box<dyn DataSource>))
+            .with_sink("sink1", |_| Ok(Box::new(MockSink) as Box<dyn DataSink>))
             .build();
 
         let sources = registry.list_source_schemes();

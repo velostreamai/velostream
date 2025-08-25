@@ -56,20 +56,7 @@ impl JoinContext {
         window: &Option<crate::ferris::sql::ast::JoinWindow>,
     ) -> Result<Option<StreamRecord>, SqlError> {
         // For backward compatibility, create empty context
-        let empty_context = super::ProcessorContext {
-            record_count: 0,
-            max_records: None,
-            window_context: None,
-            join_context: JoinContext::new(),
-            group_by_states: std::collections::HashMap::new(),
-            schemas: std::collections::HashMap::new(),
-            stream_handles: std::collections::HashMap::new(),
-            data_sources: std::collections::HashMap::new(),
-            persistent_window_states: Vec::new(),
-            dirty_window_states: 0,
-            metadata: std::collections::HashMap::new(),
-            performance_monitor: None,
-        };
+        let empty_context = super::ProcessorContext::new("legacy_join");
         self.get_right_record_with_context(source, window, &empty_context)
     }
 

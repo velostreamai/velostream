@@ -2,13 +2,14 @@
 
 ## Overview
 
-FerrisStreams will support five core data sources as first-class citizens:
+FerrisStreams will support six core data sources as first-class citizens:
 
 1. **PostgreSQL** - Relational database with CDC capabilities
 2. **S3** - Object storage for data lake architectures  
 3. **File** - Local and network file systems
 4. **Iceberg** - Modern table format for analytics
-5. **Kafka** - Distributed streaming platform (existing)
+5. **ClickHouse** - Columnar OLAP database for analytics
+6. **Kafka** - Distributed streaming platform (existing)
 
 ## Data Source Specifications
 
@@ -106,7 +107,32 @@ iceberg://catalog/sales/orders
 iceberg://rest-catalog/analytics/events?branch=staging
 ```
 
-### 5. Kafka
+### 5. ClickHouse
+
+**URI Format**: `clickhouse://[user[:password]@]host[:port]/database[?params]`
+
+**Parameters**:
+- `table` - Target table name
+- `format` - Data format (Native, TabSeparated, JSON, Parquet)
+- `compression` - Compression algorithm (lz4, gzip, zstd)
+- `batch_size` - Records per batch
+- `optimize` - Run OPTIMIZE after insert
+- `engine` - Table engine (MergeTree, ReplacingMergeTree, etc.)
+
+**Capabilities**:
+- ✅ Source: High-speed analytical queries
+- ✅ Sink: Bulk inserts, streaming inserts
+- ✅ Columnar: Optimized for analytics
+- ✅ Compression: Excellent compression ratios
+- ✅ Aggregations: Built-in aggregation functions
+
+**Example URIs**:
+```
+clickhouse://localhost:8123/analytics?table=events
+clickhouse://user:pass@ch.example.com:9000/warehouse?table=facts&compression=zstd
+```
+
+### 6. Kafka
 
 **URI Format**: `kafka://broker1[:port][,broker2[:port]]/topic[?params]`
 
@@ -137,12 +163,13 @@ kafka://broker1:9092,broker2:9092/orders?format=avro
 2. **File** - Simple local file support
 
 ### Phase 2 (Days 6-7)  
-3. **S3** - Object storage integration
+3. **ClickHouse** - OLAP database integration
 4. **PostgreSQL** - Basic query/insert support
 
 ### Phase 3 (Days 8-10)
-5. **Iceberg** - Table format support
-6. **PostgreSQL CDC** - Change data capture
+5. **S3** - Object storage integration
+6. **Iceberg** - Table format support
+7. **PostgreSQL CDC** - Change data capture
 
 ## Common Interfaces
 
@@ -171,32 +198,37 @@ trait DataSink {
 ### SQL Usage
 
 ```sql
--- PostgreSQL to Kafka
+-- PostgreSQL CDC to Kafka
 CREATE STREAM orders_stream AS
 SELECT * FROM postgresql('localhost/shop?table=orders&cdc=true')
 INSERT INTO kafka('localhost:9092/orders-events');
 
--- S3 to Iceberg
+-- Kafka to ClickHouse Analytics
 CREATE TABLE analytics AS  
-SELECT * FROM s3('data-lake/events/*.parquet')
-INSERT INTO iceberg('catalog/analytics/events');
+SELECT * FROM kafka('localhost:9092/events?group_id=analytics')
+INSERT INTO clickhouse('localhost:8123/warehouse?table=events');
 
--- File monitoring to PostgreSQL
+-- S3 to Iceberg
+CREATE TABLE data_lake AS
+SELECT * FROM s3('data-lake/raw/*.parquet')
+INSERT INTO iceberg('catalog/analytics/processed_events');
+
+-- File monitoring to ClickHouse
 CREATE STREAM file_monitor AS
 SELECT * FROM file('/data/uploads/*.json?watch=true')
-INSERT INTO postgresql('localhost/warehouse?table=uploads');
+INSERT INTO clickhouse('localhost:8123/warehouse?table=uploads');
 ```
 
 ### Programmatic Usage
 
 ```rust
 // Create heterogeneous pipeline
-let postgres = create_source("postgresql://localhost/db?cdc=true")?;
-let s3 = create_sink("s3://archive/changes/*.parquet")?;
+let kafka = create_source("kafka://localhost:9092/events?group_id=analytics")?;
+let clickhouse = create_sink("clickhouse://localhost:8123/warehouse?table=events")?;
 
-// Process CDC events to S3
-let reader = postgres.create_reader().await?;
-let writer = s3.create_writer().await?;
+// Process streaming events to ClickHouse
+let reader = kafka.create_reader().await?;
+let writer = clickhouse.create_writer().await?;
 
 while let Some(record) = reader.read().await? {
     writer.write(record).await?;
@@ -216,6 +248,7 @@ Each data source requires:
 
 ### Required Crates
 - `tokio-postgres` - PostgreSQL async driver
+- `clickhouse` - ClickHouse async client
 - `aws-sdk-s3` - S3 client
 - `iceberg-rust` - Iceberg table format
 - `rdkafka` - Kafka client (existing)

@@ -201,22 +201,13 @@ impl StreamExecutionEngine {
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
-        let mut context = ProcessorContext {
-            record_count: self.record_count,
-            max_records: None,
-            window_context: self.get_window_context_for_processors(query_id),
-            join_context: JoinContext,
-            group_by_states: HashMap::new(),
-            schemas: HashMap::new(),
-            stream_handles: HashMap::new(),
-            data_sources: HashMap::new(), // No default data sources - must be provided externally
-
-            // Initialize high-performance window state management
-            persistent_window_states: Vec::with_capacity(2), // Most contexts handle 1-2 queries
-            dirty_window_states: 0,
-            metadata: HashMap::new(),
-            performance_monitor: self.performance_monitor.as_ref().map(|m| Arc::clone(m)),
-        };
+        let mut context = ProcessorContext::new(query_id);
+        
+        // Set engine state
+        context.record_count = self.record_count;
+        context.window_context = self.get_window_context_for_processors(query_id);
+        context.join_context = JoinContext::new();
+        context.performance_monitor = self.performance_monitor.as_ref().map(|m| Arc::clone(m));
 
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));

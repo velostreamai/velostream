@@ -34,10 +34,21 @@ This directory contains all documentation related to the pluggable data sources 
 ## 🏗️ Architecture Overview
 
 The pluggable data sources architecture enables FerrisStreams to:
-- **Core Data Sources**: PostgreSQL, S3, File, Iceberg, and Kafka
+- **Core Data Sources**: PostgreSQL, S3, File, Iceberg, ClickHouse, and Kafka
 - **Heterogeneous data flow**: Read from one source, write to another
+- **Single Binary, Scale Out**: K8s native autoscaling with horizontal pod scaling
 - **Maintain backward compatibility**: Existing Kafka code continues to work
 - **Support multiple protocols**: Through a unified trait-based interface
+
+### Single Binary, Scale Out Model
+
+FerrisStreams is designed as a **single binary** that can **scale out horizontally** using Kubernetes native autoscaling:
+
+- **📦 Single Binary**: One executable handles all data source types (Kafka, ClickHouse, PostgreSQL, S3, etc.)
+- **⚡ K8s Native Autoscaling**: Automatic horizontal pod scaling based on CPU, memory, or custom metrics
+- **🔄 Stateless Design**: Each instance is stateless, enabling seamless scaling
+- **🎯 Resource Efficiency**: Scale specific workloads independently using K8s deployments
+- **💡 Zero Configuration**: Auto-discovery and dynamic resource allocation
 
 ### Core Supported Data Sources
 
@@ -45,7 +56,8 @@ The pluggable data sources architecture enables FerrisStreams to:
 2. **S3** - Object storage for batch processing
 3. **File** - Local/network file systems
 4. **Iceberg** - Table format for analytics
-5. **Kafka** - Streaming message broker (existing)
+5. **ClickHouse** - Columnar OLAP database
+6. **Kafka** - Streaming message broker (existing)
 
 ### Core Components
 
@@ -63,17 +75,17 @@ src/ferris/sql/datasource/
 let source = create_source("postgresql://localhost/db?table=orders&cdc=true")?;
 let sink = create_sink("kafka://localhost:9092/orders-stream")?;
 
-// Kafka to S3 
+// Kafka to ClickHouse 
 let source = create_source("kafka://localhost:9092/events")?;
-let sink = create_sink("s3://bucket/events/*.parquet")?;
+let sink = create_sink("clickhouse://localhost:8123/analytics?table=events")?;
 
 // File to Iceberg
 let source = create_source("file:///data/input/*.csv")?;
 let sink = create_sink("iceberg://catalog/namespace/table")?;
 
-// S3 to PostgreSQL
-let source = create_source("s3://bucket/data/*.json")?;
-let sink = create_sink("postgresql://localhost/warehouse?table=facts")?;
+// S3 to ClickHouse Analytics
+let source = create_source("s3://bucket/data/*.parquet")?;
+let sink = create_sink("clickhouse://localhost:8123/warehouse?table=facts")?;
 ```
 
 ## 🔗 Quick Links

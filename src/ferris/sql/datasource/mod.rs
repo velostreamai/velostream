@@ -41,6 +41,7 @@ use std::fmt;
 
 pub mod config;
 pub mod registry;
+pub mod kafka;
 
 // Re-export key types
 pub use config::{SourceConfig, SinkConfig, ConnectionString};
@@ -52,17 +53,15 @@ pub use registry::{DataSourceRegistry, create_source, create_sink};
 /// Implementations can be for Kafka topics, S3 buckets, local files, database tables, etc.
 #[async_trait]
 pub trait DataSource: Send + Sync + 'static {
-    type Error: Error + Send + Sync + 'static;
-
     /// Initialize the data source with configuration
-    async fn initialize(&mut self, config: SourceConfig) -> Result<(), Self::Error>;
+    async fn initialize(&mut self, config: SourceConfig) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Get schema information for this source
-    async fn fetch_schema(&self) -> Result<Schema, Self::Error>;
+    async fn fetch_schema(&self) -> Result<Schema, Box<dyn Error + Send + Sync>>;
 
     /// Create a reader for this source
     /// Multiple readers can be created for parallel processing
-    async fn create_reader(&self) -> Result<Box<dyn DataReader>, Self::Error>;
+    async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn Error + Send + Sync>>;
 
     /// Check if this source supports real-time streaming
     fn supports_streaming(&self) -> bool;
@@ -80,17 +79,15 @@ pub trait DataSource: Send + Sync + 'static {
 /// Implementations can be for Kafka topics, S3 buckets, Iceberg tables, databases, etc.
 #[async_trait]
 pub trait DataSink: Send + Sync + 'static {
-    type Error: Error + Send + Sync + 'static;
-
     /// Initialize the data sink with configuration
-    async fn initialize(&mut self, config: SinkConfig) -> Result<(), Self::Error>;
+    async fn initialize(&mut self, config: SinkConfig) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Validate that the provided schema is compatible with this sink
-    async fn validate_schema(&self, schema: &Schema) -> Result<(), Self::Error>;
+    async fn validate_schema(&self, schema: &Schema) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Create a writer for this sink
     /// Multiple writers can be created for parallel processing
-    async fn create_writer(&self) -> Result<Box<dyn DataWriter>, Self::Error>;
+    async fn create_writer(&self) -> Result<Box<dyn DataWriter>, Box<dyn Error + Send + Sync>>;
 
     /// Check if this sink supports transactional writes
     fn supports_transactions(&self) -> bool;
