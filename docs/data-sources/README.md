@@ -97,21 +97,29 @@ src/ferris/sql/datasource/
 ### Example Usage
 
 ```rust
+// File CSV to Kafka
+let source = create_source("file:///data/orders.csv?format=csv&delimiter=,")?;
+let sink = create_sink("kafka://localhost:9092/orders-stream")?;
+
+// Kafka to File JSON-Lines
+let source = create_source("kafka://localhost:9092/events")?;
+let sink = create_sink("file:///output/events.jsonl?format=jsonl")?;
+
+// File Parquet to PostgreSQL
+let source = create_source("file:///data/analytics/*.parquet")?;
+let sink = create_sink("postgresql://localhost/warehouse?table=facts")?;
+
 // PostgreSQL CDC to Kafka
 let source = create_source("postgresql://localhost/db?table=orders&cdc=true")?;
 let sink = create_sink("kafka://localhost:9092/orders-stream")?;
 
-// Kafka to ClickHouse 
-let source = create_source("kafka://localhost:9092/events")?;
-let sink = create_sink("clickhouse://localhost:8123/analytics?table=events")?;
+// S3 to ClickHouse Analytics
+let source = create_source("s3://bucket/data/*.parquet?region=us-west-2")?;
+let sink = create_sink("clickhouse://localhost:8123/warehouse?table=facts")?;
 
 // File to Iceberg
-let source = create_source("file:///data/input/*.csv")?;
+let source = create_source("file:///data/input/*.json?format=json")?;
 let sink = create_sink("iceberg://catalog/namespace/table")?;
-
-// S3 to ClickHouse Analytics
-let source = create_source("s3://bucket/data/*.parquet")?;
-let sink = create_sink("clickhouse://localhost:8123/warehouse?table=facts")?;
 ```
 
 ## 🔗 Quick Links
@@ -148,6 +156,7 @@ Overall Progress
 1. **Day 9** (In Progress): Complete documentation updates
 2. **Day 10**: Performance optimization and benchmarking
 3. **Post-Plan**: Begin implementing additional data sources:
+   - File I/O adapter (CSV, JSON, Parquet)
    - PostgreSQL CDC adapter
    - S3 batch processing
    - ClickHouse analytics sink

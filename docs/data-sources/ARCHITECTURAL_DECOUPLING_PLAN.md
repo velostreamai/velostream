@@ -872,8 +872,13 @@
 
 With this foundation in place, you can:
 
-1. **Start implementing new data sources** in parallel
-2. **Begin Phase 1 of pluggable sources** (File systems)
+1. **Start implementing new data sources** in parallel:
+   - File I/O adapter (CSV, JSON, Parquet, Avro)
+   - PostgreSQL CDC with debezium-like functionality
+   - S3 object storage with multiple format support
+   - ClickHouse columnar analytics
+   - Iceberg table format for data lakes
+2. **Begin Phase 1 of pluggable sources** (File systems and databases)
 3. **Community can contribute** data source implementations
 4. **Existing code continues to work** without modification
 
