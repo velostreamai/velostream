@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::{
-    FieldValue, SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine,
-    StreamingSqlParser, execution::performance::PerformanceMonitor,
+    execution::performance::PerformanceMonitor, FieldValue, SqlApplication, SqlApplicationParser,
+    SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{error, info, warn};
 use serde_json::Value;
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 #[derive(Parser)]

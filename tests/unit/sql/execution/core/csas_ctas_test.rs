@@ -1,9 +1,9 @@
 use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::DataType;
 
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};

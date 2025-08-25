@@ -9,10 +9,10 @@ use super::{
 };
 use crate::ferris::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::ferris::sql::execution::{
-    FieldValue, StreamRecord,
-    aggregation::{AccumulatorManager, state::GroupByStateManager},
+    aggregation::{state::GroupByStateManager, AccumulatorManager},
     expression::{ExpressionEvaluator, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
+    FieldValue, StreamRecord,
 };
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;

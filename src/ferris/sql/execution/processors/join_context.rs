@@ -5,9 +5,9 @@ JOIN processing context and utilities for managing join operations.
 */
 
 use super::join::JoinProcessor;
-use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::StreamSource;
 use crate::ferris::sql::execution::StreamRecord;
+use crate::ferris::sql::SqlError;
 
 /// JOIN processing context and utilities
 pub struct JoinContext;

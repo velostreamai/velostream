@@ -5,11 +5,11 @@ High-performance hash join algorithm for large dataset JOINs.
 Provides 10x+ performance improvement over nested loop joins for large relations.
 */
 
-use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType};
 use crate::ferris::sql::execution::expression::ExpressionEvaluator;
 use crate::ferris::sql::execution::processors::{ProcessorContext, SelectProcessor};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use crate::ferris::sql::SqlError;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};

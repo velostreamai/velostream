@@ -6,11 +6,11 @@ subqueries independently without calling back to the engine. This maintains the
 proper parent-child architecture where the engine delegates to processors.
 */
 
-use crate::ferris::sql::StreamingQuery;
 use crate::ferris::sql::ast::SubqueryType;
 use crate::ferris::sql::error::SqlError;
 use crate::ferris::sql::execution::processors::ProcessorContext;
 use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use crate::ferris::sql::StreamingQuery;
 
 /// Trait for executing subqueries within expression evaluation
 ///

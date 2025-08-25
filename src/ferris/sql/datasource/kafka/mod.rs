@@ -32,9 +32,9 @@
 //! ```
 
 use crate::ferris::kafka::{
-    Headers, KafkaConsumer, KafkaProducer,
     kafka_error::{ConsumerError, ProducerError},
     serialization::JsonSerializer,
+    Headers, KafkaConsumer, KafkaProducer,
 };
 use crate::ferris::sql::ast::DataType;
 use crate::ferris::sql::datasource::{

@@ -45,7 +45,7 @@ pub mod registry;
 
 // Re-export key types
 pub use config::{ConnectionString, SinkConfig, SourceConfig};
-pub use registry::{DataSourceRegistry, create_sink, create_source};
+pub use registry::{create_sink, create_source, DataSourceRegistry};
 
 /// Core trait for data input sources
 ///

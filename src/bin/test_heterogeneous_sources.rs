@@ -5,9 +5,9 @@
 
 use async_trait::async_trait;
 use ferrisstreams::ferris::sql::datasource::{DataReader, DataWriter, SourceOffset};
+use ferrisstreams::ferris::sql::execution::processors::ProcessorContext;
 use ferrisstreams::ferris::sql::execution::FieldValue;
 use ferrisstreams::ferris::sql::execution::StreamRecord;
-use ferrisstreams::ferris::sql::execution::processors::ProcessorContext;
 use std::collections::HashMap;
 use std::error::Error;
 

@@ -1,5 +1,5 @@
 use crate::ferris::kafka::common_config::{CommonKafkaConfig, HasCommonConfig};
-use crate::ferris::kafka::performance_presets::{PerformancePresets, presets};
+use crate::ferris::kafka::performance_presets::{presets, PerformancePresets};
 use std::collections::HashMap;
 use std::time::Duration;
 

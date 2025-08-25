@@ -5,8 +5,8 @@ Provides detailed statistics collection for individual queries and overall syste
 This module tracks query execution patterns, resource usage, and performance trends.
 */
 
-use super::QueryPerformance;
 use super::metrics::{PerformanceMetrics, ThroughputMetrics};
+use super::QueryPerformance;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

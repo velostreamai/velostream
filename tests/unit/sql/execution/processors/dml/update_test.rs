@@ -272,11 +272,9 @@ async fn test_update_validation_empty_assignments() {
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("UPDATE must have at least one SET assignment")
-    );
+    assert!(error
+        .to_string()
+        .contains("UPDATE must have at least one SET assignment"));
 }
 
 // Test 9: Validation - Empty column name in assignment
@@ -295,11 +293,9 @@ async fn test_update_validation_empty_column() {
 
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Column name in SET clause cannot be empty")
-    );
+    assert!(error
+        .to_string()
+        .contains("Column name in SET clause cannot be empty"));
 }
 
 // Test 10: Get affected columns

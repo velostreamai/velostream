@@ -4,15 +4,15 @@ use ferrisstreams::ferris::{
     kafka::{JsonSerializer, KafkaConsumer},
     serialization::{InternalValue, JsonFormat},
     sql::{
-        FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser,
-        execution::performance::PerformanceMonitor,
+        execution::performance::PerformanceMonitor, FieldValue, SqlError, StreamExecutionEngine,
+        StreamRecord, StreamingSqlParser,
     },
 };
 use log::{error, info, warn};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]

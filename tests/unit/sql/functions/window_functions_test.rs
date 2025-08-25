@@ -743,7 +743,7 @@ async fn test_ntile_function() {
 
     // In streaming, each record calculates its own tile based on current position
     assert_eq!(results[0]["tile"], InternalValue::Integer(1)); // Row 1 of 1 rows -> tile 1
-    assert_eq!(results[1]["tile"], InternalValue::Integer(1)); // Row 1 of 2 rows -> tile 1  
+    assert_eq!(results[1]["tile"], InternalValue::Integer(1)); // Row 1 of 2 rows -> tile 1
     assert_eq!(results[2]["tile"], InternalValue::Integer(1)); // Row 1 of 3 rows -> tile 1
     assert_eq!(results[3]["tile"], InternalValue::Integer(1)); // Row 1 of 4 rows -> tile 1
 }

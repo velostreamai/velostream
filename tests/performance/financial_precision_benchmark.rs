@@ -12,8 +12,8 @@ and compares performance/accuracy of different numeric representations:
 Issue: https://github.com/bluemonk3y/ferris_streams/issues/19
 */
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*; // Includes ToPrimitive trait for to_f64()
+use rust_decimal::Decimal;
 use std::time::Instant;
 
 /// Financial amount with 4 decimal places precision using i64
