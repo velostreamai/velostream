@@ -202,7 +202,7 @@ impl StreamExecutionEngine {
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
         let mut context = ProcessorContext::new(query_id);
-        
+
         // Set engine state
         context.record_count = self.record_count;
         context.window_context = self.get_window_context_for_processors(query_id);

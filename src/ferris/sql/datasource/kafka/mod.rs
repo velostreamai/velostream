@@ -33,16 +33,16 @@
 
 use crate::ferris::kafka::{
     Headers, KafkaConsumer, KafkaProducer,
-    kafka_error::{ConsumerError, ProducerError}, 
+    kafka_error::{ConsumerError, ProducerError},
     serialization::JsonSerializer,
 };
+use crate::ferris::sql::ast::DataType;
 use crate::ferris::sql::datasource::{
-    DataSource, DataSink, DataReader, DataWriter, SourceConfig, SinkConfig,
-    SourceMetadata, SinkMetadata, SourceOffset
+    DataReader, DataSink, DataSource, DataWriter, SinkConfig, SinkMetadata, SourceConfig,
+    SourceMetadata, SourceOffset,
 };
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use crate::ferris::sql::schema::{Schema, FieldDefinition};
-use crate::ferris::sql::ast::DataType;
+use crate::ferris::sql::schema::{FieldDefinition, Schema};
 use async_trait::async_trait;
 use rdkafka::error::KafkaError;
 use std::collections::HashMap;
@@ -136,19 +136,27 @@ impl KafkaDataSource {
     }
 }
 
-#[async_trait]  
+#[async_trait]
 impl DataSource for KafkaDataSource {
-    async fn initialize(&mut self, config: SourceConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: SourceConfig,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match config {
-            SourceConfig::Kafka { brokers, topic, group_id, .. } => {
+            SourceConfig::Kafka {
+                brokers,
+                topic,
+                group_id,
+                ..
+            } => {
                 self.brokers = brokers;
                 self.topic = topic;
                 self.group_id = group_id;
                 Ok(())
             }
             _ => Err(Box::new(KafkaDataSourceError::Configuration(
-                "Expected Kafka configuration".to_string()
-            )))
+                "Expected Kafka configuration".to_string(),
+            ))),
         }
     }
 
@@ -162,24 +170,34 @@ impl DataSource for KafkaDataSource {
             FieldDefinition::required("offset".to_string(), DataType::Integer),
             FieldDefinition::required("partition".to_string(), DataType::Integer),
         ];
-        
+
         Ok(Schema::new(fields))
     }
 
-    async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
-        let group_id = self.group_id.as_ref()
-            .ok_or_else(|| Box::new(KafkaDataSourceError::Configuration("Group ID required for consumer".to_string())) as Box<dyn std::error::Error + Send + Sync>)?;
+    async fn create_reader(
+        &self,
+    ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
+        let group_id = self.group_id.as_ref().ok_or_else(|| {
+            Box::new(KafkaDataSourceError::Configuration(
+                "Group ID required for consumer".to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         let consumer = KafkaConsumer::<String, String, _, _>::new(
             &self.brokers,
             group_id,
             JsonSerializer,
-            JsonSerializer
-        ).map_err(|e| Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            JsonSerializer,
+        )
+        .map_err(|e| {
+            Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
-        consumer.subscribe(&[&self.topic]).map_err(|e| Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        consumer.subscribe(&[&self.topic]).map_err(|e| {
+            Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
-        Ok(Box::new(KafkaDataReader { 
+        Ok(Box::new(KafkaDataReader {
             consumer,
             topic: self.topic.clone(),
         }))
@@ -237,7 +255,10 @@ impl KafkaDataSink {
 
 #[async_trait]
 impl DataSink for KafkaDataSink {
-    async fn initialize(&mut self, config: SinkConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        config: SinkConfig,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match config {
             SinkConfig::Kafka { brokers, topic, .. } => {
                 self.brokers = brokers;
@@ -245,24 +266,32 @@ impl DataSink for KafkaDataSink {
                 Ok(())
             }
             _ => Err(Box::new(KafkaDataSourceError::Configuration(
-                "Expected Kafka configuration".to_string()
-            )))
+                "Expected Kafka configuration".to_string(),
+            ))),
         }
     }
 
-    async fn validate_schema(&self, _schema: &Schema) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn validate_schema(
+        &self,
+        _schema: &Schema,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Kafka is schema-flexible, so we accept any schema
         // In practice, this could validate against Schema Registry
         Ok(())
     }
 
-    async fn create_writer(&self) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_writer(
+        &self,
+    ) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
         let producer = KafkaProducer::<String, String, _, _>::new(
             &self.brokers,
             &self.topic,
             JsonSerializer,
-            JsonSerializer
-        ).map_err(|e| Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            JsonSerializer,
+        )
+        .map_err(|e| {
+            Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>
+        })?;
 
         Ok(Box::new(KafkaDataWriter {
             producer,
@@ -307,17 +336,20 @@ impl DataReader for KafkaDataReader {
         match self.consumer.poll(Duration::from_millis(1000)).await {
             Ok(message) => {
                 let mut fields = HashMap::new();
-                
+
                 // Add key if present
                 if let Some(key) = message.key() {
                     fields.insert("key".to_string(), FieldValue::String(key.clone()));
                 } else {
                     fields.insert("key".to_string(), FieldValue::Null);
                 }
-                
+
                 // Add value
-                fields.insert("value".to_string(), FieldValue::String(message.value().clone()));
-                
+                fields.insert(
+                    "value".to_string(),
+                    FieldValue::String(message.value().clone()),
+                );
+
                 // Convert headers
                 let mut header_map = HashMap::new();
                 for (key, value) in message.headers().iter() {
@@ -328,7 +360,9 @@ impl DataReader for KafkaDataReader {
 
                 let record = StreamRecord {
                     fields,
-                    timestamp: message.timestamp().unwrap_or(chrono::Utc::now().timestamp_millis()),
+                    timestamp: message
+                        .timestamp()
+                        .unwrap_or(chrono::Utc::now().timestamp_millis()),
                     offset: message.offset(),
                     partition: message.partition(),
                     headers: header_map,
@@ -341,26 +375,34 @@ impl DataReader for KafkaDataReader {
         }
     }
 
-    async fn read_batch(&mut self, max_size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_batch(
+        &mut self,
+        max_size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(max_size);
-        
+
         for _ in 0..max_size {
             match self.read().await? {
                 Some(record) => records.push(record),
                 None => break,
             }
         }
-        
+
         Ok(records)
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer.commit().map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        self.consumer
+            .commit()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
         match offset {
-            SourceOffset::Kafka { partition: _, offset: _ } => {
+            SourceOffset::Kafka {
+                partition: _,
+                offset: _,
+            } => {
                 // TODO: Implement seek functionality
                 // This would require exposing seek methods from the KafkaConsumer
                 Err("Seek not yet implemented for Kafka adapter".into())
@@ -404,24 +446,29 @@ impl DataWriter for KafkaDataWriter {
         }
 
         // Send message
-        self.producer.send(
-            key.as_ref(),
-            &value, 
-            headers,
-            None
-        ).await.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+        self.producer
+            .send(key.as_ref(), &value, headers, None)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn write_batch(
+        &mut self,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         for record in records {
             self.write(record).await?;
         }
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Kafka doesn't support updates directly - treat as write
         self.write(record).await
     }

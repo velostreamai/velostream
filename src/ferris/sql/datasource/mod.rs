@@ -31,8 +31,8 @@
 //! }
 //! ```
 
-use crate::ferris::sql::execution::types::StreamRecord;
 use crate::ferris::sql::error::SqlError;
+use crate::ferris::sql::execution::types::StreamRecord;
 use crate::ferris::sql::schema::Schema;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -40,21 +40,24 @@ use std::error::Error;
 use std::fmt;
 
 pub mod config;
-pub mod registry;
 pub mod kafka;
+pub mod registry;
 
 // Re-export key types
-pub use config::{SourceConfig, SinkConfig, ConnectionString};
-pub use registry::{DataSourceRegistry, create_source, create_sink};
+pub use config::{ConnectionString, SinkConfig, SourceConfig};
+pub use registry::{DataSourceRegistry, create_sink, create_source};
 
 /// Core trait for data input sources
-/// 
+///
 /// This trait abstracts any data source that can provide streaming or batch data.
 /// Implementations can be for Kafka topics, S3 buckets, local files, database tables, etc.
 #[async_trait]
 pub trait DataSource: Send + Sync + 'static {
     /// Initialize the data source with configuration
-    async fn initialize(&mut self, config: SourceConfig) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn initialize(
+        &mut self,
+        config: SourceConfig,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Get schema information for this source
     async fn fetch_schema(&self) -> Result<Schema, Box<dyn Error + Send + Sync>>;
@@ -109,7 +112,10 @@ pub trait DataReader: Send + Sync {
 
     /// Read multiple records in a batch (more efficient for some sources)
     /// Returns empty vector when no more data is available
-    async fn read_batch(&mut self, max_size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
+    async fn read_batch(
+        &mut self,
+        max_size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
 
     /// Commit the current reading position (for sources that support it)
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
@@ -128,12 +134,19 @@ pub trait DataWriter: Send + Sync {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Write multiple records in a batch (more efficient for some sinks)
-    async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn write_batch(
+        &mut self,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Update an existing record (for sinks that support it)
-    async fn update(&mut self, key: &str, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn update(
+        &mut self,
+        key: &str,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
-    /// Delete a record (for sinks that support it) 
+    /// Delete a record (for sinks that support it)
     async fn delete(&mut self, key: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Flush any buffered writes
@@ -152,11 +165,22 @@ pub enum SourceOffset {
     /// Kafka offset (partition, offset)
     Kafka { partition: i32, offset: i64 },
     /// File position (file path, byte offset, line number)
-    File { path: String, byte_offset: u64, line_number: u64 },
+    File {
+        path: String,
+        byte_offset: u64,
+        line_number: u64,
+    },
     /// S3 object position (bucket, key, byte offset)
-    S3 { bucket: String, key: String, byte_offset: u64 },
+    S3 {
+        bucket: String,
+        key: String,
+        byte_offset: u64,
+    },
     /// Database cursor position (table, primary key values)
-    Database { table: String, cursor: HashMap<String, String> },
+    Database {
+        table: String,
+        cursor: HashMap<String, String>,
+    },
     /// Generic string-based offset
     Generic(String),
 }
@@ -238,7 +262,10 @@ mod tests {
 
     #[test]
     fn test_offset_types() {
-        let kafka_offset = SourceOffset::Kafka { partition: 0, offset: 100 };
+        let kafka_offset = SourceOffset::Kafka {
+            partition: 0,
+            offset: 100,
+        };
         let file_offset = SourceOffset::File {
             path: "/data/file.json".to_string(),
             byte_offset: 1024,

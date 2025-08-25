@@ -7,12 +7,12 @@
 //! - LIMIT processing
 //! - SHOW/DESCRIBE processing
 
+use crate::ferris::sql::datasource::{DataReader, DataWriter, SourceOffset};
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::execution::performance::{PerformanceMonitor, QueryTracker};
 use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
-use crate::ferris::sql::datasource::{DataReader, DataWriter, SourceOffset};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -297,11 +297,11 @@ impl ProcessorContext {
         let mut context = Self::new(query_id);
         context.data_readers = readers;
         context.data_writers = writers;
-        
+
         // Set first reader and writer as active by default
         context.active_reader = context.data_readers.keys().next().map(|s| s.clone());
         context.active_writer = context.data_writers.keys().next().map(|s| s.clone());
-        
+
         context
     }
 
@@ -415,11 +415,13 @@ impl ProcessorContext {
 
     /// Read from a specific data source
     pub async fn read_from(&mut self, source_name: &str) -> Result<Option<StreamRecord>, SqlError> {
-        let reader = self.data_readers.get_mut(source_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data source '{}' not found in context", source_name),
-                query: None,
-            })?;
+        let reader =
+            self.data_readers
+                .get_mut(source_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", source_name),
+                    query: None,
+                })?;
 
         reader.read().await.map_err(|e| SqlError::ExecutionError {
             message: format!("Failed to read from source '{}': {}", source_name, e),
@@ -428,22 +430,33 @@ impl ProcessorContext {
     }
 
     /// Write to a specific data sink
-    pub async fn write_to(&mut self, sink_name: &str, record: StreamRecord) -> Result<(), SqlError> {
-        let writer = self.data_writers.get_mut(sink_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data sink '{}' not found in context", sink_name),
-                query: None,
-            })?;
+    pub async fn write_to(
+        &mut self,
+        sink_name: &str,
+        record: StreamRecord,
+    ) -> Result<(), SqlError> {
+        let writer =
+            self.data_writers
+                .get_mut(sink_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", sink_name),
+                    query: None,
+                })?;
 
-        writer.write(record).await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to write to sink '{}': {}", sink_name, e),
-            query: None,
-        })
+        writer
+            .write(record)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to write to sink '{}': {}", sink_name, e),
+                query: None,
+            })
     }
 
     /// Read from the active data source
     pub async fn read(&mut self) -> Result<Option<StreamRecord>, SqlError> {
-        let source_name = self.active_reader.clone()
+        let source_name = self
+            .active_reader
+            .clone()
             .ok_or_else(|| SqlError::ExecutionError {
                 message: "No active data source configured".to_string(),
                 query: None,
@@ -453,7 +466,9 @@ impl ProcessorContext {
 
     /// Write to the active data sink
     pub async fn write(&mut self, record: StreamRecord) -> Result<(), SqlError> {
-        let sink_name = self.active_writer.clone()
+        let sink_name = self
+            .active_writer
+            .clone()
             .ok_or_else(|| SqlError::ExecutionError {
                 message: "No active data sink configured".to_string(),
                 query: None,
@@ -496,40 +511,60 @@ impl ProcessorContext {
     }
 
     /// Read a batch of records from a specific source
-    pub async fn read_batch_from(&mut self, source_name: &str, max_size: usize) -> Result<Vec<StreamRecord>, SqlError> {
-        let reader = self.data_readers.get_mut(source_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data source '{}' not found in context", source_name),
-                query: None,
-            })?;
+    pub async fn read_batch_from(
+        &mut self,
+        source_name: &str,
+        max_size: usize,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        let reader =
+            self.data_readers
+                .get_mut(source_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", source_name),
+                    query: None,
+                })?;
 
-        reader.read_batch(max_size).await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to read batch from source '{}': {}", source_name, e),
-            query: None,
-        })
+        reader
+            .read_batch(max_size)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to read batch from source '{}': {}", source_name, e),
+                query: None,
+            })
     }
 
     /// Write a batch of records to a specific sink
-    pub async fn write_batch_to(&mut self, sink_name: &str, records: Vec<StreamRecord>) -> Result<(), SqlError> {
-        let writer = self.data_writers.get_mut(sink_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data sink '{}' not found in context", sink_name),
-                query: None,
-            })?;
+    pub async fn write_batch_to(
+        &mut self,
+        sink_name: &str,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), SqlError> {
+        let writer =
+            self.data_writers
+                .get_mut(sink_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", sink_name),
+                    query: None,
+                })?;
 
-        writer.write_batch(records).await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to write batch to sink '{}': {}", sink_name, e),
-            query: None,
-        })
+        writer
+            .write_batch(records)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to write batch to sink '{}': {}", sink_name, e),
+                query: None,
+            })
     }
 
     /// Commit reads from a specific source
     pub async fn commit_source(&mut self, source_name: &str) -> Result<(), SqlError> {
-        let reader = self.data_readers.get_mut(source_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data source '{}' not found in context", source_name),
-                query: None,
-            })?;
+        let reader =
+            self.data_readers
+                .get_mut(source_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", source_name),
+                    query: None,
+                })?;
 
         reader.commit().await.map_err(|e| SqlError::ExecutionError {
             message: format!("Failed to commit source '{}': {}", source_name, e),
@@ -539,11 +574,13 @@ impl ProcessorContext {
 
     /// Commit writes to a specific sink
     pub async fn commit_sink(&mut self, sink_name: &str) -> Result<(), SqlError> {
-        let writer = self.data_writers.get_mut(sink_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data sink '{}' not found in context", sink_name),
-                query: None,
-            })?;
+        let writer =
+            self.data_writers
+                .get_mut(sink_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", sink_name),
+                    query: None,
+                })?;
 
         writer.commit().await.map_err(|e| SqlError::ExecutionError {
             message: format!("Failed to commit sink '{}': {}", sink_name, e),
@@ -552,20 +589,30 @@ impl ProcessorContext {
     }
 
     /// Seek to a specific position in a data source
-    pub async fn seek_source(&mut self, source_name: &str, offset: SourceOffset) -> Result<(), SqlError> {
-        let reader = self.data_readers.get_mut(source_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data source '{}' not found in context", source_name),
+    pub async fn seek_source(
+        &mut self,
+        source_name: &str,
+        offset: SourceOffset,
+    ) -> Result<(), SqlError> {
+        let reader =
+            self.data_readers
+                .get_mut(source_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", source_name),
+                    query: None,
+                })?;
+
+        reader
+            .seek(offset.clone())
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to seek in source '{}': {}", source_name, e),
                 query: None,
             })?;
 
-        reader.seek(offset.clone()).await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to seek in source '{}': {}", source_name, e),
-            query: None,
-        })?;
-
         // Store the new position
-        self.source_positions.insert(source_name.to_string(), offset);
+        self.source_positions
+            .insert(source_name.to_string(), offset);
         Ok(())
     }
 
@@ -587,16 +634,24 @@ impl ProcessorContext {
 
     /// Check if a specific source has more data available
     pub async fn has_more_data(&self, source_name: &str) -> Result<bool, SqlError> {
-        let reader = self.data_readers.get(source_name)
-            .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Data source '{}' not found in context", source_name),
-                query: None,
-            })?;
+        let reader =
+            self.data_readers
+                .get(source_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", source_name),
+                    query: None,
+                })?;
 
-        reader.has_more().await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to check data availability for source '{}': {}", source_name, e),
-            query: None,
-        })
+        reader
+            .has_more()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to check data availability for source '{}': {}",
+                    source_name, e
+                ),
+                query: None,
+            })
     }
 }
 

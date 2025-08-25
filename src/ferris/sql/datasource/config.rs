@@ -1,7 +1,7 @@
 //! Configuration system for pluggable data sources
 //!
 //! This module provides configuration abstractions for different data source types.
-//! It supports both URI-based configuration (e.g., "kafka://localhost:9092/topic") 
+//! It supports both URI-based configuration (e.g., "kafka://localhost:9092/topic")
 //! and structured configuration objects.
 
 use crate::ferris::sql::datasource::DataSourceError;
@@ -171,7 +171,7 @@ pub struct ConnectionString {
 
 impl ConnectionString {
     /// Parse a URI into a ConnectionString
-    /// 
+    ///
     /// Examples:
     /// - `kafka://localhost:9092/orders?group_id=analytics`
     /// - `s3://bucket/path/*.parquet?region=us-west-2&compression=snappy`
@@ -181,9 +181,10 @@ impl ConnectionString {
         // Simple URI parsing - in production, use a proper URI parser
         let parts: Vec<&str> = uri.splitn(2, "://").collect();
         if parts.len() != 2 {
-            return Err(DataSourceError::Configuration(
-                format!("Invalid URI format: {}", uri)
-            ));
+            return Err(DataSourceError::Configuration(format!(
+                "Invalid URI format: {}",
+                uri
+            )));
         }
 
         let scheme = parts[0].to_string();
@@ -204,7 +205,7 @@ impl ConnectionString {
             let host_path: Vec<&str> = path_part.splitn(2, '/').collect();
             let host_port = host_path[0];
             let path = format!("/{}", host_path[1]);
-            
+
             let (host, port) = if host_port.contains(':') {
                 let hp: Vec<&str> = host_port.splitn(2, ':').collect();
                 let host = Some(hp[0].to_string());
@@ -213,7 +214,7 @@ impl ConnectionString {
             } else {
                 (Some(host_port.to_string()), None)
             };
-            
+
             (host, port, path)
         } else {
             // Host only or special format: iceberg://catalog.namespace.table
@@ -247,15 +248,17 @@ impl ConnectionString {
                 let brokers = match (&self.host, self.port) {
                     (Some(host), Some(port)) => format!("{}:{}", host, port),
                     (Some(host), None) => format!("{}:9092", host),
-                    _ => return Err(DataSourceError::Configuration(
-                        "Kafka source requires host".to_string()
-                    )),
+                    _ => {
+                        return Err(DataSourceError::Configuration(
+                            "Kafka source requires host".to_string(),
+                        ));
+                    }
                 };
-                
+
                 let topic = self.path.trim_start_matches('/').to_string();
                 if topic.is_empty() {
                     return Err(DataSourceError::Configuration(
-                        "Kafka source requires topic".to_string()
+                        "Kafka source requires topic".to_string(),
                     ));
                 }
 
@@ -289,7 +292,9 @@ impl ConnectionString {
                     }
                 };
 
-                let watch = self.params.get("watch")
+                let watch = self
+                    .params
+                    .get("watch")
                     .map(|v| v == "true")
                     .unwrap_or(false);
 
@@ -297,7 +302,9 @@ impl ConnectionString {
                     path: self.path.clone(),
                     format,
                     watch,
-                    encoding: self.params.get("encoding")
+                    encoding: self
+                        .params
+                        .get("encoding")
                         .unwrap_or(&"utf-8".to_string())
                         .clone(),
                     properties: self.params.clone(),
@@ -305,13 +312,12 @@ impl ConnectionString {
             }
             "s3" => {
                 // Parse s3://bucket/prefix
-                let path_parts: Vec<&str> = self.path.trim_start_matches('/')
-                    .splitn(2, '/')
-                    .collect();
-                
+                let path_parts: Vec<&str> =
+                    self.path.trim_start_matches('/').splitn(2, '/').collect();
+
                 if path_parts.is_empty() {
                     return Err(DataSourceError::Configuration(
-                        "S3 source requires bucket".to_string()
+                        "S3 source requires bucket".to_string(),
                     ));
                 }
 
@@ -322,7 +328,9 @@ impl ConnectionString {
                     String::new()
                 };
 
-                let format = self.params.get("format")
+                let format = self
+                    .params
+                    .get("format")
                     .map(|f| match f.as_str() {
                         "json" => FileFormat::Json,
                         "jsonlines" => FileFormat::JsonLines,
@@ -347,22 +355,28 @@ impl ConnectionString {
                 let connection_string = match (&self.host, self.port) {
                     (Some(host), Some(port)) => format!("{}:{}", host, port),
                     (Some(host), None) => format!("{}:8123", host), // Default HTTP port
-                    _ => return Err(DataSourceError::Configuration(
-                        "ClickHouse source requires host".to_string()
-                    )),
+                    _ => {
+                        return Err(DataSourceError::Configuration(
+                            "ClickHouse source requires host".to_string(),
+                        ));
+                    }
                 };
-                
+
                 let database = self.path.trim_start_matches('/').to_string();
                 if database.is_empty() {
                     return Err(DataSourceError::Configuration(
-                        "ClickHouse source requires database".to_string()
+                        "ClickHouse source requires database".to_string(),
                     ));
                 }
 
-                let table = self.params.get("table")
-                    .ok_or_else(|| DataSourceError::Configuration(
-                        "ClickHouse source requires table parameter".to_string()
-                    ))?
+                let table = self
+                    .params
+                    .get("table")
+                    .ok_or_else(|| {
+                        DataSourceError::Configuration(
+                            "ClickHouse source requires table parameter".to_string(),
+                        )
+                    })?
                     .clone();
 
                 Ok(SourceConfig::ClickHouse {
@@ -387,15 +401,17 @@ impl ConnectionString {
                 let brokers = match (&self.host, self.port) {
                     (Some(host), Some(port)) => format!("{}:{}", host, port),
                     (Some(host), None) => format!("{}:9092", host),
-                    _ => return Err(DataSourceError::Configuration(
-                        "Kafka sink requires host".to_string()
-                    )),
+                    _ => {
+                        return Err(DataSourceError::Configuration(
+                            "Kafka sink requires host".to_string(),
+                        ));
+                    }
                 };
-                
+
                 let topic = self.path.trim_start_matches('/').to_string();
                 if topic.is_empty() {
                     return Err(DataSourceError::Configuration(
-                        "Kafka sink requires topic".to_string()
+                        "Kafka sink requires topic".to_string(),
                     ));
                 }
 
@@ -415,14 +431,13 @@ impl ConnectionString {
                     _ => FileFormat::JsonLines, // Default
                 };
 
-                let compression = self.params.get("compression")
-                    .map(|c| match c.as_str() {
-                        "gzip" => CompressionType::Gzip,
-                        "snappy" => CompressionType::Snappy,
-                        "lz4" => CompressionType::Lz4,
-                        "zstd" => CompressionType::Zstd,
-                        _ => CompressionType::None,
-                    });
+                let compression = self.params.get("compression").map(|c| match c.as_str() {
+                    "gzip" => CompressionType::Gzip,
+                    "snappy" => CompressionType::Snappy,
+                    "lz4" => CompressionType::Lz4,
+                    "zstd" => CompressionType::Zstd,
+                    _ => CompressionType::None,
+                });
 
                 Ok(SinkConfig::File {
                     path: self.path.clone(),
@@ -436,15 +451,19 @@ impl ConnectionString {
                 let table_parts: Vec<&str> = self.path.split('.').collect();
                 if table_parts.len() != 3 {
                     return Err(DataSourceError::Configuration(
-                        "Iceberg sink requires catalog.namespace.table format".to_string()
+                        "Iceberg sink requires catalog.namespace.table format".to_string(),
                     ));
                 }
 
                 Ok(SinkConfig::Iceberg {
-                    catalog_uri: self.params.get("catalog_uri")
+                    catalog_uri: self
+                        .params
+                        .get("catalog_uri")
                         .unwrap_or(&"http://localhost:8181".to_string())
                         .clone(),
-                    warehouse: self.params.get("warehouse")
+                    warehouse: self
+                        .params
+                        .get("warehouse")
                         .unwrap_or(&"s3://warehouse/".to_string())
                         .clone(),
                     namespace: format!("{}.{}", table_parts[0], table_parts[1]),
@@ -456,22 +475,28 @@ impl ConnectionString {
                 let connection_string = match (&self.host, self.port) {
                     (Some(host), Some(port)) => format!("{}:{}", host, port),
                     (Some(host), None) => format!("{}:8123", host), // Default HTTP port
-                    _ => return Err(DataSourceError::Configuration(
-                        "ClickHouse sink requires host".to_string()
-                    )),
+                    _ => {
+                        return Err(DataSourceError::Configuration(
+                            "ClickHouse sink requires host".to_string(),
+                        ));
+                    }
                 };
-                
+
                 let database = self.path.trim_start_matches('/').to_string();
                 if database.is_empty() {
                     return Err(DataSourceError::Configuration(
-                        "ClickHouse sink requires database".to_string()
+                        "ClickHouse sink requires database".to_string(),
                     ));
                 }
 
-                let table = self.params.get("table")
-                    .ok_or_else(|| DataSourceError::Configuration(
-                        "ClickHouse sink requires table parameter".to_string()
-                    ))?
+                let table = self
+                    .params
+                    .get("table")
+                    .ok_or_else(|| {
+                        DataSourceError::Configuration(
+                            "ClickHouse sink requires table parameter".to_string(),
+                        )
+                    })?
                     .clone();
 
                 Ok(SinkConfig::ClickHouse {
@@ -503,9 +528,9 @@ mod tests {
 
     #[test]
     fn test_kafka_uri_parsing() {
-        let conn = ConnectionString::parse("kafka://localhost:9092/orders?group_id=analytics")
-            .unwrap();
-        
+        let conn =
+            ConnectionString::parse("kafka://localhost:9092/orders?group_id=analytics").unwrap();
+
         assert_eq!(conn.scheme, "kafka");
         assert_eq!(conn.host, Some("localhost".to_string()));
         assert_eq!(conn.port, Some(9092));
@@ -515,9 +540,9 @@ mod tests {
 
     #[test]
     fn test_s3_uri_parsing() {
-        let conn = ConnectionString::parse("s3://my-bucket/data/*.parquet?region=us-west-2")
-            .unwrap();
-        
+        let conn =
+            ConnectionString::parse("s3://my-bucket/data/*.parquet?region=us-west-2").unwrap();
+
         assert_eq!(conn.scheme, "s3");
         assert_eq!(conn.path, "my-bucket/data/*.parquet");
         assert_eq!(conn.params.get("region"), Some(&"us-west-2".to_string()));
@@ -525,9 +550,8 @@ mod tests {
 
     #[test]
     fn test_file_uri_parsing() {
-        let conn = ConnectionString::parse("file:///data/input.json?watch=true")
-            .unwrap();
-        
+        let conn = ConnectionString::parse("file:///data/input.json?watch=true").unwrap();
+
         assert_eq!(conn.scheme, "file");
         assert_eq!(conn.path, "/data/input.json");
         assert_eq!(conn.params.get("watch"), Some(&"true".to_string()));
@@ -535,12 +559,16 @@ mod tests {
 
     #[test]
     fn test_kafka_source_config() {
-        let conn = ConnectionString::parse("kafka://localhost:9092/orders?group_id=test")
-            .unwrap();
+        let conn = ConnectionString::parse("kafka://localhost:9092/orders?group_id=test").unwrap();
         let config = conn.to_source_config().unwrap();
 
         match config {
-            SourceConfig::Kafka { brokers, topic, group_id, .. } => {
+            SourceConfig::Kafka {
+                brokers,
+                topic,
+                group_id,
+                ..
+            } => {
                 assert_eq!(brokers, "localhost:9092");
                 assert_eq!(topic, "orders");
                 assert_eq!(group_id, Some("test".to_string()));
@@ -556,7 +584,12 @@ mod tests {
         let config = conn.to_source_config().unwrap();
 
         match config {
-            SourceConfig::File { path, format, watch, .. } => {
+            SourceConfig::File {
+                path,
+                format,
+                watch,
+                ..
+            } => {
                 assert_eq!(path, "/data/input.jsonl");
                 assert_eq!(format, FileFormat::JsonLines);
                 assert!(watch);
