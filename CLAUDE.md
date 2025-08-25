@@ -118,6 +118,30 @@ cargo run --bin test_serialization_compatibility --no-default-features
 
 ## Code Organization
 
+### Module Structure Guidelines
+**IMPORTANT**: Use `mod.rs` files ONLY for module construction and re-exports, NOT for struct/class definitions.
+
+✅ **Correct mod.rs usage**:
+```rust
+// mod.rs should only contain:
+pub mod error;          // Import submodules
+pub mod data_source;
+pub mod reader;
+
+// Re-export types for convenience
+pub use error::DataSourceError;
+pub use data_source::KafkaDataSource;
+```
+
+❌ **Incorrect mod.rs usage**:
+```rust
+// DO NOT define structs/classes in mod.rs
+pub struct MyStruct { /* ... */ }
+impl MyStruct { /* ... */ }
+```
+
+**Best Practice**: Create dedicated files for each major struct/class and import them in mod.rs.
+
 ### Type System Architecture
 ```rust
 // SQL Execution Types (internal fast arithmetic)
