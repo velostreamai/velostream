@@ -3,7 +3,7 @@
 //! Handles backward and forward compatibility checking, schema migration,
 //! and automatic record transformation between schema versions.
 
-use super::{Schema, FieldDefinition, CompatibilityMode, SchemaError, SchemaResult};
+use super::{CompatibilityMode, FieldDefinition, Schema, SchemaError, SchemaResult};
 use crate::ferris::sql::ast::DataType;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::{HashMap, HashSet};
@@ -83,9 +83,15 @@ pub enum FieldMapping {
     /// Field was renamed
     Renamed { old_name: String, new_name: String },
     /// Field needs type conversion
-    TypeConversion { field_name: String, converter: TypeConverter },
+    TypeConversion {
+        field_name: String,
+        converter: TypeConverter,
+    },
     /// Field gets default value in target schema
-    DefaultValue { field_name: String, value: FieldValue },
+    DefaultValue {
+        field_name: String,
+        value: FieldValue,
+    },
     /// Field is dropped in target schema
     Dropped { field_name: String },
 }
@@ -103,11 +109,17 @@ pub enum TransformationOperation {
     /// Copy field value directly
     Copy { source_field: String },
     /// Convert field type
-    Convert { source_field: String, converter: TypeConverter },
+    Convert {
+        source_field: String,
+        converter: TypeConverter,
+    },
     /// Set constant value
     Constant { value: FieldValue },
     /// Calculate from multiple source fields
-    Calculate { sources: Vec<String>, function: String },
+    Calculate {
+        sources: Vec<String>,
+        function: String,
+    },
     /// Use default value
     Default,
 }
@@ -151,12 +163,14 @@ impl SchemaEvolution {
 
     /// Compute the differences between two schemas
     pub fn compute_diff(&self, from: &Schema, to: &Schema) -> SchemaDiff {
-        let from_fields: HashMap<String, &FieldDefinition> = from.fields
+        let from_fields: HashMap<String, &FieldDefinition> = from
+            .fields
             .iter()
             .map(|field| (field.name.clone(), field))
             .collect();
 
-        let to_fields: HashMap<String, &FieldDefinition> = to.fields
+        let to_fields: HashMap<String, &FieldDefinition> = to
+            .fields
             .iter()
             .map(|field| (field.name.clone(), field))
             .collect();
@@ -182,7 +196,7 @@ impl SchemaEvolution {
             .filter_map(|name| {
                 let old_field = from_fields.get(name)?;
                 let new_field = to_fields.get(name)?;
-                
+
                 if old_field != new_field {
                     Some(self.analyze_field_modification(old_field, new_field))
                 } else {
@@ -211,7 +225,7 @@ impl SchemaEvolution {
     /// Create a migration plan for evolving from one schema to another
     pub fn create_migration_plan(&self, from: &Schema, to: &Schema) -> SchemaResult<MigrationPlan> {
         let diff = self.compute_diff(from, to);
-        
+
         if !diff.is_compatible {
             return Err(SchemaError::Evolution {
                 from: from.version.clone().unwrap_or("unknown".to_string()),
@@ -241,11 +255,15 @@ impl SchemaEvolution {
 
         for transformation in &migration_plan.transformations {
             let value = match &transformation.operation {
-                TransformationOperation::Copy { source_field } => {
-                    record.fields.get(source_field).cloned()
-                        .unwrap_or(FieldValue::Null)
-                }
-                TransformationOperation::Convert { source_field, converter } => {
+                TransformationOperation::Copy { source_field } => record
+                    .fields
+                    .get(source_field)
+                    .cloned()
+                    .unwrap_or(FieldValue::Null),
+                TransformationOperation::Convert {
+                    source_field,
+                    converter,
+                } => {
                     if let Some(source_value) = record.fields.get(source_field) {
                         self.convert_field_value(source_value, converter)?
                     } else {
@@ -253,7 +271,10 @@ impl SchemaEvolution {
                     }
                 }
                 TransformationOperation::Constant { value } => value.clone(),
-                TransformationOperation::Calculate { sources: _, function: _ } => {
+                TransformationOperation::Calculate {
+                    sources: _,
+                    function: _,
+                } => {
                     // TODO: Implement calculated fields
                     FieldValue::Null
                 }
@@ -349,9 +370,9 @@ impl SchemaEvolution {
         match mode {
             CompatibilityMode::None => true,
             CompatibilityMode::Strict => {
-                diff.added_fields.is_empty() && 
-                diff.removed_fields.is_empty() && 
-                diff.modified_fields.is_empty()
+                diff.added_fields.is_empty()
+                    && diff.removed_fields.is_empty()
+                    && diff.modified_fields.is_empty()
             }
             _ => diff.is_compatible,
         }
@@ -368,19 +389,22 @@ impl SchemaEvolution {
             CompatibilityMode::None => true,
             CompatibilityMode::Backward => {
                 // Backward compatible: can add optional fields, remove fields, modify compatible fields
-                added.iter().all(|field| field.nullable || field.default_value.is_some()) &&
-                modified.iter().all(|m| m.is_compatible)
+                added
+                    .iter()
+                    .all(|field| field.nullable || field.default_value.is_some())
+                    && modified.iter().all(|m| m.is_compatible)
             }
             CompatibilityMode::Forward => {
                 // Forward compatible: can remove fields, modify compatible fields
-                removed.is_empty() &&
-                modified.iter().all(|m| m.is_compatible)
+                removed.is_empty() && modified.iter().all(|m| m.is_compatible)
             }
             CompatibilityMode::Full => {
                 // Full compatible: can only add optional fields and modify compatible fields
-                added.iter().all(|field| field.nullable || field.default_value.is_some()) &&
-                removed.is_empty() &&
-                modified.iter().all(|m| m.is_compatible)
+                added
+                    .iter()
+                    .all(|field| field.nullable || field.default_value.is_some())
+                    && removed.is_empty()
+                    && modified.iter().all(|m| m.is_compatible)
             }
             CompatibilityMode::Strict => {
                 added.is_empty() && removed.is_empty() && modified.is_empty()
@@ -401,15 +425,15 @@ impl SchemaEvolution {
             FieldChangeType::NullabilityChange => {
                 // Making field nullable is always compatible
                 // Making field non-nullable is only compatible if default value exists
-                !old_field.nullable && new_field.nullable || 
-                old_field.nullable && !new_field.nullable && new_field.default_value.is_some()
+                !old_field.nullable && new_field.nullable
+                    || old_field.nullable
+                        && !new_field.nullable
+                        && new_field.default_value.is_some()
             }
             FieldChangeType::DescriptionChange | FieldChangeType::DefaultValueChange => true,
-            FieldChangeType::MultipleChanges(changes) => {
-                changes.iter().all(|change| {
-                    self.is_field_change_compatible(change, old_field, new_field)
-                })
-            }
+            FieldChangeType::MultipleChanges(changes) => changes
+                .iter()
+                .all(|change| self.is_field_change_compatible(change, old_field, new_field)),
         }
     }
 
@@ -445,7 +469,8 @@ impl SchemaEvolution {
                         field_name: to_field.name.clone(),
                     });
                 } else if self.are_types_compatible(&from_field.data_type, &to_field.data_type) {
-                    let converter = self.get_type_converter(&from_field.data_type, &to_field.data_type);
+                    let converter =
+                        self.get_type_converter(&from_field.data_type, &to_field.data_type);
                     mappings.push(FieldMapping::TypeConversion {
                         field_name: to_field.name.clone(),
                         converter,
@@ -468,24 +493,33 @@ impl SchemaEvolution {
         mappings: &[FieldMapping],
         to_schema: &Schema,
     ) -> Vec<FieldTransformation> {
-        to_schema.fields.iter().map(|field| {
-            let operation = mappings.iter()
-                .find(|mapping| self.mapping_targets_field(mapping, &field.name))
-                .map(|mapping| self.mapping_to_operation(mapping))
-                .unwrap_or(TransformationOperation::Default);
+        to_schema
+            .fields
+            .iter()
+            .map(|field| {
+                let operation = mappings
+                    .iter()
+                    .find(|mapping| self.mapping_targets_field(mapping, &field.name))
+                    .map(|mapping| self.mapping_to_operation(mapping))
+                    .unwrap_or(TransformationOperation::Default);
 
-            FieldTransformation {
-                target_field: field.name.clone(),
-                operation,
-            }
-        }).collect()
+                FieldTransformation {
+                    target_field: field.name.clone(),
+                    operation,
+                }
+            })
+            .collect()
     }
 
     fn mapping_targets_field(&self, mapping: &FieldMapping, field_name: &str) -> bool {
         match mapping {
-            FieldMapping::Direct { field_name: name } |
-            FieldMapping::TypeConversion { field_name: name, .. } |
-            FieldMapping::DefaultValue { field_name: name, .. } => name == field_name,
+            FieldMapping::Direct { field_name: name }
+            | FieldMapping::TypeConversion {
+                field_name: name, ..
+            }
+            | FieldMapping::DefaultValue {
+                field_name: name, ..
+            } => name == field_name,
             FieldMapping::Renamed { new_name, .. } => new_name == field_name,
             FieldMapping::Dropped { .. } => false,
         }
@@ -496,12 +530,13 @@ impl SchemaEvolution {
             FieldMapping::Direct { field_name } => TransformationOperation::Copy {
                 source_field: field_name.clone(),
             },
-            FieldMapping::TypeConversion { field_name, converter } => {
-                TransformationOperation::Convert {
-                    source_field: field_name.clone(),
-                    converter: converter.clone(),
-                }
-            }
+            FieldMapping::TypeConversion {
+                field_name,
+                converter,
+            } => TransformationOperation::Convert {
+                source_field: field_name.clone(),
+                converter: converter.clone(),
+            },
             FieldMapping::DefaultValue { value, .. } => TransformationOperation::Constant {
                 value: value.clone(),
             },
@@ -577,7 +612,9 @@ impl SchemaEvolution {
     }
 
     fn get_default_value(&self, field_name: &str) -> FieldValue {
-        self.config.default_values.get(field_name)
+        self.config
+            .default_values
+            .get(field_name)
             .cloned()
             .unwrap_or(FieldValue::Null)
     }
@@ -587,7 +624,10 @@ impl SchemaEvolution {
         for field in &diff.added_fields {
             if !field.nullable && field.default_value.is_none() {
                 return Err(SchemaError::Incompatible {
-                    reason: format!("Added field '{}' is required but has no default value", field.name),
+                    reason: format!(
+                        "Added field '{}' is required but has no default value",
+                        field.name
+                    ),
                 });
             }
         }
@@ -596,7 +636,10 @@ impl SchemaEvolution {
         for modification in &diff.modified_fields {
             if !modification.is_compatible {
                 return Err(SchemaError::Incompatible {
-                    reason: format!("Field '{}' has incompatible changes", modification.field_name),
+                    reason: format!(
+                        "Field '{}' has incompatible changes",
+                        modification.field_name
+                    ),
                 });
             }
         }
@@ -609,7 +652,10 @@ impl SchemaEvolution {
         // Cannot remove fields
         if !diff.removed_fields.is_empty() {
             return Err(SchemaError::Incompatible {
-                reason: format!("Removed {} fields, breaking forward compatibility", diff.removed_fields.len()),
+                reason: format!(
+                    "Removed {} fields, breaking forward compatibility",
+                    diff.removed_fields.len()
+                ),
             });
         }
 
@@ -680,7 +726,7 @@ mod tests {
         let v2 = create_test_schema_v2();
 
         let diff = evolution.compute_diff(&v1, &v2);
-        
+
         assert_eq!(diff.added_fields.len(), 1);
         assert_eq!(diff.added_fields[0].name, "email");
         assert_eq!(diff.removed_fields.len(), 0);
@@ -695,7 +741,7 @@ mod tests {
         let v2 = create_test_schema_v2();
 
         let plan = evolution.create_migration_plan(&v1, &v2).unwrap();
-        
+
         assert_eq!(plan.transformations.len(), 3); // id, name, email
         assert_eq!(plan.from_schema.version, Some("1.0.0".to_string()));
         assert_eq!(plan.to_schema.version, Some("2.0.0".to_string()));

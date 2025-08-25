@@ -88,9 +88,7 @@ pub enum CacheLookupResult {
         access_count: u64,
     },
     /// Schema not found or expired
-    Miss {
-        reason: MissReason,
-    },
+    Miss { reason: MissReason },
     /// Schema found but needs refresh
     Stale {
         schema: Schema,
@@ -142,7 +140,7 @@ impl SchemaCache {
     /// Get schema from cache
     pub async fn get(&self, source_uri: &str) -> CacheLookupResult {
         let start_time = Instant::now();
-        
+
         // Update statistics
         if self.config.enable_statistics {
             let mut stats = self.stats.write().await;
@@ -152,19 +150,19 @@ impl SchemaCache {
         let mut entries = self.entries.write().await;
         let result = if let Some(entry) = entries.get_mut(source_uri) {
             let age = start_time.duration_since(entry.created_at);
-            
+
             // Check if entry has expired
             if age > entry.ttl {
                 // Remove expired entry
                 entries.remove(source_uri);
                 self.update_access_order_remove(source_uri).await;
-                
+
                 if self.config.enable_statistics {
                     let mut stats = self.stats.write().await;
                     stats.misses += 1;
                     stats.ttl_evictions += 1;
                 }
-                
+
                 CacheLookupResult::Miss {
                     reason: MissReason::Expired,
                 }
@@ -172,10 +170,10 @@ impl SchemaCache {
                 // Update access metadata
                 entry.last_accessed = start_time;
                 entry.access_count += 1;
-                
+
                 // Update LRU order
                 self.update_access_order_touch(source_uri).await;
-                
+
                 if self.config.enable_statistics {
                     let mut stats = self.stats.write().await;
                     stats.hits += 1;
@@ -183,7 +181,7 @@ impl SchemaCache {
 
                 // Check if refresh is needed
                 let refresh_threshold = Duration::from_secs_f64(
-                    entry.ttl.as_secs_f64() * self.config.refresh_ahead_factor
+                    entry.ttl.as_secs_f64() * self.config.refresh_ahead_factor,
                 );
                 let needs_refresh = self.config.enable_refresh_ahead && age > refresh_threshold;
 
@@ -206,7 +204,7 @@ impl SchemaCache {
                 let mut stats = self.stats.write().await;
                 stats.misses += 1;
             }
-            
+
             CacheLookupResult::Miss {
                 reason: MissReason::NotFound,
             }
@@ -216,7 +214,9 @@ impl SchemaCache {
         if self.config.enable_statistics {
             let access_time = start_time.elapsed().as_micros() as f64;
             let mut stats = self.stats.write().await;
-            stats.avg_access_time_us = (stats.avg_access_time_us * (stats.total_requests - 1) as f64 + access_time) / stats.total_requests as f64;
+            stats.avg_access_time_us =
+                (stats.avg_access_time_us * (stats.total_requests - 1) as f64 + access_time)
+                    / stats.total_requests as f64;
         }
 
         result
@@ -230,8 +230,11 @@ impl SchemaCache {
         ttl: Option<Duration>,
     ) -> SchemaResult<()> {
         let ttl = ttl.unwrap_or(self.config.default_ttl);
-        let version = schema.version.clone().unwrap_or_else(|| "unknown".to_string());
-        
+        let version = schema
+            .version
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
         let entry = CacheEntry {
             schema,
             created_at: Instant::now(),
@@ -243,7 +246,7 @@ impl SchemaCache {
         };
 
         let mut entries = self.entries.write().await;
-        
+
         // Check if cache is full and eviction is needed
         if entries.len() >= self.config.max_entries && !entries.contains_key(source_uri) {
             self.evict_entries(&mut entries).await?;
@@ -266,16 +269,16 @@ impl SchemaCache {
     pub async fn invalidate(&self, source_uri: &str) -> bool {
         let mut entries = self.entries.write().await;
         let was_present = entries.remove(source_uri).is_some();
-        
+
         if was_present {
             self.update_access_order_remove(source_uri).await;
-            
+
             if self.config.enable_statistics {
                 let mut stats = self.stats.write().await;
                 stats.invalidations += 1;
             }
         }
-        
+
         was_present
     }
 
@@ -284,10 +287,10 @@ impl SchemaCache {
         let mut entries = self.entries.write().await;
         let count = entries.len();
         entries.clear();
-        
+
         let mut access_order = self.access_order.write().await;
         access_order.clear();
-        
+
         if self.config.enable_statistics {
             let mut stats = self.stats.write().await;
             stats.invalidations += count as u64;
@@ -307,7 +310,7 @@ impl SchemaCache {
     pub async fn size_info(&self) -> CacheSizeInfo {
         let entries = self.entries.read().await;
         let expired_count = self.count_expired_entries(&entries).await;
-        
+
         CacheSizeInfo {
             current_entries: entries.len(),
             max_entries: self.config.max_entries,
@@ -321,29 +324,29 @@ impl SchemaCache {
     pub async fn maintenance(&self) -> SchemaResult<MaintenanceResult> {
         let mut entries = self.entries.write().await;
         let initial_count = entries.len();
-        
+
         let now = Instant::now();
         let mut expired_keys = Vec::new();
-        
+
         // Find expired entries
         for (key, entry) in entries.iter() {
             if now.duration_since(entry.created_at) > entry.ttl {
                 expired_keys.push(key.clone());
             }
         }
-        
+
         // Remove expired entries
         for key in &expired_keys {
             entries.remove(key);
             self.update_access_order_remove(key).await;
         }
-        
+
         // Update statistics
         if self.config.enable_statistics {
             let mut stats = self.stats.write().await;
             stats.ttl_evictions += expired_keys.len() as u64;
         }
-        
+
         Ok(MaintenanceResult {
             entries_before: initial_count,
             entries_after: entries.len(),
@@ -354,7 +357,8 @@ impl SchemaCache {
     /// Check if schema version has changed
     pub async fn is_version_current(&self, source_uri: &str, version: &str) -> bool {
         let entries = self.entries.read().await;
-        entries.get(source_uri)
+        entries
+            .get(source_uri)
             .map(|entry| entry.version == version)
             .unwrap_or(false)
     }
@@ -370,7 +374,7 @@ impl SchemaCache {
         if let Some(lru_key) = self.find_lru_key(entries).await {
             entries.remove(&lru_key);
             self.update_access_order_remove(&lru_key).await;
-            
+
             if self.config.enable_statistics {
                 let mut stats = self.stats.write().await;
                 stats.lru_evictions += 1;
@@ -381,7 +385,8 @@ impl SchemaCache {
     }
 
     async fn find_lru_key(&self, entries: &HashMap<String, CacheEntry>) -> Option<String> {
-        entries.iter()
+        entries
+            .iter()
             .min_by_key(|(_, entry)| entry.last_accessed)
             .map(|(key, _)| key.clone())
     }
@@ -411,7 +416,8 @@ impl SchemaCache {
 
     async fn count_expired_entries(&self, entries: &HashMap<String, CacheEntry>) -> usize {
         let now = Instant::now();
-        entries.values()
+        entries
+            .values()
             .filter(|entry| now.duration_since(entry.created_at) > entry.ttl)
             .count()
     }
@@ -478,12 +484,15 @@ impl CacheStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
     use crate::ferris::sql::ast::DataType;
+    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
 
     fn create_test_schema(version: &str) -> Schema {
         Schema {
-            fields: vec![FieldDefinition::required("id".to_string(), DataType::Integer)],
+            fields: vec![FieldDefinition::required(
+                "id".to_string(),
+                DataType::Integer,
+            )],
             version: Some(version.to_string()),
             metadata: SchemaMetadata::new("test".to_string()),
         }
@@ -493,11 +502,17 @@ mod tests {
     async fn test_cache_put_and_get() {
         let cache = SchemaCache::new();
         let schema = create_test_schema("1.0.0");
-        
-        cache.put("test://schema", schema.clone(), None).await.unwrap();
-        
+
+        cache
+            .put("test://schema", schema.clone(), None)
+            .await
+            .unwrap();
+
         match cache.get("test://schema").await {
-            CacheLookupResult::Hit { schema: cached_schema, .. } => {
+            CacheLookupResult::Hit {
+                schema: cached_schema,
+                ..
+            } => {
                 assert_eq!(cached_schema.version, Some("1.0.0".to_string()));
             }
             _ => panic!("Expected cache hit"),
@@ -507,7 +522,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_miss() {
         let cache = SchemaCache::new();
-        
+
         match cache.get("nonexistent://schema").await {
             CacheLookupResult::Miss { reason } => {
                 assert_eq!(reason, MissReason::NotFound);
@@ -522,15 +537,15 @@ mod tests {
             default_ttl: Duration::from_millis(10), // Very short TTL
             ..Default::default()
         };
-        
+
         let cache = SchemaCache::with_config(config);
         let schema = create_test_schema("1.0.0");
-        
+
         cache.put("test://schema", schema, None).await.unwrap();
-        
+
         // Wait for TTL to expire
         tokio::time::sleep(Duration::from_millis(20)).await;
-        
+
         match cache.get("test://schema").await {
             CacheLookupResult::Miss { reason } => {
                 assert_eq!(reason, MissReason::Expired);
@@ -543,10 +558,10 @@ mod tests {
     async fn test_cache_invalidation() {
         let cache = SchemaCache::new();
         let schema = create_test_schema("1.0.0");
-        
+
         cache.put("test://schema", schema, None).await.unwrap();
         assert!(cache.invalidate("test://schema").await);
-        
+
         match cache.get("test://schema").await {
             CacheLookupResult::Miss { reason } => {
                 assert_eq!(reason, MissReason::NotFound);
@@ -559,11 +574,11 @@ mod tests {
     async fn test_cache_statistics() {
         let cache = SchemaCache::new();
         let schema = create_test_schema("1.0.0");
-        
+
         cache.put("test://schema", schema, None).await.unwrap();
         cache.get("test://schema").await; // Hit
         cache.get("nonexistent://schema").await; // Miss
-        
+
         let stats = cache.statistics().await;
         assert_eq!(stats.total_requests, 2);
         assert_eq!(stats.hits, 1);
@@ -578,20 +593,29 @@ mod tests {
             enable_lru_eviction: true,
             ..Default::default()
         };
-        
+
         let cache = SchemaCache::with_config(config);
-        
+
         // Fill cache to capacity
-        cache.put("test://schema1", create_test_schema("1.0.0"), None).await.unwrap();
-        cache.put("test://schema2", create_test_schema("2.0.0"), None).await.unwrap();
-        
+        cache
+            .put("test://schema1", create_test_schema("1.0.0"), None)
+            .await
+            .unwrap();
+        cache
+            .put("test://schema2", create_test_schema("2.0.0"), None)
+            .await
+            .unwrap();
+
         let size_info = cache.size_info().await;
         assert_eq!(size_info.current_entries, 2);
         assert_eq!(size_info.utilization, 1.0);
-        
+
         // Adding third entry should trigger eviction
-        cache.put("test://schema3", create_test_schema("3.0.0"), None).await.unwrap();
-        
+        cache
+            .put("test://schema3", create_test_schema("3.0.0"), None)
+            .await
+            .unwrap();
+
         let size_info_after = cache.size_info().await;
         assert_eq!(size_info_after.current_entries, 2); // Still at capacity
     }

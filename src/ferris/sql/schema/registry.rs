@@ -46,10 +46,10 @@ struct CachedSchema {
 pub trait SchemaProvider: Send + Sync {
     /// Discover schema from a data source URI
     async fn discover_schema(&self, source_uri: &str) -> SchemaResult<Schema>;
-    
+
     /// Check if this provider supports the given URI scheme
     fn supports_scheme(&self, scheme: &str) -> bool;
-    
+
     /// Get provider metadata
     fn metadata(&self) -> ProviderMetadata;
 }
@@ -98,12 +98,13 @@ impl SchemaRegistry {
         let scheme = self.extract_scheme(source_uri)?;
 
         // Find appropriate provider
-        let provider = self.providers.get(&scheme).ok_or_else(|| {
-            SchemaError::Provider {
+        let provider = self
+            .providers
+            .get(&scheme)
+            .ok_or_else(|| SchemaError::Provider {
                 source: source_uri.to_string(),
                 message: format!("No provider registered for scheme: {}", scheme),
-            }
-        })?;
+            })?;
 
         // Discover schema using provider
         let schema = provider.discover_schema(source_uri).await?;
@@ -138,7 +139,7 @@ impl SchemaRegistry {
         };
 
         let mut cache = self.schemas.write().await;
-        
+
         // Evict expired entries if cache is full
         if cache.len() >= self.config.max_cache_size {
             self.evict_expired_entries(&mut cache).await;
@@ -227,7 +228,7 @@ impl SchemaRegistry {
         let mut cache = self.schemas.write().await;
         if let Some(cached) = cache.get_mut(source_uri) {
             let now = chrono::Utc::now().timestamp();
-            
+
             // Check if schema has expired
             if now - cached.cached_at > cached.ttl_seconds as i64 {
                 cache.remove(source_uri);
@@ -300,8 +301,8 @@ pub struct CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
     use crate::ferris::sql::ast::DataType;
+    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
 
     struct MockSchemaProvider {
         scheme: String,
@@ -337,13 +338,16 @@ mod tests {
     #[tokio::test]
     async fn test_schema_registry_discovery() {
         let schema = Schema {
-            fields: vec![FieldDefinition::required("id".to_string(), DataType::Integer)],
+            fields: vec![FieldDefinition::required(
+                "id".to_string(),
+                DataType::Integer,
+            )],
             version: Some("1.0.0".to_string()),
             metadata: SchemaMetadata::new("test".to_string()),
         };
 
         let provider = Arc::new(MockSchemaProvider::new("test".to_string(), schema.clone()));
-        
+
         let mut registry = SchemaRegistry::new();
         registry.register_provider("test", provider);
 
@@ -355,7 +359,10 @@ mod tests {
     #[tokio::test]
     async fn test_schema_caching() {
         let schema = Schema {
-            fields: vec![FieldDefinition::required("name".to_string(), DataType::String)],
+            fields: vec![FieldDefinition::required(
+                "name".to_string(),
+                DataType::String,
+            )],
             version: Some("1.0.0".to_string()),
             metadata: SchemaMetadata::new("test".to_string()),
         };
@@ -371,10 +378,13 @@ mod tests {
     #[tokio::test]
     async fn test_cache_stats() {
         let registry = SchemaRegistry::new();
-        let schema = Schema::new(vec![FieldDefinition::required("id".to_string(), DataType::Integer)]);
-        
+        let schema = Schema::new(vec![FieldDefinition::required(
+            "id".to_string(),
+            DataType::Integer,
+        )]);
+
         registry.cache_schema("test://stats", schema).await;
-        
+
         let stats = registry.cache_stats().await;
         assert_eq!(stats.total_entries, 1);
         assert_eq!(stats.active_entries, 1);

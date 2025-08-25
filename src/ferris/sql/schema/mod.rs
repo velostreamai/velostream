@@ -32,16 +32,18 @@
 //! }
 //! ```
 
-pub mod registry;
-pub mod providers;
-pub mod evolution;
 pub mod cache;
+pub mod evolution;
+pub mod providers;
+pub mod registry;
 
 // Re-export key components for easy access
-pub use registry::{SchemaRegistry, SchemaProvider, ProviderMetadata};
-pub use providers::{KafkaSchemaProvider, FileSchemaProvider, S3SchemaProvider, create_default_registry};
-pub use evolution::{SchemaEvolution, SchemaDiff, MigrationPlan, EvolutionConfig};
-pub use cache::{SchemaCache, CacheConfig, CacheStatistics};
+pub use cache::{CacheConfig, CacheStatistics, SchemaCache};
+pub use evolution::{EvolutionConfig, MigrationPlan, SchemaDiff, SchemaEvolution};
+pub use providers::{
+    create_default_registry, FileSchemaProvider, KafkaSchemaProvider, S3SchemaProvider,
+};
+pub use registry::{ProviderMetadata, SchemaProvider, SchemaRegistry};
 
 use crate::ferris::sql::ast::DataType;
 use std::collections::HashMap;
@@ -308,12 +310,27 @@ impl PartitionMetadata {
 /// Error types for schema management operations
 #[derive(Debug)]
 pub enum SchemaError {
-    NotFound { source: String },
-    Incompatible { reason: String },
-    Provider { source: String, message: String },
-    Cache { message: String },
-    Evolution { from: String, to: String, reason: String },
-    Validation { message: String },
+    NotFound {
+        source: String,
+    },
+    Incompatible {
+        reason: String,
+    },
+    Provider {
+        source: String,
+        message: String,
+    },
+    Cache {
+        message: String,
+    },
+    Evolution {
+        from: String,
+        to: String,
+        reason: String,
+    },
+    Validation {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for SchemaError {
@@ -321,10 +338,16 @@ impl std::fmt::Display for SchemaError {
         match self {
             SchemaError::NotFound { source } => write!(f, "Schema not found: {}", source),
             SchemaError::Incompatible { reason } => write!(f, "Schema incompatible: {}", reason),
-            SchemaError::Provider { source, message } => write!(f, "Schema provider error: {} - {}", source, message),
+            SchemaError::Provider { source, message } => {
+                write!(f, "Schema provider error: {} - {}", source, message)
+            }
             SchemaError::Cache { message } => write!(f, "Schema cache error: {}", message),
-            SchemaError::Evolution { from, to, reason } => write!(f, "Schema evolution error: {} -> {}: {}", from, to, reason),
-            SchemaError::Validation { message } => write!(f, "Schema validation error: {}", message),
+            SchemaError::Evolution { from, to, reason } => {
+                write!(f, "Schema evolution error: {} -> {}: {}", from, to, reason)
+            }
+            SchemaError::Validation { message } => {
+                write!(f, "Schema validation error: {}", message)
+            }
         }
     }
 }

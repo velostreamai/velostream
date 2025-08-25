@@ -3,8 +3,10 @@
 //! Implementations of schema discovery for different data source types.
 //! Each provider knows how to extract schema information from its specific data source.
 
-use super::{Schema, FieldDefinition, SchemaMetadata, CompatibilityMode, SchemaError, SchemaResult};
-use super::registry::{SchemaProvider, ProviderMetadata};
+use super::registry::{ProviderMetadata, SchemaProvider};
+use super::{
+    CompatibilityMode, FieldDefinition, Schema, SchemaError, SchemaMetadata, SchemaResult,
+};
 use crate::ferris::sql::ast::DataType;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -64,12 +66,13 @@ impl KafkaSchemaProvider {
 
     /// Discover schema from Schema Registry if available
     async fn discover_from_schema_registry(&self, topic: &str) -> SchemaResult<Schema> {
-        let _registry_url = self.schema_registry_url.as_ref().ok_or_else(|| {
-            SchemaError::Provider {
-                source: topic.to_string(),
-                message: "Schema Registry URL not configured".to_string(),
-            }
-        })?;
+        let _registry_url =
+            self.schema_registry_url
+                .as_ref()
+                .ok_or_else(|| SchemaError::Provider {
+                    source: topic.to_string(),
+                    message: "Schema Registry URL not configured".to_string(),
+                })?;
 
         // TODO: Implement actual Schema Registry client integration
         // For now, return a basic schema
@@ -170,10 +173,10 @@ impl FileSchemaProvider {
         let fields = vec![
             FieldDefinition::optional("id".to_string(), DataType::String)
                 .with_description("Record identifier".to_string()),
-            FieldDefinition::optional("data".to_string(), DataType::Map(
-                Box::new(DataType::String),
-                Box::new(DataType::String),
-            ))
+            FieldDefinition::optional(
+                "data".to_string(),
+                DataType::Map(Box::new(DataType::String), Box::new(DataType::String)),
+            )
             .with_description("JSON data payload".to_string()),
         ];
 
@@ -254,9 +257,7 @@ impl FileSchemaProvider {
 impl SchemaProvider for FileSchemaProvider {
     async fn discover_schema(&self, source_uri: &str) -> SchemaResult<Schema> {
         // Extract file path from file:// URI
-        let file_path = source_uri
-            .strip_prefix("file://")
-            .unwrap_or(source_uri);
+        let file_path = source_uri.strip_prefix("file://").unwrap_or(source_uri);
 
         self.infer_schema_from_file(file_path).await
     }
@@ -332,10 +333,10 @@ impl S3SchemaProvider {
         let fields = match format {
             "json" => vec![
                 FieldDefinition::optional("id".to_string(), DataType::String),
-                FieldDefinition::optional("data".to_string(), DataType::Map(
-                    Box::new(DataType::String),
-                    Box::new(DataType::String),
-                )),
+                FieldDefinition::optional(
+                    "data".to_string(),
+                    DataType::Map(Box::new(DataType::String), Box::new(DataType::String)),
+                ),
             ],
             "csv" => vec![
                 FieldDefinition::required("col1".to_string(), DataType::String),
@@ -345,9 +346,10 @@ impl S3SchemaProvider {
                 FieldDefinition::required("id".to_string(), DataType::Integer),
                 FieldDefinition::required("value".to_string(), DataType::String),
             ],
-            _ => vec![
-                FieldDefinition::required("content".to_string(), DataType::String),
-            ],
+            _ => vec![FieldDefinition::required(
+                "content".to_string(),
+                DataType::String,
+            )],
         };
 
         Schema {
@@ -366,7 +368,7 @@ impl S3SchemaProvider {
 impl SchemaProvider for S3SchemaProvider {
     async fn discover_schema(&self, source_uri: &str) -> SchemaResult<Schema> {
         let (bucket, key) = self.parse_s3_uri(source_uri)?;
-        
+
         // TODO: Implement actual S3 object inspection
         // For now, infer from key pattern
         Ok(self.infer_schema_from_key(&bucket, &key))
@@ -397,7 +399,10 @@ pub fn create_default_registry() -> super::registry::SchemaRegistry {
     // Register default providers
     registry.register_provider("kafka", std::sync::Arc::new(KafkaSchemaProvider::new()));
     registry.register_provider("file", std::sync::Arc::new(FileSchemaProvider::new()));
-    registry.register_provider("s3", std::sync::Arc::new(S3SchemaProvider::new("us-east-1".to_string())));
+    registry.register_provider(
+        "s3",
+        std::sync::Arc::new(S3SchemaProvider::new("us-east-1".to_string())),
+    );
 
     registry
 }
@@ -409,8 +414,11 @@ mod tests {
     #[tokio::test]
     async fn test_kafka_schema_provider() {
         let provider = KafkaSchemaProvider::new();
-        let schema = provider.discover_schema("kafka://localhost:9092/test-topic").await.unwrap();
-        
+        let schema = provider
+            .discover_schema("kafka://localhost:9092/test-topic")
+            .await
+            .unwrap();
+
         assert_eq!(schema.fields.len(), 5); // key, value, timestamp, offset, partition
         assert_eq!(schema.metadata.source_type, "kafka");
         assert!(schema.has_field("key"));
@@ -420,8 +428,11 @@ mod tests {
     #[tokio::test]
     async fn test_file_schema_provider() {
         let provider = FileSchemaProvider::new();
-        let schema = provider.discover_schema("file:///data/test.json").await.unwrap();
-        
+        let schema = provider
+            .discover_schema("file:///data/test.json")
+            .await
+            .unwrap();
+
         assert!(schema.fields.len() > 0);
         assert_eq!(schema.metadata.source_type, "file");
     }
@@ -429,8 +440,11 @@ mod tests {
     #[tokio::test]
     async fn test_s3_schema_provider() {
         let provider = S3SchemaProvider::new("us-west-2".to_string());
-        let schema = provider.discover_schema("s3://my-bucket/data/test.parquet").await.unwrap();
-        
+        let schema = provider
+            .discover_schema("s3://my-bucket/data/test.parquet")
+            .await
+            .unwrap();
+
         assert!(schema.fields.len() > 0);
         assert_eq!(schema.metadata.source_type, "s3");
         assert_eq!(schema.metadata.tags.get("bucket").unwrap(), "my-bucket");
@@ -440,7 +454,7 @@ mod tests {
     fn test_default_registry_creation() {
         let registry = create_default_registry();
         let providers = registry.list_providers();
-        
+
         assert!(providers.len() >= 3);
         assert!(providers.iter().any(|(scheme, _)| scheme == "kafka"));
         assert!(providers.iter().any(|(scheme, _)| scheme == "file"));

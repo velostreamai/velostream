@@ -3,9 +3,9 @@
 //! This binary demonstrates the comprehensive schema management functionality
 //! including discovery, caching, evolution, and provider capabilities.
 
-use ferrisstreams::ferris::sql::schema::*;
-use ferrisstreams::ferris::sql::schema::cache::{CacheLookupResult, MissReason};
 use ferrisstreams::ferris::sql::ast::DataType;
+use ferrisstreams::ferris::sql::schema::cache::{CacheLookupResult, MissReason};
+use ferrisstreams::ferris::sql::schema::*;
 use std::time::Duration;
 
 #[tokio::main]
@@ -16,16 +16,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 1: Schema Registry with Default Providers
     println!("\n📋 Test 1: Schema Registry with Default Providers");
     println!("--------------------------------------------------");
-    
+
     let mut registry = create_default_registry();
     let providers = registry.list_providers();
-    
+
     println!("✅ Registered providers:");
     for (scheme, metadata) in providers {
-        println!("  • {} - {} v{}", 
-                 scheme, 
-                 metadata.name, 
-                 metadata.version);
+        println!("  • {} - {} v{}", scheme, metadata.name, metadata.version);
         println!("    Capabilities: {:?}", metadata.capabilities);
     }
 
@@ -40,10 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • Version: {:?}", kafka_schema.version);
     println!("   • Fields: {}", kafka_schema.fields.len());
     for field in &kafka_schema.fields {
-        println!("     - {} ({:?}) {}", 
-                 field.name, 
-                 field.data_type, 
-                 if field.nullable { "[nullable]" } else { "[required]" });
+        println!(
+            "     - {} ({:?}) {}",
+            field.name,
+            field.data_type,
+            if field.nullable {
+                "[nullable]"
+            } else {
+                "[required]"
+            }
+        );
     }
 
     // Discover file schema
@@ -56,7 +59,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Discover S3 schema
     println!("\nDiscovering S3 schema...");
-    let s3_schema = registry.discover("s3://analytics-bucket/data/events.parquet").await?;
+    let s3_schema = registry
+        .discover("s3://analytics-bucket/data/events.parquet")
+        .await?;
     println!("✅ S3 schema discovered:");
     println!("   • Version: {:?}", s3_schema.version);
     println!("   • Tags: {:?}", s3_schema.metadata.tags);
@@ -75,14 +80,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cache = SchemaCache::with_config(cache_config);
 
     // Cache some schemas
-    cache.put("test://schema1", kafka_schema.clone(), None).await?;
-    cache.put("test://schema2", file_schema.clone(), None).await?;
+    cache
+        .put("test://schema1", kafka_schema.clone(), None)
+        .await?;
+    cache
+        .put("test://schema2", file_schema.clone(), None)
+        .await?;
     cache.put("test://schema3", s3_schema.clone(), None).await?;
 
     // Test cache hits
     let start = std::time::Instant::now();
     match cache.get("test://schema1").await {
-        CacheLookupResult::Hit { schema, age, access_count } => {
+        CacheLookupResult::Hit {
+            schema,
+            age,
+            access_count,
+        } => {
             let lookup_time = start.elapsed();
             println!("✅ Cache hit! Retrieved schema in {:?}", lookup_time);
             println!("   • Schema version: {:?}", schema.version);
@@ -105,7 +118,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("📊 Cache statistics:");
     println!("   • Total requests: {}", stats.total_requests);
     println!("   • Hit rate: {:.2}%", stats.hit_rate() * 100.0);
-    println!("   • Average access time: {:.2}μs", stats.avg_access_time_us);
+    println!(
+        "   • Average access time: {:.2}μs",
+        stats.avg_access_time_us
+    );
 
     // Test 4: Schema Evolution
     println!("\n🔄 Test 4: Schema Evolution & Compatibility");
@@ -149,27 +165,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • Compatible: {}", diff.is_compatible);
 
     for added_field in &diff.added_fields {
-        println!("   + Added: {} ({:?}) {}", 
-                 added_field.name, 
-                 added_field.data_type,
-                 if added_field.nullable { "[nullable]" } else { "[required]" });
+        println!(
+            "   + Added: {} ({:?}) {}",
+            added_field.name,
+            added_field.data_type,
+            if added_field.nullable {
+                "[nullable]"
+            } else {
+                "[required]"
+            }
+        );
     }
 
     // Create migration plan
     if can_evolve {
         let migration_plan = evolution.create_migration_plan(&schema_v1, &schema_v2)?;
         println!("🗺️  Migration plan created:");
-        println!("   • Field mappings: {}", migration_plan.field_mappings.len());
-        println!("   • Transformations: {}", migration_plan.transformations.len());
-        
+        println!(
+            "   • Field mappings: {}",
+            migration_plan.field_mappings.len()
+        );
+        println!(
+            "   • Transformations: {}",
+            migration_plan.transformations.len()
+        );
+
         // Test record evolution
         use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
         use std::collections::HashMap;
-        
+
         let mut test_record_fields = HashMap::new();
         test_record_fields.insert("id".to_string(), FieldValue::Integer(123));
-        test_record_fields.insert("name".to_string(), FieldValue::String("John Doe".to_string()));
-        
+        test_record_fields.insert(
+            "name".to_string(),
+            FieldValue::String("John Doe".to_string()),
+        );
+
         let test_record = StreamRecord {
             fields: test_record_fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -182,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("✅ Record evolved successfully:");
         println!("   • Original fields: 2");
         println!("   • Evolved fields: {}", evolved_record.fields.len());
-        
+
         for (field_name, field_value) in &evolved_record.fields {
             println!("     - {}: {:?}", field_name, field_value);
         }
@@ -191,18 +222,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 5: Cache Maintenance
     println!("\n🔧 Test 5: Cache Maintenance");
     println!("----------------------------");
-    
+
     let size_info = cache.size_info().await;
     println!("📏 Cache size info:");
-    println!("   • Current entries: {}/{}", size_info.current_entries, size_info.max_entries);
+    println!(
+        "   • Current entries: {}/{}",
+        size_info.current_entries, size_info.max_entries
+    );
     println!("   • Utilization: {:.1}%", size_info.utilization * 100.0);
     println!("   • Active entries: {}", size_info.active_entries);
-    
+
     let maintenance_result = cache.maintenance().await?;
     println!("🧹 Maintenance result:");
     println!("   • Entries before: {}", maintenance_result.entries_before);
     println!("   • Entries after: {}", maintenance_result.entries_after);
-    println!("   • Expired removed: {}", maintenance_result.expired_removed);
+    println!(
+        "   • Expired removed: {}",
+        maintenance_result.expired_removed
+    );
 
     // Test 6: Advanced Features
     println!("\n⚡ Test 6: Advanced Features");
@@ -222,13 +259,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Show final statistics
     println!("\n📈 Final Statistics");
     println!("------------------");
-    
+
     let final_stats = cache.statistics().await;
     println!("Cache performance:");
     println!("   • Total requests: {}", final_stats.total_requests);
-    println!("   • Hits: {} | Misses: {}", final_stats.hits, final_stats.misses);
+    println!(
+        "   • Hits: {} | Misses: {}",
+        final_stats.hits, final_stats.misses
+    );
     println!("   • Hit rate: {:.1}%", final_stats.hit_rate() * 100.0);
-    println!("   • Average access time: {:.2}μs", final_stats.avg_access_time_us);
+    println!(
+        "   • Average access time: {:.2}μs",
+        final_stats.avg_access_time_us
+    );
     println!("   • Total evictions: {}", final_stats.total_evictions());
 
     println!("\n🎉 Schema Management System Test Completed Successfully!");

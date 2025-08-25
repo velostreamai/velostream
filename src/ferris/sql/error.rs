@@ -1,9 +1,9 @@
 /*!
-# SQL Error Handling
+# SQL Error Handling & Recovery
 
-This module provides comprehensive error handling for the streaming SQL engine.
-All SQL operations return well-structured errors with detailed context information
-to help with debugging and user feedback.
+This module provides comprehensive error handling and recovery mechanisms for the 
+streaming SQL engine, including resilience patterns, retry strategies, and 
+automatic recovery capabilities.
 
 ## Error Categories
 
@@ -16,6 +16,14 @@ The SQL engine defines several categories of errors:
 - **Stream Errors**: Issues with stream registration and access
 - **Window Errors**: Problems with windowing operations
 - **Resource Errors**: Memory and resource exhaustion issues
+- **Recovery Errors**: Circuit breaker, retry, and resilience failures
+
+## Recovery Features
+
+- **Circuit Breaker Pattern**: Prevents cascading failures in distributed systems
+- **Retry Mechanisms**: Configurable retry strategies with exponential backoff
+- **Dead Letter Queue**: Routes failed messages to separate processing pipelines
+- **Health Monitoring**: Tracks system health and recovery metrics
 
 ## Error Context
 
@@ -27,11 +35,13 @@ All errors include relevant context information:
 - Stream names for stream errors
 - Window types for windowing errors
 - Resource names for resource errors
+- Recovery state for resilience errors
 
 ## Examples
 
 ```rust,no_run
-use ferrisstreams::ferris::sql::error::SqlError;
+use ferrisstreams::ferris::sql::error::{SqlError, recovery::*};
+use std::time::Duration;
 
 fn main() {
     // Parse error with position
@@ -48,15 +58,52 @@ fn main() {
 }
 ```
 
+## Recovery Usage
+
+```rust,no_run
+use ferrisstreams::ferris::sql::error::recovery::*;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Create circuit breaker for external service calls
+    let mut circuit_breaker = CircuitBreaker::builder()
+        .failure_threshold(5)
+        .recovery_timeout(Duration::from_secs(30))
+        .build();
+
+    // Configure retry policy with exponential backoff
+    let retry_policy = RetryPolicy::exponential_backoff()
+        .max_attempts(3)
+        .initial_delay(Duration::from_millis(100))
+        .max_delay(Duration::from_secs(5))
+        .build();
+
+    // Setup dead letter queue for failed messages
+    let dlq = DeadLetterQueue::new("failed_events").await?;
+
+    Ok(())
+}
+```
+
 ## Error Propagation
 
 The module provides convenient type aliases for error handling:
 - `SqlResult<T>` for operations that may fail
 - `ParseResult<T>` for parsing operations with remaining input
+- `RecoveryResult<T>` for recovery operations
 
 Errors implement standard Rust error traits (`std::error::Error`, `Display`, `Debug`)
 for seamless integration with error handling libraries and frameworks.
 */
+
+pub mod recovery;
+
+// Re-export recovery types for easy access
+pub use recovery::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitState, RetryPolicy, BackoffStrategy,
+    DeadLetterQueue, HealthMonitor, HealthStatus, RecoveryError, RecoveryResult,
+};
 
 use std::fmt;
 
