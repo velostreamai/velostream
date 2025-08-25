@@ -136,6 +136,7 @@ use super::types::{FieldValue, StreamRecord};
 use super::utils::FieldValueConverter;
 use crate::ferris::serialization::{InternalValue, SerializationFormat};
 use crate::ferris::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
+use crate::ferris::sql::datasource::{create_sink, create_source, DataReader, DataWriter};
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -962,6 +963,234 @@ impl StreamExecutionEngine {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    // === PLUGGABLE DATA SOURCE SUPPORT ===
+
+    /// Execute a query with pluggable data sources
+    /// Reads from one or more sources and writes to one or more sinks
+    pub async fn execute_with_sources(
+        &mut self,
+        query: &StreamingQuery,
+        source_uris: Vec<&str>,
+        sink_uris: Vec<&str>,
+    ) -> Result<(), SqlError> {
+        // Create readers from source URIs
+        let mut readers = HashMap::new();
+        for (idx, uri) in source_uris.iter().enumerate() {
+            let source = create_source(uri).map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to create source from {}: {}", uri, e),
+                query: None,
+            })?;
+
+            let reader = source
+                .create_reader()
+                .await
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Failed to create reader for {}: {}", uri, e),
+                    query: None,
+                })?;
+
+            readers.insert(format!("source_{}", idx), reader);
+        }
+
+        // Create writers from sink URIs
+        let mut writers = HashMap::new();
+        for (idx, uri) in sink_uris.iter().enumerate() {
+            let sink = create_sink(uri).map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to create sink from {}: {}", uri, e),
+                query: None,
+            })?;
+
+            let writer = sink
+                .create_writer()
+                .await
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Failed to create writer for {}: {}", uri, e),
+                    query: None,
+                })?;
+
+            writers.insert(format!("sink_{}", idx), writer);
+        }
+
+        // Create context with heterogeneous sources
+        let query_id = self.generate_query_id(query);
+        let mut context = ProcessorContext::new_with_sources(&query_id, readers, writers);
+
+        // Copy engine state to context
+        context.record_count = self.record_count;
+        context.group_by_states = self.group_states.clone();
+        context.performance_monitor = self.performance_monitor.as_ref().map(|m| Arc::clone(m));
+
+        // Process records from all sources
+        let source_names: Vec<String> = context.list_sources();
+        for source_name in &source_names {
+            context.set_active_reader(&source_name)?;
+
+            // Process all records from this source
+            while let Some(record) = context.read().await? {
+                // Apply query processing
+                let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+                // Write result to all sinks if present
+                if let Some(output_record) = result.record {
+                    for sink_idx in 0..sink_uris.len() {
+                        let sink_name = format!("sink_{}", sink_idx);
+                        context.write_to(&sink_name, output_record.clone()).await?;
+                    }
+                }
+
+                // Update record count
+                if result.should_count {
+                    self.record_count += 1;
+                }
+            }
+
+            // Commit this source
+            context.commit_source(&source_name).await?;
+        }
+
+        // Flush and commit all sinks
+        context.flush_all().await?;
+        for sink_idx in 0..sink_uris.len() {
+            let sink_name = format!("sink_{}", sink_idx);
+            context.commit_sink(&sink_name).await?;
+        }
+
+        // Sync state back to engine
+        self.group_states = std::mem::take(&mut context.group_by_states);
+        self.save_window_states_from_context(&context);
+
+        Ok(())
+    }
+
+    /// Execute a query reading from a single data source URI
+    pub async fn execute_from_source(
+        &mut self,
+        query: &StreamingQuery,
+        source_uri: &str,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        let source = create_source(source_uri).map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to create source from {}: {}", source_uri, e),
+            query: None,
+        })?;
+
+        let mut reader = source
+            .create_reader()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to create reader: {}", e),
+                query: None,
+            })?;
+
+        let mut results = Vec::new();
+        let query_id = self.generate_query_id(query);
+
+        // Process all records from source
+        while let Some(record) = reader.read().await.map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to read from source: {}", e),
+            query: None,
+        })? {
+            let mut context = self.create_processor_context(&query_id);
+            context.group_by_states = self.group_states.clone();
+
+            let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+            if let Some(output_record) = result.record {
+                results.push(output_record);
+            }
+
+            // Sync state
+            self.group_states = std::mem::take(&mut context.group_by_states);
+            self.save_window_states_from_context(&context);
+
+            if result.should_count {
+                self.record_count += 1;
+            }
+        }
+
+        reader
+            .commit()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to commit reader: {}", e),
+                query: None,
+            })?;
+
+        Ok(results)
+    }
+
+    /// Process a streaming query with custom data source and sink
+    pub async fn stream_process(
+        &mut self,
+        query: &StreamingQuery,
+        mut reader: Box<dyn DataReader>,
+        mut writer: Box<dyn DataWriter>,
+    ) -> Result<(), SqlError> {
+        let query_id = self.generate_query_id(query);
+
+        // Stream processing loop
+        loop {
+            match reader.read().await {
+                Ok(Some(record)) => {
+                    let mut context = self.create_processor_context(&query_id);
+                    context.group_by_states = self.group_states.clone();
+
+                    let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+                    if let Some(output_record) = result.record {
+                        writer.write(output_record).await.map_err(|e| {
+                            SqlError::ExecutionError {
+                                message: format!("Failed to write output: {}", e),
+                                query: None,
+                            }
+                        })?;
+                    }
+
+                    // Sync state
+                    self.group_states = std::mem::take(&mut context.group_by_states);
+                    self.save_window_states_from_context(&context);
+
+                    if result.should_count {
+                        self.record_count += 1;
+                    }
+                }
+                Ok(None) => {
+                    // No more data available
+                    break;
+                }
+                Err(e) => {
+                    return Err(SqlError::ExecutionError {
+                        message: format!("Read error: {}", e),
+                        query: None,
+                    });
+                }
+            }
+        }
+
+        // Commit reader and writer
+        reader
+            .commit()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to commit reader: {}", e),
+                query: None,
+            })?;
+
+        writer.flush().await.map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to flush writer: {}", e),
+            query: None,
+        })?;
+
+        writer
+            .commit()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to commit writer: {}", e),
+                query: None,
+            })?;
 
         Ok(())
     }

@@ -13,21 +13,26 @@
 //!
 //! ## Example Usage
 //!
-//! ```rust
+//! ```rust,no_run
 //! use ferrisstreams::ferris::sql::datasource::*;
 //!
-//! // Create Kafka source
-//! let source = create_source("kafka://localhost:9092/orders?group_id=processor")?;
-//! let reader = source.create_reader().await?;
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     // Create Kafka source
+//!     let source = create_source("kafka://localhost:9092/orders?group_id=processor").map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+//!     let mut reader = source.create_reader().await?;
 //!
-//! // Create Kafka sink
-//! let sink = create_sink("kafka://localhost:9092/processed_orders")?;
-//! let writer = sink.create_writer().await?;
+//!     // Create Kafka sink
+//!     let sink = create_sink("kafka://localhost:9092/processed_orders").map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+//!     let mut writer = sink.create_writer().await?;
 //!
-//! // Process records
-//! while let Some(record) = reader.read().await? {
-//!     // Transform record...
-//!     writer.write(record).await?;
+//!     // Process records
+//!     while let Some(record) = reader.read().await? {
+//!         // Transform record...
+//!         writer.write(record).await?;
+//!     }
+//!
+//!     Ok(())
 //! }
 //! ```
 

@@ -270,21 +270,31 @@ mod tests {
 
     #[async_trait]
     impl DataSource for MockSource {
-        type Error = Box<dyn std::error::Error + Send + Sync>;
-
-        async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Self::Error> {
+        async fn initialize(
+            &mut self,
+            _config: SourceConfig,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
 
         async fn fetch_schema(
             &self,
-        ) -> Result<crate::ferris::sql::execution::types::SchemaInfo, Self::Error> {
-            todo!()
+        ) -> Result<crate::ferris::sql::schema::Schema, Box<dyn std::error::Error + Send + Sync>>
+        {
+            use crate::ferris::sql::ast::DataType;
+            use crate::ferris::sql::schema::{FieldDefinition, Schema};
+            Ok(Schema::new(vec![FieldDefinition::required(
+                "id".to_string(),
+                DataType::Integer,
+            )]))
         }
 
         async fn create_reader(
             &self,
-        ) -> Result<Box<dyn crate::ferris::sql::datasource::DataReader>, Self::Error> {
+        ) -> Result<
+            Box<dyn crate::ferris::sql::datasource::DataReader>,
+            Box<dyn std::error::Error + Send + Sync>,
+        > {
             todo!()
         }
 
@@ -310,22 +320,26 @@ mod tests {
 
     #[async_trait]
     impl DataSink for MockSink {
-        type Error = Box<dyn std::error::Error + Send + Sync>;
-
-        async fn initialize(&mut self, _config: SinkConfig) -> Result<(), Self::Error> {
+        async fn initialize(
+            &mut self,
+            _config: SinkConfig,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
 
         async fn validate_schema(
             &self,
-            _schema: &crate::ferris::sql::execution::types::SchemaInfo,
-        ) -> Result<(), Self::Error> {
+            _schema: &crate::ferris::sql::schema::Schema,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
 
         async fn create_writer(
             &self,
-        ) -> Result<Box<dyn crate::ferris::sql::datasource::DataWriter>, Self::Error> {
+        ) -> Result<
+            Box<dyn crate::ferris::sql::datasource::DataWriter>,
+            Box<dyn std::error::Error + Send + Sync>,
+        > {
             todo!()
         }
 
