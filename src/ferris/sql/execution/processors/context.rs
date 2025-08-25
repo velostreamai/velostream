@@ -12,7 +12,7 @@ use std::sync::Arc;
 use super::join_context::JoinContext;
 
 /// Main execution context for query processing
-/// 
+///
 /// This struct maintains all the state needed for query execution including:
 /// - Data source connections and readers
 /// - Window states and processing context  

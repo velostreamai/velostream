@@ -383,7 +383,7 @@ impl DataReader for KafkaDataReader {
                 Err(err) => Err(Box::new(err)),
             },
             Ok(None) => Ok(None), // Stream ended
-            Err(_) => Ok(None), // Timeout
+            Err(_) => Ok(None),   // Timeout
         }
     }
 

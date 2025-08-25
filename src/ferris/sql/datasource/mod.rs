@@ -260,4 +260,3 @@ impl From<DataSourceError> for SqlError {
         }
     }
 }
-

@@ -766,4 +766,3 @@ impl std::error::Error for ConfigurationError {
         }
     }
 }
-

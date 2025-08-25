@@ -55,7 +55,10 @@ impl QueryProcessor {
             metrics.insert("max_records".to_string(), max);
         }
 
-        metrics.insert("data_sources".to_string(), context.data_sources.len() as u64);
+        metrics.insert(
+            "data_sources".to_string(),
+            context.data_sources.len() as u64,
+        );
         metrics.insert("schemas".to_string(), context.schemas.len() as u64);
         metrics.insert(
             "stream_handles".to_string(),
@@ -63,8 +66,14 @@ impl QueryProcessor {
         );
 
         // Add pluggable data source metrics
-        metrics.insert("data_readers".to_string(), context.data_readers.len() as u64);
-        metrics.insert("data_writers".to_string(), context.data_writers.len() as u64);
+        metrics.insert(
+            "data_readers".to_string(),
+            context.data_readers.len() as u64,
+        );
+        metrics.insert(
+            "data_writers".to_string(),
+            context.data_writers.len() as u64,
+        );
         metrics.insert(
             "persistent_window_states".to_string(),
             context.persistent_window_states.len() as u64,

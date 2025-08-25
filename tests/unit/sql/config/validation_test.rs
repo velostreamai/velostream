@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::config::*;
 use ferrisstreams::ferris::sql::config::validation::*;
+use ferrisstreams::ferris::sql::config::*;
 
 #[test]
 fn test_kafka_validation() {

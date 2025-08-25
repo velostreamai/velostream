@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::config::*;
 use ferrisstreams::ferris::sql::config::builder::*;
+use ferrisstreams::ferris::sql::config::*;
 
 #[test]
 fn test_basic_builder() {
@@ -84,8 +84,7 @@ fn test_file_builder() {
 #[test]
 fn test_from_uri() {
     let builder =
-        DataSourceConfigBuilder::from_uri("kafka://localhost:9092/orders?group_id=test")
-            .unwrap();
+        DataSourceConfigBuilder::from_uri("kafka://localhost:9092/orders?group_id=test").unwrap();
     let config = builder.build().unwrap();
 
     assert_eq!(config.scheme, "kafka");
