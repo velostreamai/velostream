@@ -15,6 +15,9 @@ pub mod system;
 // SQL type tests
 pub mod types;
 
+// SQL configuration tests
+pub mod config;
+
 // General SQL tests
 pub mod context_test;
 pub mod lifecycle_test;

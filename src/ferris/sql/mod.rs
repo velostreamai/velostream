@@ -3,6 +3,7 @@
 
 pub mod app_parser;
 pub mod ast;
+pub mod config;
 pub mod context;
 pub mod datasource;
 pub mod error;
