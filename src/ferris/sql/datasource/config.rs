@@ -196,9 +196,12 @@ impl ConnectionString {
             None => (remainder, None),
         };
 
-        // Extract host:port and path
+        // Extract host:port and path based on scheme
         let (host, port, path) = if path_part.starts_with('/') {
             // File path: file:///path/to/file
+            (None, None, path_part.to_string())
+        } else if scheme == "s3" {
+            // S3: s3://bucket/path/*.parquet -> path = bucket/path/*.parquet
             (None, None, path_part.to_string())
         } else if path_part.contains('/') {
             // Host with path: kafka://localhost:9092/topic
