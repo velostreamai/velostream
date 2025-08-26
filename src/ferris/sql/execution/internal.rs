@@ -214,7 +214,7 @@ impl GroupAccumulator {
     }
 
     /// Add to string aggregation
-    pub fn add_to_string_agg(&mut self, field_name: &str, value: FieldValue, delimiter: &str) {
+    pub fn add_to_string_agg(&mut self, field_name: &str, value: FieldValue, _delimiter: &str) {
         let value_str = match value {
             FieldValue::String(s) => s,
             _ => format!("{:?}", value),

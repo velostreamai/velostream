@@ -1,10 +1,13 @@
 // Kafka modules
 pub mod admin_client;
+pub mod configurable_consumer;
+pub mod configurable_producer;
 mod kafka_consumer;
 mod kafka_producer;
 mod kafka_producer_def_context;
 pub mod ktable;
 pub mod serialization;
+pub mod serialization_format;
 mod utils;
 
 // Common types
@@ -24,11 +27,16 @@ pub mod performance_presets;
 // Re-export main API
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+
+// Re-export Phase 2 Enhanced APIs
+pub use configurable_consumer::{ConfigurableKafkaConsumer, ConfigurableKafkaConsumerBuilder};
+pub use configurable_producer::{ConfigurableKafkaProducer, ConfigurableKafkaProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
 pub use ktable::KTable;
 pub use serialization::{
     BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer,
 };
+pub use serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat};
 
 // Feature-gated exports
 #[cfg(feature = "avro")]

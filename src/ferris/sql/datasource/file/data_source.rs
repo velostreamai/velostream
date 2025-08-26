@@ -2,7 +2,7 @@
 
 use crate::ferris::sql::datasource::config::SourceConfig;
 use crate::ferris::sql::datasource::traits::{DataReader, DataSource};
-use crate::ferris::sql::datasource::types::{SourceMetadata, SourceOffset};
+use crate::ferris::sql::datasource::types::SourceMetadata;
 use crate::ferris::sql::schema::Schema;
 use async_trait::async_trait;
 use std::error::Error;

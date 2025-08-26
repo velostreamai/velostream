@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
 
 #[cfg(feature = "protobuf")]
 use prost::Message;
