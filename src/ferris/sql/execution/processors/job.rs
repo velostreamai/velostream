@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_job_processor_creation() {
-        let processor = JobProcessor::new();
+        let _processor = JobProcessor::new();
         // Basic creation test
         assert!(true);
     }

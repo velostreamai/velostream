@@ -1,7 +1,7 @@
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, ProducerConfig};
 use ferrisstreams::ferris::kafka::serialization::JsonSerializer;
-use ferrisstreams::ferris::kafka::*;
+use ferrisstreams::{Headers, KTable, KafkaConsumer, KafkaProducer};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

@@ -24,6 +24,7 @@ pub mod performance_presets;
 // Re-export main API
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+pub use ktable::KTable;
 pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer};
 pub use utils::convert_kafka_log_level;
 

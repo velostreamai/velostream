@@ -84,6 +84,7 @@ pub use ferris::kafka::{
     Headers,
     // Serializers
     JsonSerializer,
+    KTable,
     KafkaAdminClient,
 
     // Traits
