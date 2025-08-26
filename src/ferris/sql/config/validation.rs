@@ -293,7 +293,7 @@ impl ConfigValidator for KafkaValidator {
 
         // Validate port range
         if let Some(port) = config.port {
-            if port < 1024 || port > 65535 {
+            if port < 1024 {
                 return Err(ValidationError::OutOfRange {
                     parameter: "port".to_string(),
                     value: port.to_string(),
