@@ -16,6 +16,7 @@
 //! ```rust
 //! use ferrisstreams::ferris::sql::config::*;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Parse URI
 //! let conn = ConnectionString::parse("kafka://localhost:9092/orders?group_id=analytics")?;
 //!
@@ -27,6 +28,8 @@
 //!     .path("orders")
 //!     .parameter("group_id", "analytics")
 //!     .build()?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod builder;

@@ -65,7 +65,7 @@ pub trait DataSink: Send + Sync + 'static {
 
 /// Reader trait for consuming data from any source
 #[async_trait]
-pub trait DataReader: Send + Sync {
+pub trait DataReader: Send + Sync + 'static {
     /// Read a single record from the source
     /// Returns None when no more data is available (for batch sources)
     /// May block waiting for data (for streaming sources)
@@ -90,7 +90,7 @@ pub trait DataReader: Send + Sync {
 
 /// Writer trait for publishing data to any sink
 #[async_trait]
-pub trait DataWriter: Send + Sync {
+pub trait DataWriter: Send + Sync + 'static {
     /// Write a single record to the sink
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>>;
 

@@ -1,4 +1,4 @@
-//! Query Processing Modules
+//! Processors for SQL query execution
 //!
 //! This module contains specialized processors for different types of SQL operations:
 //! - SELECT processing
@@ -7,10 +7,6 @@
 //! - LIMIT processing
 //! - SHOW/DESCRIBE processing
 
-use crate::ferris::sql::execution::expression::evaluator::ExpressionEvaluator;
-use crate::ferris::sql::execution::internal::GroupByState;
-use crate::ferris::sql::execution::performance::PerformanceMonitor;
-use crate::ferris::sql::execution::types::FieldValue;
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::{SqlError, StreamingQuery};
 
@@ -31,126 +27,50 @@ impl QueryProcessor {
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
         match query {
-            StreamingQuery::Select {
-                fields,
-                from: _,
-                where_clause: _,
-                group_by,
-                having,
-                limit,
-                ..
-            } => {
-                // Check LIMIT constraints first
-                if let Some(limit_count) = limit {
-                    if context.record_count >= *limit_count as u64 {
-                        // Already processed enough records, skip this one
-                        return Ok(ProcessorResult {
-                            record: None,
-                            header_mutations: Vec::new(),
-                            should_count: false,
-                        });
-                    }
-                }
-
-                // Check if this is a GROUP BY query
-                if let Some(group_expressions) = group_by {
-                    return Self::process_group_by_query(fields, group_expressions, having, record, context);
-                }
-
-                // Process the SELECT fields (simplified implementation)
-                let mut result_fields = std::collections::HashMap::new();
-                
-                // For SELECT *, include all fields
-                if fields.iter().any(|f| matches!(f, crate::ferris::sql::ast::SelectField::Wildcard)) {
-                    result_fields = record.fields.clone();
-                } else {
-                    // Process specific fields
-                    for field in fields {
-                        match field {
-                            crate::ferris::sql::ast::SelectField::Column(name) => {
-                                if let Some(value) = record.fields.get(name) {
-                                    result_fields.insert(name.clone(), value.clone());
-                                } else if name.starts_with('_') {
-                                    // Handle system columns (case insensitive)
-                                    match name.to_lowercase().as_str() {
-                                        "_timestamp" => {
-                                            result_fields.insert(name.clone(), FieldValue::Integer(record.timestamp));
-                                        }
-                                        "_offset" => {
-                                            result_fields.insert(name.clone(), FieldValue::Integer(record.offset));
-                                        }
-                                        "_partition" => {
-                                            result_fields.insert(name.clone(), FieldValue::Integer(record.partition as i64));
-                                        }
-                                        _ => {} // Unknown system column, ignore
-                                    }
-                                }
-                            }
-                            crate::ferris::sql::ast::SelectField::AliasedColumn { column, alias } => {
-                                if let Some(value) = record.fields.get(column) {
-                                    result_fields.insert(alias.clone(), value.clone());
-                                } else if column.starts_with('_') {
-                                    // Handle aliased system columns (case insensitive)
-                                    match column.to_lowercase().as_str() {
-                                        "_timestamp" => {
-                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.timestamp));
-                                        }
-                                        "_offset" => {
-                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.offset));
-                                        }
-                                        "_partition" => {
-                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.partition as i64));
-                                        }
-                                        _ => {} // Unknown system column, ignore
-                                    }
-                                }
-                            }
-                            crate::ferris::sql::ast::SelectField::Expression { expr, alias } => {
-                                // Use ExpressionEvaluator to evaluate any expression (columns, literals, functions, etc.)
-                                match ExpressionEvaluator::evaluate_expression_value(expr, &record) {
-                                    Ok(value) => {
-                                        let field_name = if let Some(alias) = alias {
-                                            alias.clone()
-                                        } else {
-                                            // If no alias, try to derive a name from the expression
-                                            match expr {
-                                                crate::ferris::sql::ast::Expr::Column(name) => name.clone(),
-                                                _ => "expr".to_string(), // Default name for non-column expressions
-                                            }
-                                        };
-                                        result_fields.insert(field_name, value);
-                                    }
-                                    Err(_) => {
-                                        // If evaluation fails, skip this field (could add error handling)
-                                    }
-                                }
-                            }
-                            _ => {} // Handle other field types as needed
-                        }
-                    }
-                }
-
-                let result_record = Some(StreamRecord {
-                    fields: result_fields,
-                    timestamp: record.timestamp,
-                    offset: record.offset,
-                    partition: record.partition,
-                    headers: record.headers.clone(),
-                });
-
+            StreamingQuery::Select { .. } => {
+                // Delegate to the specialized SelectProcessor
+                SelectProcessor::process(query, record, context)
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // For CREATE STREAM AS SELECT, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                // For CREATE TABLE AS SELECT, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
+            StreamingQuery::Show { .. } => {
+                // Delegate to ShowProcessor
+                ShowProcessor::process(query, record, context)
+            }
+            StreamingQuery::InsertInto { table_name, columns, source } => {
+                // Extract parameters and delegate to InsertProcessor
+                let insert_records = InsertProcessor::process_insert(table_name, columns, source, record)?;
+                // Convert multiple records to ProcessorResult (take first record if any)
+                let result_record = insert_records.into_iter().next();
                 Ok(ProcessorResult {
                     record: result_record,
                     header_mutations: Vec::new(),
                     should_count: true,
                 })
             }
-            StreamingQuery::CreateStream { as_select, .. } => {
-                // For CREATE STREAM AS SELECT, process the inner SELECT query
-                Self::process_query(as_select, record, context)
+            StreamingQuery::Update { table_name, assignments, where_clause } => {
+                // Extract parameters and delegate to UpdateProcessor
+                let updated_record = UpdateProcessor::process_update(table_name, assignments, where_clause, record)?;
+                Ok(ProcessorResult {
+                    record: updated_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
             }
-            StreamingQuery::CreateTable { as_select, .. } => {
-                // For CREATE TABLE AS SELECT, process the inner SELECT query
-                Self::process_query(as_select, record, context)
+            StreamingQuery::Delete { table_name, where_clause } => {
+                // Extract parameters and delegate to DeleteProcessor
+                let tombstone_record = DeleteProcessor::process_delete(table_name, where_clause, record)?;
+                Ok(ProcessorResult {
+                    record: tombstone_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
             }
             _ => {
                 // For other query types, use simplified implementation
@@ -168,9 +88,9 @@ impl QueryProcessor {
         query: &StreamingQuery,
         record: &StreamRecord,
         context: &mut ProcessorContext,
-        _performance_monitor: Option<&PerformanceMonitor>,
+        _performance_monitor: Option<&()>, // PerformanceMonitor not available yet
     ) -> Result<ProcessorResult, SqlError> {
-        // Use simplified processing for now
+        // Delegate to the main process_query method
         Self::process_query(query, record, context)
     }
 
@@ -219,173 +139,6 @@ impl QueryProcessor {
         context.record_count = 0;
         context.window_context = None;
         context.data_sources.clear();
-    }
-
-    /// Process a GROUP BY query with aggregation
-    pub fn process_group_by_query(
-        fields: &[crate::ferris::sql::ast::SelectField],
-        group_expressions: &[crate::ferris::sql::ast::Expr],
-        _having: &Option<crate::ferris::sql::ast::Expr>,
-        record: &StreamRecord,
-        context: &mut ProcessorContext,
-    ) -> Result<ProcessorResult, SqlError> {
-        // Create a unique key for this GROUP BY query (for now, use a simple key)
-        let query_key = "default_group_by".to_string();
-        
-        // Get or create the GroupByState for this query
-        if !context.group_by_states.contains_key(&query_key) {
-            let group_by_state = GroupByState::new(
-                group_expressions.to_vec(),
-                fields.to_vec(),
-                _having.clone(),
-            );
-            context.group_by_states.insert(query_key.clone(), group_by_state);
-        }
-        
-        // Process the record through the GROUP BY state
-        let group_by_state = context.group_by_states.get_mut(&query_key).unwrap();
-        
-        // Compute group key from group expressions
-        let mut group_key_values = Vec::new();
-        for group_expr in group_expressions {
-            match ExpressionEvaluator::evaluate_expression_value(group_expr, record) {
-                Ok(value) => group_key_values.push(value),
-                Err(_) => return Ok(ProcessorResult {
-                    record: None,
-                    header_mutations: Vec::new(),
-                    should_count: false,
-                }),
-            }
-        }
-        
-        // Create group key (convert FieldValue to String for the key)
-        let group_key: Vec<String> = group_key_values.into_iter()
-            .map(|val| format!("{:?}", val))
-            .collect();
-        
-        // Get or create the group accumulator
-        let group_accumulator = group_by_state.get_or_create_group(group_key.clone());
-        
-        // Process the record in this group
-        group_accumulator.increment_count();
-        group_accumulator.set_sample_record(record.clone());
-        
-        // Process aggregate functions from the SELECT fields
-        for field in fields {
-            match field {
-                crate::ferris::sql::ast::SelectField::Expression { expr, alias: _ } => {
-                    match expr {
-                        crate::ferris::sql::ast::Expr::Function { name, args } => {
-                            match name.to_lowercase().as_str() {
-                                "sum" => {
-                                    if let Some(arg) = args.first() {
-                                        if let Ok(FieldValue::Float(val)) = ExpressionEvaluator::evaluate_expression_value(arg, record) {
-                                            group_accumulator.add_sum("sum_field", val);
-                                        } else if let Ok(FieldValue::Integer(val)) = ExpressionEvaluator::evaluate_expression_value(arg, record) {
-                                            group_accumulator.add_sum("sum_field", val as f64);
-                                        }
-                                    }
-                                }
-                                "count" => {
-                                    // COUNT(*) or COUNT(column)
-                                    group_accumulator.add_non_null_count("count_field");
-                                }
-                                "min" => {
-                                    if let Some(arg) = args.first() {
-                                        if let Ok(val) = ExpressionEvaluator::evaluate_expression_value(arg, record) {
-                                            group_accumulator.update_min("min_field", val);
-                                        }
-                                    }
-                                }
-                                "max" => {
-                                    if let Some(arg) = args.first() {
-                                        if let Ok(val) = ExpressionEvaluator::evaluate_expression_value(arg, record) {
-                                            group_accumulator.update_max("max_field", val);
-                                        }
-                                    }
-                                }
-                                _ => {} // Other functions not implemented yet
-                            }
-                        }
-                        _ => {} // Non-function expressions
-                    }
-                }
-                _ => {} // Other field types
-            }
-        }
-        
-        // For streaming GROUP BY, emit the current aggregated state for this group
-        
-        if let Some(group_accumulator) = group_by_state.get_group(&group_key) {
-            let mut result_fields = std::collections::HashMap::new();
-            
-            // Add group key fields
-            for (i, group_expr) in group_expressions.iter().enumerate() {
-                if let crate::ferris::sql::ast::Expr::Column(col_name) = group_expr {
-                    if let Some(sample_record) = &group_accumulator.sample_record {
-                        if let Some(value) = sample_record.fields.get(col_name) {
-                            result_fields.insert(col_name.clone(), value.clone());
-                        }
-                    }
-                }
-            }
-            
-            // Add aggregate results
-            for field in fields {
-                match field {
-                    crate::ferris::sql::ast::SelectField::Expression { expr, alias } => {
-                        match expr {
-                            crate::ferris::sql::ast::Expr::Function { name, args: _ } => {
-                                let field_name = alias.as_ref().unwrap_or(name);
-                                match name.to_lowercase().as_str() {
-                                    "sum" => {
-                                        if let Some(sum) = group_accumulator.sums.get("sum_field") {
-                                            result_fields.insert(field_name.clone(), FieldValue::Float(*sum));
-                                        }
-                                    }
-                                    "count" => {
-                                        result_fields.insert(field_name.clone(), FieldValue::Integer(group_accumulator.count as i64));
-                                    }
-                                    "min" => {
-                                        if let Some(min_val) = group_accumulator.mins.get("min_field") {
-                                            result_fields.insert(field_name.clone(), min_val.clone());
-                                        }
-                                    }
-                                    "max" => {
-                                        if let Some(max_val) = group_accumulator.maxs.get("max_field") {
-                                            result_fields.insert(field_name.clone(), max_val.clone());
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            
-            let result_record = Some(StreamRecord {
-                fields: result_fields,
-                timestamp: record.timestamp,
-                offset: record.offset,
-                partition: record.partition,
-                headers: record.headers.clone(),
-            });
-            
-            Ok(ProcessorResult {
-                record: result_record,
-                header_mutations: Vec::new(),
-                should_count: true,
-            })
-        } else {
-            Ok(ProcessorResult {
-                record: None,
-                header_mutations: Vec::new(),
-                should_count: true,
-            })
-        }
     }
 
     /// Validate context readiness for processing

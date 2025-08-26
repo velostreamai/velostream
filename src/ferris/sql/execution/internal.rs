@@ -183,6 +183,49 @@ impl GroupAccumulator {
             self.sample_record = Some(record);
         }
     }
+
+    /// Add a value to the set of distinct values for COUNT_DISTINCT
+    pub fn add_to_set(&mut self, field_name: &str, value: FieldValue) {
+        let value_str = format!("{:?}", value); // Convert to string representation
+        self.distinct_values
+            .entry(field_name.to_string())
+            .or_default()
+            .insert(value_str);
+    }
+
+    /// Set the first value for FIRST() aggregates (only if not already set)
+    pub fn set_first_value(&mut self, field_name: &str, value: FieldValue) {
+        self.first_values
+            .entry(field_name.to_string())
+            .or_insert(value);
+    }
+
+    /// Set the last value for LAST() aggregates (always updates)
+    pub fn set_last_value(&mut self, field_name: &str, value: FieldValue) {
+        self.last_values
+            .insert(field_name.to_string(), value);
+    }
+
+    /// Add a value for statistical functions (STDDEV, VARIANCE)
+    pub fn add_value_for_stats(&mut self, field_name: &str, value: f64) {
+        self.numeric_values
+            .entry(field_name.to_string())
+            .or_default()
+            .push(value);
+    }
+
+    /// Add to string aggregation
+    pub fn add_to_string_agg(&mut self, field_name: &str, value: FieldValue, delimiter: &str) {
+        let value_str = match value {
+            FieldValue::String(s) => s,
+            _ => format!("{:?}", value),
+        };
+        
+        self.string_values
+            .entry(field_name.to_string())
+            .or_default()
+            .push(value_str);
+    }
 }
 
 impl Default for GroupAccumulator {

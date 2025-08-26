@@ -26,6 +26,8 @@
 //!     
 //!     // Check schema evolution compatibility
 //!     let evolution = SchemaEvolution::new();
+//!     let old_schema = schema.clone(); // Example: use discovered schema as old
+//!     let new_schema = schema; // Example: use same schema as new
 //!     let can_migrate = evolution.can_evolve(&old_schema, &new_schema);
 //!     
 //!     Ok(())

@@ -90,10 +90,14 @@ impl ConnectionString {
     ///
     /// # Examples
     /// ```rust
+    /// use ferrisstreams::ferris::sql::config::connection_string::ConnectionString;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let conn = ConnectionString::parse("kafka://localhost:9092/orders?group_id=analytics")?;
     /// assert_eq!(conn.scheme, "kafka");
     /// assert_eq!(conn.hosts[0].host, "localhost");
     /// assert_eq!(conn.hosts[0].port, Some(9092));
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn parse(uri: &str) -> Result<Self, ParseError> {
         if uri.is_empty() {
