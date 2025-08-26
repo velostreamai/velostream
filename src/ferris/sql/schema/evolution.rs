@@ -455,7 +455,7 @@ impl SchemaEvolution {
 
     fn create_field_mappings(
         &self,
-        diff: &SchemaDiff,
+        _diff: &SchemaDiff,
         from: &Schema,
         to: &Schema,
     ) -> Vec<FieldMapping> {

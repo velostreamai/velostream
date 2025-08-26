@@ -383,7 +383,7 @@ impl CircuitBreaker {
         }
     }
 
-    async fn record_failure(&self, error: String) {
+    async fn record_failure(&self, _error: String) {
         let mut failure_count = self.failure_count.lock().await;
         *failure_count += 1;
 
@@ -567,7 +567,6 @@ impl RetryPolicy {
     {
         let mut attempts = 0;
         let mut delay = self.initial_delay;
-        let mut last_error = None;
 
         loop {
             attempts += 1;
@@ -575,8 +574,6 @@ impl RetryPolicy {
             match operation().await {
                 Ok(result) => return Ok(result),
                 Err(error) => {
-                    last_error = Some(error.clone());
-
                     // Check if we should retry this error
                     if !self.should_retry(&error) || attempts >= self.max_attempts {
                         return Err(RecoveryError::RetryExhausted {
@@ -625,7 +622,7 @@ impl RetryPolicy {
         }
     }
 
-    fn calculate_next_delay(&self, current_delay: Duration, attempt: u32) -> Duration {
+    fn calculate_next_delay(&self, current_delay: Duration, _attempt: u32) -> Duration {
         let next_delay = match &self.backoff_strategy {
             BackoffStrategy::Fixed => current_delay,
             BackoffStrategy::Linear { increment } => current_delay + *increment,

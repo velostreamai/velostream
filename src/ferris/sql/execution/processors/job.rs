@@ -24,7 +24,7 @@ impl JobProcessor {
     pub fn process_start_job(
         &self,
         name: &str,
-        query: &StreamingQuery,
+        _query: &StreamingQuery,
         properties: &HashMap<String, String>,
         context: &mut ProcessorContext,
         record: &StreamRecord,
@@ -186,7 +186,7 @@ impl JobProcessor {
         &self,
         name: &str,
         version: &str,
-        query: &StreamingQuery,
+        _query: &StreamingQuery,
         properties: &HashMap<String, String>,
         strategy: &DeploymentStrategy,
         context: &mut ProcessorContext,
@@ -255,7 +255,7 @@ impl JobProcessor {
     /// Main entry point for job operations
     pub fn process(
         &self,
-        query: &StreamingQuery,
+        _query: &StreamingQuery,
         context: &mut ProcessorContext,
         record: &StreamRecord,
     ) -> Result<Option<StreamRecord>, SqlError> {

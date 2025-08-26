@@ -1172,7 +1172,7 @@ impl BuiltinFunctions {
         }
 
         // Track the expected return type based on the first non-NULL value found
-        let mut expected_type: Option<&str> = None;
+        let expected_type: Option<&str> = None;
 
         // Evaluate arguments with short-circuit evaluation
         for (index, arg) in args.iter().enumerate() {

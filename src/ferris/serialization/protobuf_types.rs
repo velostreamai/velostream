@@ -12,4 +12,5 @@ pub mod financial {
 }
 
 #[cfg(feature = "protobuf")]
+#[allow(unused_imports)]
 pub use financial::*;

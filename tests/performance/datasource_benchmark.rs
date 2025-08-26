@@ -88,7 +88,7 @@ fn bench_config_validation(c: &mut Criterion) {
             if let Ok(connection) = ConnectionString::parse(uri) {
                 // Simulate validation cost
                 let _is_valid = connection.scheme() == "kafka" && 
-                               connection.hosts().len() > 0 &&
+                               !connection.hosts().is_empty() &&
                                connection.path().is_some();
             }
         });

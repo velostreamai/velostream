@@ -3,7 +3,7 @@
 //! TTL-based schema caching with version tracking and automatic invalidation.
 //! Provides high-performance schema access with configurable eviction policies.
 
-use super::{Schema, SchemaError, SchemaResult};
+use super::{Schema, SchemaResult};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

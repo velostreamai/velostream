@@ -41,7 +41,7 @@ impl SelectProcessor {
         } = query
         {
             // Route windowed queries to WindowProcessor first
-            if let Some(window_spec) = window {
+            if let Some(_window_spec) = window {
                 // Generate query ID based on stream name for consistent window state management
                 let query_id = match from {
                     StreamSource::Stream(name) | StreamSource::Table(name) => {

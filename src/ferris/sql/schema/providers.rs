@@ -9,7 +9,6 @@ use super::{
 };
 use crate::ferris::sql::ast::DataType;
 use async_trait::async_trait;
-use std::collections::HashMap;
 
 /// Kafka schema provider - discovers schema from Kafka topics
 pub struct KafkaSchemaProvider {
@@ -433,7 +432,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(schema.fields.len() > 0);
+        assert!(!schema.fields.is_empty());
         assert_eq!(schema.metadata.source_type, "file");
     }
 
@@ -445,7 +444,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(schema.fields.len() > 0);
+        assert!(!schema.fields.is_empty());
         assert_eq!(schema.metadata.source_type, "s3");
         assert_eq!(schema.metadata.tags.get("bucket").unwrap(), "my-bucket");
     }

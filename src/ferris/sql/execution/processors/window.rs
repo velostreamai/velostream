@@ -274,7 +274,7 @@ impl WindowProcessor {
             WindowSpec::Session { .. } => {
                 // Session windows use enhanced logic with proper gap detection and overflow safety
                 // For now, emit after we have at least one record to enable basic functionality
-                window_state.buffer.len() >= 1
+                !window_state.buffer.is_empty()
             }
         }
     }
@@ -296,7 +296,7 @@ impl WindowProcessor {
         if let StreamingQuery::Select {
             fields,
             where_clause,
-            group_by,
+            group_by: _,
             having,
             ..
         } = query

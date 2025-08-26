@@ -5,7 +5,7 @@ use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::schema::{Schema, StreamHandle};
-use crate::ferris::sql::{SqlError, StreamingQuery};
+use crate::ferris::sql::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
 
