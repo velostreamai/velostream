@@ -29,7 +29,7 @@ fn create_test_record(id: u64) -> StreamRecord {
 
 fn benchmark_operation<F>(name: &str, mut operation: F) -> Duration
 where
-    F: FnMut() -> (),
+    F: FnMut(),
 {
     println!("🔧 Benchmarking {}...", name);
     let start = Instant::now();

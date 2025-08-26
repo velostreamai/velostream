@@ -327,8 +327,8 @@ async fn generate_sample_orders() -> Result<(), Box<dyn std::error::Error>> {
 
     let producer = KafkaProducer::with_config(producer_config, JsonSerializer, JsonSerializer)?;
 
-    let users = vec!["user-001", "user-002", "user-003", "user-004"];
-    let products = vec!["laptop", "smartphone", "tablet", "headphones", "monitor"];
+    let users = ["user-001", "user-002", "user-003", "user-004"];
+    let products = ["laptop", "smartphone", "tablet", "headphones", "monitor"];
 
     let mut interval = interval(Duration::from_secs(3));
     let mut order_counter = 1;

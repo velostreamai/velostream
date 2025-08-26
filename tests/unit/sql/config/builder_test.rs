@@ -1,5 +1,4 @@
 use ferrisstreams::ferris::sql::config::builder::*;
-use ferrisstreams::ferris::sql::config::*;
 
 #[test]
 fn test_basic_builder() {

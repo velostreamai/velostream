@@ -12,6 +12,12 @@ use crate::ferris::sql::SqlError;
 /// JOIN processing context and utilities
 pub struct JoinContext;
 
+impl Default for JoinContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JoinContext {
     /// Create a new JoinContext instance
     pub fn new() -> Self {

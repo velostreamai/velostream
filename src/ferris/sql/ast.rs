@@ -697,6 +697,7 @@ pub struct IntoClause {
 
 /// Enhanced configuration properties supporting multiple config files
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub struct ConfigProperties {
     /// Base source configuration file path
     pub base_source_config: Option<String>,
@@ -714,19 +715,6 @@ pub struct ConfigProperties {
     pub inline_properties: HashMap<String, String>,
 }
 
-impl Default for ConfigProperties {
-    fn default() -> Self {
-        Self {
-            base_source_config: None,
-            source_config: None,
-            base_sink_config: None,
-            sink_config: None,
-            monitoring_config: None,
-            security_config: None,
-            inline_properties: HashMap::new(),
-        }
-    }
-}
 
 impl ConfigProperties {
     /// Convert to legacy HashMap format for backward compatibility

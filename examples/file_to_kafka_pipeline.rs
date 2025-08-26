@@ -13,7 +13,6 @@
 use clap::Parser;
 use ferrisstreams::ferris::sql::datasource::{create_sink, create_source};
 use std::error::Error;
-use tokio;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

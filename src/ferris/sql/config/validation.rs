@@ -145,6 +145,12 @@ pub struct ValidationStats {
     pub error_counts: HashMap<String, usize>,
 }
 
+impl Default for ConfigValidatorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigValidatorRegistry {
     /// Create new registry with default validators
     pub fn new() -> Self {
@@ -257,6 +263,12 @@ pub struct KafkaValidator {
     metadata: ValidatorMetadata,
 }
 
+impl Default for KafkaValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KafkaValidator {
     pub fn new() -> Self {
         Self {
@@ -325,12 +337,12 @@ impl ConfigValidator for KafkaValidator {
         }
 
         // Validate boolean parameters
-        for (param, _) in &config.parameters {
+        for param in config.parameters.keys() {
             if matches!(
                 param.as_str(),
                 "auto_commit" | "enable_auto_commit" | "enable_partition_eof"
-            ) {
-                if config.get_bool_parameter(param).is_none() {
+            )
+                && config.get_bool_parameter(param).is_none() {
                     warnings.push(ValidationWarning {
                         code: "INVALID_BOOLEAN".to_string(),
                         message: format!("Parameter '{}' should be a boolean (true/false)", param),
@@ -338,12 +350,11 @@ impl ConfigValidator for KafkaValidator {
                         suggestion: Some("Use 'true' or 'false'".to_string()),
                     });
                 }
-            }
         }
 
         // Validate timeout values
         if let Some(timeout) = config.get_int_parameter("session_timeout_ms") {
-            if timeout < 6000 || timeout > 300000 {
+            if !(6000..=300000).contains(&timeout) {
                 warnings.push(ValidationWarning {
                     code: "TIMEOUT_OUT_OF_RANGE".to_string(),
                     message: format!(
@@ -385,6 +396,12 @@ impl ConfigValidator for KafkaValidator {
 #[derive(Debug)]
 pub struct S3Validator {
     metadata: ValidatorMetadata,
+}
+
+impl Default for S3Validator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl S3Validator {
@@ -520,6 +537,12 @@ pub struct FileValidator {
     metadata: ValidatorMetadata,
 }
 
+impl Default for FileValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileValidator {
     pub fn new() -> Self {
         Self {
@@ -596,6 +619,12 @@ macro_rules! simple_validator {
         #[derive(Debug)]
         pub struct $name {
             metadata: ValidatorMetadata,
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
         }
 
         impl $name {

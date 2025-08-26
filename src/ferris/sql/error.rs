@@ -100,10 +100,6 @@ for seamless integration with error handling libraries and frameworks.
 pub mod recovery;
 
 // Re-export recovery types for easy access
-pub use recovery::{
-    BackoffStrategy, CircuitBreaker, CircuitBreakerConfig, CircuitState, DeadLetterQueue,
-    HealthMonitor, HealthStatus, RecoveryError, RecoveryResult, RetryPolicy,
-};
 
 use std::fmt;
 

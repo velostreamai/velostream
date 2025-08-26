@@ -211,7 +211,7 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
                     &payload,
                     ferrisstreams::Headers::new()
                         .insert("test-type", "zero-copy")
-                        .insert("message-id", &i.to_string()),
+                        .insert("message-id", i.to_string()),
                     None,
                 )
                 .await

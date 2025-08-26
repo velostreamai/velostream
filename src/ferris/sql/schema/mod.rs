@@ -38,12 +38,7 @@ pub mod providers;
 pub mod registry;
 
 // Re-export key components for easy access
-pub use cache::{CacheConfig, CacheStatistics, SchemaCache};
-pub use evolution::{EvolutionConfig, MigrationPlan, SchemaDiff, SchemaEvolution};
-pub use providers::{
-    create_default_registry, FileSchemaProvider, KafkaSchemaProvider, S3SchemaProvider,
-};
-pub use registry::{ProviderMetadata, SchemaProvider, SchemaRegistry};
+pub use registry::SchemaProvider;
 
 use crate::ferris::sql::ast::DataType;
 use std::collections::HashMap;
@@ -192,11 +187,10 @@ impl Schema {
     fn fields_compatible_with(&self, other_fields: &[FieldDefinition]) -> bool {
         // Basic compatibility: all required fields in other must exist here
         for other_field in other_fields {
-            if !other_field.nullable {
-                if !self.has_field(&other_field.name) {
+            if !other_field.nullable
+                && !self.has_field(&other_field.name) {
                     return false;
                 }
-            }
         }
         true
     }

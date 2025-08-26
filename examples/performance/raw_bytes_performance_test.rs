@@ -319,8 +319,8 @@ async fn run_raw_performance_test(
                 let headers = Headers::new()
                     .insert("test-type", "raw-performance")
                     .insert("producer-id", &producer_id_str)
-                    .insert("message-id", &message_id.to_string())
-                    .insert("payload-size", &payload_size_bytes.to_string());
+                    .insert("message-id", message_id.to_string())
+                    .insert("payload-size", payload_size_bytes.to_string());
 
                 // Send raw bytes directly using FerrisStreams producer
                 match producer_clone

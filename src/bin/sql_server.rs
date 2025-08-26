@@ -96,6 +96,12 @@ pub enum JobStatus {
     Failed(String),
 }
 
+impl Default for SqlJobManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SqlJobManager {
     pub fn new() -> Self {
         Self::new_with_monitoring(false)
@@ -524,7 +530,7 @@ async fn start_metrics_server(
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((stream, addr)) => {
                 info!("Metrics request from: {}", addr);
                 let job_manager = job_manager.clone();
 
@@ -566,11 +572,7 @@ async fn start_metrics_server(
 async fn handle_metrics_request(request: &str, job_manager: &SqlJobManager) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
-        if let Some(path_part) = first_line.split_whitespace().nth(1) {
-            path_part
-        } else {
-            "/"
-        }
+        first_line.split_whitespace().nth(1).unwrap_or("/")
     } else {
         "/"
     };

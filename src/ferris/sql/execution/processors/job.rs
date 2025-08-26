@@ -14,6 +14,12 @@ use std::collections::HashMap;
 /// Processor for handling job management operations
 pub struct JobProcessor;
 
+impl Default for JobProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JobProcessor {
     /// Create a new job processor instance
     pub fn new() -> Self {

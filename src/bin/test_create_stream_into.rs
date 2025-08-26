@@ -5,7 +5,7 @@ This test verifies that the new CREATE STREAM ... INTO syntax works correctly
 with multi-config file support and environment variable resolution.
 */
 
-use ferrisstreams::ferris::sql::ast::{ConfigProperties, IntoClause, StreamingQuery};
+use ferrisstreams::ferris::sql::ast::StreamingQuery;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::env;
 

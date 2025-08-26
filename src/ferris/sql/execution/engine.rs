@@ -208,7 +208,7 @@ impl StreamExecutionEngine {
         context.record_count = self.record_count;
         context.window_context = self.get_window_context_for_processors(query_id);
         context.join_context = JoinContext::new();
-        context.performance_monitor = self.performance_monitor.as_ref().map(|m| Arc::clone(m));
+        context.performance_monitor = self.performance_monitor.as_ref().map(Arc::clone);
 
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
@@ -807,8 +807,8 @@ impl StreamExecutionEngine {
         let group_states = self.group_states.clone();
 
         // Iterate through all accumulated GROUP BY states and emit results
-        for (_query_key, group_state) in &group_states {
-            for (_group_key, accumulator) in &group_state.groups {
+        for group_state in group_states.values() {
+            for accumulator in group_state.groups.values() {
                 // Generate result record for this group
                 let mut result_fields = HashMap::new();
 
@@ -1030,12 +1030,12 @@ impl StreamExecutionEngine {
         // Copy engine state to context
         context.record_count = self.record_count;
         context.group_by_states = self.group_states.clone();
-        context.performance_monitor = self.performance_monitor.as_ref().map(|m| Arc::clone(m));
+        context.performance_monitor = self.performance_monitor.as_ref().map(Arc::clone);
 
         // Process records from all sources
         let source_names: Vec<String> = context.list_sources();
         for source_name in &source_names {
-            context.set_active_reader(&source_name)?;
+            context.set_active_reader(source_name)?;
 
             // Process all records from this source
             while let Some(record) = context.read().await? {
@@ -1057,7 +1057,7 @@ impl StreamExecutionEngine {
             }
 
             // Commit this source
-            context.commit_source(&source_name).await?;
+            context.commit_source(source_name).await?;
         }
 
         // Flush and commit all sinks

@@ -107,7 +107,7 @@ impl DataSourceRegistry {
             ))
         })?;
 
-        factory(config).map_err(|e| DataSourceError::SourceSpecific(e))
+        factory(config).map_err(DataSourceError::SourceSpecific)
     }
 
     /// Create a data sink from a URI
@@ -122,7 +122,7 @@ impl DataSourceRegistry {
             ))
         })?;
 
-        factory(config).map_err(|e| DataSourceError::SourceSpecific(e))
+        factory(config).map_err(DataSourceError::SourceSpecific)
     }
 
     /// List all registered source schemes

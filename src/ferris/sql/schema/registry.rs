@@ -63,6 +63,12 @@ pub struct ProviderMetadata {
     pub capabilities: Vec<String>,
 }
 
+impl Default for SchemaRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SchemaRegistry {
     /// Create a new schema registry with default configuration
     pub fn new() -> Self {

@@ -10,14 +10,13 @@ use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset}
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use ferrisstreams::{
-    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, Message, ProducerBuilder,
+    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder,
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::Semaphore;
 use tokio::time::sleep;
 
 // Latency test configuration
@@ -137,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn create_ultra_low_latency_config() -> (ProducerConfig, ConsumerConfig) {
     // Start with low latency preset
-    let mut producer_config = ProducerConfig::new("localhost:9092", "latency-test")
+    let producer_config = ProducerConfig::new("localhost:9092", "latency-test")
         .client_id("ultra-low-latency-producer")
         .low_latency() // Apply baseline low-latency preset first
         // Then add ultra-low-latency specific optimizations
@@ -160,7 +159,7 @@ fn create_ultra_low_latency_config() -> (ProducerConfig, ConsumerConfig) {
 }
 
 fn create_balanced_latency_config() -> (ProducerConfig, ConsumerConfig) {
-    let mut producer_config = ProducerConfig::new("localhost:9092", "latency-test")
+    let producer_config = ProducerConfig::new("localhost:9092", "latency-test")
         .client_id("balanced-latency-producer")
         .compression(CompressionType::Lz4)
         .acks(AckMode::Leader)
@@ -331,7 +330,7 @@ async fn run_latency_test(
 
         let headers = Headers::new()
             .insert("test-type", "latency")
-            .insert("message-id", &i.to_string());
+            .insert("message-id", i.to_string());
 
         producer
             .send(Some(&format!("key-{}", i)), &message, headers, None)

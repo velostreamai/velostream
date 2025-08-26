@@ -35,6 +35,12 @@ pub struct JsonSchemaProvider {
     sample_size: usize,
 }
 
+impl Default for KafkaSchemaProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KafkaSchemaProvider {
     /// Create a new Kafka schema provider
     pub fn new() -> Self {
@@ -137,6 +143,12 @@ impl SchemaProvider for KafkaSchemaProvider {
                 "topic_discovery".to_string(),
             ],
         }
+    }
+}
+
+impl Default for FileSchemaProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

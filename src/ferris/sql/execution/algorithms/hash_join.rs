@@ -110,7 +110,7 @@ impl HashJoinTable {
         let hash_key = self.compute_hash_key(&record, context)?;
         self.buckets
             .entry(hash_key)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(record);
         self.record_count += 1;
         Ok(())
@@ -175,9 +175,8 @@ impl HashJoinTable {
 
         Ok(self
             .buckets
-            .get(&hash_key)
-            .map(|records| records.clone())
-            .unwrap_or_else(Vec::new))
+            .get(&hash_key).cloned()
+            .unwrap_or_default())
     }
 
     /// Get memory usage estimate

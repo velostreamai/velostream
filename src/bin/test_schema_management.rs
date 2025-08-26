@@ -4,7 +4,7 @@
 //! including discovery, caching, evolution, and provider capabilities.
 
 use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::schema::cache::{CacheLookupResult, MissReason};
+use ferrisstreams::ferris::sql::schema::cache::CacheLookupResult;
 use ferrisstreams::ferris::sql::schema::*;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📋 Test 1: Schema Registry with Default Providers");
     println!("--------------------------------------------------");
 
-    let mut registry = create_default_registry();
+    let registry = create_default_registry();
     let providers = registry.list_providers();
 
     println!("✅ Registered providers:");

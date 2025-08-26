@@ -341,7 +341,7 @@ mod tests {
     fn test_default_config() {
         let config = ProducerConfig::default();
         assert_eq!(config.brokers(), "localhost:9092");
-        assert_eq!(config.enable_idempotence, true);
+        assert!(config.enable_idempotence);
         assert_eq!(config.batch_size, 16384);
     }
 
@@ -371,6 +371,6 @@ mod tests {
 
         let max_durability = ProducerConfig::default().max_durability();
         assert_eq!(max_durability.acks.as_str(), "all");
-        assert_eq!(max_durability.enable_idempotence, true);
+        assert!(max_durability.enable_idempotence);
     }
 }

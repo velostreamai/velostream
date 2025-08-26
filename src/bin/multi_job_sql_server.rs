@@ -736,7 +736,7 @@ async fn start_metrics_server_multi(
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((stream, addr)) => {
                 info!("Multi-job metrics request from: {}", addr);
                 let server = server.clone();
 
@@ -778,11 +778,7 @@ async fn start_metrics_server_multi(
 async fn handle_multi_metrics_request(request: &str, server: &MultiJobSqlServer) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
-        if let Some(path_part) = first_line.split_whitespace().nth(1) {
-            path_part
-        } else {
-            "/"
-        }
+        first_line.split_whitespace().nth(1).unwrap_or("/")
     } else {
         "/"
     };

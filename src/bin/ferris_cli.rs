@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use reqwest;
 use serde_json::Value;
 use std::process::Command;
 use std::time::Duration;
@@ -162,7 +161,7 @@ impl FerrisStreamsMonitor {
 
     async fn check_docker_status(&self) -> ComponentStatus {
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "ps",
                 "--format",
                 "table {{.Names}}\t{{.Status}}\t{{.Ports}}",
@@ -224,7 +223,7 @@ impl FerrisStreamsMonitor {
 
             if let Some(container_name) = kafka_container {
                 let output = Command::new("docker")
-                    .args(&[
+                    .args([
                         "exec",
                         &container_name,
                         "kafka-topics",
@@ -318,7 +317,7 @@ impl FerrisStreamsMonitor {
             }
         } else {
             // Check local processes
-            let output = Command::new("pgrep").args(&["-f", "ferris-sql"]).output();
+            let output = Command::new("pgrep").args(["-f", "ferris-sql"]).output();
 
             match output {
                 Ok(output) => {
@@ -426,7 +425,7 @@ impl FerrisStreamsMonitor {
             }
         } else {
             // Local process checking (existing logic)
-            let output = Command::new("ps").args(&["aux"]).output();
+            let output = Command::new("ps").args(["aux"]).output();
 
             match output {
                 Ok(output) => {
@@ -501,7 +500,7 @@ impl FerrisStreamsMonitor {
 
         for (filter, _desc) in &patterns {
             let output = Command::new("docker")
-                .args(&["ps", "--filter", filter, "--format", "{{.Names}}"])
+                .args(["ps", "--filter", filter, "--format", "{{.Names}}"])
                 .output();
 
             if let Ok(output) = output {
@@ -518,7 +517,7 @@ impl FerrisStreamsMonitor {
     }
 
     async fn check_processes_status(&self) -> ComponentStatus {
-        let output = Command::new("pgrep").args(&["-f", "ferris"]).output();
+        let output = Command::new("pgrep").args(["-f", "ferris"]).output();
 
         match output {
             Ok(output) => {
@@ -587,7 +586,7 @@ impl FerrisStreamsMonitor {
         if show_topics {
             println!("📋 Topics:");
             let output = Command::new("docker")
-                .args(&[
+                .args([
                     "exec",
                     "simple-kafka",
                     "kafka-topics",
@@ -619,7 +618,7 @@ impl FerrisStreamsMonitor {
         if show_groups {
             println!("👥 Consumer Groups:");
             let output = Command::new("docker")
-                .args(&[
+                .args([
                     "exec",
                     "simple-kafka",
                     "kafka-consumer-groups",
@@ -748,7 +747,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let kafka_container = monitor.get_kafka_container_name().await;
                 if let Some(container_name) = kafka_container {
                     let output = Command::new("docker")
-                        .args(&[
+                        .args([
                             "exec",
                             &container_name,
                             "kafka-topics",
@@ -789,7 +788,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n🐳 Docker Containers");
             println!("===================");
 
-            let mut args = vec![
+            let args = vec![
                 "ps",
                 "--format",
                 "table {{.Names}}\t{{.Status}}\t{{.Ports}}",
@@ -821,7 +820,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let pattern = if all { "." } else { "ferris|trading" };
             let output = Command::new("sh")
-                .args(&[
+                .args([
                     "-c",
                     &format!("ps aux | grep -E '{}' | grep -v grep", pattern),
                 ])
@@ -875,7 +874,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if show_all || generators {
                 println!("\n🔄 Data Producers & Generators:");
-                let output = Command::new("ps").args(&["aux"]).output();
+                let output = Command::new("ps").args(["aux"]).output();
 
                 if let Ok(output) = output {
                     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -920,9 +919,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(ref container_name) = kafka_container {
                     // First get all topics
                     let topics_output = Command::new("docker")
-                        .args(&[
+                        .args([
                             "exec",
-                            &container_name,
+                            container_name,
                             "kafka-topics",
                             "--bootstrap-server",
                             "localhost:9092",
@@ -944,9 +943,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 for topic in topics.iter().take(10) {
                                     // Show first 10 topics
                                     let output = Command::new("docker")
-                                        .args(&[
+                                        .args([
                                             "exec",
-                                            &container_name,
+                                            container_name,
                                             "kafka-run-class",
                                             "kafka.tools.GetOffsetShell",
                                             "--bootstrap-server",
@@ -966,7 +965,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 let total_messages: i64 = stdout
                                                     .lines()
                                                     .filter_map(|line| {
-                                                        line.split(':').last()?.parse::<i64>().ok()
+                                                        line.split(':').next_back()?.parse::<i64>().ok()
                                                     })
                                                     .sum();
 
@@ -999,9 +998,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("\n👥 Consumer Groups:");
                 if let Some(ref container_name) = kafka_container {
                     let output = Command::new("docker")
-                        .args(&[
+                        .args([
                             "exec",
-                            &container_name,
+                            container_name,
                             "kafka-consumer-groups",
                             "--bootstrap-server",
                             "localhost:9092",

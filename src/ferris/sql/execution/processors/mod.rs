@@ -119,13 +119,9 @@ impl QueryProcessor {
 pub use self::join_context::JoinContext;
 
 // Re-export processor modules
-pub use self::delete::DeleteProcessor;
-pub use self::insert::InsertProcessor;
-pub use self::job::JobProcessor;
 pub use self::join::JoinProcessor;
 pub use self::limit::LimitProcessor;
 pub use self::select::SelectProcessor;
-pub use self::update::UpdateProcessor;
 pub use self::window::WindowProcessor;
 
 // Re-export sub-modules for direct access

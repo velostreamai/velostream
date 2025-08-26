@@ -215,7 +215,7 @@ async fn run_performance_test(
         let producer = ProducerBuilder::<String, PerformanceTestMessage, _, _>::with_config(
             producer_config
                 .clone()
-                .client_id(&format!("perf-producer-{}", i)),
+                .client_id(format!("perf-producer-{}", i)),
             JsonSerializer,
             JsonSerializer,
         )
@@ -326,7 +326,7 @@ async fn run_performance_test(
                 let headers = Headers::new()
                     .insert("test-type", "performance")
                     .insert("producer-id", &producer_id_str)
-                    .insert("message-size", &format!("{:?}", message_size));
+                    .insert("message-size", format!("{:?}", message_size));
 
                 let key = format!("key-{}", message.id);
                 let estimated_size = estimate_json_size(&message);

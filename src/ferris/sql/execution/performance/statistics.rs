@@ -48,7 +48,7 @@ impl QueryStatistics {
         let pattern_stats = self
             .query_patterns
             .entry(pattern_key)
-            .or_insert_with(QueryPatternStats::new);
+            .or_default();
         pattern_stats.update(&performance);
 
         // Add to history (with size limit)
@@ -220,6 +220,12 @@ pub struct QueryPatternStats {
     pub first_seen: Instant,
     /// Last seen timestamp
     pub last_seen: Instant,
+}
+
+impl Default for QueryPatternStats {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl QueryPatternStats {

@@ -1193,7 +1193,7 @@ impl BuiltinFunctions {
                         Some(expected) => {
                             // Check type compatibility for consistent results
                             if Self::are_types_compatible(expected, value_type) {
-                                return Ok(Self::coerce_to_compatible_type(value, expected)?);
+                                return Self::coerce_to_compatible_type(value, expected);
                             } else {
                                 // Types are incompatible, but we'll return the value anyway
                                 // This matches SQL behavior where COALESCE can return different types

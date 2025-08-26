@@ -99,7 +99,7 @@ async fn test_insert_values_multiple_rows() {
         record1.fields.get("active"),
         Some(&FieldValue::Boolean(true))
     );
-    assert_eq!(record1.offset, input_record.offset + 0);
+    assert_eq!(record1.offset, input_record.offset);
 
     // Check second record
     let record2 = &records[1];

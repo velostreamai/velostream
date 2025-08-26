@@ -44,6 +44,6 @@ pub mod types;
 
 // Re-export key types
 pub use config::{ConnectionString, SinkConfig, SourceConfig};
-pub use registry::{create_sink, create_source, DataSourceRegistry};
+pub use registry::{create_sink, create_source};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};

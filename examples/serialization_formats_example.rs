@@ -14,7 +14,7 @@ Run with different features enabled:
 */
 
 use ferrisstreams::ferris::serialization::{
-    InternalValue, SerializationFormat, SerializationFormatFactory,
+    SerializationFormat, SerializationFormatFactory,
 };
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;

@@ -112,8 +112,8 @@ impl ProcessorContext {
         context.data_writers = writers;
 
         // Set first reader and writer as active by default
-        context.active_reader = context.data_readers.keys().next().map(|s| s.clone());
-        context.active_writer = context.data_writers.keys().next().map(|s| s.clone());
+        context.active_reader = context.data_readers.keys().next().cloned();
+        context.active_writer = context.data_writers.keys().next().cloned();
 
         context
     }

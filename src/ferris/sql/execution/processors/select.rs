@@ -315,7 +315,7 @@ impl SelectProcessor {
         }
 
         // Store first values for each GROUP BY expression
-        for (_i, group_expr) in group_exprs.iter().enumerate() {
+        for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if !accumulator.first_values.contains_key(col_name) {
                     if let Some(value) = record.fields.get(col_name) {
@@ -354,7 +354,7 @@ impl SelectProcessor {
         let mut result_fields = HashMap::new();
 
         // Add GROUP BY columns to result
-        for (_i, group_expr) in group_exprs.iter().enumerate() {
+        for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if let Some(value) = accumulator.first_values.get(col_name) {
                     result_fields.insert(col_name.clone(), value.clone());
@@ -622,7 +622,7 @@ impl SelectProcessor {
         if let Some(having_expr) = having {
             // Use a specialized HAVING evaluator that can resolve aggregate functions
             let having_result =
-                Self::evaluate_having_expression(having_expr, &accumulator, fields)?;
+                Self::evaluate_having_expression(having_expr, accumulator, fields)?;
 
             if !having_result {
                 // HAVING clause failed, don't emit this result

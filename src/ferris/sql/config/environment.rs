@@ -356,7 +356,7 @@ impl EnvironmentConfig {
 
         // Load prefixed environment variables
         let scheme_prefix = format!("{}{}_{}", self.prefix, scheme.to_uppercase(), "");
-        let global_prefix = format!("{}", self.prefix);
+        let global_prefix = self.prefix.to_string();
 
         for (key, value) in env::vars() {
             if let Some(config_key) = key.strip_prefix(&scheme_prefix) {
@@ -531,7 +531,7 @@ impl EnvironmentConfig {
 
         // Expand home directory
         if expanded.starts_with("~/") {
-            if let Some(home) = env::var("HOME").ok() {
+            if let Ok(home) = env::var("HOME") {
                 expanded = expanded.replacen("~/", &format!("{}/", home), 1);
             }
         }
