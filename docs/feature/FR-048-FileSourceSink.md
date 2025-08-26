@@ -58,6 +58,163 @@ This feature request implements a complete end-to-end data processing pipeline t
 
 **Dependencies**: Phase 1 (File Input Sources) - ✅ Complete
 
+#### **Current State vs Phase 2 Improvements**
+
+**🔧 Current Kafka Implementation Limitations:**
+- **Hardcoded Serialization**: Currently fixed to use `JsonSerializer` for both keys and values
+- **Limited Format Support**: Only JSON serialization is actively used in SQL integration
+- **No Runtime Configuration**: Serialization format cannot be changed via SQL WITH clauses
+- **Basic Schema Management**: No Schema Registry integration for Avro support
+- **Placeholder Transactions**: Incomplete exactly-once semantics implementation
+
+Example of current hardcoded approach (`src/ferris/sql/datasource/kafka/data_source.rs`):
+```rust
+let consumer = KafkaConsumer::<String, String, _, _>::new(
+    &self.brokers,
+    group_id,
+    JsonSerializer,  // ← HARDCODED - cannot be configured
+    JsonSerializer,  // ← HARDCODED - cannot be configured
+)
+```
+
+**🚀 Phase 2 Enhanced Implementation:**
+
+1. **Runtime Serialization Selection**
+   ```rust
+   // NEW: Configuration-driven serialization
+   let serialization_format = config.get_serialization_format(); // "json", "avro", "protobuf"
+   let consumer = KafkaConsumerBuilder::new(brokers, group_id)
+       .with_serialization(serialization_format)
+       .with_schema_registry(schema_registry_url)
+       .build()?;
+   ```
+
+2. **Multi-Format Serialization Factory**
+   ```rust
+   pub enum SerializationFormat {
+       Json,
+       #[cfg(feature = "avro")]
+       Avro { schema_registry_url: String, subject: String },
+       #[cfg(feature = "protobuf")]
+       Protobuf { message_type: String },
+   }
+
+   pub struct SerializationFactory;
+   impl SerializationFactory {
+       pub fn create_serializer<T>(format: SerializationFormat) -> Box<dyn Serializer<T>> {
+           match format {
+               SerializationFormat::Json => Box::new(JsonSerializer),
+               #[cfg(feature = "avro")]
+               SerializationFormat::Avro { .. } => Box::new(AvroSerializer::new(...)),
+               #[cfg(feature = "protobuf")]
+               SerializationFormat::Protobuf { .. } => Box::new(ProtobufSerializer::new(...)),
+           }
+       }
+   }
+   ```
+
+3. **Schema Registry Integration**
+   ```rust
+   // NEW: Automatic schema management
+   pub struct AvroSerializer {
+       schema_registry: SchemaRegistry,
+       subject: String,
+       schema_cache: HashMap<u32, AvroSchema>,
+   }
+
+   impl AvroSerializer {
+       pub async fn new(registry_url: &str, subject: &str) -> Result<Self, SerializationError> {
+           let registry = SchemaRegistry::new(registry_url);
+           // Auto-fetch and cache schemas for performance
+           Ok(Self { registry, subject, schema_cache: HashMap::new() })
+       }
+   }
+   ```
+
+4. **SQL-Level Configuration Support**
+   ```sql
+   -- NEW: Runtime serialization configuration via SQL
+   CREATE STREAM customer_spending_kafka AS
+   SELECT * FROM customer_spending_processed
+   INTO KAFKA_TOPIC('customer-spending-aggregated')
+   WITH (
+       'bootstrap.servers' = 'localhost:9092',
+       'key.serializer' = 'string',
+       'value.serializer' = 'avro',                     -- ← NEW: Runtime choice
+       'schema.registry.url' = 'http://localhost:8081',  -- ← NEW: Schema registry
+       'value.subject' = 'customer-spending-value',      -- ← NEW: Avro subject
+       'compression.type' = 'snappy',
+       'acks' = 'all',
+       'enable.idempotence' = 'true'                     -- ← NEW: Exactly-once semantics
+   );
+   ```
+
+5. **High-Performance Async Serialization**
+   ```rust
+   // NEW: Zero-copy serialization for large messages
+   pub struct HighThroughputKafkaProducer<T> {
+       producer: FutureProducer,
+       serializer: Box<dyn AsyncSerializer<T>>,  // ← Async serialization
+       batch_compressor: Option<BatchCompressor>,
+       connection_pool: ConnectionPool,           // ← Connection pooling
+   }
+
+   impl<T> AsyncSerializer<T> for AvroSerializer 
+   where T: AvroSerializable 
+   {
+       async fn serialize_stream(&self, value: &T) -> Result<Vec<u8>, SerializationError> {
+           // Stream large objects without loading entirely into memory
+           self.serialize_chunked(value).await
+       }
+   }
+   ```
+
+6. **Enterprise Error Recovery**
+   ```rust
+   // NEW: Production-grade error handling
+   pub struct ResilientKafkaProducer<T> {
+       producer: KafkaProducer<T>,
+       retry_policy: ExponentialBackoff,
+       circuit_breaker: CircuitBreaker,
+       dead_letter_queue: Option<String>,
+   }
+
+   impl<T> ResilientKafkaProducer<T> {
+       pub async fn send_with_recovery(&self, message: T) -> Result<(), ProducerError> {
+           self.retry_policy.retry(|| async {
+               match self.producer.send(message).await {
+                   Ok(result) => Ok(result),
+                   Err(e) if e.is_retriable() => Err(e),
+                   Err(e) => {
+                       // Send to DLQ and fail fast for non-retriable errors
+                       self.send_to_dlq(message).await?;
+                       Err(e)
+                   }
+               }
+           }).await
+       }
+   }
+   ```
+
+#### **Enhancement Comparison Matrix**
+
+| Aspect | **Current State** | **Phase 2 Enhanced** | **Business Impact** |
+|--------|-------------------|----------------------|---------------------|
+| **Serialization** | Hardcoded JSON only | Runtime-configurable (JSON/Avro/Protobuf) | Cross-system compatibility, schema evolution |
+| **Schema Management** | Manual/Static | Schema Registry integration with auto-discovery | Reduced operational overhead, version control |
+| **Performance** | Basic batching | Async serialization, connection pooling, zero-copy | 5-10x throughput improvement for large messages |
+| **Error Handling** | Basic retry | Circuit breakers, exponential backoff, DLQ support | Production resilience, reduced data loss |
+| **Configuration** | Code-level only | SQL WITH clauses + runtime configuration | Developer productivity, environment flexibility |
+| **Monitoring** | Basic logging | Metrics, tracing, health checks | Operational visibility, SLA compliance |
+| **Transactions** | Placeholder methods | Full exactly-once semantics implementation | Data consistency guarantees |
+
+**Key Benefits of Phase 2:**
+- **🔄 Format Flexibility**: Choose serialization format per stream (JSON for development, Avro for production)
+- **📈 Performance**: 42x financial arithmetic + optimized Kafka serialization = enterprise-grade throughput
+- **🛡️ Reliability**: Circuit breakers and DLQ support for production resilience
+- **🔧 Operability**: Schema Registry integration reduces deployment complexity
+- **📊 Observability**: Built-in metrics and tracing for production monitoring
+
 ### Phase 3: File Output Sinks 📋 **PENDING**
 **Status**: 📋 PENDING
 - [ ] Implement `FileSink` for writing processed data
