@@ -22,14 +22,20 @@ pub mod kafka_error;
 pub mod performance_presets;
 
 // Re-export main API
-pub use kafka_consumer::KafkaConsumer;
-pub use kafka_producer::KafkaProducer;
-pub use serialization::JsonSerializer;
+pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
+pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer};
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
 pub use headers::Headers;
 pub use message::Message;
+
+// Re-export admin client
+pub use admin_client::KafkaAdminClient;
+
+// Re-export errors
+pub use kafka_error::{ConsumerError, ProducerError};
 
 // Conditional exports for feature-gated serializers
 
