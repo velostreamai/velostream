@@ -39,6 +39,14 @@ impl QueryProcessor {
                 // For CREATE TABLE AS SELECT, delegate to SelectProcessor for the inner query
                 SelectProcessor::process(as_select, record, context)
             }
+            StreamingQuery::CreateStreamInto { as_select, .. } => {
+                // For CREATE STREAM ... INTO, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
+            StreamingQuery::CreateTableInto { as_select, .. } => {
+                // For CREATE TABLE ... INTO, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
             StreamingQuery::Show { .. } => {
                 // Delegate to ShowProcessor
                 ShowProcessor::process(query, record, context)
