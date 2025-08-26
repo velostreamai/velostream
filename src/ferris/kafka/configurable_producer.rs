@@ -28,7 +28,7 @@ use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 ///
 /// ## Basic JSON Serialization
 /// ```rust,no_run
-/// use ferrisstreams::kafka::{ConfigurableKafkaProducerBuilder, SerializationFormat};
+/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaProducerBuilder, SerializationFormat};
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug)]
@@ -50,7 +50,7 @@ use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 /// ## SQL WITH Clause Configuration
 /// ```rust,no_run
 /// use std::collections::HashMap;
-/// use ferrisstreams::kafka::{ConfigurableKafkaProducerBuilder, SerializationConfig};
+/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaProducerBuilder, SerializationConfig};
 ///
 /// let mut sql_params = HashMap::new();
 /// sql_params.insert("key.serializer".to_string(), "string".to_string());
