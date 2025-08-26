@@ -26,7 +26,9 @@ pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
 pub use ktable::KTable;
-pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer};
+pub use serialization::{
+    BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer,
+};
 
 // Feature-gated exports
 #[cfg(feature = "avro")]

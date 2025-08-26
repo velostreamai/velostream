@@ -51,9 +51,14 @@ impl QueryProcessor {
                 // Delegate to ShowProcessor
                 ShowProcessor::process(query, record, context)
             }
-            StreamingQuery::InsertInto { table_name, columns, source } => {
+            StreamingQuery::InsertInto {
+                table_name,
+                columns,
+                source,
+            } => {
                 // Extract parameters and delegate to InsertProcessor
-                let insert_records = InsertProcessor::process_insert(table_name, columns, source, record)?;
+                let insert_records =
+                    InsertProcessor::process_insert(table_name, columns, source, record)?;
                 // Convert multiple records to ProcessorResult (take first record if any)
                 let result_record = insert_records.into_iter().next();
                 Ok(ProcessorResult {
@@ -62,18 +67,27 @@ impl QueryProcessor {
                     should_count: true,
                 })
             }
-            StreamingQuery::Update { table_name, assignments, where_clause } => {
+            StreamingQuery::Update {
+                table_name,
+                assignments,
+                where_clause,
+            } => {
                 // Extract parameters and delegate to UpdateProcessor
-                let updated_record = UpdateProcessor::process_update(table_name, assignments, where_clause, record)?;
+                let updated_record =
+                    UpdateProcessor::process_update(table_name, assignments, where_clause, record)?;
                 Ok(ProcessorResult {
                     record: updated_record,
                     header_mutations: Vec::new(),
                     should_count: true,
                 })
             }
-            StreamingQuery::Delete { table_name, where_clause } => {
+            StreamingQuery::Delete {
+                table_name,
+                where_clause,
+            } => {
                 // Extract parameters and delegate to DeleteProcessor
-                let tombstone_record = DeleteProcessor::process_delete(table_name, where_clause, record)?;
+                let tombstone_record =
+                    DeleteProcessor::process_delete(table_name, where_clause, record)?;
                 Ok(ProcessorResult {
                     record: tombstone_record,
                     header_mutations: Vec::new(),

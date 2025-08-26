@@ -429,7 +429,7 @@ mod tests {
     fn test_csas_with_into_parsing() {
         let parser = StreamingSqlParser::new();
         let result = parser.parse(
-            "CREATE STREAM enriched_orders AS SELECT * FROM kafka_source INTO postgres_sink"
+            "CREATE STREAM enriched_orders AS SELECT * FROM kafka_source INTO postgres_sink",
         );
 
         assert!(result.is_ok());
@@ -501,7 +501,8 @@ mod tests {
     #[test]
     fn test_csas_with_into_and_config() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse(r#"
+        let result = parser.parse(
+            r#"
             CREATE STREAM processed_events AS 
             SELECT id, timestamp, event_type 
             FROM file_source 
@@ -510,7 +511,8 @@ mod tests {
                 "source_config" = "configs/file_input.yaml",
                 "sink_config" = "configs/s3_output.yaml"
             )
-        "#);
+        "#,
+        );
 
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -540,7 +542,8 @@ mod tests {
     #[test]
     fn test_ctas_with_into_and_multi_config() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse(r#"
+        let result = parser.parse(
+            r#"
             CREATE TABLE aggregated_metrics AS 
             SELECT 
                 date_trunc('hour', timestamp) as hour,
@@ -556,7 +559,8 @@ mod tests {
                 "sink_config" = "configs/postgres_analytics.yaml",
                 "monitoring_config" = "configs/monitoring.yaml"
             )
-        "#);
+        "#,
+        );
 
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -598,7 +602,8 @@ mod tests {
     #[test]
     fn test_csas_with_into_and_columns() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse(r#"
+        let result = parser.parse(
+            r#"
             CREATE STREAM validated_orders (
                 order_id INTEGER,
                 customer_id INTEGER,
@@ -608,7 +613,8 @@ mod tests {
             SELECT id, customer_id, amount, status 
             FROM raw_orders 
             INTO kafka_validated_orders
-        "#);
+        "#,
+        );
 
         if let Err(e) = &result {
             println!("Parse error: {:?}", e);
@@ -625,7 +631,7 @@ mod tests {
             } => {
                 assert_eq!(name, "validated_orders");
                 assert_eq!(into_clause.sink_name, "kafka_validated_orders");
-                
+
                 assert!(columns.is_some());
                 let cols = columns.unwrap();
                 assert_eq!(cols.len(), 4);
@@ -645,7 +651,8 @@ mod tests {
     #[test]
     fn test_csas_with_into_and_window() {
         let parser = StreamingSqlParser::new();
-        let result = parser.parse(r#"
+        let result = parser.parse(
+            r#"
             CREATE STREAM windowed_analytics AS 
             SELECT 
                 customer_id,
@@ -654,7 +661,8 @@ mod tests {
             FROM orders 
             WINDOW TUMBLING(5m)
             INTO analytics_sink
-        "#);
+        "#,
+        );
 
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -723,7 +731,7 @@ mod tests {
         let serialization_format = std::sync::Arc::new(JsonFormat);
         let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
 
-        // Parse CREATE TABLE INTO query  
+        // Parse CREATE TABLE INTO query
         let parser = StreamingSqlParser::new();
         let query = parser
             .parse("CREATE TABLE user_stats AS SELECT customer_id, COUNT(*) FROM orders INTO analytics_db")
@@ -753,10 +761,12 @@ mod tests {
         assert!(result.is_err());
 
         // Test incomplete WITH clause
-        let result = parser.parse(r#"
+        let result = parser.parse(
+            r#"
             CREATE STREAM test AS SELECT * FROM source INTO sink
             WITH (
-        "#);
+        "#,
+        );
         assert!(result.is_err());
 
         // Test empty query
@@ -785,7 +795,7 @@ mod tests {
 
         match new_query.unwrap() {
             StreamingQuery::CreateStreamInto { .. } => {
-                // Expected - new syntax  
+                // Expected - new syntax
             }
             _ => panic!("Expected CreateStreamInto for new syntax"),
         }

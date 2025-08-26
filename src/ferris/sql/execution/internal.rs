@@ -202,8 +202,7 @@ impl GroupAccumulator {
 
     /// Set the last value for LAST() aggregates (always updates)
     pub fn set_last_value(&mut self, field_name: &str, value: FieldValue) {
-        self.last_values
-            .insert(field_name.to_string(), value);
+        self.last_values.insert(field_name.to_string(), value);
     }
 
     /// Add a value for statistical functions (STDDEV, VARIANCE)
@@ -220,7 +219,7 @@ impl GroupAccumulator {
             FieldValue::String(s) => s,
             _ => format!("{:?}", value),
         };
-        
+
         self.string_values
             .entry(field_name.to_string())
             .or_default()
