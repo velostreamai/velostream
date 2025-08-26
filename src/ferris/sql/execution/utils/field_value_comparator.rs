@@ -1,10 +1,10 @@
-use crate::ferris::sql::SqlError;
 /// Field Value Comparison Utilities
 ///
 /// Handles comparison operations between FieldValue instances.
 /// These are pure comparison functions with no engine state dependency.
 use crate::ferris::sql::ast::BinaryOperator;
 use crate::ferris::sql::execution::FieldValue;
+use crate::ferris::sql::SqlError;
 
 /// Utility class for comparing FieldValue instances
 pub struct FieldValueComparator;

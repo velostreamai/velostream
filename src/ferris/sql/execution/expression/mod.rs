@@ -20,6 +20,5 @@ pub mod window_functions;
 
 // Re-export the main API
 pub use evaluator::ExpressionEvaluator;
-pub use functions::BuiltinFunctions;
-pub use subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
+pub use subquery_executor::SubqueryExecutor;
 pub use window_functions::WindowFunctions;

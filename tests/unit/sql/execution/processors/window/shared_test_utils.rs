@@ -7,8 +7,8 @@ use ferrisstreams::ferris::{
     serialization::{InternalValue, JsonFormat},
     sql::{
         execution::{
-            StreamExecutionEngine,
             types::{FieldValue, StreamRecord},
+            StreamExecutionEngine,
         },
         parser::StreamingSqlParser,
     },

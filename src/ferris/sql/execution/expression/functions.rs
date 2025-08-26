@@ -1172,7 +1172,7 @@ impl BuiltinFunctions {
         }
 
         // Track the expected return type based on the first non-NULL value found
-        let mut expected_type: Option<&str> = None;
+        let expected_type: Option<&str> = None;
 
         // Evaluate arguments with short-circuit evaluation
         for (index, arg) in args.iter().enumerate() {
@@ -1193,7 +1193,7 @@ impl BuiltinFunctions {
                         Some(expected) => {
                             // Check type compatibility for consistent results
                             if Self::are_types_compatible(expected, value_type) {
-                                return Ok(Self::coerce_to_compatible_type(value, expected)?);
+                                return Self::coerce_to_compatible_type(value, expected);
                             } else {
                                 // Types are incompatible, but we'll return the value anyway
                                 // This matches SQL behavior where COALESCE can return different types

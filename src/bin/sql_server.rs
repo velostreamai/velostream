@@ -4,15 +4,15 @@ use ferrisstreams::ferris::{
     kafka::{JsonSerializer, KafkaConsumer},
     serialization::{InternalValue, JsonFormat},
     sql::{
-        FieldValue, SqlError, StreamExecutionEngine, StreamRecord, StreamingSqlParser,
-        execution::performance::PerformanceMonitor,
+        execution::performance::PerformanceMonitor, FieldValue, SqlError, StreamExecutionEngine,
+        StreamRecord, StreamingSqlParser,
     },
 };
 use log::{error, info, warn};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Parser)]
 #[command(name = "ferris-sql")]
@@ -94,6 +94,12 @@ pub enum JobStatus {
     Paused,
     Stopped,
     Failed(String),
+}
+
+impl Default for SqlJobManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SqlJobManager {
@@ -524,7 +530,7 @@ async fn start_metrics_server(
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((stream, addr)) => {
                 info!("Metrics request from: {}", addr);
                 let job_manager = job_manager.clone();
 
@@ -566,11 +572,7 @@ async fn start_metrics_server(
 async fn handle_metrics_request(request: &str, job_manager: &SqlJobManager) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
-        if let Some(path_part) = first_line.split_whitespace().nth(1) {
-            path_part
-        } else {
-            "/"
-        }
+        first_line.split_whitespace().nth(1).unwrap_or("/")
     } else {
         "/"
     };

@@ -5,7 +5,6 @@ pub mod serialization;
 pub mod sql;
 
 // Re-export modern error types for convenience
-pub use error::{FerrisError, FerrisResult};
 
 // Re-export multi-job server types
-pub use multi_job_server::{JobMetrics, JobStatus, JobSummary, MultiJobSqlServer, RunningJob};
+pub use multi_job_server::{JobStatus, MultiJobSqlServer};

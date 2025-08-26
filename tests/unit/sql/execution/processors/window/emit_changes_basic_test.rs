@@ -13,8 +13,7 @@ Tests covered:
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use std::collections::HashMap;
+use ferrisstreams::ferris::sql::execution::types::FieldValue;
 
 /// Test basic EMIT CHANGES functionality with simple aggregations
 #[tokio::test]

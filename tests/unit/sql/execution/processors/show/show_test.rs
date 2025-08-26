@@ -81,6 +81,12 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         dirty_window_states: 0,
         metadata: HashMap::new(),
         performance_monitor: None,
+        // New heterogeneous data source fields
+        data_readers: HashMap::new(),
+        data_writers: HashMap::new(),
+        active_reader: None,
+        active_writer: None,
+        source_positions: HashMap::new(),
     }
 }
 
@@ -417,6 +423,12 @@ async fn test_show_streams_empty_context() {
         dirty_window_states: 0,
         metadata: HashMap::new(),
         performance_monitor: None,
+        // New heterogeneous data source fields
+        data_readers: HashMap::new(),
+        data_writers: HashMap::new(),
+        active_reader: None,
+        active_writer: None,
+        source_positions: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

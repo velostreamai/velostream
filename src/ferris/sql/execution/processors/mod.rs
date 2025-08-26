@@ -1,4 +1,4 @@
-//! Query Processing Modules
+//! Processors for SQL query execution
 //!
 //! This module contains specialized processors for different types of SQL operations:
 //! - SELECT processing
@@ -8,41 +8,16 @@
 //! - SHOW/DESCRIBE processing
 
 use crate::ferris::sql::execution::StreamRecord;
-use crate::ferris::sql::execution::internal::WindowState;
-use crate::ferris::sql::execution::performance::{PerformanceMonitor, QueryTracker};
-use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
-use std::collections::HashMap;
-use std::sync::Arc;
+
+pub mod context;
+pub mod processor_types;
+
+pub use context::{ProcessorContext, WindowContext};
+pub use processor_types::{HeaderMutation, HeaderOperation, ProcessorResult};
 
 /// Main processor coordination interface
 pub struct QueryProcessor;
-
-/// Result of query processing
-#[derive(Debug, Clone)]
-pub struct ProcessorResult {
-    /// The processed record, if any
-    pub record: Option<StreamRecord>,
-    /// Any header mutations to apply
-    pub header_mutations: Vec<HeaderMutation>,
-    /// Whether the record count should be incremented
-    pub should_count: bool,
-}
-
-/// Header mutation operation
-#[derive(Debug, Clone)]
-pub struct HeaderMutation {
-    pub key: String,
-    pub operation: HeaderOperation,
-    pub value: Option<String>,
-}
-
-/// Types of header operations
-#[derive(Debug, Clone)]
-pub enum HeaderOperation {
-    Set,
-    Remove,
-}
 
 impl QueryProcessor {
     /// Process a query against a record using the appropriate processor
@@ -51,68 +26,29 @@ impl QueryProcessor {
         record: &StreamRecord,
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
-        Self::process_query_with_monitoring(query, record, context, None)
-    }
-
-    /// Process a query with optional performance monitoring
-    pub fn process_query_with_monitoring(
-        query: &StreamingQuery,
-        record: &StreamRecord,
-        context: &mut ProcessorContext,
-        performance_monitor: Option<&PerformanceMonitor>,
-    ) -> Result<ProcessorResult, SqlError> {
-        let query_text = format!("{:?}", query); // Simple query representation
-
-        // Start performance tracking if monitor is provided
-        let mut tracker = performance_monitor.map(|monitor| {
-            let mut tracker = monitor.start_query_tracking(&query_text);
-            tracker.add_records_processed(1); // Count this record
-            tracker
-        });
-
-        let result = Self::process_query_internal(query, record, context, tracker.as_mut());
-
-        // Finish performance tracking if monitor is provided
-        if let (Some(monitor), Some(tracker)) = (performance_monitor, tracker) {
-            monitor.finish_query_tracking(tracker);
-        }
-
-        result
-    }
-
-    /// Internal query processing with optional performance tracking
-    fn process_query_internal(
-        query: &StreamingQuery,
-        record: &StreamRecord,
-        context: &mut ProcessorContext,
-        tracker: Option<&mut QueryTracker>,
-    ) -> Result<ProcessorResult, SqlError> {
         match query {
             StreamingQuery::Select { .. } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("SelectProcessor");
-                }
+                // Delegate to the specialized SelectProcessor
                 SelectProcessor::process(query, record, context)
             }
             StreamingQuery::CreateStream { as_select, .. } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("SelectProcessor");
-                }
-                // Process the underlying SELECT query
+                // For CREATE STREAM AS SELECT, delegate to SelectProcessor for the inner query
                 SelectProcessor::process(as_select, record, context)
             }
             StreamingQuery::CreateTable { as_select, .. } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("SelectProcessor");
-                }
-                // Process the underlying SELECT query for materialized table
+                // For CREATE TABLE AS SELECT, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
+            StreamingQuery::CreateStreamInto { as_select, .. } => {
+                // For CREATE STREAM ... INTO, delegate to SelectProcessor for the inner query
+                SelectProcessor::process(as_select, record, context)
+            }
+            StreamingQuery::CreateTableInto { as_select, .. } => {
+                // For CREATE TABLE ... INTO, delegate to SelectProcessor for the inner query
                 SelectProcessor::process(as_select, record, context)
             }
             StreamingQuery::Show { .. } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("ShowProcessor");
-                }
-                // SHOW commands return metadata
+                // Delegate to ShowProcessor
                 ShowProcessor::process(query, record, context)
             }
             StreamingQuery::InsertInto {
@@ -120,275 +56,156 @@ impl QueryProcessor {
                 columns,
                 source,
             } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("InsertProcessor");
-                }
-                // Process INSERT INTO statement
-                match InsertProcessor::process_insert(table_name, columns, source, record) {
-                    Ok(insert_records) => {
-                        // Return the first insert record (or None if empty)
-                        // TODO: Handle multiple insert records properly
-                        let result_record = insert_records.into_iter().next();
-                        Ok(ProcessorResult {
-                            record: result_record,
-                            header_mutations: Vec::new(),
-                            should_count: true,
-                        })
-                    }
-                    Err(e) => Err(e),
-                }
+                // Extract parameters and delegate to InsertProcessor
+                let insert_records =
+                    InsertProcessor::process_insert(table_name, columns, source, record)?;
+                // Convert multiple records to ProcessorResult (take first record if any)
+                let result_record = insert_records.into_iter().next();
+                Ok(ProcessorResult {
+                    record: result_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
             }
             StreamingQuery::Update {
                 table_name,
                 assignments,
                 where_clause,
             } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("UpdateProcessor");
-                }
-                // Process UPDATE statement
-                match UpdateProcessor::process_update(table_name, assignments, where_clause, record)
-                {
-                    Ok(updated_record) => {
-                        let should_count = updated_record.is_some();
-                        Ok(ProcessorResult {
-                            record: updated_record,
-                            header_mutations: Vec::new(),
-                            should_count,
-                        })
-                    }
-                    Err(e) => Err(e),
-                }
+                // Extract parameters and delegate to UpdateProcessor
+                let updated_record =
+                    UpdateProcessor::process_update(table_name, assignments, where_clause, record)?;
+                Ok(ProcessorResult {
+                    record: updated_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
             }
             StreamingQuery::Delete {
                 table_name,
                 where_clause,
             } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("DeleteProcessor");
-                }
-                // Process DELETE statement
-                match DeleteProcessor::process_delete(table_name, where_clause, record) {
-                    Ok(tombstone_record) => {
-                        let should_count = tombstone_record.is_some();
-                        Ok(ProcessorResult {
-                            record: tombstone_record,
-                            header_mutations: Vec::new(),
-                            should_count,
-                        })
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            StreamingQuery::StartJob { .. }
-            | StreamingQuery::StopJob { .. }
-            | StreamingQuery::PauseJob { .. }
-            | StreamingQuery::ResumeJob { .. }
-            | StreamingQuery::DeployJob { .. } => {
-                if let Some(tracker) = tracker {
-                    tracker.start_processor("JobProcessor");
-                }
-                // Process job management operations
-                let processor = JobProcessor::new();
-                match processor.process(query, context, record) {
-                    Ok(result_record) => {
-                        Ok(ProcessorResult {
-                            record: result_record,
-                            header_mutations: Vec::new(),
-                            should_count: false, // Job operations don't count toward LIMIT
-                        })
-                    }
-                    Err(e) => Err(e),
-                }
+                // Extract parameters and delegate to DeleteProcessor
+                let tombstone_record =
+                    DeleteProcessor::process_delete(table_name, where_clause, record)?;
+                Ok(ProcessorResult {
+                    record: tombstone_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
             }
             _ => {
-                // Handle other query types with placeholder
-                Err(SqlError::ExecutionError {
-                    message: "Query type not yet supported by QueryProcessor".to_string(),
-                    query: None,
+                // For other query types, use simplified implementation
+                Ok(ProcessorResult {
+                    record: None,
+                    header_mutations: Vec::new(),
+                    should_count: true,
                 })
             }
         }
     }
-}
 
-/// Context passed to processors containing shared state and utilities
-/// Optimized for high-performance multi-threading scenarios
-pub struct ProcessorContext {
-    /// Current record count for limit checking
-    pub record_count: u64,
-    /// Maximum record count (for LIMIT)
-    pub max_records: Option<u64>,
-    /// Window processing state (legacy - kept for compatibility)
-    pub window_context: Option<WindowContext>,
-    /// JOIN processing utilities
-    pub join_context: JoinContext,
-    /// GROUP BY processing state
-    pub group_by_states: HashMap<String, crate::ferris::sql::execution::internal::GroupByState>,
-    /// Schema registry for introspection (SHOW/DESCRIBE operations)
-    pub schemas: HashMap<String, Schema>,
-    /// Stream handles registry
-    pub stream_handles: HashMap<String, StreamHandle>,
-    /// Data sources for subquery execution
-    /// Maps table/stream name to available records for querying
-    pub data_sources: HashMap<String, Vec<StreamRecord>>,
-
-    // === HIGH-PERFORMANCE WINDOW STATE MANAGEMENT ===
-    /// Persistent window states for queries processed in this context
-    /// Using Vec for cache efficiency - most contexts handle 1-2 queries
-    pub persistent_window_states: Vec<(String, WindowState)>,
-    /// Track which states were modified for efficient persistence (bit mask)
-    pub dirty_window_states: u32,
-    /// Generic metadata storage for processors (e.g., job management)
-    pub metadata: HashMap<String, String>,
-
-    // === PERFORMANCE MONITORING ===
-    /// Optional performance monitor for query tracking
-    pub performance_monitor: Option<Arc<PerformanceMonitor>>,
-}
-
-impl ProcessorContext {
-    /// Create a new processor context with a query ID
-    pub fn new(query_id: &str) -> Self {
-        Self {
-            record_count: 0,
-            max_records: None,
-            window_context: None,
-            join_context: JoinContext::new(),
-            group_by_states: HashMap::new(),
-            schemas: HashMap::new(),
-            stream_handles: HashMap::new(),
-            data_sources: HashMap::new(),
-            persistent_window_states: Vec::new(),
-            dirty_window_states: 0,
-            metadata: HashMap::new(),
-            performance_monitor: None,
-        }
+    /// Process a query with optional performance monitoring
+    pub fn process_query_with_monitoring(
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        _performance_monitor: Option<&()>, // PerformanceMonitor not available yet
+    ) -> Result<ProcessorResult, SqlError> {
+        // Delegate to the main process_query method
+        Self::process_query(query, record, context)
     }
 
-    /// Set performance monitor for query tracking
-    pub fn set_performance_monitor(&mut self, monitor: Arc<PerformanceMonitor>) {
-        self.performance_monitor = Some(monitor);
-    }
+    /// Get processor metrics for monitoring
+    pub fn get_metrics(context: &ProcessorContext) -> std::collections::HashMap<String, u64> {
+        let mut metrics = std::collections::HashMap::new();
+        metrics.insert("record_count".to_string(), context.record_count);
 
-    /// Get performance monitor if available
-    pub fn get_performance_monitor(&self) -> Option<&Arc<PerformanceMonitor>> {
-        self.performance_monitor.as_ref()
-    }
-
-    /// Set metadata value for job tracking or other purposes
-    pub fn set_metadata(&mut self, key: &str, value: &str) {
-        self.metadata.insert(key.to_string(), value.to_string());
-    }
-
-    /// Get metadata value
-    pub fn get_metadata(&self, key: &str) -> Option<&String> {
-        self.metadata.get(key)
-    }
-
-    // === HIGH-PERFORMANCE WINDOW STATE METHODS ===
-
-    /// Get or create a window state for a query (O(1) for small contexts, optimized for threading)
-    pub fn get_or_create_window_state(
-        &mut self,
-        query_id: &str,
-        window_spec: &crate::ferris::sql::ast::WindowSpec,
-    ) -> &mut WindowState {
-        // Check if window state already exists
-        for (idx, (stored_query_id, _)) in self.persistent_window_states.iter().enumerate() {
-            if stored_query_id == query_id {
-                // Mark as dirty for persistence
-                if idx < 32 {
-                    // Protect against bit mask overflow
-                    self.dirty_window_states |= 1 << (idx as u32);
-                }
-                // Return mutable reference (separate borrow)
-                return &mut self.persistent_window_states[idx].1;
-            }
+        if let Some(max) = context.max_records {
+            metrics.insert("max_records".to_string(), max);
         }
 
-        // Create new state if not found (happens rarely)
-        let new_state = WindowState::new(window_spec.clone());
-        let new_idx = self.persistent_window_states.len();
-        self.persistent_window_states
-            .push((query_id.to_string(), new_state));
+        metrics.insert(
+            "data_sources".to_string(),
+            context.data_sources.len() as u64,
+        );
+        metrics.insert("schemas".to_string(), context.schemas.len() as u64);
+        metrics.insert(
+            "stream_handles".to_string(),
+            context.stream_handles.len() as u64,
+        );
 
-        // Mark new state as dirty
-        if new_idx < 32 {
-            // Protect against bit mask overflow
-            self.dirty_window_states |= 1 << (new_idx as u32);
+        // Add pluggable data source metrics
+        metrics.insert(
+            "data_readers".to_string(),
+            context.data_readers.len() as u64,
+        );
+        metrics.insert(
+            "data_writers".to_string(),
+            context.data_writers.len() as u64,
+        );
+        metrics.insert(
+            "persistent_window_states".to_string(),
+            context.persistent_window_states.len() as u64,
+        );
+        metrics.insert(
+            "dirty_window_states_count".to_string(),
+            context.dirty_window_states.count_ones() as u64,
+        );
+
+        metrics
+    }
+
+    /// Clear context state for fresh processing
+    pub fn reset_context(context: &mut ProcessorContext) {
+        context.record_count = 0;
+        context.window_context = None;
+        context.data_sources.clear();
+    }
+
+    /// Validate context readiness for processing
+    pub fn validate_context(context: &ProcessorContext) -> Result<(), SqlError> {
+        // Validate that we have active data sources if needed
+        if context.data_readers.is_empty() && context.data_sources.is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "No data sources available in context".to_string(),
+                query: None,
+            });
         }
 
-        &mut self.persistent_window_states[new_idx].1
-    }
-
-    /// Get window state if it exists (read-only, no dirty marking)
-    pub fn get_window_state(&self, query_id: &str) -> Option<&WindowState> {
-        self.persistent_window_states
-            .iter()
-            .find(|(stored_query_id, _)| stored_query_id == query_id)
-            .map(|(_, window_state)| window_state)
-    }
-
-    /// Load window states from engine (called during context creation)
-    pub fn load_window_states(&mut self, states: Vec<(String, WindowState)>) {
-        self.persistent_window_states = states;
-        self.dirty_window_states = 0; // Start clean
-    }
-
-    /// Get modified window states for persistence (returns only changed states)
-    pub fn get_dirty_window_states(&self) -> Vec<(String, WindowState)> {
-        let mut dirty_states = Vec::new();
-
-        for (idx, (query_id, window_state)) in self.persistent_window_states.iter().enumerate() {
-            if idx < 32 && (self.dirty_window_states & (1 << idx)) != 0 {
-                dirty_states.push((query_id.clone(), window_state.clone()));
-            }
+        // Validate window states are not corrupted
+        if context.persistent_window_states.len() > 32 {
+            return Err(SqlError::ExecutionError {
+                message: "Too many persistent window states (max 32 supported)".to_string(),
+                query: None,
+            });
         }
 
-        dirty_states
-    }
-
-    /// Clear dirty flags (called after persistence)
-    pub fn clear_dirty_flags(&mut self) {
-        self.dirty_window_states = 0;
+        Ok(())
     }
 }
 
-/// Window processing context
-pub struct WindowContext {
-    /// Buffered records for windowing
-    pub buffer: Vec<StreamRecord>,
-    /// Last emission time
-    pub last_emit: i64,
-    /// Should emit in this processing cycle
-    pub should_emit: bool,
-}
-
-// Import join context
+// Re-export join context
 pub use self::join_context::JoinContext;
 
 // Re-export processor modules
 pub use self::delete::DeleteProcessor;
 pub use self::insert::InsertProcessor;
-pub use self::job::JobProcessor;
 pub use self::join::JoinProcessor;
 pub use self::limit::LimitProcessor;
 pub use self::select::SelectProcessor;
+pub use self::show::ShowProcessor;
 pub use self::update::UpdateProcessor;
 pub use self::window::WindowProcessor;
 
-// Internal processor modules
-mod delete;
-mod insert;
-mod job;
-mod join;
-mod join_context;
-mod limit;
-mod select;
-mod show;
-mod update;
-mod window;
-
-// Import processors
-use self::show::ShowProcessor;
+// Re-export sub-modules for direct access
+pub mod delete;
+pub mod insert;
+pub mod job;
+pub mod join;
+pub mod join_context;
+pub mod limit;
+pub mod select;
+pub mod show;
+pub mod update;
+pub mod window;

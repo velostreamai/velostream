@@ -1,7 +1,7 @@
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, ProducerConfig};
 use ferrisstreams::ferris::kafka::serialization::JsonSerializer;
-use ferrisstreams::ferris::kafka::*;
+use ferrisstreams::{Headers, KTable, KafkaConsumer, KafkaProducer};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -128,8 +128,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Creates and configures the User Profile KTable
-async fn create_user_profile_table()
--> Result<KTable<String, UserProfile, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>> {
+async fn create_user_profile_table(
+) -> Result<KTable<String, UserProfile, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
+{
     let config = ConsumerConfig::new(KAFKA_BROKERS, "user-profile-table-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)
@@ -326,8 +327,8 @@ async fn generate_sample_orders() -> Result<(), Box<dyn std::error::Error>> {
 
     let producer = KafkaProducer::with_config(producer_config, JsonSerializer, JsonSerializer)?;
 
-    let users = vec!["user-001", "user-002", "user-003", "user-004"];
-    let products = vec!["laptop", "smartphone", "tablet", "headphones", "monitor"];
+    let users = ["user-001", "user-002", "user-003", "user-004"];
+    let products = ["laptop", "smartphone", "tablet", "headphones", "monitor"];
 
     let mut interval = interval(Duration::from_secs(3));
     let mut order_counter = 1;

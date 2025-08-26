@@ -11,8 +11,8 @@ use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, Pr
 use ferrisstreams::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initial Concurrency: {}", INITIAL_CONCURRENCY);
     println!();
 
-    let result = run_simple_async_test().await.map_err(|e| e)?;
+    let result = run_simple_async_test().await?;
 
     let (processed, elapsed) = result;
     let throughput = processed as f64 / elapsed;
@@ -251,7 +251,7 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
                     &message,
                     ferrisstreams::Headers::new()
                         .insert("test-type", "async")
-                        .insert("message-id", &i.to_string()),
+                        .insert("message-id", i.to_string()),
                     None,
                 )
                 .await

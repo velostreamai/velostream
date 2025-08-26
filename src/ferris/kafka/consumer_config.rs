@@ -1,5 +1,5 @@
 use crate::ferris::kafka::common_config::{CommonKafkaConfig, HasCommonConfig};
-use crate::ferris::kafka::performance_presets::{PerformancePresets, presets};
+use crate::ferris::kafka::performance_presets::{presets, PerformancePresets};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -381,7 +381,7 @@ mod tests {
         let config = ConsumerConfig::default();
         assert_eq!(config.common.brokers, "localhost:9092");
         assert_eq!(config.group_id, "default-group");
-        assert_eq!(config.enable_auto_commit, false);
+        assert!(!config.enable_auto_commit);
         assert_eq!(config.auto_offset_reset.as_str(), "earliest");
     }
 
@@ -404,18 +404,18 @@ mod tests {
     fn test_presets() {
         let high_throughput = ConsumerConfig::default().high_throughput();
         assert_eq!(high_throughput.fetch_min_bytes, 50000);
-        assert_eq!(high_throughput.enable_auto_commit, true);
+        assert!(high_throughput.enable_auto_commit);
 
         let low_latency = ConsumerConfig::default().low_latency();
         assert_eq!(low_latency.fetch_min_bytes, 1);
         assert_eq!(low_latency.max_poll_records, 1);
 
         let max_durability = ConsumerConfig::default().max_durability();
-        assert_eq!(max_durability.enable_auto_commit, false);
+        assert!(!max_durability.enable_auto_commit);
         assert_eq!(max_durability.session_timeout, Duration::from_secs(60));
 
         let streaming = ConsumerConfig::default().streaming();
         assert_eq!(streaming.max_poll_records, 100);
-        assert_eq!(streaming.enable_auto_commit, false);
+        assert!(!streaming.enable_auto_commit);
     }
 }

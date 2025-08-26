@@ -157,7 +157,7 @@ impl ShowProcessor {
         let mut topics: HashSet<String> = HashSet::new();
 
         // Collect unique topics from registered streams
-        for (_name, handle) in streams {
+        for handle in streams.values() {
             if Self::matches_pattern(&handle.topic, pattern) {
                 topics.insert(handle.topic.clone());
             }

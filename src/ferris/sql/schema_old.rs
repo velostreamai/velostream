@@ -1,3 +1,16 @@
+// Re-export the new comprehensive schema management system
+pub use self::schema_management::*;
+
+// Provide a compatibility module that maintains the old interface
+mod schema_management {
+    pub use super::super::schema::{
+        registry, providers, evolution, cache,
+        Schema, FieldDefinition, SchemaMetadata, CompatibilityMode,
+        SchemaError, SchemaResult,
+        StreamHandle, StreamMetadata, PartitionMetadata,
+    };
+}
+
 use crate::ferris::sql::ast::DataType;
 use std::collections::HashMap;
 

@@ -1,0 +1,23 @@
+FerrisStreams
+Copyright 2025 FerrisStreams Contributors
+
+This product includes software developed by
+the FerrisStreams project (https://github.com/bluemonk3y/ferris_streams).
+
+================================================================================
+
+This project includes or depends on the following third-party components:
+
+Apache Kafka® is a registered trademark of the Apache Software Foundation.
+This project uses the rdkafka library for Kafka integration.
+
+Rust and Cargo are trademarks or registered trademarks of the Mozilla Foundation.
+
+ClickHouse® is a registered trademark of ClickHouse, Inc.
+
+Apache Iceberg™ is a trademark of the Apache Software Foundation.
+
+================================================================================
+
+Third-party dependencies and their licenses can be found in the
+Cargo.toml file and associated Cargo.lock file.

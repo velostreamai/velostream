@@ -144,6 +144,22 @@ pub enum StreamingQuery {
         /// Stream properties (replication factor, partitions, etc.)
         properties: HashMap<String, String>,
     },
+    /// CREATE STREAM AS SELECT ... INTO statement for source-to-sink streaming.
+    ///
+    /// Creates a streaming job that transforms data from a source and writes
+    /// to a specified sink. Supports multi-config files and environment variables.
+    CreateStreamInto {
+        /// Name of the streaming transformation job
+        name: String,
+        /// Optional column definitions with types
+        columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the transformation
+        as_select: Box<StreamingQuery>,
+        /// Target sink specification
+        into_clause: IntoClause,
+        /// Enhanced configuration properties with multi-config support
+        properties: ConfigProperties,
+    },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
     /// Creates a materialized table (KTable) that maintains the current
@@ -158,6 +174,23 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Table properties (retention, compaction, etc.)
         properties: HashMap<String, String>,
+    },
+    /// CREATE TABLE AS SELECT ... INTO statement for source-to-sink table creation.
+    ///
+    /// Creates a materialized table job that transforms data from a source and writes
+    /// to a specified sink. Maintains state like regular tables but with configurable
+    /// sources and sinks. Ideal for creating materialized views from external sources.
+    CreateTableInto {
+        /// Name of the table transformation job
+        name: String,
+        /// Optional column definitions with types
+        columns: Option<Vec<ColumnDef>>,
+        /// SELECT query that defines the transformation
+        as_select: Box<StreamingQuery>,
+        /// Target sink specification
+        into_clause: IntoClause,
+        /// Enhanced configuration properties with multi-config support
+        properties: ConfigProperties,
     },
     /// SHOW/LIST commands for discovering available resources.
     ///
@@ -653,6 +686,84 @@ pub struct StructField {
     pub nullable: bool,
 }
 
+/// INTO clause for CREATE STREAM ... INTO statements
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntoClause {
+    /// Target sink identifier
+    pub sink_name: String,
+    /// Optional sink-specific properties (future use)
+    pub sink_properties: HashMap<String, String>,
+}
+
+/// Enhanced configuration properties supporting multiple config files
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ConfigProperties {
+    /// Base source configuration file path
+    pub base_source_config: Option<String>,
+    /// Environment-specific source configuration file path
+    pub source_config: Option<String>,
+    /// Base sink configuration file path
+    pub base_sink_config: Option<String>,
+    /// Environment-specific sink configuration file path
+    pub sink_config: Option<String>,
+    /// Additional monitoring configuration
+    pub monitoring_config: Option<String>,
+    /// Security configuration file path
+    pub security_config: Option<String>,
+    /// Legacy inline properties for backward compatibility
+    pub inline_properties: HashMap<String, String>,
+}
+
+impl ConfigProperties {
+    /// Convert to legacy HashMap format for backward compatibility
+    pub fn into_legacy_format(self) -> HashMap<String, String> {
+        let mut properties = self.inline_properties;
+
+        // Add config file paths as properties
+        if let Some(path) = self.base_source_config {
+            properties.insert("base_source_config".to_string(), path);
+        }
+        if let Some(path) = self.source_config {
+            properties.insert("source_config".to_string(), path);
+        }
+        if let Some(path) = self.base_sink_config {
+            properties.insert("base_sink_config".to_string(), path);
+        }
+        if let Some(path) = self.sink_config {
+            properties.insert("sink_config".to_string(), path);
+        }
+        if let Some(path) = self.monitoring_config {
+            properties.insert("monitoring_config".to_string(), path);
+        }
+        if let Some(path) = self.security_config {
+            properties.insert("security_config".to_string(), path);
+        }
+
+        properties
+    }
+
+    /// Create from legacy HashMap format for backward compatibility
+    pub fn from_legacy_format(properties: HashMap<String, String>) -> Self {
+        let mut config = Self::default();
+
+        for (key, value) in properties {
+            match key.as_str() {
+                "base_source_config" => config.base_source_config = Some(value),
+                "source_config" => config.source_config = Some(value),
+                "base_sink_config" => config.base_sink_config = Some(value),
+                "sink_config" => config.sink_config = Some(value),
+                "monitoring_config" => config.monitoring_config = Some(value),
+                "security_config" => config.security_config = Some(value),
+                _ => {
+                    config.inline_properties.insert(key, value);
+                }
+            }
+        }
+
+        config
+    }
+}
+
 impl StreamingQuery {
     /// Check if this query requires windowing
     pub fn has_window(&self) -> bool {
@@ -660,6 +771,8 @@ impl StreamingQuery {
             StreamingQuery::Select { window, .. } => window.is_some(),
             StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
+            StreamingQuery::CreateStreamInto { as_select, .. } => as_select.has_window(),
+            StreamingQuery::CreateTableInto { as_select, .. } => as_select.has_window(),
             StreamingQuery::Show { .. } => false, // SHOW commands don't use windows
             StreamingQuery::StartJob { query, .. } => query.has_window(),
             StreamingQuery::StopJob { .. } => false, // STOP commands don't use windows
@@ -699,6 +812,8 @@ impl StreamingQuery {
             }
             StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::CreateStreamInto { as_select, .. } => as_select.get_columns(),
+            StreamingQuery::CreateTableInto { as_select, .. } => as_select.get_columns(),
             StreamingQuery::Show { .. } => Vec::new(), // SHOW commands don't reference columns
             StreamingQuery::StartJob { query, .. } => query.get_columns(),
             StreamingQuery::StopJob { .. } => Vec::new(), // STOP commands don't reference columns

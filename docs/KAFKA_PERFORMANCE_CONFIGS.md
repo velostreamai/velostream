@@ -105,7 +105,7 @@ cargo run --example simple_zero_copy_test
 cargo run --example simple_async_optimization_test
 ```
 
-See [ADVANCED_PERFORMANCE_OPTIMIZATIONS.md](./ADVANCED_PERFORMANCE_OPTIMIZATIONS.md) for detailed advanced techniques.
+See [ADVANCED_PERFORMANCE_OPTIMIZATIONS.md](developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md) for detailed advanced techniques.
 
 ## Troubleshooting
 

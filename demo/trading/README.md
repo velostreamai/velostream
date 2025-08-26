@@ -482,8 +482,8 @@ For production use, see:
 ## 📚 Related Documentation
 
 - [SQL Application Guide](../../SQL_APPLICATION_GUIDE.md)
-- [Kafka Configuration](../../docs/SIMPLIFIED_KAFKA_API.md)
-- [Performance Optimization](../../docs/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)
+- [Kafka Configuration](../../docs/developer/SIMPLIFIED_KAFKA_API.md)
+- [Performance Optimization](../../docs/developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)
 - [Docker Deployment](../../docs/DOCKER_DEPLOYMENT_GUIDE.md)
 
 ## 🤝 Contributing

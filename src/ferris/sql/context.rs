@@ -141,6 +141,14 @@ impl StreamingSqlContext {
                 // Validate the underlying SELECT query
                 self.validate_query(as_select)
             }
+            StreamingQuery::CreateStreamInto { as_select, .. } => {
+                // Validate the underlying SELECT query
+                self.validate_query(as_select)
+            }
+            StreamingQuery::CreateTableInto { as_select, .. } => {
+                // Validate the underlying SELECT query
+                self.validate_query(as_select)
+            }
             StreamingQuery::Show { .. } => {
                 // SHOW commands don't need schema validation
                 Ok(())
@@ -268,6 +276,8 @@ impl StreamingSqlContext {
             },
             StreamingQuery::CreateStream { name, .. } => name,
             StreamingQuery::CreateTable { name, .. } => name,
+            StreamingQuery::CreateStreamInto { name, .. } => name,
+            StreamingQuery::CreateTableInto { name, .. } => name,
             StreamingQuery::Show { .. } => {
                 // SHOW commands don't have a primary stream name
                 "system"

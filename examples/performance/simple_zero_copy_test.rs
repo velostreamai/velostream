@@ -11,8 +11,8 @@ use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, Pr
 use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
 use ferrisstreams::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // Test configuration
@@ -211,7 +211,7 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
                     &payload,
                     ferrisstreams::Headers::new()
                         .insert("test-type", "zero-copy")
-                        .insert("message-id", &i.to_string()),
+                        .insert("message-id", i.to_string()),
                     None,
                 )
                 .await

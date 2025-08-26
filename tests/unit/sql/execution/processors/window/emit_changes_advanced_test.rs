@@ -13,8 +13,7 @@ These tests represent real-world streaming challenges that EMIT CHANGES must han
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use std::collections::HashMap;
+use ferrisstreams::ferris::sql::execution::types::FieldValue;
 
 /// Test EMIT CHANGES with watermark progression and retraction scenarios
 #[tokio::test]

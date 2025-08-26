@@ -31,8 +31,8 @@ use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSeriali
 use ferrisstreams::{Headers, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 
 use futures::StreamExt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
@@ -319,8 +319,8 @@ async fn run_raw_performance_test(
                 let headers = Headers::new()
                     .insert("test-type", "raw-performance")
                     .insert("producer-id", &producer_id_str)
-                    .insert("message-id", &message_id.to_string())
-                    .insert("payload-size", &payload_size_bytes.to_string());
+                    .insert("message-id", message_id.to_string())
+                    .insert("payload-size", payload_size_bytes.to_string());
 
                 // Send raw bytes directly using FerrisStreams producer
                 match producer_clone

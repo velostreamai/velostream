@@ -5,8 +5,8 @@ Provides detailed statistics collection for individual queries and overall syste
 This module tracks query execution patterns, resource usage, and performance trends.
 */
 
-use super::QueryPerformance;
 use super::metrics::{PerformanceMetrics, ThroughputMetrics};
+use super::QueryPerformance;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,10 +45,7 @@ impl QueryStatistics {
 
         // Update query patterns
         let pattern_key = self.extract_query_pattern(&performance.query_text);
-        let pattern_stats = self
-            .query_patterns
-            .entry(pattern_key)
-            .or_insert_with(QueryPatternStats::new);
+        let pattern_stats = self.query_patterns.entry(pattern_key).or_default();
         pattern_stats.update(&performance);
 
         // Add to history (with size limit)
@@ -220,6 +217,12 @@ pub struct QueryPatternStats {
     pub first_seen: Instant,
     /// Last seen timestamp
     pub last_seen: Instant,
+}
+
+impl Default for QueryPatternStats {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl QueryPatternStats {

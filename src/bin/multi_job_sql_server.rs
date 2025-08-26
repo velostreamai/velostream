@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::{
-    FieldValue, SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine,
-    StreamingSqlParser, execution::performance::PerformanceMonitor,
+    execution::performance::PerformanceMonitor, FieldValue, SqlApplication, SqlApplicationParser,
+    SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{error, info, warn};
 use serde_json::Value;
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 #[derive(Parser)]
@@ -736,7 +736,7 @@ async fn start_metrics_server_multi(
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((stream, addr)) => {
                 info!("Multi-job metrics request from: {}", addr);
                 let server = server.clone();
 
@@ -778,11 +778,7 @@ async fn start_metrics_server_multi(
 async fn handle_multi_metrics_request(request: &str, server: &MultiJobSqlServer) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
-        if let Some(path_part) = first_line.split_whitespace().nth(1) {
-            path_part
-        } else {
-            "/"
-        }
+        first_line.split_whitespace().nth(1).unwrap_or("/")
     } else {
         "/"
     };

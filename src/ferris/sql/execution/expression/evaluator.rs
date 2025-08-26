@@ -6,7 +6,7 @@
 use super::super::processors::ProcessorContext;
 use super::super::types::{FieldValue, StreamRecord};
 use super::functions::BuiltinFunctions;
-use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
+use super::subquery_executor::{evaluate_subquery_with_executor, SubqueryExecutor};
 use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
 

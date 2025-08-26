@@ -142,20 +142,7 @@ impl InsertProcessor {
         match query.as_ref() {
             StreamingQuery::Select { .. } => {
                 // Step 1: Create a processor context for the SELECT execution
-                let mut select_context = super::ProcessorContext {
-                    record_count: 0,
-                    max_records: None,
-                    window_context: None,
-                    join_context: super::JoinContext::new(),
-                    group_by_states: std::collections::HashMap::new(),
-                    schemas: std::collections::HashMap::new(),
-                    stream_handles: std::collections::HashMap::new(),
-                    data_sources: std::collections::HashMap::new(),
-                    persistent_window_states: Vec::new(),
-                    dirty_window_states: 0,
-                    metadata: std::collections::HashMap::new(),
-                    performance_monitor: None,
-                };
+                let mut select_context = super::ProcessorContext::new("insert_select");
 
                 // Step 2: Execute the SELECT query
                 let select_result =

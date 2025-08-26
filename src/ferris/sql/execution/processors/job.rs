@@ -14,6 +14,12 @@ use std::collections::HashMap;
 /// Processor for handling job management operations
 pub struct JobProcessor;
 
+impl Default for JobProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JobProcessor {
     /// Create a new job processor instance
     pub fn new() -> Self {
@@ -24,7 +30,7 @@ impl JobProcessor {
     pub fn process_start_job(
         &self,
         name: &str,
-        query: &StreamingQuery,
+        _query: &StreamingQuery,
         properties: &HashMap<String, String>,
         context: &mut ProcessorContext,
         record: &StreamRecord,
@@ -186,7 +192,7 @@ impl JobProcessor {
         &self,
         name: &str,
         version: &str,
-        query: &StreamingQuery,
+        _query: &StreamingQuery,
         properties: &HashMap<String, String>,
         strategy: &DeploymentStrategy,
         context: &mut ProcessorContext,
@@ -293,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_job_processor_creation() {
-        let processor = JobProcessor::new();
+        let _processor = JobProcessor::new();
         // Basic creation test
         assert!(true);
     }

@@ -9,10 +9,10 @@ use super::{
 };
 use crate::ferris::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::ferris::sql::execution::{
-    FieldValue, StreamRecord,
-    aggregation::{AccumulatorManager, state::GroupByStateManager},
+    aggregation::{state::GroupByStateManager, AccumulatorManager},
     expression::{ExpressionEvaluator, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
+    FieldValue, StreamRecord,
 };
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ impl SelectProcessor {
         } = query
         {
             // Route windowed queries to WindowProcessor first
-            if let Some(window_spec) = window {
+            if let Some(_window_spec) = window {
                 // Generate query ID based on stream name for consistent window state management
                 let query_id = match from {
                     StreamSource::Stream(name) | StreamSource::Table(name) => {
@@ -315,7 +315,7 @@ impl SelectProcessor {
         }
 
         // Store first values for each GROUP BY expression
-        for (_i, group_expr) in group_exprs.iter().enumerate() {
+        for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if !accumulator.first_values.contains_key(col_name) {
                     if let Some(value) = record.fields.get(col_name) {
@@ -354,7 +354,7 @@ impl SelectProcessor {
         let mut result_fields = HashMap::new();
 
         // Add GROUP BY columns to result
-        for (_i, group_expr) in group_exprs.iter().enumerate() {
+        for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if let Some(value) = accumulator.first_values.get(col_name) {
                     result_fields.insert(col_name.clone(), value.clone());
@@ -621,8 +621,7 @@ impl SelectProcessor {
         // Apply HAVING clause if present
         if let Some(having_expr) = having {
             // Use a specialized HAVING evaluator that can resolve aggregate functions
-            let having_result =
-                Self::evaluate_having_expression(having_expr, &accumulator, fields)?;
+            let having_result = Self::evaluate_having_expression(having_expr, accumulator, fields)?;
 
             if !having_result {
                 // HAVING clause failed, don't emit this result

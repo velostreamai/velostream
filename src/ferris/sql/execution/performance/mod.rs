@@ -15,8 +15,9 @@ performance optimization and production monitoring.
 ## Usage
 
 ```rust
-use ferrisstreams::ferris::sql::execution::performance::{QueryTracker, PerformanceMonitor};
+use ferrisstreams::ferris::sql::execution::performance::{query_tracker::QueryTracker, PerformanceMonitor};
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Initialize performance monitoring
 let monitor = PerformanceMonitor::new();
 
@@ -26,6 +27,8 @@ let tracker = monitor.start_query_tracking("SELECT * FROM stream");
 let metrics = monitor.finish_query_tracking(tracker);
 
 println!("Query took: {}ms", metrics.execution_time.as_millis());
+# Ok(())
+# }
 ```
 */
 
@@ -40,11 +43,6 @@ pub mod statistics;
 
 // Re-export public API - Core Classes
 pub use query_performance::QueryPerformance;
-pub use query_tracker::QueryTracker;
 
 // Re-export public API - Metrics & Monitoring
-pub use metrics::{
-    AtomicMetricsCollector, MemoryMetrics, PerformanceMetrics, ProcessorMetrics, ThroughputMetrics,
-};
 pub use monitor::PerformanceMonitor;
-pub use statistics::{QueryStatistics, StatisticsCollector};

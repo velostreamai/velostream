@@ -274,7 +274,7 @@ impl WindowProcessor {
             WindowSpec::Session { .. } => {
                 // Session windows use enhanced logic with proper gap detection and overflow safety
                 // For now, emit after we have at least one record to enable basic functionality
-                window_state.buffer.len() >= 1
+                !window_state.buffer.is_empty()
             }
         }
     }
@@ -296,7 +296,7 @@ impl WindowProcessor {
         if let StreamingQuery::Select {
             fields,
             where_clause,
-            group_by,
+            group_by: _,
             having,
             ..
         } = query
@@ -338,8 +338,7 @@ impl WindowProcessor {
                         }
                         crate::ferris::sql::ast::SelectField::Expression { expr, alias } => {
                             let field_name = alias
-                                .as_ref()
-                                .map(|a| a.clone())
+                                .clone()
                                 .unwrap_or_else(|| format!("field_{}", result_fields.len()));
 
                             // Handle aggregate functions properly for windowed queries

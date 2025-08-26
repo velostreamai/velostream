@@ -72,6 +72,36 @@ cargo build --no-default-features --features json
 cargo build --bin ferris-sql-multi --no-default-features
 ```
 
+### Code Formatting
+```bash
+# Format all code (required for CI/CD)
+cargo fmt --all
+
+# Check formatting without making changes
+cargo fmt --all -- --check
+
+# Run before committing to ensure CI passes
+cargo fmt --all && cargo check --no-default-features
+```
+
+### Git Workflow
+```bash
+# Commit after completing significant work units
+# Examples: 1 day's work, project milestone, or architectural phase
+git add .
+git commit -m "feat: implement Day X - [Feature Name]
+
+Key achievements:
+- [Achievement 1]
+- [Achievement 2] 
+- [Performance metrics if applicable]
+
+🤖 Generated with Claude Code"
+
+# Push to remote after successful local testing
+git push origin branch-name
+```
+
 ### Performance Testing
 ```bash
 # Run financial precision tests
@@ -87,6 +117,30 @@ cargo run --bin test_serialization_compatibility --no-default-features
 - `protobuf`: Protocol Buffers support (requires prost crate)
 
 ## Code Organization
+
+### Module Structure Guidelines
+**IMPORTANT**: Use `mod.rs` files ONLY for module construction and re-exports, NOT for struct/class definitions.
+
+✅ **Correct mod.rs usage**:
+```rust
+// mod.rs should only contain:
+pub mod error;          // Import submodules
+pub mod data_source;
+pub mod reader;
+
+// Re-export types for convenience
+pub use error::DataSourceError;
+pub use data_source::KafkaDataSource;
+```
+
+❌ **Incorrect mod.rs usage**:
+```rust
+// DO NOT define structs/classes in mod.rs
+pub struct MyStruct { /* ... */ }
+impl MyStruct { /* ... */ }
+```
+
+**Best Practice**: Create dedicated files for each major struct/class and import them in mod.rs.
 
 ### Type System Architecture
 ```rust
@@ -146,15 +200,44 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 1. Add feature flag in `Cargo.toml`
 2. Implement conversion functions in `src/ferris/serialization/mod.rs`
 3. Handle ScaledInteger → compatible format mapping
-4. Add comprehensive tests
+4. Add comprehensive tests in `tests/unit/serialization/`
+
+### Adding New Configuration Features
+1. Update appropriate module in `src/ferris/sql/config/`
+2. Ensure public visibility for methods used in tests
+3. Add comprehensive tests in `tests/unit/sql/config/`
+4. Update imports in test files as needed
 
 ## Testing Strategy
+
+### Test Organization
+Tests are organized into dedicated test files outside of implementation modules:
+- **Module tests removed**: All `#[cfg(test)]` blocks have been moved out of source files
+- **Dedicated test files**: Tests are located in `tests/unit/` and `tests/integration/`
+- **Test module structure**: Mirrors source structure for easy navigation
+
+```
+tests/
+├── unit/
+│   ├── sql/
+│   │   ├── config/                    # Configuration system tests
+│   │   │   ├── builder_test.rs        # Builder pattern tests
+│   │   │   ├── connection_string_test.rs  # URI parsing tests
+│   │   │   ├── validation_test.rs     # Validation system tests
+│   │   │   └── environment_test.rs    # Environment config tests
+│   │   ├── execution/                 # SQL execution tests
+│   │   ├── functions/                 # SQL function tests
+│   │   └── parser/                    # SQL parser tests
+│   └── kafka/                         # Kafka integration tests
+└── integration/                       # End-to-end tests
+```
 
 ### Unit Tests
 - **Type Operations**: All arithmetic, casting, formatting
 - **SQL Functions**: Builtin functions with all type combinations  
 - **Aggregation**: Window functions, GROUP BY, HAVING clauses
 - **Serialization**: Round-trip compatibility tests
+- **Configuration**: URI parsing, validation, environment config
 
 ### Integration Tests
 - **End-to-End SQL**: Complete query processing
@@ -173,6 +256,7 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 2. **Scale Alignment**: Different scales in ScaledInteger arithmetic
 3. **Serialization Round-trips**: Ensure exact precision preservation
 4. **Performance Regressions**: Monitor financial arithmetic benchmarks
+5. **CI/CD Formatting Failures**: Always run `cargo fmt --all` before committing
 
 ### Useful Debug Commands
 ```bash
@@ -184,6 +268,12 @@ cargo test financial_precision_benchmark::performance_benchmarks -- --nocapture
 
 # Check for missing pattern matches
 cargo check --no-default-features
+
+# Fix formatting issues (GitHub Actions requirement)
+cargo fmt --all
+
+# Verify formatting and compilation before push
+cargo fmt --all -- --check && cargo check --no-default-features
 ```
 
 ## Architecture Principles
@@ -212,3 +302,4 @@ cargo check --no-default-features
 📋 **Pending**: Performance optimization for large-scale aggregations
 
 The codebase is production-ready for financial analytics use cases requiring exact precision and high performance.
+- Always run clippy checks#

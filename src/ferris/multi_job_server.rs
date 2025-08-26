@@ -12,15 +12,15 @@ use crate::ferris::{
 };
 use log::{error, info, warn};
 use rdkafka::{
-    ClientConfig, Message,
     consumer::{Consumer, StreamConsumer},
     producer::{FutureProducer, FutureRecord},
+    ClientConfig, Message,
 };
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 /// Multi-Job SQL Server that can run multiple SQL jobs concurrently

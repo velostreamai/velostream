@@ -180,8 +180,8 @@ impl WindowFunctions {
 
     /// Compare field values for ordering
     fn compare_field_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
-        use FieldValue::*;
         use std::cmp::Ordering;
+        use FieldValue::*;
 
         match (a, b) {
             (Null, Null) => Ordering::Equal,

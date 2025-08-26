@@ -353,6 +353,160 @@ FROM orders
 GROUP BY customer_id;
 ```
 
+### CREATE STREAM INTO (✅ Core Architecture Implemented)
+
+Create a streaming job that reads from a source and writes to a sink with multi-config file support and environment variable resolution.
+
+**✅ Currently Working:**
+```sql
+-- Basic CREATE STREAM INTO syntax (implemented)
+CREATE STREAM orders_processed AS 
+SELECT id, customer_id, amount, status 
+FROM kafka_source 
+INTO kafka_sink
+WITH (
+    "source_config" = "configs/kafka_source.yaml",
+    "sink_config" = "configs/kafka_sink.yaml"
+);
+
+-- Multi-config file support with environment variables (implemented)
+CREATE STREAM kafka_replication AS 
+SELECT * FROM kafka_source 
+INTO kafka_sink
+WITH (
+    "base_source_config" = "configs/base_kafka.yaml",
+    "source_config" = "configs/kafka_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_kafka_sink.yaml", 
+    "sink_config" = "configs/kafka_sink_${ENVIRONMENT}.yaml",
+    "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
+    "security_config" = "configs/security.yaml",
+    "batch_size" = "1000"
+);
+
+-- Environment variable patterns supported:
+-- ${VAR} - Simple substitution  
+-- ${VAR:-default} - Use default value if VAR is not set
+-- ${VAR:?error} - Error if VAR is not set
+CREATE STREAM env_example AS 
+SELECT * FROM kafka_source 
+INTO kafka_sink
+WITH (
+    "source_config" = "${CONFIG_PATH}/kafka_${ENVIRONMENT:-dev}.yaml",
+    "sink_config" = "${CONFIG_PATH}/kafka_sink_${ENVIRONMENT:?ENVIRONMENT must be set}.yaml"
+);
+```
+
+**🚧 TODO - Planned Multi-Source Support:**
+```sql
+-- TODO: CSV to Kafka (architecture ready, CSV reader not implemented)  
+CREATE STREAM csv_to_kafka AS 
+SELECT id, customer_id, amount, status 
+FROM csv_source   -- TODO: Implement CSV DataSource
+INTO kafka_sink
+WITH (
+    "source_config" = "configs/csv_orders.yaml",
+    "sink_config" = "configs/kafka_sink.yaml" 
+);
+
+-- TODO: PostgreSQL to S3 (architecture ready, implementations not done)
+CREATE STREAM db_replication AS 
+SELECT * FROM postgres_source   -- TODO: Implement PostgreSQL DataSource 
+INTO s3_sink                    -- TODO: Implement S3 DataSink
+WITH (
+    "base_source_config" = "configs/base_postgres.yaml",
+    "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_s3.yaml", 
+    "sink_config" = "configs/s3_${ENVIRONMENT}.yaml"
+);
+```
+
+### CREATE TABLE INTO (✅ Core Architecture Implemented)
+
+Create a materialized table job that processes aggregated data and outputs to a sink.
+
+**✅ Currently Working:**
+```sql
+-- CREATE TABLE INTO with aggregation (Kafka to Kafka working)
+CREATE TABLE user_analytics AS 
+SELECT 
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_spent,
+    AVG(amount) as avg_order_value
+FROM kafka_orders_stream 
+GROUP BY customer_id
+INTO kafka_analytics_sink
+WITH (
+    "base_source_config" = "configs/base_kafka_source.yaml",
+    "source_config" = "configs/kafka_orders_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_kafka_sink.yaml", 
+    "sink_config" = "configs/kafka_analytics_${ENVIRONMENT}.yaml",
+    "batch_size" = "500"
+);
+
+-- Real-time dashboard updates
+CREATE TABLE dashboard_metrics AS
+SELECT 
+    DATE_TRUNC('hour', order_timestamp) as hour,
+    COUNT(*) as hourly_orders,
+    SUM(amount) as hourly_revenue,
+    COUNT(DISTINCT customer_id) as unique_customers
+FROM orders_stream
+GROUP BY DATE_TRUNC('hour', order_timestamp)
+INTO dashboard_sink
+WITH (
+    "source_config" = "configs/kafka_orders.yaml",
+    "sink_config" = "configs/dashboard_api.yaml",
+    "update_frequency" = "1m"
+);
+```
+
+#### Configuration File Support
+
+The new CREATE STREAM/TABLE INTO syntax supports multiple configuration layers:
+
+- **base_source_config**: Base configuration for the source (shared settings)
+- **source_config**: Specific source configuration (environment-specific)
+- **base_sink_config**: Base configuration for the sink (shared settings)
+- **sink_config**: Specific sink configuration (environment-specific)
+- **monitoring_config**: Monitoring and metrics configuration
+- **security_config**: Security and authentication configuration
+- **inline properties**: Direct key-value properties in the WITH clause
+
+#### Environment Variable Resolution
+
+Environment variables are resolved at parse time using these patterns:
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `${VAR}` | Simple substitution | `"${CONFIG_PATH}/app.yaml"` |
+| `${VAR:-default}` | Use default if VAR unset | `"kafka_${ENV:-dev}.yaml"` |
+| `${VAR:?message}` | Error if VAR unset | `"${REQUIRED_CONFIG:?Config required}"` |
+
+#### Backward Compatibility
+
+The traditional CREATE STREAM and CREATE TABLE syntax continues to work unchanged:
+
+```sql
+-- Legacy CREATE STREAM (still supported)
+CREATE STREAM legacy_stream AS 
+SELECT id, name FROM orders 
+WITH (
+    "topic" = "processed_orders",
+    "replication_factor" = "3"
+);
+
+-- Legacy CREATE TABLE (still supported)
+CREATE TABLE legacy_table AS 
+SELECT customer_id, SUM(amount) as total 
+FROM orders 
+GROUP BY customer_id
+WITH (
+    "compaction" = "true",
+    "retention_ms" = "86400000"
+);
+```
+
 ## Data Manipulation Language (DML)
 
 FerrisStreams provides comprehensive DML (Data Manipulation Language) support for INSERT, UPDATE, and DELETE operations with streaming-first semantics. All DML operations maintain proper audit trails, generate tombstone records for deletions, and preserve data lineage.
@@ -1260,7 +1414,7 @@ SELECT
 FROM quality_measurements;
 ```
 
-#### Statistical Function Error Handling
+#### Statistical Function Error Handling (✅ Implemented)
 
 ```sql
 -- Safe statistical calculations with error handling
@@ -1287,7 +1441,7 @@ WHERE price IS NOT NULL
 GROUP BY product_category;
 ```
 
-### Aggregate Functions
+### Aggregate Functions (✅ Implemented)
 
 ```sql
 -- Basic aggregations
@@ -1492,7 +1646,7 @@ SELECT
     CAST(is_active, 'BOOLEAN') as is_active_bool
 FROM orders;
 
--- String operations (legacy functions)
+-- String operations
 SELECT 
     customer_id,
     SPLIT(full_name, ' ') as first_name,
@@ -1638,7 +1792,7 @@ SELECT
         WHEN UPPER(raw_country_input) IN ('UK', 'GB', 'GREAT BRITAIN', 'ENGLAND') THEN 'United Kingdom'
         WHEN UPPER(raw_country_input) IN ('DE', 'GERMANY', 'DEUTSCHLAND') THEN 'Germany'
         WHEN LENGTH(raw_country_input) = 2 THEN UPPER(raw_country_input)  -- ISO country codes
-        ELSE INITCAP(raw_country_input)  -- Capitalize first letter of each word
+        ELSE UPPER(SUBSTRING(raw_country_input, 1, 1)) || LOWER(SUBSTRING(raw_country_input, 2))  -- 🚧 TODO: INITCAP function
     END as normalized_country
 FROM user_data;
 
@@ -3227,29 +3381,44 @@ The `CAST(value, type)` function provides comprehensive type conversion capabili
 
 ### Supported Data Types
 
-#### Core Types
+#### Core Types (✅ Implemented)
 - **INTEGER** (alias: **INT**) - 64-bit signed integer
-- **FLOAT** (alias: **DOUBLE**) - 64-bit floating point number  
-- **STRING** (aliases: **VARCHAR**, **TEXT**) - UTF-8 encoded text
-- **BOOLEAN** (alias: **BOOL**) - True/false value
+- **FLOAT** - 64-bit floating point number  
+- **STRING** - UTF-8 encoded text
+- **BOOLEAN** - True/false value
+- **TIMESTAMP** - Date and time values (basic support)
+- **ARRAY(type)** - Array of elements of a specific type
+- **MAP(key_type, value_type)** - Key-value pairs
+- **STRUCT** - Structured type with named fields
 
-#### Extended Types (New)
-- **DATE** - Date values (YYYY-MM-DD format)
-- **TIMESTAMP** (alias: **DATETIME**) - Date and time values (YYYY-MM-DD HH:MM:SS[.nnn] format)
+#### Extended Types (🚧 TODO - Planned)
+- **DATE** - Date values (YYYY-MM-DD format) 
 - **DECIMAL** (alias: **NUMERIC**) - High-precision decimal numbers
+- **BIGINT** - Extended integer range
+- **DOUBLE** - Alias for FLOAT (may be implemented as separate type)
 
-### Type Conversion Matrix
+### Type Conversion Matrix (✅ Currently Implemented)
 
-| From\To | INTEGER | FLOAT | STRING | BOOLEAN | DATE | TIMESTAMP | DECIMAL |
-|---------|---------|-------|--------|---------|------|-----------|---------|
-| **INTEGER** | ✓ | ✓ | ✓ | ✓ | ❌ | Unix¹ | ✓ |
-| **FLOAT** | ✓² | ✓ | ✓ | ✓ | ❌ | ❌ | ✓ |
-| **STRING** | Parse | Parse | ✓ | Parse | Parse | Parse | Parse |
-| **BOOLEAN** | 0/1 | 0.0/1.0 | ✓ | ✓ | ❌ | ❌ | 0/1 |
-| **DATE** | ❌ | ❌ | ✓ | ❌ | ✓ | ✓³ | ❌ |
-| **TIMESTAMP** | ❌ | ❌ | ✓ | ❌ | ✓⁴ | ✓ | ❌ |
-| **DECIMAL** | ✓² | ✓ | ✓ | ❌ | ❌ | ❌ | ✓ |
-| **NULL** | NULL | NULL | "NULL"⁵ | NULL | NULL | NULL | NULL |
+| From\To | INTEGER | FLOAT | STRING | BOOLEAN | TIMESTAMP |
+|---------|---------|-------|--------|---------|-----------| 
+| **INTEGER** | ✓ | ✓ | ✓ | ✓ | Unix¹ |
+| **FLOAT** | ✓² | ✓ | ✓ | ✓ | ❌ |
+| **STRING** | Parse | Parse | ✓ | Parse | Parse |
+| **BOOLEAN** | 0/1 | 0.0/1.0 | ✓ | ✓ | ❌ |
+| **TIMESTAMP** | ❌ | ❌ | ✓ | ❌ | ✓ |
+| **NULL** | NULL | NULL | "NULL"³ | NULL | NULL |
+
+### Extended Conversion Matrix (🚧 TODO - Planned)
+
+| From\To | DATE | DECIMAL | BIGINT |
+|---------|------|---------|--------|
+| **INTEGER** | ❌ | ✓ | ✓ |
+| **FLOAT** | ❌ | ✓ | ✓² |
+| **STRING** | Parse | Parse | Parse |
+| **BOOLEAN** | ❌ | 0/1 | 0/1 |
+| **TIMESTAMP** | ✓⁴ | ❌ | ❌ |
+| **DATE** | ✓ | ❌ | ❌ |
+| **DECIMAL** | ❌ | ✓ | ✓² |
 
 **Legend:**
 - ✓ = Direct conversion supported
@@ -3265,11 +3434,11 @@ The `CAST(value, type)` function provides comprehensive type conversion capabili
 
 #### DATE Format Support
 ```sql
--- Supported date formats
-CAST('2023-12-25', 'DATE')     -- YYYY-MM-DD (preferred)
-CAST('2023/12/25', 'DATE')     -- YYYY/MM/DD  
-CAST('12/25/2023', 'DATE')     -- MM/DD/YYYY
-CAST('25-12-2023', 'DATE')     -- DD-MM-YYYY
+-- 🚧 TODO: DATE type not implemented yet
+-- CAST('2023-12-25', 'DATE')     -- YYYY-MM-DD (preferred)
+-- CAST('2023/12/25', 'DATE')     -- YYYY/MM/DD  
+-- CAST('12/25/2023', 'DATE')     -- MM/DD/YYYY
+-- CAST('25-12-2023', 'DATE')     -- DD-MM-YYYY
 ```
 
 #### TIMESTAMP Format Support
@@ -3291,11 +3460,11 @@ CAST(1640995200, 'TIMESTAMP')                 -- Unix seconds → TIMESTAMP
 The DECIMAL type supports high-precision arithmetic suitable for financial calculations:
 
 ```sql
--- Precise decimal calculations
-CAST('123.456789012345', 'DECIMAL')           -- High precision
-CAST(42, 'DECIMAL')                           -- Integer → Decimal  
-CAST(3.14159, 'DECIMAL')                      -- Float → Decimal
-CAST(true, 'DECIMAL')                         -- Boolean → 1 or 0
+-- 🚧 TODO: DECIMAL type not implemented yet
+-- CAST('123.456789012345', 'DECIMAL')           -- High precision
+-- CAST(42, 'DECIMAL')                           -- Integer → Decimal  
+-- CAST(3.14159, 'DECIMAL')                      -- Float → Decimal
+-- CAST(true, 'DECIMAL')                         -- Boolean → 1 or 0
 ```
 
 ### Practical Examples
@@ -3306,7 +3475,7 @@ CAST(true, 'DECIMAL')                         -- Boolean → 1 or 0
 SELECT 
     JSON_VALUE(payload, '$.user_id') as user_id_str,
     CAST(JSON_VALUE(payload, '$.user_id'), 'INTEGER') as user_id,
-    CAST(JSON_VALUE(payload, '$.amount'), 'DECIMAL') as precise_amount,
+    CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT') as precise_amount,  -- 🚧 TODO: Use DECIMAL when implemented
     CAST(JSON_VALUE(payload, '$.created_at'), 'TIMESTAMP') as created_timestamp
 FROM events;
 ```
@@ -3317,11 +3486,11 @@ FROM events;
 SELECT
     order_id,
     CASE 
-        WHEN amount_str ~ '^[0-9]+\.[0-9]+$' 
-        THEN CAST(amount_str, 'DECIMAL')
-        ELSE CAST('0.00', 'DECIMAL')
+        WHEN amount_str REGEXP '^[0-9]+\.[0-9]+$'  -- 🚧 TODO: REGEXP operator not implemented 
+        THEN CAST(amount_str, 'FLOAT')  -- 🚧 TODO: Use DECIMAL when implemented
+        ELSE CAST('0.00', 'FLOAT')
     END as validated_amount,
-    CAST(COALESCE(created_date, '1970-01-01'), 'DATE') as safe_date
+    CAST(COALESCE(created_date, '1970-01-01'), 'STRING') as safe_date  -- 🚧 TODO: Use DATE when implemented
 FROM raw_orders;
 ```
 
@@ -3330,9 +3499,9 @@ FROM raw_orders;
 -- Date/time conversions for analytics
 SELECT 
     customer_id,
-    CAST(order_date_str, 'DATE') as order_date,
+    CAST(order_date_str, 'STRING') as order_date,  -- 🚧 TODO: Use DATE when implemented
     CAST(order_timestamp_str, 'TIMESTAMP') as order_timestamp,
-    CAST(CAST(order_timestamp_str, 'TIMESTAMP'), 'DATE') as derived_date
+    DATE_FORMAT(CAST(order_timestamp_str, 'TIMESTAMP'), '%Y-%m-%d') as derived_date  -- Extract date part
 FROM customer_orders;
 ```
 
@@ -3341,9 +3510,9 @@ FROM customer_orders;
 -- Precise decimal arithmetic for financial data
 SELECT
     transaction_id,
-    CAST(amount, 'DECIMAL') as amount_decimal,
-    CAST(tax_rate, 'DECIMAL') as tax_rate_decimal,
-    CAST(amount, 'DECIMAL') * CAST(tax_rate, 'DECIMAL') as tax_amount
+    CAST(amount, 'FLOAT') as amount_decimal,  -- 🚧 TODO: Use DECIMAL when implemented for precision
+    CAST(tax_rate, 'FLOAT') as tax_rate_decimal,  -- 🚧 TODO: Use DECIMAL when implemented
+    CAST(amount, 'FLOAT') * CAST(tax_rate, 'FLOAT') as tax_amount  -- 🚧 TODO: Use DECIMAL for financial accuracy
 FROM financial_transactions;
 ```
 
@@ -3354,7 +3523,7 @@ Type conversion failures result in SQL errors with descriptive messages:
 ```sql
 -- These will generate errors:
 CAST('invalid-number', 'INTEGER')           -- "Cannot cast 'invalid-number' to INTEGER"
-CAST('2023-13-45', 'DATE')                  -- "Cannot cast '2023-13-45' to DATE"
+CAST('2023-13-45', 'DATE')                  -- 🚧 TODO: DATE type not implemented yet
 CAST({}, 'INTEGER')                         -- "Cannot cast MAP to INTEGER"
 ```
 

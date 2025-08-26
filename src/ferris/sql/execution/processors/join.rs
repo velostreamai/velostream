@@ -3,10 +3,10 @@
 //! Handles all types of JOIN operations including INNER, LEFT, RIGHT, and FULL OUTER joins.
 
 use super::{ProcessorContext, SelectProcessor};
-use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{JoinClause, JoinType, StreamSource};
 use crate::ferris::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy};
-use crate::ferris::sql::execution::{FieldValue, StreamRecord, expression::ExpressionEvaluator};
+use crate::ferris::sql::execution::{expression::ExpressionEvaluator, FieldValue, StreamRecord};
+use crate::ferris::sql::SqlError;
 use std::collections::HashMap;
 
 /// JOIN processing utilities

@@ -5,11 +5,11 @@ High-performance hash join algorithm for large dataset JOINs.
 Provides 10x+ performance improvement over nested loop joins for large relations.
 */
 
-use crate::ferris::sql::SqlError;
 use crate::ferris::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType};
 use crate::ferris::sql::execution::expression::ExpressionEvaluator;
 use crate::ferris::sql::execution::processors::{ProcessorContext, SelectProcessor};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord};
+use crate::ferris::sql::SqlError;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -108,10 +108,7 @@ impl HashJoinTable {
         context: &ProcessorContext,
     ) -> Result<(), SqlError> {
         let hash_key = self.compute_hash_key(&record, context)?;
-        self.buckets
-            .entry(hash_key)
-            .or_insert_with(Vec::new)
-            .push(record);
+        self.buckets.entry(hash_key).or_default().push(record);
         self.record_count += 1;
         Ok(())
     }
@@ -173,11 +170,7 @@ impl HashJoinTable {
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let hash_key = self.compute_hash_key(probe_record, context)?;
 
-        Ok(self
-            .buckets
-            .get(&hash_key)
-            .map(|records| records.clone())
-            .unwrap_or_else(Vec::new))
+        Ok(self.buckets.get(&hash_key).cloned().unwrap_or_default())
     }
 
     /// Get memory usage estimate

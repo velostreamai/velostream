@@ -343,9 +343,9 @@ async fn test_emit_changes_correctness_verification() {
 /// Summary test to document observed EMIT CHANGES late data behavior
 #[tokio::test]
 async fn test_emit_changes_late_data_behavior_summary() {
-    println!("\n{}", iter::repeat("=").take(70).collect::<String>());
+    println!("\n{}", "=".repeat(70));
     println!("📋 EMIT CHANGES LATE DATA BEHAVIOR SUMMARY");
-    println!("{}", iter::repeat("=").take(70).collect::<String>());
+    println!("{}", "=".repeat(70));
 
     println!("\n🔍 This test suite verifies the following late data scenarios:");
     println!("   1. Late data in tumbling windows (corrections vs drops)");
@@ -368,5 +368,5 @@ async fn test_emit_changes_late_data_behavior_summary() {
     println!("   - EMIT CHANGES with late data may produce duplicate keys");
 
     println!("\n🎯 Run individual tests above to verify actual implementation behavior");
-    println!("{}", iter::repeat("=").take(70).collect::<String>());
+    println!("{}", "=".repeat(70));
 }

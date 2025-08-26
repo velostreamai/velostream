@@ -6,8 +6,8 @@ use prost::Message;
 
 #[cfg(feature = "avro")]
 use apache_avro::{
-    Error as AvroError, Schema as AvroSchema, from_avro_datum, to_avro_datum,
-    types::Value as AvroValue,
+    from_avro_datum, to_avro_datum, types::Value as AvroValue, Error as AvroError,
+    Schema as AvroSchema,
 };
 
 /// Trait for objects that can be serialized to bytes for Kafka messages

@@ -199,6 +199,12 @@ pub struct PerformanceMetrics {
     pub last_update: Instant,
 }
 
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PerformanceMetrics {
     /// Create new performance metrics
     pub fn new() -> Self {

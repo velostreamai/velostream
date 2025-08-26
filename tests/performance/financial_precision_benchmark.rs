@@ -12,8 +12,8 @@ and compares performance/accuracy of different numeric representations:
 Issue: https://github.com/bluemonk3y/ferris_streams/issues/19
 */
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::*; // Includes ToPrimitive trait for to_f64()
+use rust_decimal::Decimal;
 use std::time::Instant;
 
 /// Financial amount with 4 decimal places precision using i64
@@ -410,7 +410,7 @@ mod performance_benchmarks {
         println!("\n=== FINANCIAL CALCULATION PATTERNS ===");
 
         // Test patterns common in financial calculations
-        let prices = vec![123.45, 67.89, 234.56, 89.12, 345.67];
+        let prices = [123.45, 67.89, 234.56, 89.12, 345.67];
         let quantities = vec![1000, 500, 750, 1200, 300];
 
         println!("Testing trade calculations (price * quantity):");

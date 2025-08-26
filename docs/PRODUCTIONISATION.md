@@ -434,12 +434,12 @@ Track detailed operational context:
 
 ## Documentation References
 
-- [Performance Configurations](PERFORMANCE_CONFIGS.md) - Detailed performance tuning
-- [Headers Guide](HEADERS_GUIDE.md) - Message header patterns
-- [Builder Pattern Guide](BUILDER_PATTERN_GUIDE.md) - Configuration patterns
-- [Type-Safe Kafka](TYPE_SAFE_KAFKA.md) - Type safety patterns
+- [Performance Configurations](KAFKA_PERFORMANCE_CONFIGS.md) - Detailed performance tuning
+- [Headers Guide](developer/HEADERS_GUIDE.md) - Message header patterns
+- [Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md) - Configuration patterns
+- [Type-Safe Kafka](feature/TYPE_SAFE_KAFKA.md) - Type safety patterns
 
 ## Support
 
 For production support and advanced configurations, refer to the test coverage improvement plan:
-**See:** [Test Coverage Improvement Plan](TEST_COVERAGE_IMPROVEMENT_PLAN.md)
+**See:** [Test Coverage Improvement Plan](feature/TEST_COVERAGE_IMPROVEMENT_PLAN.md)

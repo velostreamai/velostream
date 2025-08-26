@@ -346,8 +346,8 @@ Found an issue or want to improve an example? Contributions are welcome!
 ## 📖 Additional Resources
 
 - **[Main README](../README.md)** - Project overview and installation
-- **[Headers Guide](../docs/HEADERS_GUIDE.md)** - Comprehensive headers documentation
-- **[Builder Pattern Guide](../docs/BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
+- **[Headers Guide](../docs/developer/HEADERS_GUIDE.md)** - Comprehensive headers documentation
+- **[Builder Pattern Guide](../docs/developer/BUILDER_PATTERN_GUIDE.md)** - When and how to use builders
 - **[Test Suite](../tests/)** - Advanced patterns and edge cases
 
 ---

@@ -22,25 +22,29 @@ pub mod kafka_error;
 pub mod performance_presets;
 
 // Re-export main API
-pub use admin_client::KafkaAdminClient;
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
-pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
-pub use ktable::{ChangeEvent, KTable, KTableStats};
-pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer};
+pub use ktable::KTable;
+pub use serialization::{
+    BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer,
+};
+
+// Feature-gated exports
+#[cfg(feature = "avro")]
+pub use serialization::AvroSerializer;
+#[cfg(feature = "protobuf")]
+pub use serialization::ProtoSerializer;
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
-pub use client_config_builder::ClientConfigBuilder;
-pub use common_config::{CommonKafkaConfig, HasCommonConfig};
 pub use headers::Headers;
 pub use message::Message;
-pub use performance_presets::{PerformancePresets, presets};
+
+// Re-export admin client
+pub use admin_client::KafkaAdminClient;
+
+// Re-export errors
+pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 
 // Conditional exports for feature-gated serializers
-#[cfg(feature = "protobuf")]
-pub use serialization::ProtoSerializer;
-
-#[cfg(feature = "avro")]
-pub use serialization::AvroSerializer;
