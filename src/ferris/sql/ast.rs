@@ -586,6 +586,8 @@ pub enum LiteralValue {
     Float(f64),
     Boolean(bool),
     Null,
+    /// High-precision decimal literal for financial calculations
+    Decimal(String), // Store as string to preserve exact precision during parsing
     /// Time intervals: INTERVAL '5' MINUTE
     Interval {
         value: i64,
@@ -670,6 +672,8 @@ pub enum DataType {
     String,
     Boolean,
     Timestamp,
+    /// High-precision decimal number for financial calculations
+    Decimal,
     /// Array of elements of a specific type
     Array(Box<DataType>),
     /// Map with key-value pairs of specific types

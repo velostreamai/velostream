@@ -669,11 +669,35 @@ impl StreamingSqlParser {
                 }
                 '0'..='9' => {
                     let mut value = String::new();
+                    let mut has_decimal = false;
+                    let mut has_exponent = false;
+
                     while let Some(&next_ch) = chars.peek() {
-                        if next_ch.is_ascii_digit() || next_ch == '.' {
+                        if next_ch.is_ascii_digit() {
                             value.push(next_ch);
                             chars.next();
                             position += 1;
+                        } else if next_ch == '.' && !has_decimal && !has_exponent {
+                            // Allow one decimal point, but not in exponent
+                            has_decimal = true;
+                            value.push(next_ch);
+                            chars.next();
+                            position += 1;
+                        } else if (next_ch == 'e' || next_ch == 'E') && !has_exponent {
+                            // Scientific notation
+                            has_exponent = true;
+                            value.push(next_ch);
+                            chars.next();
+                            position += 1;
+
+                            // Check for optional +/- after 'e'/'E'
+                            if let Some(&sign_ch) = chars.peek() {
+                                if sign_ch == '+' || sign_ch == '-' {
+                                    value.push(sign_ch);
+                                    chars.next();
+                                    position += 1;
+                                }
+                            }
                         } else {
                             break;
                         }
@@ -1502,7 +1526,18 @@ impl<'a> TokenParser<'a> {
             }
             TokenType::Number => {
                 self.advance();
-                if let Ok(i) = token.value.parse::<i64>() {
+                // Check for decimal literal (contains decimal point)
+                if token.value.contains('.') || token.value.to_uppercase().contains('E') {
+                    // Parse as Float for backward compatibility - users can cast to DECIMAL if needed
+                    if let Ok(f) = token.value.parse::<f64>() {
+                        Ok(Expr::Literal(LiteralValue::Float(f)))
+                    } else {
+                        Err(SqlError::ParseError {
+                            message: format!("Invalid float literal: {}", token.value),
+                            position: Some(self.current),
+                        })
+                    }
+                } else if let Ok(i) = token.value.parse::<i64>() {
                     Ok(Expr::Literal(LiteralValue::Integer(i)))
                 } else if let Ok(f) = token.value.parse::<f64>() {
                     Ok(Expr::Literal(LiteralValue::Float(f)))
@@ -1630,6 +1665,8 @@ impl<'a> TokenParser<'a> {
                     Expr::Literal(LiteralValue::Float(f)) => {
                         Ok(Expr::Literal(LiteralValue::Float(-f)))
                     }
+                    // Note: Decimal literals are no longer parsed directly as LiteralValue::Decimal
+                    // They are parsed as Float for backward compatibility
                     _ => {
                         // For non-literal expressions, we could create a unary minus expression
                         // For now, just handle the common case of negative literals
@@ -2044,6 +2081,7 @@ impl<'a> TokenParser<'a> {
             "STRING" | "VARCHAR" | "TEXT" => Ok(DataType::String),
             "BOOLEAN" | "BOOL" => Ok(DataType::Boolean),
             "TIMESTAMP" => Ok(DataType::Timestamp),
+            "DECIMAL" | "NUMERIC" => Ok(DataType::Decimal),
             "ARRAY" => {
                 self.expect(TokenType::LeftParen)?;
                 let inner_type = self.parse_data_type()?;
