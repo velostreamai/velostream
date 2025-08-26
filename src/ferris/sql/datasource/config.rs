@@ -20,13 +20,7 @@ pub enum SourceConfig {
         properties: HashMap<String, String>,
     },
     /// File system source configuration  
-    File {
-        path: String,
-        format: FileFormat,
-        watch: bool,
-        encoding: String,
-        properties: HashMap<String, String>,
-    },
+    File(crate::ferris::sql::datasource::file::FileSourceConfig),
     /// S3 source configuration
     S3 {
         bucket: String,
@@ -273,45 +267,33 @@ impl ConnectionString {
                 })
             }
             "file" => {
-                let format = match self.params.get("format").map(|s| s.as_str()) {
-                    Some("json") => FileFormat::Json,
-                    Some("jsonl") | Some("jsonlines") => FileFormat::JsonLines,
-                    Some("csv") => FileFormat::Csv,
-                    Some("parquet") => FileFormat::Parquet,
-                    Some("avro") => FileFormat::Avro,
-                    _ => {
-                        // Infer from file extension
-                        if self.path.ends_with(".json") {
-                            FileFormat::Json
-                        } else if self.path.ends_with(".jsonl") {
-                            FileFormat::JsonLines
-                        } else if self.path.ends_with(".csv") {
-                            FileFormat::Csv
-                        } else if self.path.ends_with(".parquet") {
-                            FileFormat::Parquet
-                        } else {
-                            FileFormat::JsonLines // Default
+                // Use the new FileSourceConfig URI parsing
+                let uri = format!("file://{}", self.path);
+                let mut config = crate::ferris::sql::datasource::file::FileSourceConfig::from_uri(&uri)
+                    .map_err(|e| DataSourceError::Configuration(e))?;
+                
+                // Override with any additional parameters from the connection string
+                for (key, value) in &self.params {
+                    match key.as_str() {
+                        "watch" => {
+                            config.watch_for_changes = value.parse().unwrap_or(false);
                         }
+                        "poll_interval" => {
+                            config.polling_interval_ms = value.parse().ok();
+                        }
+                        "delimiter" => {
+                            if value.len() == 1 {
+                                config.csv_delimiter = value.chars().next().unwrap();
+                            }
+                        }
+                        "header" => {
+                            config.csv_has_header = value.parse().unwrap_or(true);
+                        }
+                        _ => {} // Ignore other parameters
                     }
-                };
+                }
 
-                let watch = self
-                    .params
-                    .get("watch")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-
-                Ok(SourceConfig::File {
-                    path: self.path.clone(),
-                    format,
-                    watch,
-                    encoding: self
-                        .params
-                        .get("encoding")
-                        .unwrap_or(&"utf-8".to_string())
-                        .clone(),
-                    properties: self.params.clone(),
-                })
+                Ok(SourceConfig::File(config))
             }
             "s3" => {
                 // Parse s3://bucket/prefix
@@ -587,15 +569,10 @@ mod tests {
         let config = conn.to_source_config().unwrap();
 
         match config {
-            SourceConfig::File {
-                path,
-                format,
-                watch,
-                ..
-            } => {
-                assert_eq!(path, "/data/input.jsonl");
-                assert_eq!(format, FileFormat::JsonLines);
-                assert!(watch);
+            SourceConfig::File(file_config) => {
+                assert_eq!(file_config.path, "/data/input.jsonl");
+                assert_eq!(file_config.format, crate::ferris::sql::datasource::file::FileFormat::JsonLines);
+                assert!(file_config.watch_for_changes);
             }
             _ => panic!("Expected File config"),
         }

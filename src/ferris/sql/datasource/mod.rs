@@ -37,6 +37,7 @@
 //! ```
 
 pub mod config;
+pub mod file;
 pub mod kafka;
 pub mod registry;
 pub mod traits;
@@ -44,6 +45,7 @@ pub mod types;
 
 // Re-export key types
 pub use config::{ConnectionString, SinkConfig, SourceConfig};
+pub use file::{FileDataSource, FileFormat, FileSourceConfig};
 pub use registry::{create_sink, create_source};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
