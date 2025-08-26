@@ -53,20 +53,28 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     // Get source metadata
     let source_metadata = source.metadata();
-    println!("📊 Source: {} v{}", source_metadata.source_type, source_metadata.version);
+    println!(
+        "📊 Source: {} v{}",
+        source_metadata.source_type, source_metadata.version
+    );
     println!("   Capabilities: {:?}", source_metadata.capabilities);
 
-    // Get sink metadata  
+    // Get sink metadata
     let sink_metadata = sink.metadata();
-    println!("📤 Sink: {} v{}", sink_metadata.sink_type, sink_metadata.version);
+    println!(
+        "📤 Sink: {} v{}",
+        sink_metadata.sink_type, sink_metadata.version
+    );
     println!("   Capabilities: {:?}", sink_metadata.capabilities);
 
     // Discover and display schema
     let schema = source.fetch_schema().await?;
     println!("\n📋 Schema discovered: {} fields", schema.fields.len());
     for field in &schema.fields {
-        println!("   {}: {:?} (nullable: {})", 
-                 field.name, field.data_type, field.nullable);
+        println!(
+            "   {}: {:?} (nullable: {})",
+            field.name, field.data_type, field.nullable
+        );
     }
 
     // Validate schema compatibility
@@ -94,7 +102,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         total_records += batch_size;
 
         if args.verbose {
-            log::info!("Processing batch {} with {} records", batch_count, batch_size);
+            log::info!(
+                "Processing batch {} with {} records",
+                batch_count,
+                batch_size
+            );
         }
 
         // Transform records (example: add processing timestamp)
@@ -105,13 +117,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 record.fields.insert(
                     "processed_at".to_string(),
                     ferrisstreams::ferris::sql::execution::types::FieldValue::String(
-                        chrono::Utc::now().to_rfc3339()
+                        chrono::Utc::now().to_rfc3339(),
                     ),
                 );
                 record.fields.insert(
                     "batch_id".to_string(),
                     ferrisstreams::ferris::sql::execution::types::FieldValue::String(
-                        batch_count.to_string()
+                        batch_count.to_string(),
                     ),
                 );
                 record
@@ -136,15 +148,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("\n✅ Pipeline completed successfully!");
     println!("📊 Total records processed: {}", total_records);
     println!("📦 Total batches: {}", batch_count);
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[tokio::test]
     async fn test_csv_processing() {
@@ -156,12 +168,14 @@ mod tests {
         writeln!(file, "3,Charlie,300").unwrap();
 
         // Test with mock sink (would need mock implementation)
-        let input_uri = format!("file://{}?format=csv&header=true", 
-                               file.path().to_string_lossy());
-        
+        let input_uri = format!(
+            "file://{}?format=csv&header=true",
+            file.path().to_string_lossy()
+        );
+
         let source = create_source(&input_uri).unwrap();
         let schema = source.fetch_schema().await.unwrap();
-        
+
         assert_eq!(schema.fields.len(), 3);
         assert_eq!(schema.fields[0].name, "id");
         assert_eq!(schema.fields[1].name, "name");

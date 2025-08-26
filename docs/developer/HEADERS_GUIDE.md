@@ -332,11 +332,11 @@ let headers = message.into_headers();  // Take just the headers
 
 ### Complete Examples Available
 
-1. **[Basic Headers Example](../examples/headers_example.rs)**
+1. **[Basic Headers Example](../../examples/headers_example.rs)**
    - Simple producer/consumer with headers
    - Demonstrates basic header operations
 
-2. **[Consumer with Headers Example](../examples/consumer_with_headers.rs)**
+2. **[Consumer with Headers Example](../../examples/consumer_with_headers.rs)**
    - Comprehensive headers demonstration
    - Shows all access patterns and processing methods
    - Production-ready patterns
