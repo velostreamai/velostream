@@ -302,3 +302,4 @@ cargo fmt --all -- --check && cargo check --no-default-features
 📋 **Pending**: Performance optimization for large-scale aggregations
 
 The codebase is production-ready for financial analytics use cases requiring exact precision and high performance.
+- Always run clippy checks#
