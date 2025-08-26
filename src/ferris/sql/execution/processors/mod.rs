@@ -7,6 +7,7 @@
 //! - LIMIT processing
 //! - SHOW/DESCRIBE processing
 
+use crate::ferris::sql::execution::expression::evaluator::ExpressionEvaluator;
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
 use crate::ferris::sql::execution::types::FieldValue;
 use crate::ferris::sql::execution::StreamRecord;
@@ -62,8 +63,8 @@ impl QueryProcessor {
                                 if let Some(value) = record.fields.get(name) {
                                     result_fields.insert(name.clone(), value.clone());
                                 } else if name.starts_with('_') {
-                                    // Handle system columns
-                                    match name.as_str() {
+                                    // Handle system columns (case insensitive)
+                                    match name.to_lowercase().as_str() {
                                         "_timestamp" => {
                                             result_fields.insert(name.clone(), FieldValue::Integer(record.timestamp));
                                         }
@@ -81,8 +82,8 @@ impl QueryProcessor {
                                 if let Some(value) = record.fields.get(column) {
                                     result_fields.insert(alias.clone(), value.clone());
                                 } else if column.starts_with('_') {
-                                    // Handle aliased system columns
-                                    match column.as_str() {
+                                    // Handle aliased system columns (case insensitive)
+                                    match column.to_lowercase().as_str() {
                                         "_timestamp" => {
                                             result_fields.insert(alias.clone(), FieldValue::Integer(record.timestamp));
                                         }
@@ -93,6 +94,26 @@ impl QueryProcessor {
                                             result_fields.insert(alias.clone(), FieldValue::Integer(record.partition as i64));
                                         }
                                         _ => {} // Unknown system column, ignore
+                                    }
+                                }
+                            }
+                            crate::ferris::sql::ast::SelectField::Expression { expr, alias } => {
+                                // Use ExpressionEvaluator to evaluate any expression (columns, literals, functions, etc.)
+                                match ExpressionEvaluator::evaluate_expression_value(expr, &record) {
+                                    Ok(value) => {
+                                        let field_name = if let Some(alias) = alias {
+                                            alias.clone()
+                                        } else {
+                                            // If no alias, try to derive a name from the expression
+                                            match expr {
+                                                crate::ferris::sql::ast::Expr::Column(name) => name.clone(),
+                                                _ => "expr".to_string(), // Default name for non-column expressions
+                                            }
+                                        };
+                                        result_fields.insert(field_name, value);
+                                    }
+                                    Err(_) => {
+                                        // If evaluation fails, skip this field (could add error handling)
                                     }
                                 }
                             }
@@ -114,6 +135,10 @@ impl QueryProcessor {
                     header_mutations: Vec::new(),
                     should_count: true,
                 })
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // For CREATE STREAM AS SELECT, process the inner SELECT query
+                Self::process_query(as_select, record, context)
             }
             _ => {
                 // For other query types, use simplified implementation
