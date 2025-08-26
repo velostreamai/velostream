@@ -25,7 +25,7 @@ pub mod performance_presets;
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use ktable::KTable;
-pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer};
+pub use serialization::{AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError, Serializer, StringSerializer};
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
@@ -36,7 +36,7 @@ pub use message::Message;
 pub use admin_client::KafkaAdminClient;
 
 // Re-export errors
-pub use kafka_error::{ConsumerError, ProducerError};
+pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 
 // Conditional exports for feature-gated serializers
 

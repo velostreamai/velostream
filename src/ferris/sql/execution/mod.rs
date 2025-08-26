@@ -54,7 +54,6 @@ pub mod utils;
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 
-// Internal types are available within this module but not re-exported publicly
-// SqlError and StreamingQuery are in crate::ferris::sql module
-
-// Internal types are available within this module but not re-exported publicly
+// Re-export internal types for testing  
+pub use aggregation::GroupByStateManager;
+pub use processors::{DeleteProcessor, InsertProcessor, SelectProcessor, UpdateProcessor};

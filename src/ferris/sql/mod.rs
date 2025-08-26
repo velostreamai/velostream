@@ -13,7 +13,7 @@ pub mod schema;
 
 // Re-export main API
 pub use app_parser::{SqlApplication, SqlApplicationParser};
-pub use ast::StreamingQuery;
+pub use ast::{DataType, StreamingQuery};
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 pub use parser::StreamingSqlParser;
