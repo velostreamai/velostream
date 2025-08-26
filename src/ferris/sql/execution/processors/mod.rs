@@ -8,6 +8,7 @@
 //! - SHOW/DESCRIBE processing
 
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
+use crate::ferris::sql::execution::types::FieldValue;
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::{SqlError, StreamingQuery};
 
@@ -60,11 +61,39 @@ impl QueryProcessor {
                             crate::ferris::sql::ast::SelectField::Column(name) => {
                                 if let Some(value) = record.fields.get(name) {
                                     result_fields.insert(name.clone(), value.clone());
+                                } else if name.starts_with('_') {
+                                    // Handle system columns
+                                    match name.as_str() {
+                                        "_timestamp" => {
+                                            result_fields.insert(name.clone(), FieldValue::Integer(record.timestamp));
+                                        }
+                                        "_offset" => {
+                                            result_fields.insert(name.clone(), FieldValue::Integer(record.offset));
+                                        }
+                                        "_partition" => {
+                                            result_fields.insert(name.clone(), FieldValue::Integer(record.partition as i64));
+                                        }
+                                        _ => {} // Unknown system column, ignore
+                                    }
                                 }
                             }
                             crate::ferris::sql::ast::SelectField::AliasedColumn { column, alias } => {
                                 if let Some(value) = record.fields.get(column) {
                                     result_fields.insert(alias.clone(), value.clone());
+                                } else if column.starts_with('_') {
+                                    // Handle aliased system columns
+                                    match column.as_str() {
+                                        "_timestamp" => {
+                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.timestamp));
+                                        }
+                                        "_offset" => {
+                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.offset));
+                                        }
+                                        "_partition" => {
+                                            result_fields.insert(alias.clone(), FieldValue::Integer(record.partition as i64));
+                                        }
+                                        _ => {} // Unknown system column, ignore
+                                    }
                                 }
                             }
                             _ => {} // Handle other field types as needed
