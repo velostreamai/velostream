@@ -353,6 +353,136 @@ FROM orders
 GROUP BY customer_id;
 ```
 
+### CREATE STREAM INTO
+
+Create a streaming job that reads from a source and writes to a sink with multi-config file support and environment variable resolution.
+
+```sql
+-- Basic CREATE STREAM INTO syntax
+CREATE STREAM orders_to_kafka AS 
+SELECT id, customer_id, amount, status 
+FROM csv_source 
+INTO kafka_sink
+WITH (
+    "source_config" = "configs/csv_orders.yaml",
+    "sink_config" = "configs/kafka_sink.yaml"
+);
+
+-- Multi-config file support with environment variables
+CREATE STREAM db_replication AS 
+SELECT * FROM postgres_source 
+INTO s3_sink
+WITH (
+    "base_source_config" = "configs/base_postgres.yaml",
+    "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_s3.yaml", 
+    "sink_config" = "configs/s3_${ENVIRONMENT}.yaml",
+    "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
+    "security_config" = "configs/security.yaml",
+    "batch_size" = "1000"
+);
+
+-- Environment variable patterns supported:
+-- ${VAR} - Simple substitution
+-- ${VAR:-default} - Use default value if VAR is not set
+-- ${VAR:?error} - Error if VAR is not set
+CREATE STREAM env_example AS 
+SELECT * FROM source 
+INTO sink
+WITH (
+    "source_config" = "${CONFIG_PATH}/kafka_${ENVIRONMENT:-dev}.yaml",
+    "sink_config" = "${CONFIG_PATH}/postgres_${ENVIRONMENT:?ENVIRONMENT must be set}.yaml"
+);
+```
+
+### CREATE TABLE INTO
+
+Create a materialized table job that processes aggregated data and outputs to a sink.
+
+```sql
+-- CREATE TABLE INTO with aggregation
+CREATE TABLE user_analytics AS 
+SELECT 
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_spent,
+    AVG(amount) as avg_order_value,
+    MAX(order_date) as last_order_date
+FROM orders_stream 
+GROUP BY customer_id
+INTO analytics_sink
+WITH (
+    "base_source_config" = "configs/base_kafka_source.yaml",
+    "source_config" = "configs/kafka_orders_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_postgres_sink.yaml", 
+    "sink_config" = "configs/postgres_${ENVIRONMENT}.yaml",
+    "batch_size" = "500",
+    "window_size" = "1h"
+);
+
+-- Real-time dashboard updates
+CREATE TABLE dashboard_metrics AS
+SELECT 
+    DATE_TRUNC('hour', order_timestamp) as hour,
+    COUNT(*) as hourly_orders,
+    SUM(amount) as hourly_revenue,
+    COUNT(DISTINCT customer_id) as unique_customers
+FROM orders_stream
+GROUP BY DATE_TRUNC('hour', order_timestamp)
+INTO dashboard_sink
+WITH (
+    "source_config" = "configs/kafka_orders.yaml",
+    "sink_config" = "configs/dashboard_api.yaml",
+    "update_frequency" = "1m"
+);
+```
+
+#### Configuration File Support
+
+The new CREATE STREAM/TABLE INTO syntax supports multiple configuration layers:
+
+- **base_source_config**: Base configuration for the source (shared settings)
+- **source_config**: Specific source configuration (environment-specific)
+- **base_sink_config**: Base configuration for the sink (shared settings)
+- **sink_config**: Specific sink configuration (environment-specific)
+- **monitoring_config**: Monitoring and metrics configuration
+- **security_config**: Security and authentication configuration
+- **inline properties**: Direct key-value properties in the WITH clause
+
+#### Environment Variable Resolution
+
+Environment variables are resolved at parse time using these patterns:
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `${VAR}` | Simple substitution | `"${CONFIG_PATH}/app.yaml"` |
+| `${VAR:-default}` | Use default if VAR unset | `"kafka_${ENV:-dev}.yaml"` |
+| `${VAR:?message}` | Error if VAR unset | `"${REQUIRED_CONFIG:?Config required}"` |
+
+#### Backward Compatibility
+
+The traditional CREATE STREAM and CREATE TABLE syntax continues to work unchanged:
+
+```sql
+-- Legacy CREATE STREAM (still supported)
+CREATE STREAM legacy_stream AS 
+SELECT id, name FROM orders 
+WITH (
+    "topic" = "processed_orders",
+    "replication_factor" = "3"
+);
+
+-- Legacy CREATE TABLE (still supported)
+CREATE TABLE legacy_table AS 
+SELECT customer_id, SUM(amount) as total 
+FROM orders 
+GROUP BY customer_id
+WITH (
+    "compaction" = "true",
+    "retention_ms" = "86400000"
+);
+```
+
 ## Data Manipulation Language (DML)
 
 FerrisStreams provides comprehensive DML (Data Manipulation Language) support for INSERT, UPDATE, and DELETE operations with streaming-first semantics. All DML operations maintain proper audit trails, generate tombstone records for deletions, and preserve data lineage.

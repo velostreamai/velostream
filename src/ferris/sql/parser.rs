@@ -1924,7 +1924,27 @@ impl<'a> TokenParser<'a> {
         self.expect(TokenType::As)?;
         let as_select = Box::new(self.parse_select()?);
 
-        // Optional WITH properties
+        // Check for INTO clause (new syntax)
+        if self.current_token().token_type == TokenType::Into {
+            let into_clause = self.parse_into_clause()?;
+
+            // Enhanced WITH properties for multi-config support
+            let properties = if self.current_token().token_type == TokenType::With {
+                self.parse_enhanced_with_properties()?
+            } else {
+                ConfigProperties::default()
+            };
+
+            return Ok(StreamingQuery::CreateStreamInto {
+                name,
+                columns,
+                as_select,
+                into_clause,
+                properties,
+            });
+        }
+
+        // Fallback to existing CREATE STREAM syntax (backward compatibility)
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
@@ -1953,7 +1973,27 @@ impl<'a> TokenParser<'a> {
         self.expect(TokenType::As)?;
         let as_select = Box::new(self.parse_select()?);
 
-        // Optional WITH properties
+        // Check for INTO clause (new syntax)
+        if self.current_token().token_type == TokenType::Into {
+            let into_clause = self.parse_into_clause()?;
+
+            // Enhanced WITH properties for multi-config support
+            let properties = if self.current_token().token_type == TokenType::With {
+                self.parse_enhanced_with_properties()?
+            } else {
+                ConfigProperties::default()
+            };
+
+            return Ok(StreamingQuery::CreateTableInto {
+                name,
+                columns,
+                as_select,
+                into_clause,
+                properties,
+            });
+        }
+
+        // Fallback to existing CREATE TABLE syntax (backward compatibility)
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
@@ -2055,6 +2095,116 @@ impl<'a> TokenParser<'a> {
 
         self.expect(TokenType::RightParen)?;
         Ok(properties)
+    }
+
+    fn parse_into_clause(&mut self) -> Result<IntoClause, SqlError> {
+        self.expect(TokenType::Into)?;
+        let sink_name = self.expect(TokenType::Identifier)?.value;
+
+        Ok(IntoClause {
+            sink_name,
+            sink_properties: HashMap::new(), // Future use for sink-specific properties
+        })
+    }
+
+    fn parse_enhanced_with_properties(&mut self) -> Result<ConfigProperties, SqlError> {
+        self.expect(TokenType::With)?;
+        self.expect(TokenType::LeftParen)?;
+
+        let mut config = ConfigProperties::default();
+
+        loop {
+            let key = self.expect(TokenType::String)?.value;
+
+            // Expect = sign
+            let equals_token = self.current_token().clone();
+            if equals_token.value != "=" {
+                return Err(SqlError::ParseError {
+                    message: "Expected '=' in property definition".to_string(),
+                    position: Some(equals_token.position),
+                });
+            }
+            self.advance();
+
+            let raw_value = self.expect(TokenType::String)?.value;
+            let value = self.resolve_environment_variables(&raw_value)?;
+
+            // Categorize configuration properties
+            match key.as_str() {
+                "base_source_config" => config.base_source_config = Some(value),
+                "source_config" => config.source_config = Some(value),
+                "base_sink_config" => config.base_sink_config = Some(value),
+                "sink_config" => config.sink_config = Some(value),
+                "monitoring_config" => config.monitoring_config = Some(value),
+                "security_config" => config.security_config = Some(value),
+                _ => {
+                    // All other properties go into inline_properties for backward compatibility
+                    config.inline_properties.insert(key, value);
+                }
+            }
+
+            if self.current_token().token_type == TokenType::Comma {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        self.expect(TokenType::RightParen)?;
+        Ok(config)
+    }
+
+    /// Resolve environment variables in configuration values
+    /// Supports patterns: ${VAR}, ${VAR:-default}, ${VAR:?error_msg}
+    fn resolve_environment_variables(&self, value: &str) -> Result<String, SqlError> {
+        use std::env;
+
+        // Simple regex-like replacement for ${VAR} patterns
+        let mut result = value.to_string();
+
+        // Find all ${...} patterns
+        while let Some(start) = result.find("${") {
+            if let Some(end) = result[start..].find('}') {
+                let var_expr = &result[start + 2..start + end];
+                let replacement = if let Some(default_pos) = var_expr.find(":-") {
+                    // ${VAR:-default} pattern
+                    let var_name = &var_expr[..default_pos];
+                    let default_value = &var_expr[default_pos + 2..];
+                    env::var(var_name).unwrap_or_else(|_| default_value.to_string())
+                } else if let Some(error_pos) = var_expr.find(":?") {
+                    // ${VAR:?error} pattern
+                    let var_name = &var_expr[..error_pos];
+                    let error_msg = &var_expr[error_pos + 2..];
+                    env::var(var_name).map_err(|_| {
+                        SqlError::parse_error(
+                            format!(
+                                "Required environment variable '{}' not set: {}",
+                                var_name, error_msg
+                            ),
+                            None,
+                        )
+                    })?
+                } else {
+                    // Simple ${VAR} pattern
+                    env::var(var_expr).map_err(|_| {
+                        SqlError::parse_error(
+                            format!("Environment variable '{}' not found", var_expr),
+                            None,
+                        )
+                    })?
+                };
+
+                // Replace the ${...} with the resolved value
+                result.replace_range(start..start + end + 1, &replacement);
+            } else {
+                return Err(SqlError::parse_error(
+                    format!("Malformed environment variable reference in: {}", value),
+                    None,
+                ));
+            }
+        }
+
+        Ok(result)
     }
 
     fn consume_if_matches(&mut self, expected: &str) -> bool {

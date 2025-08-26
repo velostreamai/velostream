@@ -73,10 +73,16 @@
 - System columns for Kafka metadata (_timestamp, _offset, _partition)
 - Header access functions (HEADER, HAS_HEADER, HEADER_KEYS)
 - CSAS/CTAS support for stream and table creation
+- **🆕 Enhanced CREATE STREAM/TABLE INTO Syntax:**
+  - Multi-config file support with layered configuration (base configs + environment-specific)
+  - Environment variable resolution with three patterns: `${VAR}`, `${VAR:-default}`, `${VAR:?error}`
+  - Streaming job creation with explicit source-to-sink mapping
+  - Configuration types: source_config, sink_config, monitoring_config, security_config
+  - Parse-time environment variable substitution for dynamic configuration
+  - Full backward compatibility with existing CREATE STREAM/TABLE syntax
 - Comprehensive error handling and type safety
 
 **❌ Limitations:**
-- Kafka-specific (not general-purpose stream processing)
 - Missing advanced analytics and ML functions (statistical functions, machine learning)
 - No complex event processing (CEP) support (pattern matching, temporal patterns)
 - Smaller ecosystem and community (newer project)
@@ -99,11 +105,12 @@
 - **Deployment**: Server clusters with REST API
 
 ### Ferris Streams
-- **Architecture**: Kafka-native SQL engine built on rdkafka
-- **State Management**: In-memory with Kafka state stores
+- **Architecture**: Pluggable data source SQL engine with native streaming support
+- **Data Sources**: Kafka, Files (CSV, JSON, Parquet), Databases (PostgreSQL, MySQL), S3, and extensible adapter system
+- **State Management**: In-memory with pluggable state backends
 - **Execution**: Multi-threaded async Rust with tokio
 - **Memory**: Zero-copy message processing, no GC
-- **Deployment**: Single binary with embedded SQL engine
+- **Deployment**: Single binary with embedded SQL engine, horizontal scale-out via multiple instances
 
 ## Deployment & Scaling
 
@@ -139,16 +146,17 @@
 **Deployment:**
 - Single Rust binary with embedded SQL engine
 - Docker and container-native deployment
-- YAML-based configuration (sql-config.yaml)
+- YAML-based configuration with multi-layered config support
 - Built-in job management and versioning
 
 **Scaling:**
-- Kafka partition-based scaling
+- Horizontal scale-out via multiple binary instances
+- Data source partition-based scaling (Kafka partitions, file sharding, database connections)
 - Multiple consumer instances for parallel processing
 - Built-in performance presets and tuning
 
-**Pros:** Simple deployment, Kafka-native scaling, built-in job management
-**Cons:** Limited to Kafka ecosystem, newer project with smaller community
+**Pros:** Simple deployment, pluggable data source scaling, built-in job management, single binary simplicity
+**Cons:** Newer project with smaller community, limited enterprise tooling ecosystem
 
 ## Job Handling & Management
 
@@ -205,23 +213,31 @@
 ### Choose ksqlDB when:
 - Kafka-centric architecture
 - Simple to medium complexity SQL queries
-- Need tight Kafka ecosystem integration
+- Need tight Confluent/Kafka ecosystem integration
 - Prefer managed cloud services
 - SQL-first development approach
 
 ### Choose Ferris Streams when:
-- Building Kafka-native stream processing applications with **full CRUD capabilities**
+- Building stream processing applications with **full CRUD capabilities** across multiple data sources
 - Need comprehensive SQL functions for data transformation **and modification**
 - Require **complete data lifecycle management** (INSERT/UPDATE/DELETE operations)
 - Want **streaming-first DML semantics** with tombstone records and audit trails
+- Need **enterprise-grade configuration management** with:
+  - Multi-environment deployments using layered configuration files
+  - Environment variable resolution for dynamic configuration
+  - Separation of source, sink, monitoring, and security configurations
+  - Parse-time configuration validation and substitution
 - Require built-in job lifecycle management and versioning
+- Want **explicit source-to-sink job creation** with CREATE STREAM/TABLE INTO syntax
 - Want simple deployment with single binary
 - Performance and resource efficiency are priorities
 - Need production-ready error handling and type safety
 - Building **data-intensive applications** requiring both analytical and operational capabilities
-- Team comfortable with Rust and Kafka ecosystems
+- Working with **heterogeneous data sources** (Kafka, files, databases, cloud storage)
 - Want to avoid JVM overhead and garbage collection pauses
 - Need **enterprise-grade stream processing** without the complexity of Flink
+- Require **DevOps-friendly streaming pipelines** with environment-specific configuration management
+- Need **simple deployment** with horizontal scale-out capabilities
 
 ## Future Outlook (2025)
 
@@ -229,7 +245,7 @@
 
 **ksqlDB:** Uncertain future as Confluent acquired Immerok (Flink service), potentially favoring Flink for future development. DML limitations becoming more apparent as streaming use cases evolve.
 
-**Ferris Streams:** **Major competitive breakthrough** with complete DML operations support. Positioned as the **premier Kafka-native streaming SQL platform** for enterprise workloads requiring full data lifecycle management. Growing enterprise adoption accelerating due to:
+**Ferris Streams:** **Major competitive breakthrough** with complete DML operations support and pluggable data source architecture. Positioned as the **premier multi-source streaming SQL platform** for enterprise workloads requiring full data lifecycle management. Growing enterprise adoption accelerating due to:
 - Complete CRUD capabilities with streaming semantics
 - Superior operational model (job management, versioning, deployment strategies)  
 - Zero-GC performance advantages
@@ -239,12 +255,16 @@
 ## Ferris Streams Implementation Details
 
 ### Core Features
-- **Description**: Kafka-native streaming SQL engine built in Rust
-- **SQL Support**: SELECT, INSERT, UPDATE, DELETE, CSAS, CTAS, windowing, JSON processing, job management
+- **Description**: Multi-source streaming SQL engine built in Rust with pluggable data source architecture
+- **Data Sources**: Kafka, Files (CSV, JSON, Parquet), Databases (PostgreSQL, MySQL), S3, with extensible adapter system
+- **SQL Support**: SELECT, INSERT, UPDATE, DELETE, CSAS, CTAS, CREATE STREAM/TABLE INTO, windowing, JSON processing, job management
 - **DML Operations**: Complete data manipulation with streaming semantics (INSERT/UPDATE/DELETE)
 - **JOIN Operations**: All JOIN types with subquery support and temporal correlation
+- **Configuration Management**: Multi-layered configuration with environment variable resolution
+- **Streaming Job Creation**: Explicit source-to-sink mapping with CREATE STREAM/TABLE INTO syntax
 - **Performance**: Zero-copy message processing, async Rust execution
-- **Architecture**: Built on rdkafka with embedded SQL parser and execution engine
+- **Architecture**: Single binary with embedded SQL parser, horizontal scale-out via multiple instances
+- **Deployment**: Simple single binary deployment with built-in job management and versioning
 
 ### Comprehensive SQL Function Library (70+ Functions)
 
@@ -286,9 +306,49 @@
 - Stream-table optimizations for reference data lookups
 - Complex conditions and multi-table support
 
+### Enhanced CREATE STREAM/TABLE INTO Syntax (2025)
+**Multi-Layer Configuration Management:**
+```sql
+-- Basic source-to-sink streaming job
+CREATE STREAM orders_to_kafka AS 
+SELECT id, customer_id, amount, status 
+FROM csv_source 
+INTO kafka_sink
+WITH (
+    "source_config" = "configs/csv_orders.yaml",
+    "sink_config" = "configs/kafka_sink.yaml"
+);
+
+-- Enterprise configuration with environment variables
+CREATE STREAM db_replication AS 
+SELECT * FROM postgres_source 
+INTO s3_sink
+WITH (
+    "base_source_config" = "configs/base_postgres.yaml",
+    "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
+    "base_sink_config" = "configs/base_s3.yaml", 
+    "sink_config" = "configs/s3_${ENVIRONMENT}.yaml",
+    "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
+    "security_config" = "configs/security.yaml"
+);
+```
+
+**Environment Variable Resolution:**
+- `${VAR}` - Direct substitution
+- `${VAR:-default}` - Default value if unset
+- `${VAR:?error}` - Required variable with error message
+- Parse-time validation and substitution
+
+**Configuration Layer Types:**
+- **Base Configs**: Shared settings across environments
+- **Environment-Specific**: Dev/staging/production overrides
+- **Monitoring**: Metrics and alerting configuration
+- **Security**: Authentication and encryption settings
+- **Inline Properties**: Direct key-value pairs in WITH clause
+
 ### Unique Differentiators
-- **Native Kafka Integration**: Direct rdkafka integration, not abstracted
-- **Type-Safe Operations**: Full Rust type safety for keys, values, headers
+- **Pluggable Data Source Architecture**: Native support for Kafka, files, databases, S3 with extensible adapter system
+- **Type-Safe Operations**: Full Rust type safety across all data sources and operations
 - **Complete DML Operations**: Full INSERT, UPDATE, DELETE support with streaming semantics
   - Multi-row bulk operations with expression evaluation
   - Streaming-first design with tombstone records and audit trails
@@ -296,6 +356,10 @@
 - **Advanced Data Types**: First-class support for ARRAY, MAP, STRUCT with 25+ functions
 - **Complete JOIN Operations**: All JOIN types with windowed correlation and stream-table optimization
 - **Temporal Processing**: WITHIN INTERVAL syntax for time-based correlation
+- **🆕 Enterprise Configuration Management**: Multi-layered configuration with environment variable resolution
+  - Six configuration types: base_source_config, source_config, base_sink_config, sink_config, monitoring_config, security_config
+  - Environment variable patterns: ${VAR}, ${VAR:-default}, ${VAR:?error}
+  - Parse-time validation and substitution for DevOps-friendly deployments
 - **Built-in Versioning**: DEPLOY with BLUE_GREEN, CANARY, ROLLING strategies
 - **Comprehensive Error Handling**: Division by zero, negative sqrt, invalid casts, type safety
 - **Production-Ready**: 220+ test cases (including 40+ DML tests), comprehensive documentation, performance benchmarks
@@ -306,7 +370,7 @@ The choice between these platforms depends on specific requirements:
 
 - **Flink SQL** remains the most mature and feature-complete option for complex enterprise stream processing
 - **ksqlDB** offers the best Kafka integration but faces uncertainty in future development
-- **Ferris Streams** provides a production-ready Kafka-native SQL solution with comprehensive function coverage (70+ functions), advanced data types (ARRAY, MAP, STRUCT), complete JOIN operations with temporal windowing, full DML operations (INSERT/UPDATE/DELETE) with streaming semantics, built-in job management, and zero-dependency deployment, making it highly competitive for Kafka-centric use cases
+- **Ferris Streams** provides a production-ready multi-source streaming SQL solution with comprehensive function coverage (70+ functions), advanced data types (ARRAY, MAP, STRUCT), complete JOIN operations with temporal windowing, full DML operations (INSERT/UPDATE/DELETE) with streaming semantics, pluggable data source architecture, built-in job management, and single binary deployment with horizontal scale-out, making it highly competitive for heterogeneous streaming use cases
 
 As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative that bridges the gap between Flink's complexity and ksqlDB's limitations, offering enterprise-grade SQL processing with significant performance advantages and operational simplicity.
 
@@ -382,11 +446,15 @@ As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative
 **Market Position**: Ferris Streams has transitioned from a "specialized analytical engine" to a **complete streaming data platform** capable of handling enterprise workloads with full data lifecycle management.
 
 ### 2025 Verdict
-Ferris Streams has achieved a **major architectural milestone** with complete DML operations support. The platform now offers:
+Ferris Streams has achieved **multiple major architectural milestones** with complete DML operations support and enterprise-grade configuration management. The platform now offers:
 
 🏆 **Feature Completeness**: Full SQL DML parity with enterprise streaming platforms  
 🏆 **Operational Superiority**: Best-in-class job management and deployment strategies  
+🏆 **🆕 Configuration Excellence**: Multi-layered configuration with environment variable resolution  
 🏆 **Performance Leadership**: Zero-GC performance with Rust efficiency  
 🏆 **Streaming-Native Design**: Purpose-built for Kafka with proper semantic handling  
+🏆 **DevOps Integration**: Parse-time environment variable substitution for CI/CD pipelines
 
-The gap with Flink SQL has narrowed significantly - from "missing 285+ functions" to **"missing primarily advanced analytics and CEP features"**. For Kafka-centric streaming workloads requiring data modification capabilities, **Ferris Streams now offers compelling advantages over both Flink SQL and ksqlDB** in terms of operational simplicity, performance, and deployment ease.
+The gap with Flink SQL has narrowed significantly - from "missing 285+ functions" to **"missing primarily advanced analytics and CEP features"**. The new CREATE STREAM/TABLE INTO syntax with enterprise configuration management puts Ferris Streams ahead of ksqlDB for **DevOps-mature organizations** requiring environment-specific deployments.
+
+For streaming workloads requiring data modification capabilities across heterogeneous data sources and enterprise configuration management, **Ferris Streams now offers compelling advantages over both Flink SQL and ksqlDB** in terms of operational simplicity, performance, deployment ease, single binary scale-out architecture, and configuration management maturity.
