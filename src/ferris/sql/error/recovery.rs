@@ -733,9 +733,9 @@ impl Default for DeadLetterConfig {
     fn default() -> Self {
         Self {
             max_messages: 10000,
-            message_ttl: Duration::from_hours(24),
+            message_ttl: <Duration as DurationExt>::from_hours(24),
             enable_auto_retry: false,
-            retry_interval: Duration::from_minutes(30),
+            retry_interval: <Duration as DurationExt>::from_minutes(30),
             enable_metrics: true,
         }
     }

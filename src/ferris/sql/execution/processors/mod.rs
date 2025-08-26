@@ -23,16 +23,78 @@ pub struct QueryProcessor;
 impl QueryProcessor {
     /// Process a query against a record using the appropriate processor
     pub fn process_query(
-        _query: &StreamingQuery,
-        _record: &StreamRecord,
-        _context: &mut ProcessorContext,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
-        // Simplified implementation - actual query processing logic is in specialized processors
-        Ok(ProcessorResult {
-            record: None,
-            header_mutations: Vec::new(),
-            should_count: true,
-        })
+        match query {
+            StreamingQuery::Select {
+                fields,
+                from: _,
+                where_clause: _,
+                limit,
+                ..
+            } => {
+                // Check LIMIT constraints first
+                if let Some(limit_count) = limit {
+                    if context.record_count >= *limit_count as u64 {
+                        // Already processed enough records, skip this one
+                        return Ok(ProcessorResult {
+                            record: None,
+                            header_mutations: Vec::new(),
+                            should_count: false,
+                        });
+                    }
+                }
+
+                // Process the SELECT fields (simplified implementation)
+                let mut result_fields = std::collections::HashMap::new();
+                
+                // For SELECT *, include all fields
+                if fields.iter().any(|f| matches!(f, crate::ferris::sql::ast::SelectField::Wildcard)) {
+                    result_fields = record.fields.clone();
+                } else {
+                    // Process specific fields
+                    for field in fields {
+                        match field {
+                            crate::ferris::sql::ast::SelectField::Column(name) => {
+                                if let Some(value) = record.fields.get(name) {
+                                    result_fields.insert(name.clone(), value.clone());
+                                }
+                            }
+                            crate::ferris::sql::ast::SelectField::AliasedColumn { column, alias } => {
+                                if let Some(value) = record.fields.get(column) {
+                                    result_fields.insert(alias.clone(), value.clone());
+                                }
+                            }
+                            _ => {} // Handle other field types as needed
+                        }
+                    }
+                }
+
+                let result_record = Some(StreamRecord {
+                    fields: result_fields,
+                    timestamp: record.timestamp,
+                    offset: record.offset,
+                    partition: record.partition,
+                    headers: record.headers.clone(),
+                });
+
+                Ok(ProcessorResult {
+                    record: result_record,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
+            }
+            _ => {
+                // For other query types, use simplified implementation
+                Ok(ProcessorResult {
+                    record: None,
+                    header_mutations: Vec::new(),
+                    should_count: true,
+                })
+            }
+        }
     }
 
     /// Process a query with optional performance monitoring

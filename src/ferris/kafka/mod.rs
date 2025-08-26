@@ -26,10 +26,13 @@ pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
 pub use ktable::KTable;
-pub use serialization::{
-    AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError,
-    Serializer, StringSerializer,
-};
+pub use serialization::{BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer};
+
+// Feature-gated exports
+#[cfg(feature = "avro")]
+pub use serialization::AvroSerializer;
+#[cfg(feature = "protobuf")]
+pub use serialization::ProtoSerializer;
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
