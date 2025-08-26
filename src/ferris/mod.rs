@@ -7,3 +7,4 @@ pub mod sql;
 // Re-export modern error types for convenience
 
 // Re-export multi-job server types
+pub use multi_job_server::{JobStatus, MultiJobSqlServer};

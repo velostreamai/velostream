@@ -37,7 +37,7 @@ pub mod validation;
 
 // Re-export main types for convenience
 pub use builder::DataSourceConfigBuilder;
-pub use connection_string::ConnectionString;
-pub use environment::ConfigSource;
-pub use types::{ConfigError, DataSourceConfig};
-pub use validation::ValidationError;
+pub use connection_string::{ConnectionString, ParseError};
+pub use environment::{ConfigSource, EnvironmentConfig};
+pub use types::{ConfigError, DataSourceConfig, ValidationStats};
+pub use validation::{ValidationError, ValidationStats as ValidationStatsValidation};
