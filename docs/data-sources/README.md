@@ -7,6 +7,10 @@ This directory contains all documentation related to the pluggable data sources 
 ### Core Documentation
 - **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Guide for migrating existing Kafka applications
 - **[DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)** - Architecture overview and implementation guide
+- **[SQL_INTEGRATION_GUIDE.md](./SQL_INTEGRATION_GUIDE.md)** - Using pluggable data sources through SQL
+- **[SCHEMA_REGISTRY_GUIDE.md](./SCHEMA_REGISTRY_GUIDE.md)** - Schema management and evolution
+- **[HEALTH_MONITORING_GUIDE.md](./HEALTH_MONITORING_GUIDE.md)** - Monitoring, circuit breakers, and health checks
+- **[DLQ_AND_METRICS_GUIDE.md](./DLQ_AND_METRICS_GUIDE.md)** - Dead letter queues and advanced metrics
 
 ### Planning & Implementation
 - **[FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md](./FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md)** - Original feature request and requirements
@@ -170,21 +174,87 @@ The pluggable architecture achieves **exceptional performance** with **minimal o
 - Rich error messages with recovery hints
 - Fluent builder API for complex configurations
 
-## 🎯 Ready for Community Use
+## 🎯 Complete Feature Set
 
-The pluggable data sources architecture is now **production ready** and supports:
+The pluggable data sources architecture is now **production ready** with comprehensive features:
 
-1. **Immediate Use Cases**:
-   - Kafka ↔️ Files (CSV, JSON, Parquet)
-   - Kafka ↔️ PostgreSQL
-   - Files ↔️ S3
-   - Any source ↔️ Any sink combination
+### ✅ **Data Sources & Sinks**
+- **Kafka**: Full streaming support with Avro/JSON/Custom serialization
+- **Files**: CSV, JSON, Parquet, Compressed formats with auto-detection
+- **S3**: Batch processing with partitioning, IAM roles, encryption
+- **PostgreSQL**: Real-time queries, CDC, connection pooling
+- **ClickHouse**: Analytics queries, distributed processing
+- **Memory**: In-memory streams for testing
 
-2. **Coming Soon** (Post-Plan):
-   - PostgreSQL CDC adapter
-   - ClickHouse analytics sink
-   - Iceberg table format support
-   - Additional cloud storage providers
+### ✅ **SQL Integration**
+- **CREATE STREAM** with auto schema discovery from any source
+- **Heterogeneous JOINs** across different data source types
+- **Cross-source pipelines** (e.g., File → Kafka → PostgreSQL)
+- **Advanced windowing** with tumbling, sliding, session windows
+- **Schema evolution** with backward/forward compatibility
+
+### ✅ **Schema Registry**
+- **Automatic schema discovery** from all source types
+- **Schema versioning** with semantic versioning
+- **Compatibility checking** (backward, forward, full, transitive)
+- **Schema evolution** with automated migration plans
+- **Schema caching** with TTL and performance optimization
+
+### ✅ **Health Monitoring & Observability**
+- **Circuit breakers** with configurable failure thresholds
+- **Health checks** for all data sources with degraded/unhealthy states
+- **Dead Letter Queues** with retry strategies and error categorization
+- **24-hour rolling metrics** with min/max/avg throughput statistics
+- **Prometheus integration** with comprehensive metrics
+- **Grafana dashboards** for real-time monitoring
+
+### ✅ **Error Recovery & Reliability**
+- **Exponential backoff** with jitter for retry strategies  
+- **Fallback chains** for automatic source switching
+- **Self-healing connections** with automatic reconnection
+- **Transaction support** with commit/rollback capabilities
+- **Exactly-once processing** guarantees
+
+### ✅ **Performance & Scaling**
+- **Zero regression**: <10% abstraction overhead confirmed
+- **High throughput**: 1.6M+ records/second processing
+- **Batching optimization** with configurable batch sizes
+- **Parallel processing** with configurable parallelism
+- **Memory efficiency** with streaming processing
+- **Pushdown optimization** for columnar formats
+
+### 🚀 **Production Ready Examples**
+```sql
+-- Real-time analytics pipeline
+CREATE STREAM realtime_analytics AS
+SELECT 
+    window_start,
+    COUNT(*) as events,
+    AVG(latency) as avg_latency
+FROM 'kafka://localhost:9092/events'
+GROUP BY TUMBLE(event_time, INTERVAL '1' MINUTE)
+INTO 'clickhouse://localhost:8123/analytics';
+
+-- Cross-source enrichment
+CREATE STREAM enriched_orders AS  
+SELECT 
+    o.*,
+    c.customer_name,
+    p.product_details
+FROM 'kafka://localhost:9092/orders' o
+JOIN 'postgresql://localhost/customers' c ON o.customer_id = c.id
+JOIN 's3://bucket/products/*.parquet' p ON o.product_id = p.id;
+
+-- CDC to data lake
+CREATE STREAM cdc_to_lake AS
+SELECT * FROM 'postgresql://localhost/shop?mode=cdc'
+INTO 's3://data-lake/events/year=${year}/month=${month}/'
+WITH (
+    format = 'parquet',
+    partition_by = ['year', 'month'],
+    compression = 'snappy'
+);
+```
 
 ## 📝 Notes
 
