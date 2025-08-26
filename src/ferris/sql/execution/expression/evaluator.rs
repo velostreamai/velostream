@@ -9,6 +9,8 @@ use super::functions::BuiltinFunctions;
 use super::subquery_executor::{evaluate_subquery_with_executor, SubqueryExecutor};
 use crate::ferris::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 /// Main expression evaluator that handles all SQL expression types
 pub struct ExpressionEvaluator;
@@ -65,6 +67,18 @@ impl ExpressionEvaluator {
                     LiteralValue::Float(f) => FieldValue::Float(*f),
                     LiteralValue::Boolean(b) => FieldValue::Boolean(*b),
                     LiteralValue::Null => FieldValue::Null,
+                    LiteralValue::Decimal(s) => {
+                        // Parse decimal string to Decimal type
+                        match Decimal::from_str(s) {
+                            Ok(d) => FieldValue::Decimal(d),
+                            Err(_) => {
+                                return Err(SqlError::ExecutionError {
+                                    message: format!("Invalid DECIMAL literal: {}", s),
+                                    query: None,
+                                });
+                            }
+                        }
+                    }
                     LiteralValue::Interval { value, unit } => FieldValue::Interval {
                         value: *value,
                         unit: unit.clone(),
@@ -311,6 +325,15 @@ impl ExpressionEvaluator {
                 LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
                 LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                 LiteralValue::Null => Ok(FieldValue::Null),
+                LiteralValue::Decimal(s) => {
+                    // Parse decimal string to Decimal type
+                    Decimal::from_str(s).map(FieldValue::Decimal).map_err(|_| {
+                        SqlError::ExecutionError {
+                            message: format!("Invalid DECIMAL literal: {}", s),
+                            query: None,
+                        }
+                    })
+                }
                 LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
                     value: *value,
                     unit: unit.clone(),

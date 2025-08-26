@@ -711,6 +711,7 @@ impl SelectProcessor {
             LiteralValue::String(s) => s.clone(),
             LiteralValue::Boolean(b) => b.to_string(),
             LiteralValue::Null => "NULL".to_string(),
+            LiteralValue::Decimal(s) => s.clone(),
             LiteralValue::Interval { .. } => "INTERVAL".to_string(),
         }
     }
@@ -950,6 +951,14 @@ impl SelectProcessor {
                     LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
                     LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
                     LiteralValue::Null => Ok(FieldValue::Null),
+                    LiteralValue::Decimal(s) => {
+                        use rust_decimal::Decimal;
+                        use std::str::FromStr;
+                        match Decimal::from_str(s) {
+                            Ok(d) => Ok(FieldValue::Decimal(d)),
+                            Err(_) => Ok(FieldValue::Null), // Handle parse error gracefully
+                        }
+                    }
                     LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
                         value: *value,
                         unit: unit.clone(),
