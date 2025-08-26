@@ -409,9 +409,11 @@ async fn test_subquery_join_implementation_roadmap() {
     "#;
 
     // All should currently fail
-    for (phase, query) in [("Phase 1", basic_derived_table),
+    for (phase, query) in [
+        ("Phase 1", basic_derived_table),
         ("Phase 2", subquery_on_condition),
-        ("Phase 3", complex_combination)] {
+        ("Phase 3", complex_combination),
+    ] {
         let result = execute_subquery_join_test(query).await;
         assert!(
             result.is_err(),

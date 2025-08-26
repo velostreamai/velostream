@@ -337,7 +337,8 @@ impl WindowProcessor {
                             );
                         }
                         crate::ferris::sql::ast::SelectField::Expression { expr, alias } => {
-                            let field_name = alias.clone()
+                            let field_name = alias
+                                .clone()
                                 .unwrap_or_else(|| format!("field_{}", result_fields.len()));
 
                             // Handle aggregate functions properly for windowed queries

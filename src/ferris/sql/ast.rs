@@ -696,8 +696,7 @@ pub struct IntoClause {
 }
 
 /// Enhanced configuration properties supporting multiple config files
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConfigProperties {
     /// Base source configuration file path
     pub base_source_config: Option<String>,
@@ -714,7 +713,6 @@ pub struct ConfigProperties {
     /// Legacy inline properties for backward compatibility
     pub inline_properties: HashMap<String, String>,
 }
-
 
 impl ConfigProperties {
     /// Convert to legacy HashMap format for backward compatibility

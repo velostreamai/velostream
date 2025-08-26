@@ -17,12 +17,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n⚡ Test 1: URI Parsing & Connection Strings");
     println!("-------------------------------------------");
 
-    let test_uris = ["kafka://localhost:9092/orders?group_id=analytics&auto_commit=false",
+    let test_uris = [
+        "kafka://localhost:9092/orders?group_id=analytics&auto_commit=false",
         "kafka://broker1:9092,broker2:9093,broker3:9094/events?group_id=cluster",
         "s3://my-bucket/data/*.parquet?region=us-west-2&access_key=AKIA123",
         "file:///home/data/orders.json?watch=true&format=json",
         "postgresql://user:password@localhost:5432/database?sslmode=require",
-        "clickhouse://admin:secret@ch-cluster:9000/analytics?compression=lz4"];
+        "clickhouse://admin:secret@ch-cluster:9000/analytics?compression=lz4",
+    ];
 
     let mut parse_times = Vec::new();
     let mut successful_parses = 0;

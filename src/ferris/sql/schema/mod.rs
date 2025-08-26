@@ -190,10 +190,9 @@ impl Schema {
     fn fields_compatible_with(&self, other_fields: &[FieldDefinition]) -> bool {
         // Basic compatibility: all required fields in other must exist here
         for other_field in other_fields {
-            if !other_field.nullable
-                && !self.has_field(&other_field.name) {
-                    return false;
-                }
+            if !other_field.nullable && !self.has_field(&other_field.name) {
+                return false;
+            }
         }
         true
     }

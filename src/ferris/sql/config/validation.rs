@@ -341,15 +341,15 @@ impl ConfigValidator for KafkaValidator {
             if matches!(
                 param.as_str(),
                 "auto_commit" | "enable_auto_commit" | "enable_partition_eof"
-            )
-                && config.get_bool_parameter(param).is_none() {
-                    warnings.push(ValidationWarning {
-                        code: "INVALID_BOOLEAN".to_string(),
-                        message: format!("Parameter '{}' should be a boolean (true/false)", param),
-                        parameter: Some(param.clone()),
-                        suggestion: Some("Use 'true' or 'false'".to_string()),
-                    });
-                }
+            ) && config.get_bool_parameter(param).is_none()
+            {
+                warnings.push(ValidationWarning {
+                    code: "INVALID_BOOLEAN".to_string(),
+                    message: format!("Parameter '{}' should be a boolean (true/false)", param),
+                    parameter: Some(param.clone()),
+                    suggestion: Some("Use 'true' or 'false'".to_string()),
+                });
+            }
         }
 
         // Validate timeout values

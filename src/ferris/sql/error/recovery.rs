@@ -1047,7 +1047,6 @@ impl DurationExt for Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_circuit_breaker_closed_state() {

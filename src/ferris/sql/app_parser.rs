@@ -107,15 +107,13 @@ pub enum StatementType {
 }
 
 /// Resources created or used by the application
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApplicationResources {
     pub streams: Vec<String>,
     pub tables: Vec<String>,
     pub jobs: Vec<String>,
     pub topics: Vec<String>,
 }
-
 
 /// Parser for SQL application files
 pub struct SqlApplicationParser {

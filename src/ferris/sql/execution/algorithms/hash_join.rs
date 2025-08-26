@@ -108,10 +108,7 @@ impl HashJoinTable {
         context: &ProcessorContext,
     ) -> Result<(), SqlError> {
         let hash_key = self.compute_hash_key(&record, context)?;
-        self.buckets
-            .entry(hash_key)
-            .or_default()
-            .push(record);
+        self.buckets.entry(hash_key).or_default().push(record);
         self.record_count += 1;
         Ok(())
     }
@@ -173,10 +170,7 @@ impl HashJoinTable {
     ) -> Result<Vec<StreamRecord>, SqlError> {
         let hash_key = self.compute_hash_key(probe_record, context)?;
 
-        Ok(self
-            .buckets
-            .get(&hash_key).cloned()
-            .unwrap_or_default())
+        Ok(self.buckets.get(&hash_key).cloned().unwrap_or_default())
     }
 
     /// Get memory usage estimate

@@ -621,8 +621,7 @@ impl SelectProcessor {
         // Apply HAVING clause if present
         if let Some(having_expr) = having {
             // Use a specialized HAVING evaluator that can resolve aggregate functions
-            let having_result =
-                Self::evaluate_having_expression(having_expr, accumulator, fields)?;
+            let having_result = Self::evaluate_having_expression(having_expr, accumulator, fields)?;
 
             if !having_result {
                 // HAVING clause failed, don't emit this result

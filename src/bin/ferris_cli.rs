@@ -965,7 +965,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 let total_messages: i64 = stdout
                                                     .lines()
                                                     .filter_map(|line| {
-                                                        line.split(':').next_back()?.parse::<i64>().ok()
+                                                        line.split(':')
+                                                            .next_back()?
+                                                            .parse::<i64>()
+                                                            .ok()
                                                     })
                                                     .sum();
 

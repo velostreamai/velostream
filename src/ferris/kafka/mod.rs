@@ -26,7 +26,10 @@ pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
 pub use ktable::KTable;
-pub use serialization::{AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError, Serializer, StringSerializer};
+pub use serialization::{
+    AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError,
+    Serializer, StringSerializer,
+};
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
@@ -40,4 +43,3 @@ pub use admin_client::KafkaAdminClient;
 pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 
 // Conditional exports for feature-gated serializers
-

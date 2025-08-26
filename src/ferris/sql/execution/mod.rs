@@ -54,6 +54,6 @@ pub mod utils;
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 
-// Re-export internal types for testing  
+// Re-export internal types for testing
 pub use aggregation::GroupByStateManager;
 pub use processors::{DeleteProcessor, InsertProcessor, SelectProcessor, UpdateProcessor};

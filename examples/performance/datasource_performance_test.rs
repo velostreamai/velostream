@@ -211,11 +211,13 @@ async fn benchmark_uri_parsing() -> PerformanceStats {
     println!("🔧 Benchmarking URI parsing performance...");
     let metrics = PerformanceMetrics::new();
 
-    let test_uris = ["kafka://localhost:9092/topic?group_id=consumer",
+    let test_uris = [
+        "kafka://localhost:9092/topic?group_id=consumer",
         "kafka://broker1:9092,broker2:9092/topic?group_id=consumer&auto_offset_reset=earliest",
         "file:///data/input.csv?format=csv&header=true&delimiter=,",
         "s3://bucket/path/data.parquet?region=us-west-2&access_key=key",
-        "postgresql://user:pass@localhost:5432/db?table=orders&pool_size=10"];
+        "postgresql://user:pass@localhost:5432/db?table=orders&pool_size=10",
+    ];
 
     for i in 0..URI_PARSE_COUNT {
         let uri = &test_uris[i % test_uris.len()];

@@ -9,9 +9,7 @@
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::{
-    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder,
-};
+use ferrisstreams::{Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};

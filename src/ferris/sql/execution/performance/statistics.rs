@@ -45,10 +45,7 @@ impl QueryStatistics {
 
         // Update query patterns
         let pattern_key = self.extract_query_pattern(&performance.query_text);
-        let pattern_stats = self
-            .query_patterns
-            .entry(pattern_key)
-            .or_default();
+        let pattern_stats = self.query_patterns.entry(pattern_key).or_default();
         pattern_stats.update(&performance);
 
         // Add to history (with size limit)
