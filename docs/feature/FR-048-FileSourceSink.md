@@ -58,10 +58,13 @@ This feature request implements a complete end-to-end data processing pipeline t
   - [ ] KafkaConsumerBuilder with configurable serialization
   - [ ] KafkaProducerBuilder with configurable serialization
   - [ ] Integration with existing consumer/producer APIs
-- [ ] **Schema Registry Integration** - PENDING  
-  - [ ] Avro Schema Registry client implementation
-  - [ ] Automatic schema caching and versioning
-  - [ ] Schema evolution support
+- [ ] 🔄 **Enhanced Schema Registry Integration** - IN PROGRESS
+  - [ ] Core Registry client with HTTP operations & authentication
+  - [ ] **Schema References Support** - resolve complex schema compositions
+  - [ ] **Dependency Graph Management** - circular reference detection
+  - [ ] **Multi-level Caching** - hot schema optimization & prefetching
+  - [ ] **Schema Evolution Engine** - compatibility validation & migration
+  - [ ] **Enterprise Features** - multi-region, security, monitoring
 - [ ] **SQL-Level Configuration Support** - PENDING
   - [ ] WITH clause parsing for serialization parameters
   - [ ] Runtime configuration validation
@@ -91,10 +94,14 @@ This feature request implements a complete end-to-end data processing pipeline t
 
 **🎉 Phase 2 Core Components Successfully Implemented!**
 
-**Next Phase Ready**: 
-1. Add Schema Registry client for Avro support (Phase 2.5)
-2. Implement SQL-level configuration parsing for WITH clauses integration
-3. Add high-performance async serialization optimizations
+**🚀 Next Phase Ready - Phase 2.5: Enterprise Schema Registry**: 
+1. **Schema Registry Integration** with comprehensive schema references support
+2. **Dependency Resolution Engine** for complex schema compositions
+3. **Multi-level Caching Strategy** with hot schema optimization
+4. **Schema Evolution Management** with breaking change detection
+5. **Enterprise Features**: Multi-region support, security, monitoring
+
+📋 **Detailed Design**: See `/docs/design/schema-registry-references.md`
 
 #### **Phase 2 Implementation Progress - What's Already Built**
 
@@ -229,20 +236,32 @@ let consumer = KafkaConsumer::<String, String, _, _>::new(
 
 4. **SQL-Level Configuration Support**
    ```sql
-   -- NEW: Runtime serialization configuration via SQL
+   -- NEW: Runtime serialization configuration via external config files
    CREATE STREAM customer_spending_kafka AS
    SELECT * FROM customer_spending_processed
-   INTO KAFKA_TOPIC('customer-spending-aggregated')
+   INTO kafka_aggregated_sink
    WITH (
-       'bootstrap.servers' = 'localhost:9092',
-       'key.serializer' = 'string',
-       'value.serializer' = 'avro',                     -- ← NEW: Runtime choice
-       'schema.registry.url' = 'http://localhost:8081',  -- ← NEW: Schema registry
-       'value.subject' = 'customer-spending-value',      -- ← NEW: Avro subject
-       'compression.type' = 'snappy',
-       'acks' = 'all',
-       'enable.idempotence' = 'true'                     -- ← NEW: Exactly-once semantics
+       source_config='configs/customer_spending_source.yaml',
+       sink_config='configs/kafka_aggregated_sink.yaml'
    );
+   ```
+   
+   **kafka_aggregated_sink.yaml:**
+   ```yaml
+   type: kafka
+   format: avro                          # Runtime choice
+   brokers: ["localhost:9092"]
+   topic: "customer-spending-aggregated"
+   serialization:
+     key_serializer: "string"
+     value_serializer: "avro"            # Runtime configurable
+   schema_registry:
+     url: "http://localhost:8081"        # Schema registry support
+     subject: "customer-spending-value"   # Avro subject
+   options:
+     compression_type: "snappy"
+     acks: "all"
+     enable_idempotence: true             # Exactly-once semantics
    ```
 
 5. **High-Performance Async Serialization**
@@ -366,23 +385,24 @@ txn_003,cust_123,45.00,USD,2024-01-15T10:32:00Z,restaurant
 
 **Processing Query**:
 ```sql
--- Create source stream from file
-CREATE STREAM transaction_stream (
-    transaction_id STRING,
-    customer_id STRING, 
-    amount DECIMAL,
-    currency STRING,
-    timestamp TIMESTAMP,
-    merchant_category STRING
-) AS SELECT * FROM FILE('/data/transactions.csv')
+-- Create source stream from file with external configuration
+CREATE STREAM transaction_processing AS
+SELECT 
+    transaction_id,
+    customer_id, 
+    CAST(amount AS DECIMAL) as amount,
+    currency,
+    CAST(timestamp AS TIMESTAMP) as timestamp,
+    merchant_category
+FROM csv_file_source
+INTO processed_transactions_sink
 WITH (
-    'format' = 'csv',
-    'header' = 'true',
-    'watch' = 'true'
+    source_config='configs/transactions_csv_source.yaml',
+    sink_config='configs/processed_transactions_sink.yaml'
 );
 
--- Process and aggregate data
-CREATE STREAM customer_spending AS
+-- Process and aggregate data with windowing
+CREATE STREAM customer_spending_aggregation AS
 SELECT 
     customer_id,
     merchant_category,
@@ -391,20 +411,14 @@ SELECT
     AVG(amount) as avg_transaction,
     WINDOW_START as window_start,
     WINDOW_END as window_end
-FROM transaction_stream
+FROM processed_transactions_source
 WHERE amount > 10.00
 GROUP BY customer_id, merchant_category
 WINDOW TUMBLING(INTERVAL 5 MINUTES)
-EMIT CHANGES;
-
--- Write processed data to Kafka
-CREATE STREAM customer_spending_kafka AS
-SELECT * FROM customer_spending
-INTO KAFKA_TOPIC('customer-spending-aggregated')
+INTO kafka_aggregated_sink
 WITH (
-    'bootstrap.servers' = 'localhost:9092',
-    'key.serializer' = 'string',
-    'value.serializer' = 'json',
+    source_config='configs/processed_transactions_source.yaml',
+    sink_config='configs/kafka_aggregated_sink.yaml'
     'partitions' = '3',
     'replication.factor' = '1'
 );
