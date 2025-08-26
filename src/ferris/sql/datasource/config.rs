@@ -269,9 +269,10 @@ impl ConnectionString {
             "file" => {
                 // Use the new FileSourceConfig URI parsing
                 let uri = format!("file://{}", self.path);
-                let mut config = crate::ferris::sql::datasource::file::FileSourceConfig::from_uri(&uri)
-                    .map_err(|e| DataSourceError::Configuration(e))?;
-                
+                let mut config =
+                    crate::ferris::sql::datasource::file::FileSourceConfig::from_uri(&uri)
+                        .map_err(|e| DataSourceError::Configuration(e))?;
+
                 // Override with any additional parameters from the connection string
                 for (key, value) in &self.params {
                     match key.as_str() {
@@ -571,7 +572,10 @@ mod tests {
         match config {
             SourceConfig::File(file_config) => {
                 assert_eq!(file_config.path, "/data/input.jsonl");
-                assert_eq!(file_config.format, crate::ferris::sql::datasource::file::FileFormat::JsonLines);
+                assert_eq!(
+                    file_config.format,
+                    crate::ferris::sql::datasource::file::FileFormat::JsonLines
+                );
                 assert!(file_config.watch_for_changes);
             }
             _ => panic!("Expected File config"),

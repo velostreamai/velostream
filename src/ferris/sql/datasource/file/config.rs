@@ -52,41 +52,41 @@ impl std::str::FromStr for FileFormat {
 pub struct FileSourceConfig {
     /// File path or glob pattern (e.g., "/data/*.csv", "/logs/app-*.json")
     pub path: String,
-    
+
     /// File format
     pub format: FileFormat,
-    
+
     /// Whether to watch for file changes and new files
     pub watch_for_changes: bool,
-    
+
     /// Polling interval for file watching (milliseconds)
     /// If None, uses system default
     pub polling_interval_ms: Option<u64>,
-    
+
     /// CSV delimiter character
     pub csv_delimiter: char,
-    
+
     /// CSV quote character
     pub csv_quote: char,
-    
+
     /// CSV escape character
     pub csv_escape: Option<char>,
-    
+
     /// Whether CSV has header row
     pub csv_has_header: bool,
-    
+
     /// Skip first N lines in files
     pub skip_lines: usize,
-    
+
     /// Maximum number of records to read (None = unlimited)
     pub max_records: Option<usize>,
-    
+
     /// Buffer size for reading files (bytes)
     pub buffer_size: usize,
-    
+
     /// Whether to recursively search directories in glob patterns
     pub recursive: bool,
-    
+
     /// File extension filter for directory scanning
     pub extension_filter: Option<String>,
 }
@@ -120,19 +120,19 @@ impl FileSourceConfig {
             ..Default::default()
         }
     }
-    
+
     /// Enable file watching with optional polling interval
     pub fn with_watching(mut self, polling_interval_ms: Option<u64>) -> Self {
         self.watch_for_changes = true;
         self.polling_interval_ms = polling_interval_ms;
         self
     }
-    
+
     /// Configure CSV parsing options
     pub fn with_csv_options(
-        mut self, 
-        delimiter: char, 
-        quote: char, 
+        mut self,
+        delimiter: char,
+        quote: char,
         escape: Option<char>,
         has_header: bool,
     ) -> Self {
@@ -142,35 +142,35 @@ impl FileSourceConfig {
         self.csv_has_header = has_header;
         self
     }
-    
+
     /// Set buffer size for file reading
     pub fn with_buffer_size(mut self, size: usize) -> Self {
         self.buffer_size = size;
         self
     }
-    
+
     /// Enable recursive directory scanning
     pub fn with_recursive(mut self, recursive: bool) -> Self {
         self.recursive = recursive;
         self
     }
-    
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), String> {
         if self.path.is_empty() {
             return Err("File path cannot be empty".to_string());
         }
-        
+
         if self.buffer_size == 0 {
             return Err("Buffer size must be greater than 0".to_string());
         }
-        
+
         if let Some(interval) = self.polling_interval_ms {
             if interval == 0 {
                 return Err("Polling interval must be greater than 0".to_string());
             }
         }
-        
+
         // Validate CSV configuration
         match self.format {
             FileFormat::Csv | FileFormat::CsvNoHeader => {
@@ -179,16 +179,19 @@ impl FileSourceConfig {
                 }
                 if let Some(escape) = self.csv_escape {
                     if escape == self.csv_delimiter || escape == self.csv_quote {
-                        return Err("CSV escape character cannot be the same as delimiter or quote".to_string());
+                        return Err(
+                            "CSV escape character cannot be the same as delimiter or quote"
+                                .to_string(),
+                        );
                     }
                 }
             }
             _ => {}
         }
-        
+
         Ok(())
     }
-    
+
     /// Parse configuration from URI format
     /// Examples:
     /// - "file:///data/orders.csv"
@@ -198,18 +201,21 @@ impl FileSourceConfig {
         if !uri.starts_with("file://") {
             return Err("File URI must start with 'file://'".to_string());
         }
-        
+
         let uri_without_scheme = &uri[7..]; // Remove "file://"
         let (path, query) = if let Some(pos) = uri_without_scheme.find('?') {
             (&uri_without_scheme[..pos], &uri_without_scheme[pos + 1..])
         } else {
             (uri_without_scheme, "")
         };
-        
+
         let mut config = FileSourceConfig::new(path.to_string(), FileFormat::Csv);
-        
+
         // Auto-detect format from file extension if not specified
-        if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+        if let Some(ext) = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+        {
             config.format = match ext.to_lowercase().as_str() {
                 "csv" => FileFormat::Csv,
                 "json" => FileFormat::Json,
@@ -217,24 +223,26 @@ impl FileSourceConfig {
                 _ => FileFormat::Csv,
             };
         }
-        
+
         // Parse query parameters
         for param in query.split('&') {
             if param.is_empty() {
                 continue;
             }
-            
+
             let parts: Vec<&str> = param.splitn(2, '=').collect();
             if parts.len() != 2 {
                 continue;
             }
-            
+
             let key = parts[0];
             let value = parts[1];
-            
+
             match key {
                 "format" => {
-                    config.format = value.parse().map_err(|e| format!("Invalid format parameter: {}", e))?;
+                    config.format = value
+                        .parse()
+                        .map_err(|e| format!("Invalid format parameter: {}", e))?;
                 }
                 "watch" => {
                     config.watch_for_changes = value.parse().unwrap_or(false);
@@ -272,7 +280,7 @@ impl FileSourceConfig {
                 }
             }
         }
-        
+
         config.validate()?;
         Ok(config)
     }
@@ -287,40 +295,45 @@ impl From<FileSourceConfig> for SourceConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_file_format_parsing() {
         assert_eq!("csv".parse::<FileFormat>().unwrap(), FileFormat::Csv);
-        assert_eq!("jsonl".parse::<FileFormat>().unwrap(), FileFormat::JsonLines);
+        assert_eq!(
+            "jsonl".parse::<FileFormat>().unwrap(),
+            FileFormat::JsonLines
+        );
         assert_eq!("json".parse::<FileFormat>().unwrap(), FileFormat::Json);
         assert!("invalid".parse::<FileFormat>().is_err());
     }
-    
+
     #[test]
     fn test_config_validation() {
         let mut config = FileSourceConfig::default();
-        
+
         // Empty path should fail
         assert!(config.validate().is_err());
-        
+
         // Valid config should pass
         config.path = "/data/test.csv".to_string();
         assert!(config.validate().is_ok());
-        
+
         // Invalid delimiter/quote combination should fail
         config.csv_delimiter = '"';
         config.csv_quote = '"';
         assert!(config.validate().is_err());
     }
-    
+
     #[test]
     fn test_uri_parsing() {
-        let config = FileSourceConfig::from_uri("file:///data/orders.csv?format=csv&watch=true&delimiter=;").unwrap();
+        let config =
+            FileSourceConfig::from_uri("file:///data/orders.csv?format=csv&watch=true&delimiter=;")
+                .unwrap();
         assert_eq!(config.path, "/data/orders.csv");
         assert_eq!(config.format, FileFormat::Csv);
         assert!(config.watch_for_changes);
         assert_eq!(config.csv_delimiter, ';');
-        
+
         let config = FileSourceConfig::from_uri("file:///logs/app.jsonl").unwrap();
         assert_eq!(config.path, "/logs/app.jsonl");
         assert_eq!(config.format, FileFormat::JsonLines);

@@ -7,28 +7,28 @@ use std::fmt;
 pub enum FileDataSourceError {
     /// File not found or inaccessible
     FileNotFound(String),
-    
+
     /// Permission denied accessing file or directory
     PermissionDenied(String),
-    
+
     /// Unsupported file format
     UnsupportedFormat(String),
-    
+
     /// CSV parsing error
     CsvParseError(String),
-    
+
     /// JSON parsing error  
     JsonParseError(String),
-    
+
     /// File watching error
     WatchError(String),
-    
+
     /// Schema inference error
     SchemaInferenceError(String),
-    
+
     /// Invalid file path or pattern
     InvalidPath(String),
-    
+
     /// IO error
     IoError(String),
 }

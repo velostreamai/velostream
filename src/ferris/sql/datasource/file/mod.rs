@@ -40,7 +40,7 @@
 //! use ferrisstreams::ferris::sql::datasource::file::*;
 //! use ferrisstreams::ferris::sql::datasource::traits::DataSource;
 //!
-//! #[tokio::main] 
+//! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let config = FileSourceConfig {
 //!         path: "/data/live/*.csv".to_string(),

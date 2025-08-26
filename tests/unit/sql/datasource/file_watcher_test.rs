@@ -79,7 +79,10 @@ mod file_watcher_tests {
         fs::write(&file_path, "initial content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), Some(10)).await.unwrap();
+        watcher
+            .watch(file_path.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
 
         // Initial check should not detect changes
         let _changes = watcher.check_for_changes().await.unwrap();
@@ -101,7 +104,10 @@ mod file_watcher_tests {
         let dir_path = temp_dir.path();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(dir_path.to_str().unwrap(), Some(10)).await.unwrap();
+        watcher
+            .watch(dir_path.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
 
         // Initial check
         let changes = watcher.check_for_changes().await.unwrap();
@@ -115,7 +121,7 @@ mod file_watcher_tests {
         // Should detect the new file
         sleep(Duration::from_millis(20)).await;
         let changes = watcher.check_for_changes().await.unwrap();
-        
+
         // The new file should be added to watched paths
         let initial_count = 1; // Directory itself
         assert!(watcher.watched_paths().len() > initial_count);
@@ -128,7 +134,10 @@ mod file_watcher_tests {
         fs::write(&file_path, "initial content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), Some(100)).await.unwrap();
+        watcher
+            .watch(file_path.to_str().unwrap(), Some(100))
+            .await
+            .unwrap();
 
         // First check
         let start = tokio::time::Instant::now();
@@ -137,7 +146,7 @@ mod file_watcher_tests {
         // Immediate second check should be rate-limited
         let changes = watcher.check_for_changes().await.unwrap();
         let elapsed = start.elapsed();
-        
+
         // Should not detect changes due to rate limiting
         assert!(!changes);
         assert!(elapsed < Duration::from_millis(50)); // Should return quickly
@@ -150,11 +159,17 @@ mod file_watcher_tests {
         fs::write(&file_path, "initial content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), Some(10)).await.unwrap();
+        watcher
+            .watch(file_path.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
 
         // Test timeout without changes
         let start = tokio::time::Instant::now();
-        let changes = watcher.wait_for_changes(Some(Duration::from_millis(100))).await.unwrap();
+        let changes = watcher
+            .wait_for_changes(Some(Duration::from_millis(100)))
+            .await
+            .unwrap();
         let elapsed = start.elapsed();
 
         assert!(!changes);
@@ -169,7 +184,10 @@ mod file_watcher_tests {
         fs::write(&file_path, "initial content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), Some(10)).await.unwrap();
+        watcher
+            .watch(file_path.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
 
         // Modify file in background
         let file_path_clone = file_path.clone();
@@ -180,7 +198,10 @@ mod file_watcher_tests {
 
         // Should detect changes before timeout
         let start = tokio::time::Instant::now();
-        let changes = watcher.wait_for_changes(Some(Duration::from_millis(200))).await.unwrap();
+        let changes = watcher
+            .wait_for_changes(Some(Duration::from_millis(200)))
+            .await
+            .unwrap();
         let elapsed = start.elapsed();
 
         assert!(changes);
@@ -203,10 +224,13 @@ mod file_watcher_tests {
         fs::write(&file_path, "content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), None).await.unwrap();
-        
+        watcher
+            .watch(file_path.to_str().unwrap(), None)
+            .await
+            .unwrap();
+
         assert_eq!(watcher.watched_paths().len(), 1);
-        
+
         watcher.stop();
         assert_eq!(watcher.watched_paths().len(), 0);
     }
@@ -218,7 +242,10 @@ mod file_watcher_tests {
         fs::write(&file_path, "content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), None).await.unwrap();
+        watcher
+            .watch(file_path.to_str().unwrap(), None)
+            .await
+            .unwrap();
         assert_eq!(watcher.watched_paths().len(), 1);
 
         // Drop the watcher - should trigger cleanup via Drop trait
@@ -229,15 +256,21 @@ mod file_watcher_tests {
     #[tokio::test]
     async fn test_multiple_file_watching() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let file1 = temp_dir.path().join("file1.txt");
         let file2 = temp_dir.path().join("file2.txt");
         fs::write(&file1, "content1").unwrap();
         fs::write(&file2, "content2").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file1.to_str().unwrap(), Some(10)).await.unwrap();
-        watcher.watch(file2.to_str().unwrap(), Some(10)).await.unwrap();
+        watcher
+            .watch(file1.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
+        watcher
+            .watch(file2.to_str().unwrap(), Some(10))
+            .await
+            .unwrap();
 
         assert_eq!(watcher.watched_paths().len(), 2);
 
@@ -255,7 +288,7 @@ mod file_watcher_tests {
         let temp_dir = TempDir::new().unwrap();
         let subdir = temp_dir.path().join("subdir");
         fs::create_dir(&subdir).unwrap();
-        
+
         // Create the parent directory first
         let pattern = format!("{}/subdir/*.txt", temp_dir.path().display());
 
@@ -274,7 +307,10 @@ mod file_watcher_tests {
         fs::write(&file_path, "content").unwrap();
 
         let mut watcher = FileWatcher::new();
-        watcher.watch(file_path.to_str().unwrap(), Some(200)).await.unwrap(); // 200ms interval
+        watcher
+            .watch(file_path.to_str().unwrap(), Some(200))
+            .await
+            .unwrap(); // 200ms interval
 
         // Multiple rapid calls should be rate-limited
         let start = tokio::time::Instant::now();
