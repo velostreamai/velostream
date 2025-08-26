@@ -79,6 +79,14 @@ path = "examples/performance/simple_async_optimization_test.rs"
 name = "resource_monitoring_test"
 path = "examples/performance/resource_monitoring_test.rs"
 
+[[example]]
+name = "datasource_performance_test"
+path = "examples/performance/datasource_performance_test.rs"
+
+[[example]]
+name = "quick_performance_test"
+path = "examples/performance/quick_performance_test.rs"
+
 # SQL Server Binary
 [[bin]]
 name = "ferris-sql"
