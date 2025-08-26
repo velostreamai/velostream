@@ -38,7 +38,10 @@ pub mod providers;
 pub mod registry;
 
 // Re-export key components for easy access
-pub use registry::SchemaProvider;
+pub use cache::{CacheConfig, SchemaCache};
+pub use evolution::SchemaEvolution;
+pub use providers::create_default_registry;
+pub use registry::{SchemaProvider, SchemaRegistry};
 
 use crate::ferris::sql::ast::DataType;
 use std::collections::HashMap;

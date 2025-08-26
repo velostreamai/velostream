@@ -36,6 +36,7 @@ pub mod types;
 pub mod validation;
 
 // Re-export main types for convenience
+pub use builder::DataSourceConfigBuilder;
 pub use connection_string::ConnectionString;
 pub use environment::ConfigSource;
 pub use types::{ConfigError, DataSourceConfig};

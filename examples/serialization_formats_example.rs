@@ -13,9 +13,7 @@ Run with different features enabled:
 - cargo run --example serialization_formats_example --features avro,protobuf
 */
 
-use ferrisstreams::ferris::serialization::{
-    SerializationFormat, SerializationFormatFactory,
-};
+use ferrisstreams::ferris::serialization::SerializationFormatFactory;
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 
