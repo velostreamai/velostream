@@ -50,7 +50,7 @@
 //!
 //! For Avro, you can provide custom schemas:
 //!
-//! ```rust,ignore
+//! ```rust
 //! #[cfg(feature = "avro")]
 //! # fn avro_example() -> Result<(), Box<dyn std::error::Error>> {
 //! use ferrisstreams::ferris::serialization::SerializationFormatFactory;
@@ -91,7 +91,10 @@ mod protobuf_types;
 ///
 /// # Example Implementation
 ///
-/// ```rust,ignore
+/// ```rust,no_run
+/// # use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationError, InternalValue};
+/// # use ferrisstreams::ferris::sql::FieldValue;
+/// # use std::collections::HashMap;
 /// struct MyFormat;
 ///
 /// impl SerializationFormat for MyFormat {
@@ -105,7 +108,17 @@ mod protobuf_types;
 ///         todo!()
 ///     }
 ///     
-///     // ... other methods
+///     fn to_execution_format(&self, record: &HashMap<String, FieldValue>) -> Result<HashMap<String, InternalValue>, SerializationError> {
+///         todo!()
+///     }
+///     
+///     fn from_execution_format(&self, values: &HashMap<String, InternalValue>) -> Result<HashMap<String, FieldValue>, SerializationError> {
+///         todo!()
+///     }
+///     
+///     fn format_name(&self) -> &'static str {
+///         "my_format"
+///     }
 /// }
 /// ```
 pub trait SerializationFormat: Send + Sync {
@@ -126,11 +139,18 @@ pub trait SerializationFormat: Send + Sync {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationFormatFactory};
+    /// # use ferrisstreams::ferris::sql::FieldValue;
+    /// # use std::collections::HashMap;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let format = SerializationFormatFactory::default_format();
     /// let mut record = HashMap::new();
     /// record.insert("name".to_string(), FieldValue::String("Alice".to_string()));
     ///
     /// let bytes = format.serialize_record(&record)?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn serialize_record(
         &self,
@@ -153,9 +173,17 @@ pub trait SerializationFormat: Send + Sync {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationFormatFactory};
+    /// # use ferrisstreams::ferris::sql::FieldValue;
+    /// # use std::collections::HashMap;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let format = SerializationFormatFactory::default_format();
+    /// # let bytes = vec![]; // Placeholder bytes
     /// let record = format.deserialize_record(&bytes)?;
     /// println!("Name: {:?}", record.get("name"));
+    /// # Ok(())
+    /// # }
     /// ```
     fn deserialize_record(
         &self,
