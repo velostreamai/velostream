@@ -45,5 +45,5 @@ pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 
 // Re-export specific implementations
-pub use file::FileDataSource;
+pub use file::{FileDataSource, FileSink};
 pub use kafka::{KafkaDataSink, KafkaDataSource};

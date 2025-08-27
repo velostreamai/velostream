@@ -414,6 +414,257 @@ impl From<FileSourceConfig> for SourceConfig {
     }
 }
 
+/// Configuration for file-based data sinks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSinkConfig {
+    /// Output file path or pattern (supports strftime formatting for rotation)
+    pub path: String,
+
+    /// File format for output
+    pub format: FileFormat,
+
+    /// Whether to append to existing files or overwrite
+    pub append_if_exists: bool,
+
+    /// Buffer size for writing files (bytes)
+    pub buffer_size_bytes: u64,
+
+    /// Maximum file size before rotation (bytes)
+    pub max_file_size_bytes: Option<u64>,
+
+    /// Time interval between rotations (milliseconds)
+    pub rotation_interval_ms: Option<u64>,
+
+    /// Maximum records per file before rotation
+    pub max_records_per_file: Option<u64>,
+
+    /// Compression type (if any)
+    pub compression: Option<CompressionType>,
+
+    /// CSV delimiter character
+    pub csv_delimiter: String,
+
+    /// Whether to write CSV header
+    pub csv_has_header: bool,
+
+    /// Number of writer threads for parallel writing
+    pub writer_threads: usize,
+}
+
+/// Compression types supported for file outputs
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompressionType {
+    None,
+    Gzip,
+    Snappy,
+    Zstd,
+}
+
+impl Default for FileSinkConfig {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            format: FileFormat::JsonLines,
+            append_if_exists: false,
+            buffer_size_bytes: 65536, // 64KB
+            max_file_size_bytes: None,
+            rotation_interval_ms: None,
+            max_records_per_file: None,
+            compression: None,
+            csv_delimiter: ",".to_string(),
+            csv_has_header: true,
+            writer_threads: 1,
+        }
+    }
+}
+
+impl FileSinkConfig {
+    /// Create a new file sink configuration
+    pub fn new(path: String, format: FileFormat) -> Self {
+        Self {
+            path,
+            format,
+            ..Default::default()
+        }
+    }
+
+    /// Create from generic SinkConfig
+    pub fn from_generic(config: &crate::ferris::datasource::config::SinkConfig) -> Result<Self, String> {
+        if let crate::ferris::datasource::config::SinkConfig::File {
+            path,
+            format,
+            properties,
+        } = config
+        {
+            let mut sink_config = Self::new(path.clone(), FileFormat::JsonLines);
+
+            // Convert generic FileFormat to local FileFormat
+            match format {
+                crate::ferris::datasource::config::FileFormat::Csv {
+                    header,
+                    delimiter,
+                    ..
+                } => {
+                    sink_config.format = if *header {
+                        FileFormat::Csv
+                    } else {
+                        FileFormat::CsvNoHeader
+                    };
+                    sink_config.csv_delimiter = delimiter.to_string();
+                    sink_config.csv_has_header = *header;
+                }
+                crate::ferris::datasource::config::FileFormat::Json => {
+                    sink_config.format = FileFormat::JsonLines;
+                }
+                _ => {
+                    return Err(format!("Unsupported file format for sink: {}", format));
+                }
+            }
+
+            // Parse properties
+            for (key, value) in properties {
+                match key.as_str() {
+                    "append_if_exists" => {
+                        sink_config.append_if_exists = value.parse().unwrap_or(false)
+                    }
+                    "buffer_size_bytes" => {
+                        sink_config.buffer_size_bytes = value.parse().unwrap_or(65536)
+                    }
+                    "max_file_size_bytes" => sink_config.max_file_size_bytes = value.parse().ok(),
+                    "rotation_interval_ms" => sink_config.rotation_interval_ms = value.parse().ok(),
+                    "max_records_per_file" => sink_config.max_records_per_file = value.parse().ok(),
+                    "compression" => {
+                        sink_config.compression = match value.as_str() {
+                            "none" | "" => None,
+                            "gzip" => Some(CompressionType::Gzip),
+                            "snappy" => Some(CompressionType::Snappy),
+                            "zstd" => Some(CompressionType::Zstd),
+                            _ => None,
+                        };
+                    }
+                    "csv_delimiter" => sink_config.csv_delimiter = value.clone(),
+                    "csv_has_header" => sink_config.csv_has_header = value.parse().unwrap_or(true),
+                    "writer_threads" => sink_config.writer_threads = value.parse().unwrap_or(1),
+                    _ => {} // Ignore unknown properties
+                }
+            }
+
+            Ok(sink_config)
+        } else {
+            Err("Expected File sink configuration".to_string())
+        }
+    }
+
+    /// Enable file rotation with size limit
+    pub fn with_rotation_size(mut self, max_bytes: u64) -> Self {
+        self.max_file_size_bytes = Some(max_bytes);
+        self
+    }
+
+    /// Enable file rotation with time interval
+    pub fn with_rotation_interval(mut self, interval_ms: u64) -> Self {
+        self.rotation_interval_ms = Some(interval_ms);
+        self
+    }
+
+    /// Enable compression
+    pub fn with_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = Some(compression);
+        self
+    }
+
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<(), String> {
+        if self.path.is_empty() {
+            return Err("File path cannot be empty".to_string());
+        }
+
+        if self.buffer_size_bytes == 0 {
+            return Err("Buffer size must be greater than 0".to_string());
+        }
+
+        if let Some(max_size) = self.max_file_size_bytes {
+            if max_size == 0 {
+                return Err("Max file size must be greater than 0".to_string());
+            }
+        }
+
+        if let Some(interval) = self.rotation_interval_ms {
+            if interval == 0 {
+                return Err("Rotation interval must be greater than 0".to_string());
+            }
+        }
+
+        if self.writer_threads == 0 {
+            return Err("Must have at least 1 writer thread".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+impl From<FileSinkConfig> for crate::ferris::datasource::config::SinkConfig {
+    fn from(config: FileSinkConfig) -> Self {
+        let mut properties = std::collections::HashMap::new();
+
+        properties.insert(
+            "append_if_exists".to_string(),
+            config.append_if_exists.to_string(),
+        );
+        properties.insert(
+            "buffer_size_bytes".to_string(),
+            config.buffer_size_bytes.to_string(),
+        );
+        if let Some(size) = config.max_file_size_bytes {
+            properties.insert("max_file_size_bytes".to_string(), size.to_string());
+        }
+        if let Some(interval) = config.rotation_interval_ms {
+            properties.insert("rotation_interval_ms".to_string(), interval.to_string());
+        }
+        if let Some(max) = config.max_records_per_file {
+            properties.insert("max_records_per_file".to_string(), max.to_string());
+        }
+        if let Some(compression) = config.compression {
+            let compression_str = match compression {
+                CompressionType::None => "none",
+                CompressionType::Gzip => "gzip",
+                CompressionType::Snappy => "snappy", 
+                CompressionType::Zstd => "zstd",
+            };
+            properties.insert("compression".to_string(), compression_str.to_string());
+        }
+        properties.insert("csv_delimiter".to_string(), config.csv_delimiter.clone());
+        properties.insert(
+            "csv_has_header".to_string(),
+            config.csv_has_header.to_string(),
+        );
+        properties.insert(
+            "writer_threads".to_string(),
+            config.writer_threads.to_string(),
+        );
+
+        // Map FileFormat to generic FileFormat
+        let generic_format = match config.format {
+            FileFormat::Csv | FileFormat::CsvNoHeader => {
+                crate::ferris::datasource::config::FileFormat::Csv {
+                    header: config.csv_has_header,
+                    delimiter: config.csv_delimiter.chars().next().unwrap_or(','),
+                    quote: '"',
+                }
+            }
+            FileFormat::JsonLines | FileFormat::Json => {
+                crate::ferris::datasource::config::FileFormat::Json
+            }
+        };
+
+        crate::ferris::datasource::config::SinkConfig::File {
+            path: config.path,
+            format: generic_format,
+            properties,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

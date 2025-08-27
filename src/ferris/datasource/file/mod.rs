@@ -66,11 +66,13 @@ pub mod config;
 pub mod data_source;
 pub mod error;
 pub mod reader;
+pub mod sink;
 pub mod watcher;
 
 // Re-export key types for convenient access
-pub use config::{FileFormat, FileSourceConfig};
+pub use config::{CompressionType, FileFormat, FileSinkConfig, FileSourceConfig};
 pub use data_source::FileDataSource;
 pub use error::FileDataSourceError;
 pub use reader::FileReader;
+pub use sink::{FileSink, FileWriter};
 pub use watcher::FileWatcher;

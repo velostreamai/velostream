@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use std::error::Error;
 
 use super::config::{SinkConfig, SourceConfig};
-use super::types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
+use super::types::{SinkMetadata, SourceMetadata, SourceOffset};
 
 /// Core trait for data input sources
 ///
