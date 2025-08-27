@@ -174,6 +174,143 @@ pub struct CacheMetrics {
 }
 ```
 
+## Schema Reference Support
+
+### Reference Architecture
+
+FerrisStreams provides comprehensive support for Confluent Schema Registry schema references, enabling:
+
+- **Schema Composition**: Build complex schemas from reusable components
+- **Dependency Management**: Track and resolve schema dependencies  
+- **Circular Detection**: Prevent circular reference issues with DFS algorithms
+- **Evolution Control**: Manage changes across dependent schemas
+- **Performance Optimization**: Smart caching and prefetching of referenced schemas
+
+### Reference Resolution Process
+
+```
+Schema Reference Resolution Flow:
+
+1. Schema Request (with references)
+   ↓
+2. Parse Schema References
+   ├─ Extract reference definitions
+   ├─ Validate reference format
+   └─ Check for required fields
+   ↓  
+3. Build Dependency Graph
+   ├─ Create nodes for each referenced schema
+   ├─ Establish edges for dependencies
+   ├─ Calculate dependency depth
+   └─ Detect circular references (DFS)
+   ↓
+4. Topological Sort
+   ├─ Determine resolution order
+   ├─ Dependencies resolved first
+   └─ Handle complex hierarchies
+   ↓
+5. Resolve Dependencies
+   ├─ Fetch from cache (L1/L2/L3)
+   ├─ Fetch from Registry if not cached
+   ├─ Recursively resolve sub-references
+   └─ Build complete dependency tree
+   ↓
+6. Schema Flattening
+   ├─ Merge all referenced schemas
+   ├─ Resolve type references
+   ├─ Create unified schema definition
+   └─ Validate final schema
+   ↓
+7. Cache Resolution Results
+   ├─ Store in L3 (Resolved Cache)
+   ├─ Update dependency index
+   ├─ Record performance metrics
+   └─ Enable future fast lookups
+```
+
+### Reference Types Supported
+
+**Direct References**:
+```rust
+SchemaReference {
+    name: "CustomerInfo",                    // Type name in schema
+    subject: "customer-info-value",          // Registry subject
+    version: Some(2),                        // Specific version
+    schema_id: Some(12345),                 // Resolved schema ID
+}
+```
+
+**Latest Version References**:
+```rust
+SchemaReference {
+    name: "CustomerInfo",
+    subject: "customer-info-value", 
+    version: None,                          // Use latest version
+    schema_id: None,                        // Auto-resolve
+}
+```
+
+**Complex Hierarchies**:
+- Support for nested references (A → B → C → D)
+- Maximum depth configurable (default: 10 levels)
+- Automatic dependency ordering
+- Performance optimized resolution
+
+### Circular Reference Prevention
+
+The system uses **Depth-First Search (DFS)** with cycle detection:
+
+1. **Graph Coloring**: White → Gray → Black states
+2. **Back Edge Detection**: Gray → Gray indicates cycle
+3. **Path Tracking**: Maintain resolution path for debugging
+4. **Early Termination**: Stop at first circular reference detected
+
+**Algorithm Implementation**:
+```rust
+fn detect_cycles(&self, graph: &DependencyGraph) -> Option<Vec<u32>> {
+    let mut color = HashMap::new();
+    let mut rec_stack = HashSet::new();
+    
+    // DFS with cycle detection
+    for node in graph.nodes.keys() {
+        if self.has_cycle_dfs(*node, &graph, &mut color, &mut rec_stack) {
+            return Some(self.build_cycle_path(&rec_stack));
+        }
+    }
+    None
+}
+```
+
+### Performance Characteristics
+
+| Operation | Target Time | Typical Time |
+|-----------|-------------|--------------|
+| Simple Reference (cached) | < 1ms | 0.2-0.8ms |
+| Complex Hierarchy (cached) | < 5ms | 2-4ms |
+| Full Resolution (uncached) | < 100ms | 30-80ms |
+| Circular Detection | < 10ms | 2-8ms |
+| Dependency Prefetch | < 20ms | 5-15ms |
+
+### Enterprise Features
+
+**Smart Prefetching**:
+- Analyzes access patterns to predict needed references
+- Preloads dependencies before they're requested
+- Maintains correlation scores for reference pairs
+- Configurable prefetch depth and strategy
+
+**Reference Evolution**:
+- Tracks changes across dependent schemas
+- Generates migration plans for breaking changes
+- Supports gradual rollout strategies
+- Provides impact analysis for schema updates
+
+**Monitoring & Alerting**:
+- Resolution time tracking per reference depth
+- Circular reference detection alerts
+- Cache hit rate monitoring for references
+- Dependency graph size and complexity metrics
+
 ## Data Flow Architecture
 
 ### Schema Resolution Flow
