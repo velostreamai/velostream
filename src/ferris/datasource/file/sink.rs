@@ -193,12 +193,12 @@ impl DataSink for FileSink {
             FileFormat::Csv | FileFormat::CsvNoHeader => {
                 // CSV can handle most schemas but warn about nested types
                 for field in &schema.fields {
-                    match field.data_type() {
+                    match &field.data_type {
                         crate::ferris::sql::ast::DataType::Array(_) |
                         crate::ferris::sql::ast::DataType::Map(_, _) => {
                             eprintln!(
                                 "Warning: Field '{}' has complex type that will be serialized as string in CSV",
-                                field.name()
+                                field.name
                             );
                         }
                         _ => {}
@@ -382,7 +382,9 @@ impl FileWriter {
             FieldValue::String(s) => serde_json::Value::String(s.clone()),
             FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
             FieldValue::Float(f) => {
-                serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or_default())
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0))
+                )
             }
             FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
             FieldValue::ScaledInteger(value, scale) => {
