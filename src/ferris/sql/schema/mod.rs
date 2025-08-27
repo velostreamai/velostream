@@ -35,37 +35,36 @@
 //! ```
 
 pub mod cache;
+pub mod enhanced_cache;
 pub mod evolution;
 pub mod providers;
-pub mod registry;
-pub mod registry_client;
 pub mod reference_resolver;
-pub mod enhanced_cache;
+pub mod registry;
 pub mod registry_backend;
+pub mod registry_client;
+pub mod schema_backends;
 pub mod unified_registry_client;
 
 // Re-export key components for easy access
 pub use cache::{CacheConfig, SchemaCache};
+pub use enhanced_cache::{CacheConfig as EnhancedCacheConfig, CacheMetrics, EnhancedSchemaCache};
 pub use evolution::SchemaEvolution;
 pub use providers::create_default_registry;
-pub use registry::{SchemaProvider, SchemaRegistry};
-pub use registry_client::{
-    SchemaRegistryClient, SchemaReference, SchemaDependency, 
-    ResolvedSchema, DependencyGraph, AuthConfig
-};
 pub use reference_resolver::{
-    SchemaReferenceResolver, ResolverConfig, CompatibilityResult,
-    CompatibilityLevel, MigrationPlan, RolloutStrategy, RolloutPlan
+    CompatibilityLevel, CompatibilityResult, MigrationPlan, ResolverConfig, RolloutPlan,
+    RolloutStrategy, SchemaReferenceResolver,
 };
-pub use enhanced_cache::{
-    EnhancedSchemaCache, CacheMetrics, CacheConfig as EnhancedCacheConfig
-};
+pub use registry::{SchemaProvider, SchemaRegistry};
 pub use registry_backend::{
-    SchemaRegistryBackend, BackendConfig, SchemaRegistryBackendFactory,
-    SchemaResponse, HealthStatus, BackendMetadata, BackendCapabilities
+    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
+    SchemaRegistryBackendFactory, SchemaResponse,
+};
+pub use registry_client::{
+    AuthConfig, DependencyGraph, ResolvedSchema, SchemaDependency, SchemaReference,
+    SchemaRegistryClient,
 };
 pub use unified_registry_client::{
-    UnifiedSchemaRegistryClient, UnifiedClientConfig, UnifiedClientBuilder
+    UnifiedClientBuilder, UnifiedClientConfig, UnifiedSchemaRegistryClient,
 };
 
 use crate::ferris::sql::ast::DataType;

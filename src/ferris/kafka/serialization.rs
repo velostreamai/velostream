@@ -9,6 +9,9 @@ use apache_avro::{
     Schema as AvroSchema,
 };
 
+#[cfg(feature = "avro")]
+use std::io::Cursor;
+
 /// Trait for objects that can be serialized to bytes for Kafka messages
 pub trait KafkaSerialize {
     /// Serializes the object to bytes

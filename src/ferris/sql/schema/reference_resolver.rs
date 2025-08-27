@@ -8,8 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::registry_client::{
-    CachedSchema, DependencyGraph, GraphNode, ResolvedSchema, 
-    SchemaReference, SchemaRegistryClient
+    CachedSchema, DependencyGraph, GraphNode, ResolvedSchema, SchemaReference, SchemaRegistryClient,
 };
 use super::{SchemaError, SchemaResult};
 
@@ -139,13 +138,32 @@ pub struct MigrationStep {
 /// Migration operations
 #[derive(Debug, Clone)]
 pub enum MigrationOperation {
-    AddField { name: String, default_value: Option<String> },
-    RemoveField { name: String },
-    RenameField { from: String, to: String },
-    ChangeFieldType { name: String, from_type: String, to_type: String },
-    AddReference { reference: SchemaReference },
-    RemoveReference { reference: SchemaReference },
-    DataTransformation { field: String, transformation: String },
+    AddField {
+        name: String,
+        default_value: Option<String>,
+    },
+    RemoveField {
+        name: String,
+    },
+    RenameField {
+        from: String,
+        to: String,
+    },
+    ChangeFieldType {
+        name: String,
+        from_type: String,
+        to_type: String,
+    },
+    AddReference {
+        reference: SchemaReference,
+    },
+    RemoveReference {
+        reference: SchemaReference,
+    },
+    DataTransformation {
+        field: String,
+        transformation: String,
+    },
 }
 
 /// Risk level for migrations
@@ -162,6 +180,17 @@ impl SchemaReferenceResolver {
     pub fn new(registry: Arc<SchemaRegistryClient>) -> Self {
         Self {
             registry,
+            dependency_cache: Arc::new(RwLock::new(HashMap::new())),
+            evolution_tracker: Arc::new(RwLock::new(SchemaEvolutionTracker::new())),
+            config: ResolverConfig::default(),
+        }
+    }
+
+    /// Create a stub resolver without registry (to avoid circular dependencies)
+    pub fn new_stub() -> Self {
+        let stub_registry = Arc::new(SchemaRegistryClient::new("stub".to_string()));
+        Self {
+            registry: stub_registry,
             dependency_cache: Arc::new(RwLock::new(HashMap::new())),
             evolution_tracker: Arc::new(RwLock::new(SchemaEvolutionTracker::new())),
             config: ResolverConfig::default(),
@@ -202,7 +231,12 @@ impl SchemaReferenceResolver {
 
         // Cache the resolution
         if self.config.cache_dependencies {
-            self.cache_resolution(schema_id, resolved.clone(), start_time.elapsed().as_millis() as u64).await;
+            self.cache_resolution(
+                schema_id,
+                resolved.clone(),
+                start_time.elapsed().as_millis() as u64,
+            )
+            .await;
         }
 
         Ok(resolved)
@@ -237,14 +271,17 @@ impl SchemaReferenceResolver {
             visited.insert(schema_id);
 
             let schema = self.registry.get_schema(schema_id).await?;
-            
-            graph.nodes.insert(schema_id, GraphNode {
+
+            graph.nodes.insert(
                 schema_id,
-                subject: schema.subject.clone(),
-                version: schema.version,
-                in_degree: 0,
-                depth,
-            });
+                GraphNode {
+                    schema_id,
+                    subject: schema.subject.clone(),
+                    version: schema.version,
+                    in_degree: 0,
+                    depth,
+                },
+            );
 
             let mut dependencies = Vec::new();
             if schema.references.len() > self.config.max_references {
@@ -277,7 +314,7 @@ impl SchemaReferenceResolver {
     pub fn detect_and_handle_cycles(&self, graph: &DependencyGraph) -> SchemaResult<()> {
         let mut color = HashMap::new();
         let mut parent = HashMap::new();
-        
+
         for node in graph.nodes.keys() {
             color.insert(*node, Color::White);
         }
@@ -301,9 +338,9 @@ impl SchemaReferenceResolver {
 
     /// Validate reference compatibility
     pub async fn validate_reference_compatibility(
-        &self, 
-        old_schema: &ResolvedSchema, 
-        new_schema: &ResolvedSchema
+        &self,
+        old_schema: &ResolvedSchema,
+        new_schema: &ResolvedSchema,
     ) -> SchemaResult<CompatibilityResult> {
         let mut result = CompatibilityResult {
             is_compatible: true,
@@ -328,7 +365,9 @@ impl SchemaReferenceResolver {
         // Check for new references (usually compatible)
         for (id, _) in &new_schema.dependencies {
             if !old_schema.dependencies.contains_key(id) {
-                result.warnings.push(format!("New reference to schema {} added", id));
+                result
+                    .warnings
+                    .push(format!("New reference to schema {} added", id));
             }
         }
 
@@ -338,15 +377,16 @@ impl SchemaReferenceResolver {
             to_version: new_schema.root_schema.version,
             from_schema_id: old_schema.root_schema.id,
             to_schema_id: new_schema.root_schema.id,
-            evolution_type: if result.is_compatible { 
-                EvolutionType::Compatible 
-            } else { 
-                EvolutionType::Breaking 
+            evolution_type: if result.is_compatible {
+                EvolutionType::Compatible
+            } else {
+                EvolutionType::Breaking
             },
             timestamp: std::time::Instant::now(),
         };
 
-        self.track_evolution(old_schema.root_schema.subject.clone(), evolution).await;
+        self.track_evolution(old_schema.root_schema.subject.clone(), evolution)
+            .await;
 
         Ok(result)
     }
@@ -355,7 +395,7 @@ impl SchemaReferenceResolver {
     pub async fn generate_migration_plan(
         &self,
         from_schema: &ResolvedSchema,
-        to_schema: &ResolvedSchema
+        to_schema: &ResolvedSchema,
     ) -> SchemaResult<MigrationPlan> {
         let mut steps = Vec::new();
         let mut risk_level = RiskLevel::Low;
@@ -369,8 +409,8 @@ impl SchemaReferenceResolver {
             if !to_fields.contains(field) {
                 steps.push(MigrationStep {
                     step_number: steps.len() + 1,
-                    operation: MigrationOperation::RemoveField { 
-                        name: field.clone() 
+                    operation: MigrationOperation::RemoveField {
+                        name: field.clone(),
                     },
                     description: format!("Remove field '{}'", field),
                     is_reversible: false,
@@ -384,7 +424,7 @@ impl SchemaReferenceResolver {
             if !from_fields.contains(field) {
                 steps.push(MigrationStep {
                     step_number: steps.len() + 1,
-                    operation: MigrationOperation::AddField { 
+                    operation: MigrationOperation::AddField {
                         name: field.clone(),
                         default_value: Some("null".to_string()),
                     },
@@ -418,7 +458,7 @@ impl SchemaReferenceResolver {
         }
 
         let estimated_duration = 1000 * steps.len() as u64;
-        
+
         Ok(MigrationPlan {
             from_schema: from_schema.clone(),
             to_schema: to_schema.clone(),
@@ -433,19 +473,22 @@ impl SchemaReferenceResolver {
         &self,
         subject: &str,
         target_schema: &str,
-        strategy: RolloutStrategy
+        strategy: RolloutStrategy,
     ) -> SchemaResult<RolloutPlan> {
         let current_schema = self.registry.get_latest_schema(subject).await?;
-        
+
         let plan = match strategy {
             RolloutStrategy::Canary { percentage } => {
-                self.create_canary_plan(current_schema, target_schema, percentage).await?
+                self.create_canary_plan(current_schema, target_schema, percentage)
+                    .await?
             }
             RolloutStrategy::BlueGreen => {
-                self.create_blue_green_plan(current_schema, target_schema).await?
+                self.create_blue_green_plan(current_schema, target_schema)
+                    .await?
             }
             RolloutStrategy::Rolling { batch_size } => {
-                self.create_rolling_plan(current_schema, target_schema, batch_size).await?
+                self.create_rolling_plan(current_schema, target_schema, batch_size)
+                    .await?
             }
         };
 
@@ -469,12 +512,17 @@ impl SchemaReferenceResolver {
             is_circular: false,
             resolution_time_ms: duration_ms,
         };
-        cache.entry(schema_id)
+        cache
+            .entry(schema_id)
             .or_insert_with(Vec::new)
             .push(dependency);
     }
 
-    async fn resolve_from_graph(&self, root_id: u32, graph: &DependencyGraph) -> SchemaResult<ResolvedSchema> {
+    async fn resolve_from_graph(
+        &self,
+        root_id: u32,
+        graph: &DependencyGraph,
+    ) -> SchemaResult<ResolvedSchema> {
         let root_schema = self.registry.get_schema(root_id).await?;
         let mut dependencies = HashMap::new();
 
@@ -496,10 +544,14 @@ impl SchemaReferenceResolver {
         })
     }
 
-    fn flatten_schema(&self, root: &CachedSchema, dependencies: &HashMap<u32, CachedSchema>) -> SchemaResult<String> {
+    fn flatten_schema(
+        &self,
+        root: &CachedSchema,
+        dependencies: &HashMap<u32, CachedSchema>,
+    ) -> SchemaResult<String> {
         // Simplified flattening - real implementation would properly merge schemas
         let mut flattened = root.schema.clone();
-        
+
         for (_, dep) in dependencies {
             flattened.push_str(&format!("\n// Referenced from {}\n", dep.subject));
             flattened.push_str(&dep.schema);
@@ -559,11 +611,11 @@ impl SchemaReferenceResolver {
     }
 
     fn dfs_cycle_detection(
-        &self, 
-        node: u32, 
+        &self,
+        node: u32,
         graph: &DependencyGraph,
         color: &mut HashMap<u32, Color>,
-        parent: &mut HashMap<u32, Option<u32>>
+        parent: &mut HashMap<u32, Option<u32>>,
     ) -> SchemaResult<bool> {
         color.insert(node, Color::Gray);
 
@@ -607,13 +659,19 @@ impl SchemaReferenceResolver {
 
     async fn track_evolution(&self, subject: String, record: EvolutionRecord) {
         let mut tracker = self.evolution_tracker.write().await;
-        tracker.evolution_history
+        tracker
+            .evolution_history
             .entry(subject)
             .or_insert_with(Vec::new)
             .push(record);
     }
 
-    async fn create_canary_plan(&self, _current: CachedSchema, _target: &str, percentage: u8) -> SchemaResult<RolloutPlan> {
+    async fn create_canary_plan(
+        &self,
+        _current: CachedSchema,
+        _target: &str,
+        percentage: u8,
+    ) -> SchemaResult<RolloutPlan> {
         Ok(RolloutPlan {
             strategy: RolloutStrategy::Canary { percentage },
             phases: vec![
@@ -635,7 +693,11 @@ impl SchemaReferenceResolver {
         })
     }
 
-    async fn create_blue_green_plan(&self, _current: CachedSchema, _target: &str) -> SchemaResult<RolloutPlan> {
+    async fn create_blue_green_plan(
+        &self,
+        _current: CachedSchema,
+        _target: &str,
+    ) -> SchemaResult<RolloutPlan> {
         Ok(RolloutPlan {
             strategy: RolloutStrategy::BlueGreen,
             phases: vec![
@@ -657,7 +719,12 @@ impl SchemaReferenceResolver {
         })
     }
 
-    async fn create_rolling_plan(&self, _current: CachedSchema, _target: &str, batch_size: usize) -> SchemaResult<RolloutPlan> {
+    async fn create_rolling_plan(
+        &self,
+        _current: CachedSchema,
+        _target: &str,
+        batch_size: usize,
+    ) -> SchemaResult<RolloutPlan> {
         Ok(RolloutPlan {
             strategy: RolloutStrategy::Rolling { batch_size },
             phases: vec![
@@ -730,7 +797,7 @@ pub struct RolloutPhase {
 /// DFS colors for cycle detection
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Color {
-    White,  // Not visited
-    Gray,   // Currently visiting
-    Black,  // Completely visited
+    White, // Not visited
+    Gray,  // Currently visiting
+    Black, // Completely visited
 }

@@ -3,35 +3,35 @@
 //! Multi-level caching with hot schema optimization, dependency prefetching,
 //! and comprehensive performance metrics.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
-use super::registry_client::{CachedSchema, ResolvedSchema, DependencyGraph};
+use super::registry_client::{CachedSchema, DependencyGraph, ResolvedSchema};
 use super::{SchemaError, SchemaResult};
 
 /// Enhanced multi-level schema cache
 pub struct EnhancedSchemaCache {
     /// L1 Cache: Hot schemas (frequently accessed)
     hot_cache: Arc<RwLock<LruCache<u32, CachedSchema>>>,
-    
+
     /// L2 Cache: All schemas with TTL
     main_cache: Arc<RwLock<HashMap<u32, CachedEntry>>>,
-    
+
     /// L3 Cache: Resolved schemas with dependencies
     resolved_cache: Arc<RwLock<HashMap<u32, ResolvedEntry>>>,
-    
+
     /// Dependency index for prefetching
     dependency_index: Arc<RwLock<DependencyIndex>>,
-    
+
     /// Cache metrics collector
     metrics: Arc<RwLock<CacheMetrics>>,
-    
+
     /// Background refresh manager
     refresh_manager: Arc<RefreshManager>,
-    
+
     /// Cache configuration
     config: CacheConfig,
 }
@@ -41,28 +41,28 @@ pub struct EnhancedSchemaCache {
 pub struct CacheConfig {
     /// Size of hot cache (L1)
     pub hot_cache_size: usize,
-    
+
     /// Maximum entries in main cache (L2)
     pub max_cache_size: usize,
-    
+
     /// TTL for cached schemas in seconds
     pub schema_ttl_seconds: u64,
-    
+
     /// TTL for resolved schemas in seconds
     pub resolved_ttl_seconds: u64,
-    
+
     /// Enable dependency prefetching
     pub enable_prefetching: bool,
-    
+
     /// Background refresh interval in seconds
     pub refresh_interval_seconds: u64,
-    
+
     /// Maximum prefetch depth
     pub max_prefetch_depth: usize,
-    
+
     /// Enable cache persistence
     pub enable_persistence: bool,
-    
+
     /// Cache persistence path
     pub persistence_path: Option<String>,
 }
@@ -101,10 +101,10 @@ struct ResolvedEntry {
 struct DependencyIndex {
     /// Schema ID -> dependencies
     dependencies: HashMap<u32, HashSet<u32>>,
-    
+
     /// Schema ID -> dependents (reverse index)
     dependents: HashMap<u32, HashSet<u32>>,
-    
+
     /// Frequently accessed together
     access_patterns: HashMap<u32, Vec<(u32, f64)>>, // (related_id, correlation_score)
 }
@@ -139,37 +139,37 @@ enum RefreshPriority {
 pub struct CacheMetrics {
     /// Total cache hits
     pub total_hits: u64,
-    
+
     /// Total cache misses
     pub total_misses: u64,
-    
+
     /// L1 (hot) cache hits
     pub l1_hits: u64,
-    
+
     /// L2 (main) cache hits
     pub l2_hits: u64,
-    
+
     /// L3 (resolved) cache hits
     pub l3_hits: u64,
-    
+
     /// Average lookup time in microseconds
     pub avg_lookup_time_us: f64,
-    
+
     /// Total evictions
     pub total_evictions: u64,
-    
+
     /// Current cache size in bytes
     pub current_size_bytes: usize,
-    
+
     /// Prefetch success rate
     pub prefetch_success_rate: f64,
-    
+
     /// Background refresh count
     pub refresh_count: u64,
-    
+
     /// Cache hit rate
     pub hit_rate: f64,
-    
+
     /// Memory pressure events
     pub memory_pressure_events: u64,
 }
@@ -218,16 +218,17 @@ impl EnhancedSchemaCache {
                 if entry.is_expired() {
                     main.remove(&schema_id);
                     metrics.total_misses += 1;
-                    self.schedule_refresh(schema_id, RefreshPriority::High).await;
+                    self.schedule_refresh(schema_id, RefreshPriority::High)
+                        .await;
                     self.record_lookup_time(&mut metrics, start_time);
                     return None;
                 }
 
                 entry.last_accessed = Instant::now();
                 entry.access_count += 1;
-                
+
                 let schema = entry.schema.clone();
-                
+
                 // Promote to hot cache if frequently accessed
                 if entry.access_count > 10 {
                     self.promote_to_hot(schema_id, schema.clone()).await;
@@ -235,12 +236,12 @@ impl EnhancedSchemaCache {
 
                 metrics.l2_hits += 1;
                 metrics.total_hits += 1;
-                
+
                 // Prefetch dependencies if enabled
                 if self.config.enable_prefetching {
                     self.prefetch_dependencies(schema_id).await;
                 }
-                
+
                 self.update_access_pattern(schema_id).await;
                 self.record_lookup_time(&mut metrics, start_time);
                 return Some(schema);
@@ -283,18 +284,20 @@ impl EnhancedSchemaCache {
 
         // Update dependency index
         if !schema.references.is_empty() {
-            self.update_dependency_index(schema_id, &schema.references).await;
+            self.update_dependency_index(schema_id, &schema.references)
+                .await;
         }
     }
 
     /// Get a resolved schema from cache
     pub async fn get_resolved(&self, schema_id: u32) -> Option<ResolvedSchema> {
         let mut resolved = self.resolved_cache.write().await;
-        
+
         if let Some(entry) = resolved.get_mut(&schema_id) {
             if entry.is_expired(self.config.resolved_ttl_seconds) {
                 resolved.remove(&schema_id);
-                self.schedule_refresh(schema_id, RefreshPriority::Normal).await;
+                self.schedule_refresh(schema_id, RefreshPriority::Normal)
+                    .await;
                 return None;
             }
 
@@ -302,7 +305,7 @@ impl EnhancedSchemaCache {
             let mut metrics = self.metrics.write().await;
             metrics.l3_hits += 1;
             metrics.total_hits += 1;
-            
+
             return Some(entry.resolved.clone());
         }
 
@@ -310,7 +313,12 @@ impl EnhancedSchemaCache {
     }
 
     /// Put a resolved schema into cache
-    pub async fn put_resolved(&self, resolved: ResolvedSchema, graph: DependencyGraph, resolution_time_ms: u64) {
+    pub async fn put_resolved(
+        &self,
+        resolved: ResolvedSchema,
+        graph: DependencyGraph,
+        resolution_time_ms: u64,
+    ) {
         let schema_id = resolved.root_schema.id;
         let dependency_count = resolved.dependencies.len();
 
@@ -380,7 +388,7 @@ impl EnhancedSchemaCache {
     pub async fn metrics(&self) -> CacheMetrics {
         let metrics = self.metrics.read().await;
         let mut result = metrics.clone();
-        
+
         // Calculate hit rate
         let total_requests = result.total_hits + result.total_misses;
         result.hit_rate = if total_requests > 0 {
@@ -405,20 +413,23 @@ impl EnhancedSchemaCache {
             return Ok(());
         }
 
-        let path = self.config.persistence_path.as_ref()
+        let path = self
+            .config
+            .persistence_path
+            .as_ref()
             .ok_or_else(|| SchemaError::Cache {
                 message: "Persistence path not configured".to_string(),
             })?;
 
         // Serialize cache state
         let cache_state = self.export_state().await;
-        let json = serde_json::to_string_pretty(&cache_state)
-            .map_err(|e| SchemaError::Cache {
-                message: format!("Failed to serialize cache: {}", e),
-            })?;
+        let json = serde_json::to_string_pretty(&cache_state).map_err(|e| SchemaError::Cache {
+            message: format!("Failed to serialize cache: {}", e),
+        })?;
 
         // Write to file
-        tokio::fs::write(path, json).await
+        tokio::fs::write(path, json)
+            .await
             .map_err(|e| SchemaError::Cache {
                 message: format!("Failed to write cache file: {}", e),
             })?;
@@ -432,20 +443,24 @@ impl EnhancedSchemaCache {
             return Ok(());
         }
 
-        let path = self.config.persistence_path.as_ref()
+        let path = self
+            .config
+            .persistence_path
+            .as_ref()
             .ok_or_else(|| SchemaError::Cache {
                 message: "Persistence path not configured".to_string(),
             })?;
 
         // Read from file
-        let json = tokio::fs::read_to_string(path).await
+        let json = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| SchemaError::Cache {
                 message: format!("Failed to read cache file: {}", e),
             })?;
 
         // Deserialize cache state
-        let cache_state: CacheState = serde_json::from_str(&json)
-            .map_err(|e| SchemaError::Cache {
+        let cache_state: CacheState =
+            serde_json::from_str(&json).map_err(|e| SchemaError::Cache {
                 message: format!("Failed to deserialize cache: {}", e),
             })?;
 
@@ -472,11 +487,9 @@ impl EnhancedSchemaCache {
 
     async fn evict_lru(&self) {
         let mut main = self.main_cache.write().await;
-        
+
         // Find least recently used entry
-        if let Some((lru_id, _)) = main.iter()
-            .min_by_key(|(_, entry)| entry.last_accessed) {
-            
+        if let Some((lru_id, _)) = main.iter().min_by_key(|(_, entry)| entry.last_accessed) {
             let lru_id = *lru_id;
             if let Some(entry) = main.remove(&lru_id) {
                 let mut metrics = self.metrics.write().await;
@@ -500,7 +513,7 @@ impl EnhancedSchemaCache {
 
     async fn prefetch_dependencies(&self, schema_id: u32) {
         let index = self.dependency_index.read().await;
-        
+
         if let Some(deps) = index.dependencies.get(&schema_id) {
             for dep_id in deps.iter().take(self.config.max_prefetch_depth) {
                 self.schedule_refresh(*dep_id, RefreshPriority::Low).await;
@@ -510,29 +523,36 @@ impl EnhancedSchemaCache {
         // Also prefetch commonly accessed together
         if let Some(patterns) = index.access_patterns.get(&schema_id) {
             for (related_id, score) in patterns {
-                if *score > 0.7 { // High correlation
-                    self.schedule_refresh(*related_id, RefreshPriority::Low).await;
+                if *score > 0.7 {
+                    // High correlation
+                    self.schedule_refresh(*related_id, RefreshPriority::Low)
+                        .await;
                 }
             }
         }
     }
 
-    async fn update_dependency_index(&self, schema_id: u32, references: &[super::registry_client::SchemaReference]) {
+    async fn update_dependency_index(
+        &self,
+        schema_id: u32,
+        references: &[super::registry_client::SchemaReference],
+    ) {
         let mut index = self.dependency_index.write().await;
-        
+
         let mut deps = HashSet::new();
         for reference in references {
             if let Some(ref_id) = reference.schema_id {
                 deps.insert(ref_id);
-                
+
                 // Update reverse index
-                index.dependents
+                index
+                    .dependents
                     .entry(ref_id)
                     .or_insert_with(HashSet::new)
                     .insert(schema_id);
             }
         }
-        
+
         index.dependencies.insert(schema_id, deps);
     }
 
@@ -540,16 +560,18 @@ impl EnhancedSchemaCache {
         // Track which schemas are accessed together
         // This is simplified - real implementation would use sliding window
         let mut index = self.dependency_index.write().await;
-        
+
         // Update access patterns (simplified correlation tracking)
-        index.access_patterns
+        index
+            .access_patterns
             .entry(schema_id)
             .or_insert_with(Vec::new);
     }
 
     async fn get_dependents(&self, schema_id: u32) -> Vec<u32> {
         let index = self.dependency_index.read().await;
-        index.dependents
+        index
+            .dependents
             .get(&schema_id)
             .map(|deps| deps.iter().copied().collect())
             .unwrap_or_default()
@@ -563,12 +585,12 @@ impl EnhancedSchemaCache {
     fn record_lookup_time(&self, metrics: &mut CacheMetrics, start_time: Instant) {
         let duration = start_time.elapsed();
         let current_time_us = duration.as_micros() as f64;
-        
+
         // Update moving average
         if metrics.avg_lookup_time_us == 0.0 {
             metrics.avg_lookup_time_us = current_time_us;
         } else {
-            metrics.avg_lookup_time_us = 
+            metrics.avg_lookup_time_us =
                 (metrics.avg_lookup_time_us * 0.95) + (current_time_us * 0.05);
         }
     }
@@ -606,10 +628,10 @@ impl<K: std::hash::Hash + Eq + Clone, V: Clone> LruCache<K, V> {
             // Move to front
             self.order.retain(|k| k != key);
             self.order.push_front(key.clone());
-            
+
             // Update access count
             *self.access_count.entry(key.clone()).or_insert(0) += 1;
-            
+
             self.cache.get(key)
         } else {
             None

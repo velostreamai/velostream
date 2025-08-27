@@ -4,6 +4,7 @@
 //! serialization formats, enabling users to select JSON, Avro, Protobuf, etc. via
 //! SQL WITH clauses or programmatic configuration.
 
+use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 use crate::ferris::kafka::{
     kafka_error::ProducerError,
     producer_config::ProducerConfig,
@@ -17,7 +18,6 @@ use rdkafka::{
 };
 use serde::Serialize;
 use std::{collections::HashMap, marker::PhantomData};
-use crate::ferris::kafka::kafka_producer_def_context::LoggingProducerContext;
 
 /// Enhanced Kafka Producer Builder with configurable serialization support
 ///
@@ -148,11 +148,7 @@ where
 
     /// Configure Avro serialization for keys with Schema Registry
     #[cfg(feature = "avro")]
-    pub fn with_avro_key_serialization(
-        mut self,
-        schema_registry_url: &str,
-        subject: &str,
-    ) -> Self {
+    pub fn with_avro_key_serialization(mut self, schema_registry_url: &str, subject: &str) -> Self {
         self.key_format = SerializationFormat::Avro {
             schema_registry_url: schema_registry_url.to_string(),
             subject: subject.to_string(),
@@ -230,12 +226,11 @@ where
 
         // For Phase 2 Step 1, we'll create a simplified producer that works with JSON internally
         // Create a basic JSON producer
-        let json_producer =
-            if let Some(config) = self.producer_config {
-                KafkaProducer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(config, JsonSerializer, JsonSerializer)?
-            } else {
-                KafkaProducer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::new(&self.brokers, &self.default_topic, JsonSerializer, JsonSerializer)?
-            };
+        let json_producer = if let Some(config) = self.producer_config {
+            KafkaProducer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(config, JsonSerializer, JsonSerializer)?
+        } else {
+            KafkaProducer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::new(&self.brokers, &self.default_topic, JsonSerializer, JsonSerializer)?
+        };
 
         Ok(ConfigurableKafkaProducer {
             inner_producer: json_producer,
@@ -257,7 +252,13 @@ where
     K: Serialize + 'static,
     V: Serialize + 'static,
 {
-    inner_producer: KafkaProducer<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer, LoggingProducerContext>,
+    inner_producer: KafkaProducer<
+        serde_json::Value,
+        serde_json::Value,
+        JsonSerializer,
+        JsonSerializer,
+        LoggingProducerContext,
+    >,
     key_format: SerializationFormat,
     value_format: SerializationFormat,
     _phantom_key: PhantomData<K>,
@@ -288,7 +289,9 @@ where
         let json_value = self.convert_value_to_json(value)?;
 
         // Send using internal producer
-        self.inner_producer.send(json_key.as_ref(), &json_value, headers, timestamp).await
+        self.inner_producer
+            .send(json_key.as_ref(), &json_value, headers, timestamp)
+            .await
     }
 
     /// Send a message to a specific topic with configurable serialization
@@ -311,7 +314,9 @@ where
         let json_value = self.convert_value_to_json(value)?;
 
         // Send using internal producer
-        self.inner_producer.send_to_topic(topic, json_key.as_ref(), &json_value, headers, timestamp).await
+        self.inner_producer
+            .send_to_topic(topic, json_key.as_ref(), &json_value, headers, timestamp)
+            .await
     }
 
     /// Get the key serialization format
@@ -334,23 +339,25 @@ where
         match &self.key_format {
             SerializationFormat::Json => {
                 // Direct conversion from K to JSON Value
-                serde_json::to_value(key).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::Json(e))
-                })
+                serde_json::to_value(key)
+                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
-                let json_str = serde_json::to_string(key).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::Json(e))
-                })?;
-                Ok(serde_json::Value::String(json_str.trim_matches('"').to_string()))
+                let json_str = serde_json::to_string(key)
+                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))?;
+                Ok(serde_json::Value::String(
+                    json_str.trim_matches('"').to_string(),
+                ))
             }
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
-                Err(ProducerError::SerializationError(SerializationError::FeatureNotEnabled(format!(
-                    "Key format '{}' not yet fully implemented in Phase 2 Step 1",
-                    self.key_format
-                ))))
+                Err(ProducerError::SerializationError(
+                    SerializationError::FeatureNotEnabled(format!(
+                        "Key format '{}' not yet fully implemented in Phase 2 Step 1",
+                        self.key_format
+                    )),
+                ))
             }
         }
     }
@@ -360,23 +367,25 @@ where
         match &self.value_format {
             SerializationFormat::Json => {
                 // Direct conversion from V to JSON Value
-                serde_json::to_value(value).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::Json(e))
-                })
+                serde_json::to_value(value)
+                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
-                let json_str = serde_json::to_string(value).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::Json(e))
-                })?;
-                Ok(serde_json::Value::String(json_str.trim_matches('"').to_string()))
+                let json_str = serde_json::to_string(value)
+                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))?;
+                Ok(serde_json::Value::String(
+                    json_str.trim_matches('"').to_string(),
+                ))
             }
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
-                Err(ProducerError::SerializationError(SerializationError::FeatureNotEnabled(format!(
-                    "Value format '{}' not yet fully implemented in Phase 2 Step 1",
-                    self.value_format
-                ))))
+                Err(ProducerError::SerializationError(
+                    SerializationError::FeatureNotEnabled(format!(
+                        "Value format '{}' not yet fully implemented in Phase 2 Step 1",
+                        self.value_format
+                    )),
+                ))
             }
         }
     }

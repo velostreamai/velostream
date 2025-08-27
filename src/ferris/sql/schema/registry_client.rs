@@ -16,7 +16,7 @@ pub struct SchemaRegistryClient {
     base_url: String,
     auth: Option<AuthConfig>,
     cache: Arc<RwLock<SchemaCache>>,
-    reference_resolver: Arc<SchemaReferenceResolver>,
+    reference_resolver: Option<Arc<SchemaReferenceResolver>>,
     http_client: Client,
     config: RegistryClientConfig,
 }
@@ -157,8 +157,10 @@ impl SchemaRegistryClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             auth: None,
-            cache: Arc::new(RwLock::new(SchemaCache::new(RegistryClientConfig::default()))),
-            reference_resolver: Arc::new(SchemaReferenceResolver::new()),
+            cache: Arc::new(RwLock::new(SchemaCache::new(
+                RegistryClientConfig::default(),
+            ))),
+            reference_resolver: None, // Avoid circular dependency by making it optional
             http_client: Client::new(),
             config: RegistryClientConfig::default(),
         }
@@ -187,10 +189,12 @@ impl SchemaRegistryClient {
 
         // Fetch from registry
         let url = format!("{}/schemas/ids/{}", self.base_url, id);
-        let response = self.execute_request(reqwest::Method::GET, &url, None).await?;
-        
-        let schema_response: SchemaResponse = response.json().await
-            .map_err(|e| SchemaError::Provider {
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let schema_response: SchemaResponse =
+            response.json().await.map_err(|e| SchemaError::Provider {
                 source: "schema_registry".to_string(),
                 message: format!("Failed to parse schema response: {}", e),
             })?;
@@ -214,10 +218,12 @@ impl SchemaRegistryClient {
     /// Get latest schema for a subject
     pub async fn get_latest_schema(&self, subject: &str) -> SchemaResult<CachedSchema> {
         let url = format!("{}/subjects/{}/versions/latest", self.base_url, subject);
-        let response = self.execute_request(reqwest::Method::GET, &url, None).await?;
-        
-        let version_response: SubjectVersionResponse = response.json().await
-            .map_err(|e| SchemaError::Provider {
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let version_response: SubjectVersionResponse =
+            response.json().await.map_err(|e| SchemaError::Provider {
                 source: "schema_registry".to_string(),
                 message: format!("Failed to parse version response: {}", e),
             })?;
@@ -238,29 +244,36 @@ impl SchemaRegistryClient {
     }
 
     /// Register a new schema
-    pub async fn register_schema(&self, subject: &str, schema: &str, references: Vec<SchemaReference>) -> SchemaResult<u32> {
+    pub async fn register_schema(
+        &self,
+        subject: &str,
+        schema: &str,
+        references: Vec<SchemaReference>,
+    ) -> SchemaResult<u32> {
         let url = format!("{}/subjects/{}/versions", self.base_url, subject);
-        
+
         let request_body = RegisterSchemaRequest {
             schema: schema.to_string(),
             references,
         };
 
-        let body = serde_json::to_string(&request_body)
-            .map_err(|e| SchemaError::Provider {
-                source: "schema_registry".to_string(),
-                message: format!("Failed to serialize request: {}", e),
-            })?;
+        let body = serde_json::to_string(&request_body).map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to serialize request: {}", e),
+        })?;
 
-        let response = self.execute_request(reqwest::Method::POST, &url, Some(body)).await?;
-        
-        let result: serde_json::Value = response.json().await
-            .map_err(|e| SchemaError::Provider {
+        let response = self
+            .execute_request(reqwest::Method::POST, &url, Some(body))
+            .await?;
+
+        let result: serde_json::Value =
+            response.json().await.map_err(|e| SchemaError::Provider {
                 source: "schema_registry".to_string(),
                 message: format!("Failed to parse registration response: {}", e),
             })?;
 
-        result["id"].as_u64()
+        result["id"]
+            .as_u64()
             .map(|id| id as u32)
             .ok_or_else(|| SchemaError::Provider {
                 source: "schema_registry".to_string(),
@@ -296,18 +309,27 @@ impl SchemaRegistryClient {
     }
 
     /// Check schema compatibility
-    pub async fn validate_schema_compatibility(&self, subject: &str, schema: &str) -> SchemaResult<bool> {
-        let url = format!("{}/compatibility/subjects/{}/versions/latest", self.base_url, subject);
-        
+    pub async fn validate_schema_compatibility(
+        &self,
+        subject: &str,
+        schema: &str,
+    ) -> SchemaResult<bool> {
+        let url = format!(
+            "{}/compatibility/subjects/{}/versions/latest",
+            self.base_url, subject
+        );
+
         let request_body = serde_json::json!({
             "schema": schema
         });
 
         let body = request_body.to_string();
-        let response = self.execute_request(reqwest::Method::POST, &url, Some(body)).await?;
-        
-        let result: serde_json::Value = response.json().await
-            .map_err(|e| SchemaError::Provider {
+        let response = self
+            .execute_request(reqwest::Method::POST, &url, Some(body))
+            .await?;
+
+        let result: serde_json::Value =
+            response.json().await.map_err(|e| SchemaError::Provider {
                 source: "schema_registry".to_string(),
                 message: format!("Failed to parse compatibility response: {}", e),
             })?;
@@ -316,7 +338,10 @@ impl SchemaRegistryClient {
     }
 
     /// Get schema dependencies
-    pub fn get_schema_dependencies<'a>(&'a self, id: u32) -> futures::future::BoxFuture<'a, SchemaResult<Vec<SchemaDependency>>> {
+    pub fn get_schema_dependencies<'a>(
+        &'a self,
+        id: u32,
+    ) -> futures::future::BoxFuture<'a, SchemaResult<Vec<SchemaDependency>>> {
         Box::pin(async move {
             let schema = self.get_schema(id).await?;
             let mut dependencies = Vec::new();
@@ -325,7 +350,7 @@ impl SchemaRegistryClient {
                 if let Some(ref_id) = reference.schema_id {
                     let ref_schema = self.get_schema(ref_id).await?;
                     let nested_deps = self.get_schema_dependencies(ref_id).await?;
-                    
+
                     dependencies.push(SchemaDependency {
                         schema_id: ref_id,
                         subject: ref_schema.subject.clone(),
@@ -347,8 +372,15 @@ impl SchemaRegistryClient {
 
     // Private helper methods
 
-    async fn execute_request(&self, method: reqwest::Method, url: &str, body: Option<String>) -> SchemaResult<Response> {
-        let mut request = self.http_client.request(method, url)
+    async fn execute_request(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<String>,
+    ) -> SchemaResult<Response> {
+        let mut request = self
+            .http_client
+            .request(method, url)
             .header("Content-Type", "application/vnd.schemaregistry.v1+json")
             .timeout(std::time::Duration::from_secs(self.config.timeout_seconds));
 
@@ -358,9 +390,7 @@ impl SchemaRegistryClient {
                 AuthConfig::Basic { username, password } => {
                     request.basic_auth(username, Some(password))
                 }
-                AuthConfig::Bearer { token } => {
-                    request.bearer_auth(token)
-                }
+                AuthConfig::Bearer { token } => request.bearer_auth(token),
                 AuthConfig::None => request,
             };
         }
@@ -370,11 +400,10 @@ impl SchemaRegistryClient {
             request = request.body(body_content);
         }
 
-        let response = request.send().await
-            .map_err(|e| SchemaError::Provider {
-                source: "schema_registry".to_string(),
-                message: format!("Request failed: {}", e),
-            })?;
+        let response = request.send().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Request failed: {}", e),
+        })?;
 
         if !response.status().is_success() {
             return Err(SchemaError::Provider {
@@ -423,21 +452,29 @@ impl SchemaRegistryClient {
         Ok(graph)
     }
 
-    fn add_to_graph<'a>(&'a self, schema_id: u32, graph: &'a mut DependencyGraph, depth: usize) -> futures::future::BoxFuture<'a, SchemaResult<()>> {
+    fn add_to_graph<'a>(
+        &'a self,
+        schema_id: u32,
+        graph: &'a mut DependencyGraph,
+        depth: usize,
+    ) -> futures::future::BoxFuture<'a, SchemaResult<()>> {
         Box::pin(async move {
             if graph.nodes.contains_key(&schema_id) {
                 return Ok(()); // Already processed
             }
 
             let schema = self.get_schema(schema_id).await?;
-            
-            graph.nodes.insert(schema_id, GraphNode {
+
+            graph.nodes.insert(
                 schema_id,
-                subject: schema.subject.clone(),
-                version: schema.version,
-                in_degree: 0,
-                depth,
-            });
+                GraphNode {
+                    schema_id,
+                    subject: schema.subject.clone(),
+                    version: schema.version,
+                    in_degree: 0,
+                    depth,
+                },
+            );
 
             let mut dependencies = Vec::new();
             for reference in &schema.references {
@@ -453,7 +490,11 @@ impl SchemaRegistryClient {
         })
     }
 
-    async fn resolve_from_graph(&self, root_id: u32, graph: &DependencyGraph) -> SchemaResult<ResolvedSchema> {
+    async fn resolve_from_graph(
+        &self,
+        root_id: u32,
+        graph: &DependencyGraph,
+    ) -> SchemaResult<ResolvedSchema> {
         let root_schema = self.get_schema(root_id).await?;
         let mut dependencies = HashMap::new();
 
@@ -511,7 +552,7 @@ impl SchemaCache {
         let version = schema.version;
 
         self.schemas.insert(id, schema);
-        
+
         self.subject_versions
             .entry(subject)
             .or_insert_with(HashMap::new)
@@ -599,8 +640,13 @@ impl DependencyGraph {
         None
     }
 
-    fn has_cycle_dfs(&self, node: u32, visited: &mut std::collections::HashSet<u32>, 
-                     rec_stack: &mut std::collections::HashSet<u32>, path: &mut Vec<u32>) -> bool {
+    fn has_cycle_dfs(
+        &self,
+        node: u32,
+        visited: &mut std::collections::HashSet<u32>,
+        rec_stack: &mut std::collections::HashSet<u32>,
+        path: &mut Vec<u32>,
+    ) -> bool {
         visited.insert(node);
         rec_stack.insert(node);
         path.push(node);
@@ -633,6 +679,13 @@ impl SchemaReferenceResolver {
     fn new() -> Self {
         Self {
             registry: Arc::new(RwLock::new(SchemaRegistryClient::new("".to_string()))),
+            dependency_cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn new_stub() -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(SchemaRegistryClient::new("stub".to_string()))),
             dependency_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }

@@ -11,10 +11,7 @@ use crate::ferris::kafka::{
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
     KafkaConsumer, Message,
 };
-use rdkafka::{
-    consumer::DefaultConsumerContext,
-    error::KafkaError,
-};
+use rdkafka::{consumer::DefaultConsumerContext, error::KafkaError};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, marker::PhantomData};
 
@@ -166,11 +163,7 @@ where
 
     /// Configure Avro serialization for keys with Schema Registry
     #[cfg(feature = "avro")]
-    pub fn with_avro_key_serialization(
-        mut self,
-        schema_registry_url: &str,
-        subject: &str,
-    ) -> Self {
+    pub fn with_avro_key_serialization(mut self, schema_registry_url: &str, subject: &str) -> Self {
         self.key_format = SerializationFormat::Avro {
             schema_registry_url: schema_registry_url.to_string(),
             subject: subject.to_string(),
@@ -225,7 +218,7 @@ where
     }
 
     // Context methods can be added later for advanced use cases
-    /* 
+    /*
     pub fn with_context<NewC>(self, context: NewC) -> ConfigurableKafkaConsumerBuilder<K, V>
     where
         NewC: ConsumerContext + 'static,
@@ -249,14 +242,13 @@ where
         // For Phase 2 Step 1, we'll create a simplified consumer that works with JSON internally
         // For now, just return a mock implementation to establish the API structure
         // In the next steps, we'll implement proper serialization conversion
-        
+
         // Create a basic JSON consumer
-        let json_consumer =
-            if let Some(config) = self.consumer_config {
-                KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(config, JsonSerializer, JsonSerializer)?
-            } else {
-                KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::new(&self.brokers, &self.group_id, JsonSerializer, JsonSerializer)?
-            };
+        let json_consumer = if let Some(config) = self.consumer_config {
+            KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(config, JsonSerializer, JsonSerializer)?
+        } else {
+            KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::new(&self.brokers, &self.group_id, JsonSerializer, JsonSerializer)?
+        };
 
         Ok(ConfigurableKafkaConsumer {
             inner_consumer: json_consumer,
@@ -278,7 +270,13 @@ where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
 {
-    inner_consumer: KafkaConsumer<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer, DefaultConsumerContext>,
+    inner_consumer: KafkaConsumer<
+        serde_json::Value,
+        serde_json::Value,
+        JsonSerializer,
+        JsonSerializer,
+        DefaultConsumerContext,
+    >,
     key_format: SerializationFormat,
     value_format: SerializationFormat,
     _phantom_key: PhantomData<K>,
@@ -296,10 +294,7 @@ where
     }
 
     /// Poll for a message with configurable serialization
-    pub async fn poll(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<Message<K, V>, ConsumerError> {
+    pub async fn poll(&self, timeout: std::time::Duration) -> Result<Message<K, V>, ConsumerError> {
         // Get the raw message from the inner consumer
         let raw_message = self.inner_consumer.poll(timeout).await?;
 
@@ -348,28 +343,30 @@ where
         match &self.key_format {
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to K
-                serde_json::from_value(json_key.clone()).map_err(|e| {
-                    ConsumerError::SerializationError(SerializationError::Json(e))
-                })
+                serde_json::from_value(json_key.clone())
+                    .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
             }
             SerializationFormat::String => {
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_key {
-                    serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
-                        ConsumerError::SerializationError(SerializationError::Json(e))
-                    })
+                    serde_json::from_str(&format!("\"{}\"", s))
+                        .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
                 } else {
-                    Err(ConsumerError::SerializationError(SerializationError::Schema(
-                        "Expected string value for string serialization format".to_string(),
-                    )))
+                    Err(ConsumerError::SerializationError(
+                        SerializationError::Schema(
+                            "Expected string value for string serialization format".to_string(),
+                        ),
+                    ))
                 }
             }
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
-                Err(ConsumerError::SerializationError(SerializationError::FeatureNotEnabled(format!(
-                    "Key format '{}' not yet fully implemented in Phase 2 Step 1",
-                    self.key_format
-                ))))
+                Err(ConsumerError::SerializationError(
+                    SerializationError::FeatureNotEnabled(format!(
+                        "Key format '{}' not yet fully implemented in Phase 2 Step 1",
+                        self.key_format
+                    )),
+                ))
             }
         }
     }
@@ -379,28 +376,30 @@ where
         match &self.value_format {
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to V
-                serde_json::from_value(json_value.clone()).map_err(|e| {
-                    ConsumerError::SerializationError(SerializationError::Json(e))
-                })
+                serde_json::from_value(json_value.clone())
+                    .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
             }
             SerializationFormat::String => {
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_value {
-                    serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
-                        ConsumerError::SerializationError(SerializationError::Json(e))
-                    })
+                    serde_json::from_str(&format!("\"{}\"", s))
+                        .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
                 } else {
-                    Err(ConsumerError::SerializationError(SerializationError::Schema(
-                        "Expected string value for string serialization format".to_string(),
-                    )))
+                    Err(ConsumerError::SerializationError(
+                        SerializationError::Schema(
+                            "Expected string value for string serialization format".to_string(),
+                        ),
+                    ))
                 }
             }
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
-                Err(ConsumerError::SerializationError(SerializationError::FeatureNotEnabled(format!(
-                    "Value format '{}' not yet fully implemented in Phase 2 Step 1",
-                    self.value_format
-                ))))
+                Err(ConsumerError::SerializationError(
+                    SerializationError::FeatureNotEnabled(format!(
+                        "Value format '{}' not yet fully implemented in Phase 2 Step 1",
+                        self.value_format
+                    )),
+                ))
             }
         }
     }
