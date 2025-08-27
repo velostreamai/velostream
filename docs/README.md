@@ -4,6 +4,10 @@ This directory contains comprehensive documentation for FerrisStreams.
 
 ## 📚 Available Documentation
 
+### Architecture Documentation
+- **[SQL Table Architecture](architecture/SQL_TABLE_KTABLE_ARCHITECTURE.md)** - Datasource-agnostic materialized views and stream-table joins
+- **[Schema Registry Architecture](architecture/schema-registry-architecture.md)** - Complete schema registry system design
+
 ### Core Guides
 - **[Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md)** - Learn when and how to use the fluent builder APIs
 - **[Type-Safe Kafka](feature/TYPE_SAFE_KAFKA.md)** - Comprehensive guide to type-safe Kafka operations
