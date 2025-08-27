@@ -1,3 +1,4 @@
+pub mod datasource;
 pub mod error;
 pub mod kafka;
 pub mod multi_job_server;

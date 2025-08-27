@@ -1,6 +1,6 @@
 //! Tests for file data source configuration
 
-use ferrisstreams::ferris::sql::datasource::file::{FileFormat, FileSourceConfig};
+use ferrisstreams::ferris::datasource::file::{FileFormat, FileSourceConfig};
 
 #[cfg(test)]
 mod file_config_tests {

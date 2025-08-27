@@ -1,6 +1,6 @@
 //! Tests for file watching functionality
 
-use ferrisstreams::ferris::sql::datasource::file::watcher::FileWatcher;
+use ferrisstreams::ferris::datasource::file::watcher::FileWatcher;
 use std::fs;
 use tempfile::TempDir;
 use tokio::time::{sleep, Duration};

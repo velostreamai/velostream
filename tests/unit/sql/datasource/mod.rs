@@ -1,7 +1,4 @@
-pub mod datasource_test;
-
-// File data source tests
-pub mod file_config_test;
-pub mod file_datasource_test;
-pub mod file_error_test;
-pub mod file_watcher_test;
+//! SQL-specific datasource tests
+//! 
+//! Note: Generic datasource tests have been moved to tests/unit/datasource/
+//! This module is reserved for SQL-specific integration tests

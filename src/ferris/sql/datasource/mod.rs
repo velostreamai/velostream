@@ -1,16 +1,11 @@
-//! Data Source Abstraction Layer
+//! SQL Data Source Layer
 //!
-//! This module provides the core abstractions for pluggable data sources in FerrisStreams.
-//! It enables reading from any source (Kafka, S3, files, databases) and writing to any sink
-//! (Kafka, Iceberg, Parquet, etc.) using a unified interface.
+//! This module provides SQL-specific extensions and compatibility layer for the generic
+//! datasource implementations. It handles connection string parsing and maintains backward
+//! compatibility with the SQL engine's existing APIs.
 //!
-//! ## Architecture
-//!
-//! - **DataSource**: Input source that can provide readers
-//! - **DataSink**: Output destination that can provide writers  
-//! - **DataReader**: Reads records from any source type
-//! - **DataWriter**: Writes records to any sink type
-//! - **SourceConfig/SinkConfig**: Type-specific configuration
+//! This module delegates to the generic datasource implementations in `crate::ferris::datasource`
+//! while providing SQL-specific conveniences like connection string parsing.
 //!
 //! ## Examples
 //!
@@ -19,15 +14,15 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//!     // Create a Kafka source
+//!     // Create a Kafka source using connection string
 //!     let source = create_source("kafka://localhost:9092/orders").map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 //!     let mut reader = source.create_reader().await?;
 //!
-//!     // Create an S3 sink  
-//!     let sink = create_sink("s3://bucket/path/*.parquet").map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+//!     // Create a File sink using connection string  
+//!     let sink = create_sink("file:///tmp/output.jsonl?format=jsonl").map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 //!     let mut writer = sink.create_writer().await?;
 //!
-//!     // Process: Kafka -> S3
+//!     // Process: Kafka -> File
 //!     while let Some(record) = reader.read().await? {
 //!         writer.write(record).await?;
 //!     }
@@ -37,15 +32,28 @@
 //! ```
 
 pub mod config;
-pub mod file;
-pub mod kafka;
 pub mod registry;
-pub mod traits;
-pub mod types;
 
-// Re-export key types
-pub use config::{ConnectionString, SinkConfig, SourceConfig};
-pub use file::{FileDataSource, FileFormat, FileSourceConfig};
+// Re-export old module structure for backward compatibility
+// These delegate to the generic implementations
+pub mod file {
+    pub use crate::ferris::datasource::file::*;
+}
+
+pub mod kafka {
+    pub use crate::ferris::datasource::kafka::*;
+}
+
+// Re-export key types - delegating to generic implementations
+pub use config::ConnectionString;
 pub use registry::{create_sink, create_source};
-pub use traits::{DataReader, DataSink, DataSource, DataWriter};
-pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
+
+// Re-export generic datasource types for compatibility
+pub use crate::ferris::datasource::{
+    DataReader, DataSink, DataSource, DataWriter,
+    DataSourceError, SinkConfig, SinkMetadata, SourceConfig, SourceMetadata, SourceOffset,
+};
+
+// Re-export specific implementations for compatibility
+pub use crate::ferris::datasource::file::{FileDataSource, FileFormat, FileSourceConfig};
+pub use crate::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};

@@ -1,8 +1,7 @@
 //! Comprehensive tests for file data source functionality
 
-use ferrisstreams::ferris::sql::datasource::config::SourceConfig;
-use ferrisstreams::ferris::sql::datasource::file::{FileDataSource, FileFormat, FileSourceConfig};
-use ferrisstreams::ferris::sql::datasource::traits::DataSource;
+use ferrisstreams::ferris::datasource::{DataSource, SourceConfig};
+use ferrisstreams::ferris::datasource::file::{FileDataSource, FileFormat, FileSourceConfig};
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::fs;
 use tempfile::TempDir;

@@ -1,4 +1,6 @@
 pub mod common;
+// Generic datasource tests - Tests for datasource implementations
+pub mod datasource;
 pub mod kafka;
 pub mod sql;
 pub mod test_messages;
