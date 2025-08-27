@@ -41,6 +41,8 @@ pub mod registry;
 pub mod registry_client;
 pub mod reference_resolver;
 pub mod enhanced_cache;
+pub mod registry_backend;
+pub mod unified_registry_client;
 
 // Re-export key components for easy access
 pub use cache::{CacheConfig, SchemaCache};
@@ -57,6 +59,13 @@ pub use reference_resolver::{
 };
 pub use enhanced_cache::{
     EnhancedSchemaCache, CacheMetrics, CacheConfig as EnhancedCacheConfig
+};
+pub use registry_backend::{
+    SchemaRegistryBackend, BackendConfig, SchemaRegistryBackendFactory,
+    SchemaResponse, HealthStatus, BackendMetadata, BackendCapabilities
+};
+pub use unified_registry_client::{
+    UnifiedSchemaRegistryClient, UnifiedClientConfig, UnifiedClientBuilder
 };
 
 use crate::ferris::sql::ast::DataType;
