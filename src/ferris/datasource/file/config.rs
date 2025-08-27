@@ -120,48 +120,63 @@ impl FileSourceConfig {
             ..Default::default()
         }
     }
-    
+
     /// Create from generic SourceConfig::File
     pub fn from_generic(config: &SourceConfig) -> Result<Self, String> {
-        if let SourceConfig::File { path, format, properties } = config {
+        if let SourceConfig::File {
+            path,
+            format,
+            properties,
+        } = config
+        {
             let mut file_config = Self::new(path.clone(), FileFormat::Csv);
-            
+
             // Convert generic FileFormat back to local FileFormat
             match format {
-                crate::ferris::datasource::config::FileFormat::Csv { header, delimiter, quote } => {
-                    file_config.format = if *header { FileFormat::Csv } else { FileFormat::CsvNoHeader };
+                crate::ferris::datasource::config::FileFormat::Csv {
+                    header,
+                    delimiter,
+                    quote,
+                } => {
+                    file_config.format = if *header {
+                        FileFormat::Csv
+                    } else {
+                        FileFormat::CsvNoHeader
+                    };
                     file_config.csv_delimiter = *delimiter;
                     file_config.csv_quote = *quote;
                     file_config.csv_has_header = *header;
-                },
+                }
                 crate::ferris::datasource::config::FileFormat::Json => {
                     file_config.format = FileFormat::JsonLines;
-                },
+                }
                 _ => {
                     return Err(format!("Unsupported file format: {}", format));
                 }
             }
-            
+
             // Parse properties back
             for (key, value) in properties {
                 match key.as_str() {
-                    "watch_for_changes" => file_config.watch_for_changes = value.parse().unwrap_or(false),
+                    "watch_for_changes" => {
+                        file_config.watch_for_changes = value.parse().unwrap_or(false)
+                    }
                     "polling_interval_ms" => file_config.polling_interval_ms = value.parse().ok(),
                     "csv_delimiter" => {
                         if let Some(c) = value.chars().next() {
                             file_config.csv_delimiter = c;
                         }
-                    },
+                    }
                     "csv_quote" => {
                         if let Some(c) = value.chars().next() {
                             file_config.csv_quote = c;
                         }
-                    },
+                    }
                     "csv_escape" => {
                         if let Some(c) = value.chars().next() {
                             file_config.csv_escape = Some(c);
                         }
-                    },
+                    }
                     "csv_has_header" => file_config.csv_has_header = value.parse().unwrap_or(true),
                     "skip_lines" => file_config.skip_lines = value.parse().unwrap_or(0),
                     "max_records" => file_config.max_records = value.parse().ok(),
@@ -171,7 +186,7 @@ impl FileSourceConfig {
                     _ => {} // Ignore unknown properties
                 }
             }
-            
+
             Ok(file_config)
         } else {
             Err("Expected File source configuration".to_string())
@@ -346,18 +361,27 @@ impl FileSourceConfig {
 impl From<FileSourceConfig> for SourceConfig {
     fn from(config: FileSourceConfig) -> Self {
         let mut properties = std::collections::HashMap::new();
-        
+
         // Convert FileSourceConfig to generic File format
-        properties.insert("watch_for_changes".to_string(), config.watch_for_changes.to_string());
+        properties.insert(
+            "watch_for_changes".to_string(),
+            config.watch_for_changes.to_string(),
+        );
         if let Some(interval) = config.polling_interval_ms {
             properties.insert("polling_interval_ms".to_string(), interval.to_string());
         }
-        properties.insert("csv_delimiter".to_string(), config.csv_delimiter.to_string());
+        properties.insert(
+            "csv_delimiter".to_string(),
+            config.csv_delimiter.to_string(),
+        );
         properties.insert("csv_quote".to_string(), config.csv_quote.to_string());
         if let Some(escape) = config.csv_escape {
             properties.insert("csv_escape".to_string(), escape.to_string());
         }
-        properties.insert("csv_has_header".to_string(), config.csv_has_header.to_string());
+        properties.insert(
+            "csv_has_header".to_string(),
+            config.csv_has_header.to_string(),
+        );
         properties.insert("skip_lines".to_string(), config.skip_lines.to_string());
         if let Some(max) = config.max_records {
             properties.insert("max_records".to_string(), max.to_string());
@@ -367,7 +391,7 @@ impl From<FileSourceConfig> for SourceConfig {
         if let Some(ext) = config.extension_filter {
             properties.insert("extension_filter".to_string(), ext);
         }
-        
+
         // Map FileFormat to generic FileFormat
         let generic_format = match config.format {
             FileFormat::Csv | FileFormat::CsvNoHeader => {
@@ -376,12 +400,12 @@ impl From<FileSourceConfig> for SourceConfig {
                     delimiter: config.csv_delimiter,
                     quote: config.csv_quote,
                 }
-            },
+            }
             FileFormat::JsonLines | FileFormat::Json => {
                 crate::ferris::datasource::config::FileFormat::Json
             }
         };
-        
+
         SourceConfig::File {
             path: config.path,
             format: generic_format,

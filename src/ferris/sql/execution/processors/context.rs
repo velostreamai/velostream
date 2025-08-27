@@ -1,7 +1,7 @@
 //! Processor execution context and state management
 
-use crate::ferris::schema::{Schema, StreamHandle};
 use crate::ferris::datasource::{DataReader, DataWriter, SourceOffset};
+use crate::ferris::schema::{Schema, StreamHandle};
 use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
 use crate::ferris::sql::execution::StreamRecord;

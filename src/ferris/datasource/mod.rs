@@ -40,10 +40,10 @@ pub mod traits;
 pub mod types;
 
 // Re-export core types
-pub use config::{FileFormat, CdcFormat, SinkConfig, SourceConfig};
+pub use config::{CdcFormat, FileFormat, SinkConfig, SourceConfig};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 
 // Re-export specific implementations
+pub use file::FileDataSource;
 pub use kafka::{KafkaDataSink, KafkaDataSource};
-pub use file::{FileDataSource};

@@ -50,8 +50,8 @@ pub use registry::{create_sink, create_source};
 
 // Re-export generic datasource types for compatibility
 pub use crate::ferris::datasource::{
-    DataReader, DataSink, DataSource, DataWriter,
-    DataSourceError, SinkConfig, SinkMetadata, SourceConfig, SourceMetadata, SourceOffset,
+    DataReader, DataSink, DataSource, DataSourceError, DataWriter, SinkConfig, SinkMetadata,
+    SourceConfig, SourceMetadata, SourceOffset,
 };
 
 // Re-export specific implementations for compatibility

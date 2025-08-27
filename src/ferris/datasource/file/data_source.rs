@@ -1,9 +1,9 @@
 //! File Data Source Implementation
 
-use crate::ferris::schema::Schema;
 use crate::ferris::datasource::config::SourceConfig;
 use crate::ferris::datasource::traits::{DataReader, DataSource};
 use crate::ferris::datasource::types::SourceMetadata;
+use crate::ferris::schema::Schema;
 use async_trait::async_trait;
 use std::error::Error;
 use std::path::Path;
@@ -226,8 +226,9 @@ impl DataSource for FileDataSource {
         &mut self,
         config: SourceConfig,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let file_config = FileSourceConfig::from_generic(&config)
-            .map_err(|e| Box::new(FileDataSourceError::UnsupportedFormat(e)) as Box<dyn Error + Send + Sync>)?;
+        let file_config = FileSourceConfig::from_generic(&config).map_err(|e| {
+            Box::new(FileDataSourceError::UnsupportedFormat(e)) as Box<dyn Error + Send + Sync>
+        })?;
 
         // Validate configuration
         file_config.validate().map_err(|e| {

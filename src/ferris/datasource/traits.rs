@@ -123,4 +123,3 @@ pub trait DataWriter: Send + Sync + 'static {
     /// Rollback the current transaction (for transactional sinks)
     async fn rollback(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
-
