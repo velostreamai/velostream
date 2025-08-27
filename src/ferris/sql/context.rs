@@ -1,7 +1,7 @@
 use crate::ferris::sql::ast::StreamingQuery;
 use crate::ferris::sql::error::SqlError;
 use crate::ferris::sql::parser::StreamingSqlParser;
-use crate::ferris::sql::schema::{Schema, StreamHandle};
+use crate::ferris::schema::{Schema, StreamHandle};
 use std::collections::HashMap;
 use std::sync::Arc;
 

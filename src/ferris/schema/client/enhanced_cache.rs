@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use super::registry_client::{CachedSchema, DependencyGraph, ResolvedSchema};
-use super::{SchemaError, SchemaResult};
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Enhanced multi-level schema cache
 pub struct EnhancedSchemaCache {

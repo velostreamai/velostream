@@ -8,9 +8,12 @@ use tokio::sync::RwLock;
 
 use super::enhanced_cache::EnhancedSchemaCache;
 use super::reference_resolver::SchemaReferenceResolver;
-use super::registry_backend::{BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory};
+use crate::ferris::schema::server::{
+    BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory,
+    BackendMetadata, HealthStatus, ConfluentAuth,
+};
 use super::registry_client::{CachedSchema, DependencyGraph, ResolvedSchema, SchemaReference};
-use super::{SchemaError, SchemaResult};
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Unified Schema Registry Client that works with any backend
 pub struct UnifiedSchemaRegistryClient {
@@ -216,12 +219,12 @@ impl UnifiedSchemaRegistryClient {
     }
 
     /// Get backend metadata
-    pub fn backend_metadata(&self) -> super::registry_backend::BackendMetadata {
+    pub fn backend_metadata(&self) -> BackendMetadata {
         self.backend.metadata()
     }
 
     /// Health check for the backend
-    pub async fn health_check(&self) -> SchemaResult<super::registry_backend::HealthStatus> {
+    pub async fn health_check(&self) -> SchemaResult<HealthStatus> {
         self.backend.health_check().await
     }
 
@@ -307,7 +310,7 @@ impl UnifiedClientBuilder {
     pub fn confluent(mut self, base_url: &str) -> Self {
         self.backend_config = Some(BackendConfig::Confluent {
             base_url: base_url.to_string(),
-            auth: super::registry_backend::ConfluentAuth::None,
+            auth: ConfluentAuth::None,
             timeout_seconds: 30,
             max_retries: 3,
         });
@@ -318,7 +321,7 @@ impl UnifiedClientBuilder {
     pub fn confluent_with_auth(
         mut self,
         base_url: &str,
-        auth: super::registry_backend::ConfluentAuth,
+        auth: ConfluentAuth,
     ) -> Self {
         self.backend_config = Some(BackendConfig::Confluent {
             base_url: base_url.to_string(),

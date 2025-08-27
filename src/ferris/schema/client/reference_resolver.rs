@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use super::registry_client::{
     CachedSchema, DependencyGraph, GraphNode, ResolvedSchema, SchemaReference, SchemaRegistryClient,
 };
-use super::{SchemaError, SchemaResult};
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Advanced schema reference resolver with evolution support
 pub struct SchemaReferenceResolver {

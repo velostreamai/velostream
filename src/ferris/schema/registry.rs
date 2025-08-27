@@ -3,7 +3,7 @@
 //! Central registry for managing schemas across heterogeneous data sources.
 //! Supports automatic schema discovery, caching, and provider management.
 
-use super::{Schema, SchemaError, SchemaResult};
+use crate::ferris::schema::{Schema, SchemaError, SchemaResult};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -308,7 +308,7 @@ pub struct CacheStats {
 mod tests {
     use super::*;
     use crate::ferris::sql::ast::DataType;
-    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
+    use crate::ferris::schema::{FieldDefinition, SchemaMetadata};
 
     struct MockSchemaProvider {
         scheme: String,

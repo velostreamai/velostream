@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::fs;
 
-use crate::ferris::sql::schema::registry_backend::{
+use crate::ferris::schema::server::registry_backend::{
     BackendCapabilities, BackendMetadata, HealthStatus, SchemaRegistryBackend, SchemaResponse,
 };
-use crate::ferris::sql::schema::registry_client::SchemaReference;
-use crate::ferris::sql::schema::{SchemaError, SchemaResult};
+use crate::ferris::schema::client::registry_client::SchemaReference;
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaVersion {

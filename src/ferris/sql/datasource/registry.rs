@@ -279,10 +279,10 @@ mod tests {
 
         async fn fetch_schema(
             &self,
-        ) -> Result<crate::ferris::sql::schema::Schema, Box<dyn std::error::Error + Send + Sync>>
+        ) -> Result<crate::ferris::schema::Schema, Box<dyn std::error::Error + Send + Sync>>
         {
             use crate::ferris::sql::ast::DataType;
-            use crate::ferris::sql::schema::{FieldDefinition, Schema};
+            use crate::ferris::schema::{FieldDefinition, Schema};
             Ok(Schema::new(vec![FieldDefinition::required(
                 "id".to_string(),
                 DataType::Integer,
@@ -329,7 +329,7 @@ mod tests {
 
         async fn validate_schema(
             &self,
-            _schema: &crate::ferris::sql::schema::Schema,
+            _schema: &crate::ferris::schema::Schema,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }

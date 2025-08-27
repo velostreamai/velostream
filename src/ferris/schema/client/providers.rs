@@ -3,8 +3,8 @@
 //! Implementations of schema discovery for different data source types.
 //! Each provider knows how to extract schema information from its specific data source.
 
-use super::registry::{ProviderMetadata, SchemaProvider};
-use super::{
+use crate::ferris::schema::registry::{ProviderMetadata, SchemaProvider};
+use crate::ferris::schema::{
     CompatibilityMode, FieldDefinition, Schema, SchemaError, SchemaMetadata, SchemaResult,
 };
 use crate::ferris::sql::ast::DataType;
@@ -404,8 +404,8 @@ impl SchemaProvider for S3SchemaProvider {
 }
 
 /// Create a schema registry with default providers
-pub fn create_default_registry() -> super::registry::SchemaRegistry {
-    let mut registry = super::registry::SchemaRegistry::new();
+pub fn create_default_registry() -> crate::ferris::schema::registry::SchemaRegistry {
+    let mut registry = crate::ferris::schema::registry::SchemaRegistry::new();
 
     // Register default providers
     registry.register_provider("kafka", std::sync::Arc::new(KafkaSchemaProvider::new()));

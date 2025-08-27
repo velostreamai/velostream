@@ -1,6 +1,7 @@
 pub mod error;
 pub mod kafka;
 pub mod multi_job_server;
+pub mod schema;
 pub mod serialization;
 pub mod sql;
 

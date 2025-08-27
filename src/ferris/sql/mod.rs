@@ -9,7 +9,6 @@ pub mod datasource;
 pub mod error;
 pub mod execution;
 pub mod parser;
-pub mod schema;
 
 // Re-export main API
 pub use app_parser::{SqlApplication, SqlApplicationParser};

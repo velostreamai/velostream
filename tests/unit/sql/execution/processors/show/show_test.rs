@@ -10,7 +10,7 @@ use ferrisstreams::ferris::sql::execution::processors::{
     JoinContext, ProcessorContext, QueryProcessor,
 };
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
+use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use std::collections::HashMap;
 
 fn create_test_record() -> StreamRecord {

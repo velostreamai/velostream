@@ -6,9 +6,9 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-use super::super::registry_client::SchemaReference;
-use super::super::{SchemaError, SchemaResult};
-use crate::ferris::sql::schema::registry_backend::{
+use crate::ferris::schema::client::registry_client::SchemaReference;
+use crate::ferris::schema::{SchemaError, SchemaResult};
+use crate::ferris::schema::server::registry_backend::{
     BackendCapabilities, BackendMetadata, HealthStatus, SchemaRegistryBackend, SchemaResponse,
 };
 

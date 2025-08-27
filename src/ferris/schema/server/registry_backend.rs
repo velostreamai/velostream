@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::registry_client::SchemaReference;
-use super::{SchemaError, SchemaResult};
+use crate::ferris::schema::client::registry_client::SchemaReference;
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
-pub use super::schema_backends::{
-    AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,
+pub use super::backends::{
+    AmazonMskSchemaRegistryBackend, ConfluentAuth, ConfluentSchemaRegistryBackend,
     FileSystemSchemaRegistryBackend, InMemorySchemaRegistryBackend, PulsarSchemaRegistryBackend,
-    SchemaVersion,
+    AwsCredentials, SchemaVersion,
 };
 
 /// Trait defining the interface for schema registry backends

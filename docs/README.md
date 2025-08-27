@@ -7,7 +7,7 @@ This directory contains comprehensive documentation for FerrisStreams.
 ### Core Guides
 - **[Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md)** - Learn when and how to use the fluent builder APIs
 - **[Type-Safe Kafka](feature/TYPE_SAFE_KAFKA.md)** - Comprehensive guide to type-safe Kafka operations
-- **[Simplified Kafka API](developer/SIMPLIFIED_KAFKA_API.md)** - High-level API documentation and examples
+- **[Streaming Kafka API](developer/STREAMING_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](developer/HEADERS_GUIDE.md)** - Working with Kafka message headers
 
 ### Serialization System

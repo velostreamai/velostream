@@ -6,7 +6,7 @@ Handles SHOW and DESCRIBE queries for discovering streams, tables, schemas, and 
 
 use crate::ferris::sql::ast::ShowResourceType;
 use crate::ferris::sql::execution::{FieldValue, StreamRecord};
-use crate::ferris::sql::schema::{Schema, StreamHandle};
+use crate::ferris::schema::{Schema, StreamHandle};
 use crate::ferris::sql::{SqlError, StreamingQuery};
 use std::collections::{HashMap, HashSet};
 

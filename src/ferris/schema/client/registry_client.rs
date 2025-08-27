@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::{SchemaError, SchemaResult};
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Schema Registry client for managing schemas with reference support
 pub struct SchemaRegistryClient {

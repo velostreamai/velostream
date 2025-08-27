@@ -3,7 +3,7 @@
 //! TTL-based schema caching with version tracking and automatic invalidation.
 //! Provides high-performance schema access with configurable eviction policies.
 
-use super::{Schema, SchemaResult};
+use crate::ferris::schema::{Schema, SchemaResult};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -485,7 +485,7 @@ impl CacheStatistics {
 mod tests {
     use super::*;
     use crate::ferris::sql::ast::DataType;
-    use crate::ferris::sql::schema::{FieldDefinition, SchemaMetadata};
+    use crate::ferris::schema::{FieldDefinition, SchemaMetadata};
 
     fn create_test_schema(version: &str) -> Schema {
         Schema {

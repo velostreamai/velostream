@@ -4,8 +4,7 @@
 //! including discovery, caching, evolution, and provider capabilities.
 
 use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::schema::cache::CacheLookupResult;
-use ferrisstreams::ferris::sql::schema::*;
+use ferrisstreams::ferris::schema::*;
 use std::time::Duration;
 
 #[tokio::main]

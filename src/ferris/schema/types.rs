@@ -1,75 +1,12 @@
-//! Schema Management System
+//! Core Schema Types
 //!
-//! This module provides comprehensive schema management for heterogeneous data sources.
-//! It includes schema discovery, evolution, caching, and validation across different
-//! data source types.
-//!
-//! ## Key Components
-//!
-//! - **SchemaRegistry**: Central registry for managing schemas across data sources
-//! - **SchemaProvider**: Plugin system for source-specific schema discovery
-//! - **SchemaEvolution**: Handles backward/forward compatibility and migrations
-//! - **SchemaCache**: TTL-based caching with version tracking
-//!
-//! ## Example Usage
-//!
-//! ```rust,no_run
-//! use ferrisstreams::ferris::sql::schema::*;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//!     let mut registry = SchemaRegistry::new();
-//!     
-//!     // Discover schema from Kafka topic
-//!     let schema = registry.discover("kafka://localhost:9092/orders").await?;
-//!     println!("Discovered schema: {:?}", schema);
-//!     
-//!     // Check schema evolution compatibility
-//!     let evolution = SchemaEvolution::new();
-//!     let old_schema = schema.clone(); // Example: use discovered schema as old
-//!     let new_schema = schema; // Example: use same schema as new
-//!     let can_migrate = evolution.can_evolve(&old_schema, &new_schema);
-//!     
-//!     Ok(())
-//! }
-//! ```
-
-pub mod cache;
-pub mod enhanced_cache;
-pub mod evolution;
-pub mod providers;
-pub mod reference_resolver;
-pub mod registry;
-pub mod registry_backend;
-pub mod registry_client;
-pub mod schema_backends;
-pub mod unified_registry_client;
-
-// Re-export key components for easy access
-pub use cache::{CacheConfig, SchemaCache};
-pub use enhanced_cache::{CacheConfig as EnhancedCacheConfig, CacheMetrics, EnhancedSchemaCache};
-pub use evolution::SchemaEvolution;
-pub use providers::create_default_registry;
-pub use reference_resolver::{
-    CompatibilityLevel, CompatibilityResult, MigrationPlan, ResolverConfig, RolloutPlan,
-    RolloutStrategy, SchemaReferenceResolver,
-};
-pub use registry::{SchemaProvider, SchemaRegistry};
-pub use registry_backend::{
-    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
-    SchemaRegistryBackendFactory, SchemaResponse,
-};
-pub use registry_client::{
-    AuthConfig, DependencyGraph, ResolvedSchema, SchemaDependency, SchemaReference,
-    SchemaRegistryClient,
-};
-pub use unified_registry_client::{
-    UnifiedClientBuilder, UnifiedClientConfig, UnifiedSchemaRegistryClient,
-};
+//! This module contains the fundamental schema types used throughout the
+//! FerrisStreams schema system.
 
 use crate::ferris::sql::ast::DataType;
 use std::collections::HashMap;
 
+/// A schema definition containing field definitions and metadata
 #[derive(Debug, Clone, PartialEq)]
 pub struct Schema {
     pub fields: Vec<FieldDefinition>,
@@ -77,6 +14,7 @@ pub struct Schema {
     pub metadata: SchemaMetadata,
 }
 
+/// Definition of a single field in a schema
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDefinition {
     pub name: String,
@@ -86,6 +24,7 @@ pub struct FieldDefinition {
     pub default_value: Option<String>,
 }
 
+/// Metadata associated with a schema
 #[derive(Debug, Clone, PartialEq)]
 pub struct SchemaMetadata {
     pub source_type: String,
@@ -95,6 +34,7 @@ pub struct SchemaMetadata {
     pub compatibility: CompatibilityMode,
 }
 
+/// Schema compatibility modes
 #[derive(Debug, Clone, PartialEq)]
 pub enum CompatibilityMode {
     /// No compatibility checking
@@ -109,6 +49,7 @@ pub enum CompatibilityMode {
     Strict,
 }
 
+/// Handle to a stream with schema information
 #[derive(Debug, Clone)]
 pub struct StreamHandle {
     pub id: String,
@@ -116,6 +57,7 @@ pub struct StreamHandle {
     pub schema_id: String,
 }
 
+/// Metadata about a stream
 #[derive(Debug, Clone)]
 pub struct StreamMetadata {
     pub record_count: u64,
@@ -123,6 +65,7 @@ pub struct StreamMetadata {
     pub partitions: Vec<PartitionMetadata>,
 }
 
+/// Metadata about a stream partition
 #[derive(Debug, Clone)]
 pub struct PartitionMetadata {
     pub partition_id: i32,
@@ -130,6 +73,7 @@ pub struct PartitionMetadata {
     pub high_watermark: i64,
 }
 
+// Implementation methods from the original mod.rs
 impl Schema {
     pub fn new(fields: Vec<FieldDefinition>) -> Self {
         Self {
@@ -326,52 +270,3 @@ impl PartitionMetadata {
         }
     }
 }
-
-/// Error types for schema management operations
-#[derive(Debug)]
-pub enum SchemaError {
-    NotFound {
-        source: String,
-    },
-    Incompatible {
-        reason: String,
-    },
-    Provider {
-        source: String,
-        message: String,
-    },
-    Cache {
-        message: String,
-    },
-    Evolution {
-        from: String,
-        to: String,
-        reason: String,
-    },
-    Validation {
-        message: String,
-    },
-}
-
-impl std::fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SchemaError::NotFound { source } => write!(f, "Schema not found: {}", source),
-            SchemaError::Incompatible { reason } => write!(f, "Schema incompatible: {}", reason),
-            SchemaError::Provider { source, message } => {
-                write!(f, "Schema provider error: {} - {}", source, message)
-            }
-            SchemaError::Cache { message } => write!(f, "Schema cache error: {}", message),
-            SchemaError::Evolution { from, to, reason } => {
-                write!(f, "Schema evolution error: {} -> {}: {}", from, to, reason)
-            }
-            SchemaError::Validation { message } => {
-                write!(f, "Schema validation error: {}", message)
-            }
-        }
-    }
-}
-
-impl std::error::Error for SchemaError {}
-
-pub type SchemaResult<T> = Result<T, SchemaError>;
