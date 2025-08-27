@@ -19,7 +19,7 @@ use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::config::ConnectionString;
 use ferrisstreams::ferris::sql::datasource::create_source;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::schema::{
+use ferrisstreams::ferris::schema::{
     CompatibilityMode, FieldDefinition, Schema, SchemaMetadata,
 };
 use serde::{Deserialize, Serialize};
