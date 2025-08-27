@@ -3,8 +3,8 @@
 //! This binary demonstrates the comprehensive schema management functionality
 //! including discovery, caching, evolution, and provider capabilities.
 
-use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::schema::*;
+use ferrisstreams::ferris::sql::ast::DataType;
 use std::time::Duration;
 
 #[tokio::main]

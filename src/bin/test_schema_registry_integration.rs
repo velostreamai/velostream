@@ -8,11 +8,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio;
 
-use ferrisstreams::ferris::schema::{
-    UnifiedSchemaRegistryClient, BackendConfig, 
-    SchemaRegistryBackend, SchemaRegistryBackendFactory,
-};
 use ferrisstreams::ferris::schema::client::registry_client::SchemaReference;
+use ferrisstreams::ferris::schema::{
+    BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory, UnifiedSchemaRegistryClient,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

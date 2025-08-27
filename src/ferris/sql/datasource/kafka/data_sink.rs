@@ -2,8 +2,8 @@
 
 use crate::ferris::kafka::serialization::JsonSerializer;
 use crate::ferris::kafka::KafkaProducer;
-use crate::ferris::sql::datasource::{DataSink, DataWriter, SinkConfig, SinkMetadata};
 use crate::ferris::schema::Schema;
+use crate::ferris::sql::datasource::{DataSink, DataWriter, SinkConfig, SinkMetadata};
 use async_trait::async_trait;
 use std::collections::HashMap;
 

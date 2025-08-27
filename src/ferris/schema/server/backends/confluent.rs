@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::ferris::schema::client::registry_client::SchemaReference;
-use crate::ferris::schema::{SchemaError, SchemaResult};
 use crate::ferris::schema::server::registry_backend::{
     BackendCapabilities, BackendMetadata, HealthStatus, SchemaRegistryBackend, SchemaResponse,
 };
+use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Confluent-specific authentication
 #[derive(Debug, Clone)]

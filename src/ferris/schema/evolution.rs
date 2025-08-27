@@ -3,7 +3,9 @@
 //! Handles backward and forward compatibility checking, schema migration,
 //! and automatic record transformation between schema versions.
 
-use crate::ferris::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaError, SchemaResult};
+use crate::ferris::schema::{
+    CompatibilityMode, FieldDefinition, Schema, SchemaError, SchemaResult,
+};
 use crate::ferris::sql::ast::DataType;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::{HashMap, HashSet};

@@ -5,8 +5,8 @@ use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
 use ferrisstreams::ferris::sql::DataType;
 
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
+use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 

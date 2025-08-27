@@ -484,8 +484,8 @@ impl CacheStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ferris::sql::ast::DataType;
     use crate::ferris::schema::{FieldDefinition, SchemaMetadata};
+    use crate::ferris::sql::ast::DataType;
 
     fn create_test_schema(version: &str) -> Schema {
         Schema {

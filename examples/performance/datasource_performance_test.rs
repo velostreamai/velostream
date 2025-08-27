@@ -15,13 +15,11 @@
 //! - Run with: `cargo run --example datasource_performance_test`
 
 use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
+use ferrisstreams::ferris::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
 use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::config::ConnectionString;
 use ferrisstreams::ferris::sql::datasource::create_source;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::schema::{
-    CompatibilityMode, FieldDefinition, Schema, SchemaMetadata,
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

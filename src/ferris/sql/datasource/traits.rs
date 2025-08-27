@@ -1,7 +1,7 @@
 //! Core traits for data source abstraction layer
 
-use crate::ferris::sql::execution::types::StreamRecord;
 use crate::ferris::schema::Schema;
+use crate::ferris::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
 use std::error::Error;
 

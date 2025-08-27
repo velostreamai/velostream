@@ -1,9 +1,9 @@
 //! File Data Source Implementation
 
+use crate::ferris::schema::Schema;
 use crate::ferris::sql::datasource::config::SourceConfig;
 use crate::ferris::sql::datasource::traits::{DataReader, DataSource};
 use crate::ferris::sql::datasource::types::SourceMetadata;
-use crate::ferris::schema::Schema;
 use async_trait::async_trait;
 use std::error::Error;
 use std::path::Path;
@@ -122,8 +122,8 @@ impl FileDataSource {
             // Simple CSV parsing - in production, use a proper CSV library
             let columns: Vec<&str> = line.trim().split(config.csv_delimiter).collect();
             for (i, column) in columns.iter().enumerate() {
-                use crate::ferris::sql::ast::DataType;
                 use crate::ferris::schema::FieldDefinition;
+                use crate::ferris::sql::ast::DataType;
 
                 fields.push(FieldDefinition::new(
                     if column.is_empty() {
@@ -137,8 +137,8 @@ impl FileDataSource {
             }
         } else {
             // Generate generic column names
-            use crate::ferris::sql::ast::DataType;
             use crate::ferris::schema::FieldDefinition;
+            use crate::ferris::sql::ast::DataType;
 
             fields.push(FieldDefinition::new(
                 "column_0".to_string(),
@@ -177,8 +177,8 @@ impl FileDataSource {
                             .map_err(|e| FileDataSourceError::JsonParseError(e.to_string()))?;
 
                         if let Some(obj) = json.as_object() {
-                            use crate::ferris::sql::ast::DataType;
                             use crate::ferris::schema::FieldDefinition;
+                            use crate::ferris::sql::ast::DataType;
 
                             for (key, value) in obj {
                                 let data_type = match value {
@@ -198,8 +198,8 @@ impl FileDataSource {
             FileFormat::Json => {
                 // For JSON arrays, we'd need to parse the structure differently
                 // For now, add a generic schema
-                use crate::ferris::sql::ast::DataType;
                 use crate::ferris::schema::FieldDefinition;
+                use crate::ferris::sql::ast::DataType;
 
                 fields.push(FieldDefinition::new(
                     "data".to_string(),

@@ -307,8 +307,8 @@ pub struct CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ferris::sql::ast::DataType;
     use crate::ferris::schema::{FieldDefinition, SchemaMetadata};
+    use crate::ferris::sql::ast::DataType;
 
     struct MockSchemaProvider {
         scheme: String,

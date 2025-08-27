@@ -281,8 +281,8 @@ mod tests {
             &self,
         ) -> Result<crate::ferris::schema::Schema, Box<dyn std::error::Error + Send + Sync>>
         {
-            use crate::ferris::sql::ast::DataType;
             use crate::ferris::schema::{FieldDefinition, Schema};
+            use crate::ferris::sql::ast::DataType;
             Ok(Schema::new(vec![FieldDefinition::required(
                 "id".to_string(),
                 DataType::Integer,

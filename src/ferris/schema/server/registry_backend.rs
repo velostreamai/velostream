@@ -13,9 +13,9 @@ use crate::ferris::schema::client::registry_client::SchemaReference;
 use crate::ferris::schema::{SchemaError, SchemaResult};
 
 pub use super::backends::{
-    AmazonMskSchemaRegistryBackend, ConfluentAuth, ConfluentSchemaRegistryBackend,
+    AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,
     FileSystemSchemaRegistryBackend, InMemorySchemaRegistryBackend, PulsarSchemaRegistryBackend,
-    AwsCredentials, SchemaVersion,
+    SchemaVersion,
 };
 
 /// Trait defining the interface for schema registry backends

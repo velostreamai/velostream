@@ -8,11 +8,11 @@ use tokio::sync::RwLock;
 
 use super::enhanced_cache::EnhancedSchemaCache;
 use super::reference_resolver::SchemaReferenceResolver;
-use crate::ferris::schema::server::{
-    BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory,
-    BackendMetadata, HealthStatus, ConfluentAuth,
-};
 use super::registry_client::{CachedSchema, DependencyGraph, ResolvedSchema, SchemaReference};
+use crate::ferris::schema::server::{
+    BackendConfig, BackendMetadata, ConfluentAuth, HealthStatus, SchemaRegistryBackend,
+    SchemaRegistryBackendFactory,
+};
 use crate::ferris::schema::{SchemaError, SchemaResult};
 
 /// Unified Schema Registry Client that works with any backend
@@ -318,11 +318,7 @@ impl UnifiedClientBuilder {
     }
 
     /// Configure Confluent with authentication
-    pub fn confluent_with_auth(
-        mut self,
-        base_url: &str,
-        auth: ConfluentAuth,
-    ) -> Self {
+    pub fn confluent_with_auth(mut self, base_url: &str, auth: ConfluentAuth) -> Self {
         self.backend_config = Some(BackendConfig::Confluent {
             base_url: base_url.to_string(),
             auth,

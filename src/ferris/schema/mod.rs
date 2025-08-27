@@ -29,8 +29,8 @@
 //! - `SchemaError`: Comprehensive error handling for all operations
 
 // Core types and errors
-pub mod types;
 pub mod error;
+pub mod types;
 
 // Client-side components
 pub mod client;
@@ -46,31 +46,27 @@ pub mod registry;
 
 // Re-export commonly used types
 pub use types::{
-    Schema, FieldDefinition, SchemaMetadata,
-    StreamHandle, StreamMetadata, PartitionMetadata,
-    CompatibilityMode,
+    CompatibilityMode, FieldDefinition, PartitionMetadata, Schema, SchemaMetadata, StreamHandle,
+    StreamMetadata,
 };
 
 pub use error::{SchemaError, SchemaResult};
 
 // Re-export client components
 pub use client::{
-    SchemaRegistryClient, UnifiedSchemaRegistryClient, RegistryClientConfig,
-    SchemaReferenceResolver, SchemaProvider, ProviderMetadata,
-    SchemaCache, EnhancedSchemaCache,
+    EnhancedSchemaCache, ProviderMetadata, RegistryClientConfig, SchemaCache, SchemaProvider,
+    SchemaReferenceResolver, SchemaRegistryClient, UnifiedSchemaRegistryClient,
 };
 
 // Re-export client sub-components for convenience
-pub use client::providers::create_default_registry;
 pub use client::cache::{CacheConfig, CacheLookupResult};
+pub use client::providers::create_default_registry;
 
 // Re-export server components
 pub use server::{
-    SchemaRegistryBackend, BackendConfig, BackendCapabilities, BackendMetadata,
-    HealthStatus, SchemaResponse, SchemaRegistryBackendFactory, SchemaRegistryServer,
+    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
+    SchemaRegistryBackendFactory, SchemaRegistryServer, SchemaResponse,
 };
 
 // Re-export evolution components
-pub use evolution::{
-    SchemaEvolution, EvolutionConfig, SchemaDiff, FieldModification,
-};
+pub use evolution::{EvolutionConfig, FieldModification, SchemaDiff, SchemaEvolution};

@@ -2,9 +2,9 @@
 
 use crate::ferris::kafka::serialization::JsonSerializer;
 use crate::ferris::kafka::KafkaConsumer;
+use crate::ferris::schema::{FieldDefinition, Schema};
 use crate::ferris::sql::ast::DataType;
 use crate::ferris::sql::datasource::{DataReader, DataSource, SourceConfig, SourceMetadata};
-use crate::ferris::schema::{FieldDefinition, Schema};
 use async_trait::async_trait;
 use std::collections::HashMap;
 

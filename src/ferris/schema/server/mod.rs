@@ -11,17 +11,14 @@ pub mod backends;
 
 // Re-export main server interfaces
 pub use registry_backend::{
-    SchemaRegistryBackend, BackendConfig, BackendCapabilities, BackendMetadata,
-    HealthStatus, SchemaResponse, SchemaRegistryBackendFactory,
+    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
+    SchemaRegistryBackendFactory, SchemaResponse,
 };
 
 // Re-export backend implementations
 pub use backends::{
-    ConfluentSchemaRegistryBackend, ConfluentAuth,
-    FileSystemSchemaRegistryBackend,
-    InMemorySchemaRegistryBackend,
-    AmazonMskSchemaRegistryBackend, AwsCredentials,
-    PulsarSchemaRegistryBackend,
+    AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,
+    FileSystemSchemaRegistryBackend, InMemorySchemaRegistryBackend, PulsarSchemaRegistryBackend,
 };
 
 // Server type alias for consistency
