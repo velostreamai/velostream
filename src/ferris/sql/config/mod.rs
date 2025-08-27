@@ -46,6 +46,6 @@ pub use environment::{ConfigSource, EnvironmentConfig};
 pub use types::{ConfigError, DataSourceConfig, ValidationStats};
 pub use validation::{ValidationError, ValidationStats as ValidationStatsValidation};
 pub use with_clause_parser::{
-    WithClauseParser, WithClauseConfig, WithClauseError, ConfigValue, ConfigValueType,
-    ConfigKeySchema,
+    ConfigKeySchema, ConfigValue, ConfigValueType, WithClauseConfig, WithClauseError,
+    WithClauseParser,
 };

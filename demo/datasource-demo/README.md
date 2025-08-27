@@ -29,7 +29,7 @@ cargo run --bin file_processing_demo --no-default-features
 ### Option 2: SQL Interface Demo (Recommended for Analysts)
 
 ```bash
-# Step 1: Generate demo data
+# Step 1: Generate demo data (5000 transactions)
 cd demo/datasource-demo
 ./generate_demo_data.sh
 

@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 use super::registry_client::{CachedSchema, SchemaRegistryClient};
@@ -111,11 +111,11 @@ struct AccessPattern {
 /// Types of access patterns for optimization
 #[derive(Debug, Clone, PartialEq)]
 enum AccessPatternType {
-    Burst,      // High frequency in short time
-    Periodic,   // Regular intervals
-    Sporadic,   // Irregular access
-    Declining,  // Decreasing frequency
-    Unknown,    // Insufficient data
+    Burst,     // High frequency in short time
+    Periodic,  // Regular intervals
+    Sporadic,  // Irregular access
+    Declining, // Decreasing frequency
+    Unknown,   // Insufficient data
 }
 
 /// Adaptive cache manager for intelligent tier management
@@ -151,10 +151,22 @@ struct AdaptationEvent {
 
 #[derive(Debug, Clone)]
 enum AdaptationEventType {
-    Promotion { from: CacheLevel, to: CacheLevel },
-    Demotion { from: CacheLevel, to: CacheLevel },
-    Eviction { from: CacheLevel },
-    HitRateChange { level: CacheLevel, old_rate: f64, new_rate: f64 },
+    Promotion {
+        from: CacheLevel,
+        to: CacheLevel,
+    },
+    Demotion {
+        from: CacheLevel,
+        to: CacheLevel,
+    },
+    Eviction {
+        from: CacheLevel,
+    },
+    HitRateChange {
+        level: CacheLevel,
+        old_rate: f64,
+        new_rate: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,23 +236,23 @@ pub struct MultiLevelCacheConfig {
     pub l1_max_entries: usize,
     pub l1_max_memory_mb: usize,
     pub l1_ttl: Duration,
-    
+
     /// L2 cache settings
     pub l2_max_entries: usize,
     pub l2_max_memory_mb: usize,
     pub l2_ttl: Duration,
-    
+
     /// L3 cache settings
     pub l3_max_entries: usize,
     pub l3_storage_path: String,
     pub l3_compression_enabled: bool,
-    
+
     /// Adaptation settings
     pub enable_adaptive_management: bool,
     pub promotion_threshold: f64,
     pub demotion_threshold: f64,
     pub heat_decay_rate: f64,
-    
+
     /// Refresh settings
     pub background_refresh_enabled: bool,
     pub refresh_interval: Duration,
@@ -253,20 +265,20 @@ impl Default for MultiLevelCacheConfig {
             l1_max_entries: 100,
             l1_max_memory_mb: 50,
             l1_ttl: Duration::from_secs(300), // 5 minutes
-            
+
             l2_max_entries: 1000,
             l2_max_memory_mb: 200,
             l2_ttl: Duration::from_secs(1800), // 30 minutes
-            
+
             l3_max_entries: 10000,
             l3_storage_path: "./cache/schemas".to_string(),
             l3_compression_enabled: true,
-            
+
             enable_adaptive_management: true,
             promotion_threshold: 0.7,
             demotion_threshold: 0.3,
             heat_decay_rate: 0.95,
-            
+
             background_refresh_enabled: true,
             refresh_interval: Duration::from_secs(60),
             max_concurrent_refreshes: 5,
@@ -302,12 +314,15 @@ impl MultiLevelSchemaCache {
         // L2 (Warm) cache lookup
         if let Some(entry) = self.l2_lookup(schema_id).await {
             self.record_hit(CacheLevel::L2Warm, schema_id).await;
-            
+
             // Consider promoting to L1 based on access pattern
-            if self.should_promote_to_l1(schema_id, &entry.access_pattern).await {
+            if self
+                .should_promote_to_l1(schema_id, &entry.access_pattern)
+                .await
+            {
                 self.promote_to_l1(schema_id, entry.schema.clone()).await?;
             }
-            
+
             return Ok(Some(entry.schema));
         }
 
@@ -315,12 +330,15 @@ impl MultiLevelSchemaCache {
         if let Some(compressed_entry) = self.l3_lookup(schema_id).await {
             let schema = self.decompress_schema(&compressed_entry)?;
             self.record_hit(CacheLevel::L3Cold, schema_id).await;
-            
+
             // Consider promoting to L2
-            if self.should_promote_to_l2(schema_id, &compressed_entry).await {
+            if self
+                .should_promote_to_l2(schema_id, &compressed_entry)
+                .await
+            {
                 self.promote_to_l2(schema_id, schema.clone()).await?;
             }
-            
+
             return Ok(Some(schema));
         }
 
@@ -332,10 +350,10 @@ impl MultiLevelSchemaCache {
     /// Store schema in appropriate cache level based on predicted usage
     pub async fn store_schema(&self, schema: CachedSchema) -> SchemaResult<()> {
         let schema_id = schema.id;
-        
+
         // Predict optimal cache level based on access patterns and schema characteristics
         let optimal_level = self.predict_optimal_cache_level(&schema).await;
-        
+
         match optimal_level {
             CacheLevel::L1Hot => {
                 self.store_in_l1(schema_id, schema).await?;
@@ -347,25 +365,26 @@ impl MultiLevelSchemaCache {
                 self.store_in_l3(schema_id, schema).await?;
             }
         }
-        
+
         Ok(())
     }
 
     /// Force refresh of schema across all cache levels
     pub async fn refresh_schema(
-        &self, 
-        schema_id: u32, 
-        registry: &SchemaRegistryClient
+        &self,
+        schema_id: u32,
+        registry: &SchemaRegistryClient,
     ) -> SchemaResult<CachedSchema> {
         // Fetch fresh schema from registry
         let fresh_schema = registry.get_schema(schema_id).await?;
-        
+
         // Update all cache levels where schema exists
-        self.update_all_levels(schema_id, fresh_schema.clone()).await?;
-        
+        self.update_all_levels(schema_id, fresh_schema.clone())
+            .await?;
+
         // Schedule background refresh for dependent schemas
         self.schedule_dependent_refreshes(schema_id).await;
-        
+
         Ok(fresh_schema)
     }
 
@@ -390,18 +409,18 @@ impl MultiLevelSchemaCache {
     pub async fn start_background_tasks(&self) {
         if self.config.background_refresh_enabled {
             let cache_clone = Arc::new(self.clone());
-            
+
             // Start adaptive cache management
             tokio::spawn(async move {
                 cache_clone.run_adaptive_management().await;
             });
-            
+
             // Start background refresh scheduler
             let cache_clone = Arc::new(self.clone());
             tokio::spawn(async move {
                 cache_clone.run_refresh_scheduler().await;
             });
-            
+
             // Start performance monitoring
             let cache_clone = Arc::new(self.clone());
             tokio::spawn(async move {
@@ -418,14 +437,15 @@ impl MultiLevelSchemaCache {
             // Update access statistics
             entry.access_frequency += 1;
             entry.last_accessed = Instant::now();
-            entry.heat_score = self.calculate_heat_score(entry.access_frequency, entry.last_accessed);
-            
+            entry.heat_score =
+                self.calculate_heat_score(entry.access_frequency, entry.last_accessed);
+
             let result = Some(entry.clone());
-            
+
             // Update LRU order (after cloning entry)
             l1.lru_order.retain(|&id| id != schema_id);
             l1.lru_order.push_front(schema_id);
-            
+
             result
         } else {
             None
@@ -438,10 +458,10 @@ impl MultiLevelSchemaCache {
             // Update access statistics
             entry.access_count += 1;
             entry.last_accessed = Instant::now();
-            
+
             // Update access pattern
             self.update_access_pattern(&mut entry.access_pattern).await;
-            
+
             Some(entry.clone())
         } else {
             None
@@ -479,18 +499,18 @@ impl MultiLevelSchemaCache {
         }
 
         // Promote if accessed recently and frequently enough
-        entry.access_count >= 3 && 
-        entry.last_accessed.elapsed() < Duration::from_secs(3600) // 1 hour
+        entry.access_count >= 3 && entry.last_accessed.elapsed() < Duration::from_secs(3600)
+        // 1 hour
     }
 
     async fn promote_to_l1(&self, schema_id: u32, schema: CachedSchema) -> SchemaResult<()> {
         let mut l1 = self.l1_cache.write().await;
-        
+
         // Check capacity and evict if necessary
         if l1.schemas.len() >= self.config.l1_max_entries {
             self.evict_from_l1(&mut l1).await;
         }
-        
+
         let entry = HotCacheEntry {
             schema,
             access_frequency: 1,
@@ -498,22 +518,22 @@ impl MultiLevelSchemaCache {
             promotion_time: Instant::now(),
             heat_score: 1.0,
         };
-        
+
         l1.schemas.insert(schema_id, entry);
         l1.lru_order.push_front(schema_id);
         l1.stats.promotions += 1;
-        
+
         Ok(())
     }
 
     async fn promote_to_l2(&self, schema_id: u32, schema: CachedSchema) -> SchemaResult<()> {
         let mut l2 = self.l2_cache.write().await;
-        
+
         // Check capacity
         if l2.schemas.len() >= self.config.l2_max_entries {
             self.evict_from_l2(&mut l2).await;
         }
-        
+
         let entry = WarmCacheEntry {
             size_bytes: self.estimate_schema_size(&schema),
             schema,
@@ -522,10 +542,10 @@ impl MultiLevelSchemaCache {
             created_at: Instant::now(),
             access_pattern: AccessPattern::new(),
         };
-        
+
         l2.schemas.insert(schema_id, entry);
         l2.stats.promotions += 1;
-        
+
         Ok(())
     }
 
@@ -539,12 +559,12 @@ impl MultiLevelSchemaCache {
 
     async fn store_in_l3(&self, schema_id: u32, schema: CachedSchema) -> SchemaResult<()> {
         let mut l3 = self.l3_cache.write().await;
-        
+
         // Compress schema for storage
         let compressed_data = self.compress_schema(&schema)?;
         let original_size = self.estimate_schema_size(&schema);
         let compressed_size = compressed_data.len() as u64;
-        
+
         let entry = ColdCacheEntry {
             compressed_schema: compressed_data,
             original_size,
@@ -554,11 +574,11 @@ impl MultiLevelSchemaCache {
             last_accessed: Instant::now(),
             access_count: 1,
         };
-        
+
         l3.schemas.insert(schema_id, entry);
         l3.compression_stats.total_compressed_size += compressed_size;
         l3.compression_stats.total_original_size += original_size;
-        
+
         Ok(())
     }
 
@@ -571,22 +591,23 @@ impl MultiLevelSchemaCache {
     async fn update_access_pattern(&self, pattern: &mut AccessPattern) {
         pattern.total_accesses += 1;
         let now = Instant::now();
-        
+
         // Track recent accesses (keep last 10)
         pattern.recent_accesses.push_back(now);
         if pattern.recent_accesses.len() > 10 {
             pattern.recent_accesses.pop_front();
         }
-        
+
         // Update access intervals for pattern analysis
         if pattern.recent_accesses.len() >= 2 {
-            let intervals: Vec<Duration> = pattern.recent_accesses
+            let intervals: Vec<Duration> = pattern
+                .recent_accesses
                 .iter()
                 .collect::<Vec<_>>()
                 .windows(2)
                 .map(|w| w[1].duration_since(*w[0]))
                 .collect();
-            
+
             pattern.access_intervals = intervals;
             pattern.pattern_type = self.classify_access_pattern(&pattern.access_intervals);
         }
@@ -596,12 +617,15 @@ impl MultiLevelSchemaCache {
         if intervals.is_empty() {
             return AccessPatternType::Unknown;
         }
-        
-        let avg_interval = intervals.iter().sum::<Duration>().as_secs_f64() / intervals.len() as f64;
-        let variance = intervals.iter()
+
+        let avg_interval =
+            intervals.iter().sum::<Duration>().as_secs_f64() / intervals.len() as f64;
+        let variance = intervals
+            .iter()
             .map(|d| (d.as_secs_f64() - avg_interval).powi(2))
-            .sum::<f64>() / intervals.len() as f64;
-        
+            .sum::<f64>()
+            / intervals.len() as f64;
+
         // Classification based on interval patterns
         if avg_interval < 60.0 && variance < 100.0 {
             AccessPatternType::Burst
@@ -615,7 +639,7 @@ impl MultiLevelSchemaCache {
     }
 
     // Additional helper methods would be implemented here...
-    
+
     async fn predict_optimal_cache_level(&self, _schema: &CachedSchema) -> CacheLevel {
         // Simplified prediction - in practice this would use ML or heuristics
         CacheLevel::L2Warm
@@ -628,11 +652,11 @@ impl MultiLevelSchemaCache {
 
     fn decompress_schema(&self, entry: &ColdCacheEntry) -> SchemaResult<CachedSchema> {
         // Simplified decompression
-        let schema_str = String::from_utf8(entry.compressed_schema.clone())
-            .map_err(|e| SchemaError::Cache { 
-                message: format!("Decompression error: {}", e) 
+        let schema_str =
+            String::from_utf8(entry.compressed_schema.clone()).map_err(|e| SchemaError::Cache {
+                message: format!("Decompression error: {}", e),
             })?;
-            
+
         Ok(CachedSchema {
             id: 0, // This would be properly restored
             subject: "restored".to_string(),
@@ -645,9 +669,9 @@ impl MultiLevelSchemaCache {
     }
 
     fn estimate_schema_size(&self, schema: &CachedSchema) -> u64 {
-        schema.schema.len() as u64 + 
-        schema.subject.len() as u64 + 
-        schema.references.len() as u64 * 100 // Rough estimate
+        schema.schema.len() as u64
+            + schema.subject.len() as u64
+            + schema.references.len() as u64 * 100 // Rough estimate
     }
 
     async fn evict_from_l1(&self, l1: &mut HotCache) {

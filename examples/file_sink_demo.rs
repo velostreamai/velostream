@@ -4,9 +4,11 @@
 //! to files with various formats and rotation strategies.
 
 use ferrisstreams::ferris::datasource::config::SinkConfig;
-use ferrisstreams::ferris::datasource::file::{FileSink, FileSinkConfig, FileFormat, CompressionType};
+use ferrisstreams::ferris::datasource::file::{
+    CompressionType, FileFormat, FileSink, FileSinkConfig,
+};
 use ferrisstreams::ferris::datasource::traits::{DataSink, DataWriter};
-use ferrisstreams::ferris::sql::execution::types::{StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
@@ -49,17 +51,30 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
     // Generate sample transaction records
     for i in 1..=100 {
         let mut fields = HashMap::new();
-        fields.insert("transaction_id".to_string(), FieldValue::String(format!("txn_{:04}", i)));
-        fields.insert("customer_id".to_string(), FieldValue::String(format!("cust_{}", 100 + (i % 50))));
-        fields.insert("amount".to_string(), FieldValue::ScaledInteger(
-            (1000 + i * 37) % 50000, // Random-ish amounts
-            2 // 2 decimal places
-        ));
-        fields.insert("currency".to_string(), FieldValue::String("USD".to_string()));
-        fields.insert("timestamp".to_string(), FieldValue::Integer(
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64
-        ));
-        
+        fields.insert(
+            "transaction_id".to_string(),
+            FieldValue::String(format!("txn_{:04}", i)),
+        );
+        fields.insert(
+            "customer_id".to_string(),
+            FieldValue::String(format!("cust_{}", 100 + (i % 50))),
+        );
+        fields.insert(
+            "amount".to_string(),
+            FieldValue::ScaledInteger(
+                (1000 + i * 37) % 50000, // Random-ish amounts
+                2,                       // 2 decimal places
+            ),
+        );
+        fields.insert(
+            "currency".to_string(),
+            FieldValue::String("USD".to_string()),
+        );
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64),
+        );
+
         let record = StreamRecord { fields };
         writer.write(record).await?;
 
@@ -90,18 +105,29 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
     // Generate sample user metrics records
     for i in 1..=50 {
         let mut fields = HashMap::new();
-        fields.insert("user_id".to_string(), FieldValue::String(format!("user_{:03}", i)));
-        fields.insert("session_count".to_string(), FieldValue::Integer((i * 3) % 20));
-        fields.insert("total_spent".to_string(), FieldValue::ScaledInteger(
-            (i * 1250) % 100000, // Random amounts 
-            2
-        ));
-        fields.insert("avg_session_time".to_string(), FieldValue::Float(
-            300.0 + (i as f64 * 17.3) % 1800.0
-        ));
-        fields.insert("last_active".to_string(), FieldValue::String(
-            format!("2024-01-{:02}", 1 + (i % 30))
-        ));
+        fields.insert(
+            "user_id".to_string(),
+            FieldValue::String(format!("user_{:03}", i)),
+        );
+        fields.insert(
+            "session_count".to_string(),
+            FieldValue::Integer((i * 3) % 20),
+        );
+        fields.insert(
+            "total_spent".to_string(),
+            FieldValue::ScaledInteger(
+                (i * 1250) % 100000, // Random amounts
+                2,
+            ),
+        );
+        fields.insert(
+            "avg_session_time".to_string(),
+            FieldValue::Float(300.0 + (i as f64 * 17.3) % 1800.0),
+        );
+        fields.insert(
+            "last_active".to_string(),
+            FieldValue::String(format!("2024-01-{:02}", 1 + (i % 30))),
+        );
 
         let record = StreamRecord { fields };
         writer.write(record).await?;
@@ -131,7 +157,10 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
     let batch_size = 1000;
     let total_records = 10_000;
 
-    println!("  📊 Writing {} records in batches of {}...", total_records, batch_size);
+    println!(
+        "  📊 Writing {} records in batches of {}...",
+        total_records, batch_size
+    );
 
     for batch in 0..(total_records / batch_size) {
         let mut records = Vec::new();
@@ -139,18 +168,21 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
         for i in 0..batch_size {
             let record_id = batch * batch_size + i;
             let mut fields = HashMap::new();
-            
+
             fields.insert("record_id".to_string(), FieldValue::Integer(record_id));
             fields.insert("batch_id".to_string(), FieldValue::Integer(batch));
-            fields.insert("value".to_string(), FieldValue::Float(
-                (record_id as f64) * 1.618 % 1000.0
-            ));
-            fields.insert("category".to_string(), FieldValue::String(
-                format!("cat_{}", record_id % 10)
-            ));
-            fields.insert("processed_at".to_string(), FieldValue::Integer(
-                SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64
-            ));
+            fields.insert(
+                "value".to_string(),
+                FieldValue::Float((record_id as f64) * 1.618 % 1000.0),
+            );
+            fields.insert(
+                "category".to_string(),
+                FieldValue::String(format!("cat_{}", record_id % 10)),
+            );
+            fields.insert(
+                "processed_at".to_string(),
+                FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64),
+            );
 
             records.push(StreamRecord { fields });
         }
@@ -165,7 +197,10 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     writer.flush().await?;
-    println!("\n  ✅ Written {} records in high-throughput batch mode", total_records);
+    println!(
+        "\n  ✅ Written {} records in high-throughput batch mode",
+        total_records
+    );
 
     Ok(())
 }

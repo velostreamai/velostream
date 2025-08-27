@@ -489,7 +489,9 @@ impl FileSinkConfig {
     }
 
     /// Create from generic SinkConfig
-    pub fn from_generic(config: &crate::ferris::datasource::config::SinkConfig) -> Result<Self, String> {
+    pub fn from_generic(
+        config: &crate::ferris::datasource::config::SinkConfig,
+    ) -> Result<Self, String> {
         if let crate::ferris::datasource::config::SinkConfig::File {
             path,
             format,
@@ -501,9 +503,7 @@ impl FileSinkConfig {
             // Convert generic FileFormat to local FileFormat
             match format {
                 crate::ferris::datasource::config::FileFormat::Csv {
-                    header,
-                    delimiter,
-                    ..
+                    header, delimiter, ..
                 } => {
                     sink_config.format = if *header {
                         FileFormat::Csv
@@ -628,7 +628,7 @@ impl From<FileSinkConfig> for crate::ferris::datasource::config::SinkConfig {
             let compression_str = match compression {
                 CompressionType::None => "none",
                 CompressionType::Gzip => "gzip",
-                CompressionType::Snappy => "snappy", 
+                CompressionType::Snappy => "snappy",
                 CompressionType::Zstd => "zstd",
             };
             properties.insert("compression".to_string(), compression_str.to_string());

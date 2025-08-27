@@ -106,3 +106,8 @@ path = "src/bin/ferris_cli.rs"
 [[bin]]
 name = "file_processing_demo"
 path = "src/bin/file_processing_demo.rs"
+
+# SQL Batch Execution Binary
+[[bin]]
+name = "sql-batch"
+path = "src/bin/sql_batch.rs"

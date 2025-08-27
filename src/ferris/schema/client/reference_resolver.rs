@@ -72,11 +72,16 @@ impl SchemaEvolutionTracker {
     }
 
     pub fn record_evolution(&mut self, subject: String, record: EvolutionRecord) {
-        self.evolution_history.entry(subject).or_default().push(record);
+        self.evolution_history
+            .entry(subject)
+            .or_default()
+            .push(record);
     }
 
     pub fn get_evolution_history(&self, subject: &str) -> Vec<&EvolutionRecord> {
-        self.evolution_history.get(subject).map_or(Vec::new(), |records| records.iter().collect())
+        self.evolution_history
+            .get(subject)
+            .map_or(Vec::new(), |records| records.iter().collect())
     }
 }
 
@@ -159,12 +164,28 @@ pub struct MigrationStep {
 /// Migration operations
 #[derive(Debug, Clone)]
 pub enum MigrationOperation {
-    AddField { name: String, default_value: Option<String> },
-    RemoveField { name: String },
-    ModifyField { name: String, from_type: String, to_type: String },
-    AddReference { reference: SchemaReference },
-    RemoveReference { reference: SchemaReference },
-    UpdateReference { old: SchemaReference, new: SchemaReference },
+    AddField {
+        name: String,
+        default_value: Option<String>,
+    },
+    RemoveField {
+        name: String,
+    },
+    ModifyField {
+        name: String,
+        from_type: String,
+        to_type: String,
+    },
+    AddReference {
+        reference: SchemaReference,
+    },
+    RemoveReference {
+        reference: SchemaReference,
+    },
+    UpdateReference {
+        old: SchemaReference,
+        new: SchemaReference,
+    },
 }
 
 /// Risk level for migrations
@@ -243,10 +264,7 @@ impl SchemaReferenceResolver {
     }
 
     /// Resolve schema with all references
-    pub async fn resolve_with_references(
-        &self,
-        schema_id: u32,
-    ) -> SchemaResult<ResolvedSchema> {
+    pub async fn resolve_with_references(&self, schema_id: u32) -> SchemaResult<ResolvedSchema> {
         // Check cache first if enabled
         if self.config.cache_dependencies {
             if let Some(cached) = self.get_cached_resolution(schema_id).await {
@@ -267,7 +285,8 @@ impl SchemaReferenceResolver {
 
         // Cache result if enabled
         if self.config.cache_dependencies {
-            self.cache_resolution(schema_id, resolved.clone(), 300_000).await; // 5 min cache
+            self.cache_resolution(schema_id, resolved.clone(), 300_000)
+                .await; // 5 min cache
         }
 
         // Validate compatibility if enabled
@@ -306,7 +325,10 @@ impl SchemaReferenceResolver {
         // Check depth limit
         if depth >= self.config.max_depth {
             return Err(SchemaError::Validation {
-                message: format!("Maximum dependency depth {} exceeded", self.config.max_depth),
+                message: format!(
+                    "Maximum dependency depth {} exceeded",
+                    self.config.max_depth
+                ),
             });
         }
 
@@ -334,13 +356,16 @@ impl SchemaReferenceResolver {
         }
 
         // Add node to graph
-        graph.nodes.insert(schema_id, GraphNode {
+        graph.nodes.insert(
             schema_id,
-            subject: schema.subject.clone(),
-            version: schema.version,
-            in_degree: 0,
-            depth,
-        });
+            GraphNode {
+                schema_id,
+                subject: schema.subject.clone(),
+                version: schema.version,
+                in_degree: 0,
+                depth,
+            },
+        );
 
         // Process references recursively
         for reference in references {
@@ -423,18 +448,19 @@ impl SchemaReferenceResolver {
         if let Some((&start, _)) = parent.iter().next() {
             let mut path = vec![start];
             let mut current = start;
-            
+
             while let Some(&next) = parent.get(&current) {
                 if next == start && path.len() > 1 {
                     break;
                 }
                 path.push(next);
                 current = next;
-                if path.len() > 100 { // Prevent infinite loop
+                if path.len() > 100 {
+                    // Prevent infinite loop
                     break;
                 }
             }
-            
+
             path
         } else {
             Vec::new()
@@ -442,7 +468,10 @@ impl SchemaReferenceResolver {
     }
 
     /// Validate reference compatibility
-    async fn validate_reference_compatibility(&self, resolved: &ResolvedSchema) -> SchemaResult<()> {
+    async fn validate_reference_compatibility(
+        &self,
+        resolved: &ResolvedSchema,
+    ) -> SchemaResult<()> {
         // Basic validation - check if all dependencies are resolved
         for (schema_id, _) in &resolved.dependencies {
             if self.registry.get_schema(*schema_id).await.is_err() {
@@ -462,7 +491,12 @@ impl SchemaReferenceResolver {
     }
 
     /// Cache resolution result
-    async fn cache_resolution(&self, _schema_id: u32, _resolved: ResolvedSchema, _duration_ms: u64) {
+    async fn cache_resolution(
+        &self,
+        _schema_id: u32,
+        _resolved: ResolvedSchema,
+        _duration_ms: u64,
+    ) {
         // TODO: Implement caching with expiration
     }
 
@@ -525,7 +559,7 @@ impl SchemaReferenceResolver {
         graph: &DependencyGraph,
     ) -> SchemaResult<ResolvedSchema> {
         let mut resolved_dependencies = HashMap::new();
-        
+
         // Resolve dependencies in topological order
         for &schema_id in &graph.resolution_order {
             if schema_id != root_id {

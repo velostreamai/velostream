@@ -3,7 +3,7 @@
 -- with exact financial precision using ScaledInteger arithmetic (42x faster than f64)
 --
 -- PREREQUISITES: Run './generate_demo_data.sh' to create sample data
--- This will generate 20 sample financial transactions in demo_data/financial_transactions.csv
+-- This will generate 5000 sample financial transactions in demo_data/financial_transactions.csv
 
 -- ====================================================================================
 -- SETUP: Create demo data and configure file sources/sinks  

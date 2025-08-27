@@ -421,8 +421,15 @@ impl SchemaRegistryClient {
     }
 
     /// Get a specific version of a subject's schema
-    pub async fn get_subject_version(&self, subject: &str, version: i32) -> SchemaResult<CachedSchema> {
-        let url = format!("{}/subjects/{}/versions/{}", self.base_url, subject, version);
+    pub async fn get_subject_version(
+        &self,
+        subject: &str,
+        version: i32,
+    ) -> SchemaResult<CachedSchema> {
+        let url = format!(
+            "{}/subjects/{}/versions/{}",
+            self.base_url, subject, version
+        );
         let response = self
             .execute_request(reqwest::Method::GET, &url, None)
             .await?;
@@ -440,7 +447,10 @@ impl SchemaRegistryClient {
 
     /// Delete a specific version of a subject
     pub async fn delete_subject_version(&self, subject: &str, version: i32) -> SchemaResult<i32> {
-        let url = format!("{}/subjects/{}/versions/{}", self.base_url, subject, version);
+        let url = format!(
+            "{}/subjects/{}/versions/{}",
+            self.base_url, subject, version
+        );
         let response = self
             .execute_request(reqwest::Method::DELETE, &url, None)
             .await?;
@@ -463,10 +473,11 @@ impl SchemaRegistryClient {
             .execute_request(reqwest::Method::DELETE, &url, None)
             .await?;
 
-        let deleted_versions: Vec<i32> = response.json().await.map_err(|e| SchemaError::Provider {
-            source: "schema_registry".to_string(),
-            message: format!("Failed to parse delete response: {}", e),
-        })?;
+        let deleted_versions: Vec<i32> =
+            response.json().await.map_err(|e| SchemaError::Provider {
+                source: "schema_registry".to_string(),
+                message: format!("Failed to parse delete response: {}", e),
+            })?;
 
         // Invalidate cache for this subject
         self.invalidate_cache(subject, None).await;
@@ -495,7 +506,11 @@ impl SchemaRegistryClient {
     }
 
     /// Update registry configuration
-    pub async fn update_config(&self, subject: Option<&str>, config: &RegistryConfig) -> SchemaResult<RegistryConfig> {
+    pub async fn update_config(
+        &self,
+        subject: Option<&str>,
+        config: &RegistryConfig,
+    ) -> SchemaResult<RegistryConfig> {
         let url = if let Some(subj) = subject {
             format!("{}/config/{}", self.base_url, subj)
         } else {
@@ -511,10 +526,11 @@ impl SchemaRegistryClient {
             .execute_request(reqwest::Method::PUT, &url, Some(body))
             .await?;
 
-        let updated_config: RegistryConfig = response.json().await.map_err(|e| SchemaError::Provider {
-            source: "schema_registry".to_string(),
-            message: format!("Failed to parse config update response: {}", e),
-        })?;
+        let updated_config: RegistryConfig =
+            response.json().await.map_err(|e| SchemaError::Provider {
+                source: "schema_registry".to_string(),
+                message: format!("Failed to parse config update response: {}", e),
+            })?;
 
         Ok(updated_config)
     }
@@ -543,7 +559,7 @@ impl SchemaRegistryClient {
         body: Option<String>,
     ) -> SchemaResult<Response> {
         let mut last_error = None;
-        
+
         for attempt in 0..=self.config.max_retries {
             let mut request = self
                 .http_client
@@ -576,9 +592,12 @@ impl SchemaRegistryClient {
                         let error_text = response.text().await.unwrap_or_default();
                         last_error = Some(SchemaError::Provider {
                             source: "schema_registry".to_string(),
-                            message: format!("Request failed with status {}: {}", status, error_text),
+                            message: format!(
+                                "Request failed with status {}: {}",
+                                status, error_text
+                            ),
                         });
-                        
+
                         // Don't retry on 4xx errors (client errors)
                         if status.as_u16() >= 400 && status.as_u16() < 500 {
                             break;
@@ -770,7 +789,7 @@ impl SchemaCache {
                     self.resolution_cache.remove(&schema_id);
                 }
             }
-            
+
             // Remove from subject_versions
             if let Some(versions) = self.subject_versions.get_mut(subject) {
                 versions.remove(&version);

@@ -10,8 +10,8 @@ use crate::ferris::datasource::config::SinkConfig;
 use crate::ferris::datasource::traits::{DataSink, DataWriter};
 use crate::ferris::datasource::types::SinkMetadata;
 use crate::ferris::schema::Schema;
-use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use crate::ferris::sql::ast::TimeUnit;
+use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -64,7 +64,7 @@ impl FileSink {
     /// Validate output directory exists and is writable
     async fn validate_output_path(&self, path: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let path_obj = Path::new(path);
-        
+
         // Create parent directory if it doesn't exist
         if let Some(parent) = path_obj.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
@@ -84,11 +84,9 @@ impl FileSink {
                 let _ = tokio::fs::remove_file(&temp_path).await;
                 Ok(())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                Err(Box::new(FileDataSourceError::PermissionDenied(
-                    path.to_string(),
-                )))
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Err(Box::new(
+                FileDataSourceError::PermissionDenied(path.to_string()),
+            )),
             Err(e) => Err(Box::new(FileDataSourceError::IoError(e.to_string()))),
         }
     }
@@ -107,7 +105,7 @@ impl FileSink {
             let elapsed = SystemTime::now()
                 .duration_since(writer_state.last_rotation)
                 .unwrap_or_default();
-            
+
             if elapsed >= Duration::from_millis(rotation_interval) {
                 return true;
             }
@@ -128,10 +126,10 @@ impl FileSink {
         let stem = base_path.file_stem().unwrap_or_default().to_string_lossy();
         let ext = base_path.extension().unwrap_or_default().to_string_lossy();
         let parent = base_path.parent().unwrap_or(Path::new(""));
-        
+
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let rotated_name = format!("{}_{}_{:04}.{}", stem, timestamp, rotation_index, ext);
-        
+
         parent.join(rotated_name)
     }
 }
@@ -195,8 +193,8 @@ impl DataSink for FileSink {
                 // CSV can handle most schemas but warn about nested types
                 for field in &schema.fields {
                     match &field.data_type {
-                        crate::ferris::sql::ast::DataType::Array(_) |
-                        crate::ferris::sql::ast::DataType::Map(_, _) => {
+                        crate::ferris::sql::ast::DataType::Array(_)
+                        | crate::ferris::sql::ast::DataType::Map(_, _) => {
                             eprintln!(
                                 "Warning: Field '{}' has complex type that will be serialized as string in CSV",
                                 field.name
@@ -302,10 +300,7 @@ impl FileWriter {
 
         // Open file with append mode if resuming
         let file = if self.config.append_if_exists && path.exists() {
-            tokio::fs::OpenOptions::new()
-                .append(true)
-                .open(&path)
-                .await
+            tokio::fs::OpenOptions::new().append(true).open(&path).await
         } else {
             File::create(&path).await
         }
@@ -334,7 +329,8 @@ impl FileWriter {
         // Close current file
         if let Some(file) = self.current_file.take() {
             file.sync_all().await.map_err(|e| {
-                Box::new(FileDataSourceError::IoError(e.to_string())) as Box<dyn Error + Send + Sync>
+                Box::new(FileDataSourceError::IoError(e.to_string()))
+                    as Box<dyn Error + Send + Sync>
             })?;
         }
 
@@ -350,7 +346,7 @@ impl FileWriter {
     /// Write data to buffer
     async fn write_to_buffer(&mut self, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.write_buffer.extend_from_slice(data);
-        
+
         // Flush if buffer is full
         if self.write_buffer.len() >= self.buffer_size {
             self.flush_buffer().await?;
@@ -367,7 +363,8 @@ impl FileWriter {
 
         if let Some(ref mut file) = self.current_file {
             file.write_all(&self.write_buffer).await.map_err(|e| {
-                Box::new(FileDataSourceError::IoError(e.to_string())) as Box<dyn Error + Send + Sync>
+                Box::new(FileDataSourceError::IoError(e.to_string()))
+                    as Box<dyn Error + Send + Sync>
             })?;
 
             self.bytes_written += self.write_buffer.len() as u64;
@@ -382,39 +379,46 @@ impl FileWriter {
         match field_value {
             FieldValue::String(s) => serde_json::Value::String(s.clone()),
             FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-            FieldValue::Float(f) => {
-                serde_json::Value::Number(
-                    serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0))
-                )
-            }
+            FieldValue::Float(f) => serde_json::Value::Number(
+                serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0)),
+            ),
             FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
             FieldValue::ScaledInteger(value, scale) => {
                 // Convert to decimal string representation
                 let divisor = 10_i64.pow(*scale as u32);
                 let decimal_str = if *scale > 0 {
-                    format!("{:.1$}", (*value as f64) / (divisor as f64), *scale as usize)
+                    format!(
+                        "{:.1$}",
+                        (*value as f64) / (divisor as f64),
+                        *scale as usize
+                    )
                 } else {
                     value.to_string()
                 };
                 serde_json::Value::String(decimal_str)
             }
-            FieldValue::Date(date) => serde_json::Value::String(date.format("%Y-%m-%d").to_string()),
-            FieldValue::Timestamp(datetime) => serde_json::Value::String(datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+            FieldValue::Date(date) => {
+                serde_json::Value::String(date.format("%Y-%m-%d").to_string())
+            }
+            FieldValue::Timestamp(datetime) => {
+                serde_json::Value::String(datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+            }
             FieldValue::Decimal(decimal) => serde_json::Value::String(decimal.to_string()),
             FieldValue::Array(arr) => {
-                let json_array: Vec<serde_json::Value> = arr.iter()
-                    .map(|v| self.field_value_to_json(v))
-                    .collect();
+                let json_array: Vec<serde_json::Value> =
+                    arr.iter().map(|v| self.field_value_to_json(v)).collect();
                 serde_json::Value::Array(json_array)
             }
             FieldValue::Map(map) => {
-                let json_object: serde_json::Map<String, serde_json::Value> = map.iter()
+                let json_object: serde_json::Map<String, serde_json::Value> = map
+                    .iter()
                     .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
                     .collect();
                 serde_json::Value::Object(json_object)
             }
             FieldValue::Struct(map) => {
-                let json_object: serde_json::Map<String, serde_json::Value> = map.iter()
+                let json_object: serde_json::Map<String, serde_json::Value> = map
+                    .iter()
                     .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
                     .collect();
                 serde_json::Value::Object(json_object)
@@ -424,7 +428,7 @@ impl FileWriter {
                 let unit_str = match unit {
                     TimeUnit::Millisecond => "milliseconds",
                     TimeUnit::Second => "seconds",
-                    TimeUnit::Minute => "minutes", 
+                    TimeUnit::Minute => "minutes",
                     TimeUnit::Hour => "hours",
                     TimeUnit::Day => "days",
                 };
@@ -448,7 +452,7 @@ impl FileWriter {
             let elapsed = SystemTime::now()
                 .duration_since(self.last_rotation)
                 .unwrap_or_default();
-            
+
             if elapsed >= Duration::from_millis(rotation_interval) {
                 return true;
             }
@@ -465,7 +469,10 @@ impl FileWriter {
     }
 
     /// Serialize record to bytes based on format
-    fn serialize_record(&self, record: &StreamRecord) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    fn serialize_record(
+        &self,
+        record: &StreamRecord,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         match self.config.format {
             FileFormat::JsonLines => {
                 // Convert record to JSON-serializable map
@@ -473,9 +480,9 @@ impl FileWriter {
                 for (key, value) in &record.fields {
                     json_map.insert(key.clone(), self.field_value_to_json(value));
                 }
-                
+
                 let json = serde_json::to_string(&json_map).map_err(|e| {
-                    Box::new(FileDataSourceError::JsonParseError(e.to_string())) 
+                    Box::new(FileDataSourceError::JsonParseError(e.to_string()))
                         as Box<dyn Error + Send + Sync>
                 })?;
                 Ok(format!("{}\n", json).into_bytes())
@@ -486,7 +493,7 @@ impl FileWriter {
                 for (key, value) in &record.fields {
                     json_map.insert(key.clone(), self.field_value_to_json(value));
                 }
-                
+
                 let json = serde_json::to_string(&json_map).map_err(|e| {
                     Box::new(FileDataSourceError::JsonParseError(e.to_string()))
                         as Box<dyn Error + Send + Sync>
@@ -540,13 +547,14 @@ impl DataWriter for FileWriter {
 
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.flush_buffer().await?;
-        
+
         if let Some(ref mut file) = self.current_file {
             file.sync_all().await.map_err(|e| {
-                Box::new(FileDataSourceError::IoError(e.to_string())) as Box<dyn Error + Send + Sync>
+                Box::new(FileDataSourceError::IoError(e.to_string()))
+                    as Box<dyn Error + Send + Sync>
             })?;
         }
-        
+
         Ok(())
     }
 
@@ -590,7 +598,8 @@ impl FileWriter {
         // Close file
         if let Some(mut file) = self.current_file.take() {
             file.shutdown().await.map_err(|e| {
-                Box::new(FileDataSourceError::IoError(e.to_string())) as Box<dyn Error + Send + Sync>
+                Box::new(FileDataSourceError::IoError(e.to_string()))
+                    as Box<dyn Error + Send + Sync>
             })?;
         }
 
