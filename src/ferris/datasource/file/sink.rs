@@ -11,6 +11,7 @@ use crate::ferris::datasource::traits::{DataSink, DataWriter};
 use crate::ferris::datasource::types::SinkMetadata;
 use crate::ferris::schema::Schema;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use crate::ferris::sql::ast::TimeUnit;
 use async_trait::async_trait;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -396,6 +397,38 @@ impl FileWriter {
                     value.to_string()
                 };
                 serde_json::Value::String(decimal_str)
+            }
+            FieldValue::Date(date) => serde_json::Value::String(date.format("%Y-%m-%d").to_string()),
+            FieldValue::Timestamp(datetime) => serde_json::Value::String(datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+            FieldValue::Decimal(decimal) => serde_json::Value::String(decimal.to_string()),
+            FieldValue::Array(arr) => {
+                let json_array: Vec<serde_json::Value> = arr.iter()
+                    .map(|v| self.field_value_to_json(v))
+                    .collect();
+                serde_json::Value::Array(json_array)
+            }
+            FieldValue::Map(map) => {
+                let json_object: serde_json::Map<String, serde_json::Value> = map.iter()
+                    .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
+                    .collect();
+                serde_json::Value::Object(json_object)
+            }
+            FieldValue::Struct(map) => {
+                let json_object: serde_json::Map<String, serde_json::Value> = map.iter()
+                    .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
+                    .collect();
+                serde_json::Value::Object(json_object)
+            }
+            FieldValue::Interval { value, unit } => {
+                // Convert interval to a readable string format
+                let unit_str = match unit {
+                    TimeUnit::Millisecond => "milliseconds",
+                    TimeUnit::Second => "seconds",
+                    TimeUnit::Minute => "minutes", 
+                    TimeUnit::Hour => "hours",
+                    TimeUnit::Day => "days",
+                };
+                serde_json::Value::String(format!("{} {}", value, unit_str))
             }
             FieldValue::Null => serde_json::Value::Null,
         }
