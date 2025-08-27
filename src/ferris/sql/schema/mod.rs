@@ -39,6 +39,7 @@ pub mod evolution;
 pub mod providers;
 pub mod registry;
 pub mod registry_client;
+pub mod reference_resolver;
 
 // Re-export key components for easy access
 pub use cache::{CacheConfig, SchemaCache};
@@ -48,6 +49,10 @@ pub use registry::{SchemaProvider, SchemaRegistry};
 pub use registry_client::{
     SchemaRegistryClient, SchemaReference, SchemaDependency, 
     ResolvedSchema, DependencyGraph, AuthConfig
+};
+pub use reference_resolver::{
+    SchemaReferenceResolver, ResolverConfig, CompatibilityResult,
+    CompatibilityLevel, MigrationPlan, RolloutStrategy, RolloutPlan
 };
 
 use crate::ferris::sql::ast::DataType;
