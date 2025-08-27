@@ -101,3 +101,8 @@ path = "src/bin/multi_job_sql_server.rs"
 [[bin]]
 name = "ferris-cli"
 path = "src/bin/ferris_cli.rs"
+
+# File Processing Demo Binary
+[[bin]]
+name = "file_processing_demo"
+path = "src/bin/file_processing_demo.rs"
