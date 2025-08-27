@@ -44,6 +44,24 @@ pub enum AuthConfig {
     Bearer { token: String },
 }
 
+/// Schema Registry compatibility levels and configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryConfig {
+    pub compatibility_level: CompatibilityLevel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CompatibilityLevel {
+    Backward,
+    BackwardTransitive,
+    Forward,
+    ForwardTransitive,
+    Full,
+    FullTransitive,
+    None,
+}
+
 /// Schema reference information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaReference {
@@ -74,14 +92,16 @@ pub struct ResolvedSchema {
 }
 
 /// Cached schema entry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedSchema {
     pub id: u32,
     pub subject: String,
     pub version: i32,
     pub schema: String,
     pub references: Vec<SchemaReference>,
+    #[serde(skip, default = "std::time::Instant::now")]
     pub cached_at: std::time::Instant,
+    #[serde(skip, default)]
     pub access_count: u64,
 }
 
@@ -370,6 +390,150 @@ impl SchemaRegistryClient {
         Ok(schema.references)
     }
 
+    /// List all subjects in the registry
+    pub async fn list_subjects(&self) -> SchemaResult<Vec<String>> {
+        let url = format!("{}/subjects", self.base_url);
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let subjects: Vec<String> = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse subjects response: {}", e),
+        })?;
+
+        Ok(subjects)
+    }
+
+    /// List all versions of a subject
+    pub async fn list_subject_versions(&self, subject: &str) -> SchemaResult<Vec<i32>> {
+        let url = format!("{}/subjects/{}/versions", self.base_url, subject);
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let versions: Vec<i32> = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse versions response: {}", e),
+        })?;
+
+        Ok(versions)
+    }
+
+    /// Get a specific version of a subject's schema
+    pub async fn get_subject_version(&self, subject: &str, version: i32) -> SchemaResult<CachedSchema> {
+        let url = format!("{}/subjects/{}/versions/{}", self.base_url, subject, version);
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let schema: CachedSchema = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse schema response: {}", e),
+        })?;
+
+        // Cache the schema
+        self.cache_schema(schema.clone()).await;
+
+        Ok(schema)
+    }
+
+    /// Delete a specific version of a subject
+    pub async fn delete_subject_version(&self, subject: &str, version: i32) -> SchemaResult<i32> {
+        let url = format!("{}/subjects/{}/versions/{}", self.base_url, subject, version);
+        let response = self
+            .execute_request(reqwest::Method::DELETE, &url, None)
+            .await?;
+
+        let deleted_version: i32 = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse delete response: {}", e),
+        })?;
+
+        // Invalidate cache for this subject/version
+        self.invalidate_cache(subject, Some(version)).await;
+
+        Ok(deleted_version)
+    }
+
+    /// Delete all versions of a subject
+    pub async fn delete_subject(&self, subject: &str) -> SchemaResult<Vec<i32>> {
+        let url = format!("{}/subjects/{}", self.base_url, subject);
+        let response = self
+            .execute_request(reqwest::Method::DELETE, &url, None)
+            .await?;
+
+        let deleted_versions: Vec<i32> = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse delete response: {}", e),
+        })?;
+
+        // Invalidate cache for this subject
+        self.invalidate_cache(subject, None).await;
+
+        Ok(deleted_versions)
+    }
+
+    /// Get registry configuration
+    pub async fn get_config(&self, subject: Option<&str>) -> SchemaResult<RegistryConfig> {
+        let url = if let Some(subj) = subject {
+            format!("{}/config/{}", self.base_url, subj)
+        } else {
+            format!("{}/config", self.base_url)
+        };
+
+        let response = self
+            .execute_request(reqwest::Method::GET, &url, None)
+            .await?;
+
+        let config: RegistryConfig = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse config response: {}", e),
+        })?;
+
+        Ok(config)
+    }
+
+    /// Update registry configuration
+    pub async fn update_config(&self, subject: Option<&str>, config: &RegistryConfig) -> SchemaResult<RegistryConfig> {
+        let url = if let Some(subj) = subject {
+            format!("{}/config/{}", self.base_url, subj)
+        } else {
+            format!("{}/config", self.base_url)
+        };
+
+        let body = serde_json::to_string(config).map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to serialize config: {}", e),
+        })?;
+
+        let response = self
+            .execute_request(reqwest::Method::PUT, &url, Some(body))
+            .await?;
+
+        let updated_config: RegistryConfig = response.json().await.map_err(|e| SchemaError::Provider {
+            source: "schema_registry".to_string(),
+            message: format!("Failed to parse config update response: {}", e),
+        })?;
+
+        Ok(updated_config)
+    }
+
+    /// Check if the registry is healthy
+    pub async fn health_check(&self) -> SchemaResult<bool> {
+        // Try to list subjects as a health check
+        match self.list_subjects().await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Invalidate cache entries for a subject
+    async fn invalidate_cache(&self, subject: &str, version: Option<i32>) {
+        let mut cache = self.cache.write().await;
+        cache.invalidate_subject(subject, version);
+    }
+
     // Private helper methods
 
     async fn execute_request(
@@ -378,41 +542,68 @@ impl SchemaRegistryClient {
         url: &str,
         body: Option<String>,
     ) -> SchemaResult<Response> {
-        let mut request = self
-            .http_client
-            .request(method, url)
-            .header("Content-Type", "application/vnd.schemaregistry.v1+json")
-            .timeout(std::time::Duration::from_secs(self.config.timeout_seconds));
+        let mut last_error = None;
+        
+        for attempt in 0..=self.config.max_retries {
+            let mut request = self
+                .http_client
+                .request(method.clone(), url)
+                .header("Content-Type", "application/vnd.schemaregistry.v1+json")
+                .timeout(std::time::Duration::from_secs(self.config.timeout_seconds));
 
-        // Add authentication
-        if let Some(auth) = &self.auth {
-            request = match auth {
-                AuthConfig::Basic { username, password } => {
-                    request.basic_auth(username, Some(password))
+            // Add authentication
+            if let Some(auth) = &self.auth {
+                request = match auth {
+                    AuthConfig::Basic { username, password } => {
+                        request.basic_auth(username, Some(password))
+                    }
+                    AuthConfig::Bearer { token } => request.bearer_auth(token),
+                    AuthConfig::None => request,
+                };
+            }
+
+            // Add body if provided
+            if let Some(body_content) = &body {
+                request = request.body(body_content.clone());
+            }
+
+            match request.send().await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        return Ok(response);
+                    } else {
+                        let status = response.status();
+                        let error_text = response.text().await.unwrap_or_default();
+                        last_error = Some(SchemaError::Provider {
+                            source: "schema_registry".to_string(),
+                            message: format!("Request failed with status {}: {}", status, error_text),
+                        });
+                        
+                        // Don't retry on 4xx errors (client errors)
+                        if status.as_u16() >= 400 && status.as_u16() < 500 {
+                            break;
+                        }
+                    }
                 }
-                AuthConfig::Bearer { token } => request.bearer_auth(token),
-                AuthConfig::None => request,
-            };
+                Err(e) => {
+                    last_error = Some(SchemaError::Provider {
+                        source: "schema_registry".to_string(),
+                        message: format!("Request failed: {}", e),
+                    });
+                }
+            }
+
+            // Wait before retry (exponential backoff)
+            if attempt < self.config.max_retries {
+                let delay = self.config.retry_delay_ms * 2_u64.pow(attempt);
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
         }
 
-        // Add body if provided
-        if let Some(body_content) = body {
-            request = request.body(body_content);
-        }
-
-        let response = request.send().await.map_err(|e| SchemaError::Provider {
+        Err(last_error.unwrap_or_else(|| SchemaError::Provider {
             source: "schema_registry".to_string(),
-            message: format!("Request failed: {}", e),
-        })?;
-
-        if !response.status().is_success() {
-            return Err(SchemaError::Provider {
-                source: "schema_registry".to_string(),
-                message: format!("Request failed with status: {}", response.status()),
-            });
-        }
-
-        Ok(response)
+            message: "All retry attempts failed".to_string(),
+        }))
     }
 
     async fn get_cached_schema(&self, id: u32) -> Option<CachedSchema> {
@@ -567,6 +758,36 @@ impl SchemaCache {
         let id = resolved.root_schema.id;
         self.resolved_schemas.insert(id, resolved);
         self.resolution_cache.insert(id, std::time::Instant::now());
+    }
+
+    fn invalidate_subject(&mut self, subject: &str, version: Option<i32>) {
+        if let Some(version) = version {
+            // Invalidate specific version
+            if let Some(versions) = self.subject_versions.get(subject) {
+                if let Some(&schema_id) = versions.get(&version) {
+                    self.schemas.remove(&schema_id);
+                    self.resolved_schemas.remove(&schema_id);
+                    self.resolution_cache.remove(&schema_id);
+                }
+            }
+            
+            // Remove from subject_versions
+            if let Some(versions) = self.subject_versions.get_mut(subject) {
+                versions.remove(&version);
+                if versions.is_empty() {
+                    self.subject_versions.remove(subject);
+                }
+            }
+        } else {
+            // Invalidate all versions of the subject
+            if let Some(versions) = self.subject_versions.remove(subject) {
+                for (_version, schema_id) in versions {
+                    self.schemas.remove(&schema_id);
+                    self.resolved_schemas.remove(&schema_id);
+                    self.resolution_cache.remove(&schema_id);
+                }
+            }
+        }
     }
 }
 
