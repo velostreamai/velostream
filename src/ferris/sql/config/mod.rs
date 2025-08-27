@@ -37,6 +37,7 @@ pub mod connection_string;
 pub mod environment;
 pub mod types;
 pub mod validation;
+pub mod with_clause_parser;
 
 // Re-export main types for convenience
 pub use builder::DataSourceConfigBuilder;
@@ -44,3 +45,7 @@ pub use connection_string::{ConnectionString, ParseError};
 pub use environment::{ConfigSource, EnvironmentConfig};
 pub use types::{ConfigError, DataSourceConfig, ValidationStats};
 pub use validation::{ValidationError, ValidationStats as ValidationStatsValidation};
+pub use with_clause_parser::{
+    WithClauseParser, WithClauseConfig, WithClauseError, ConfigValue, ConfigValueType,
+    ConfigKeySchema,
+};

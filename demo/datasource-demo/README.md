@@ -29,10 +29,14 @@ cargo run --bin file_processing_demo --no-default-features
 ### Option 2: SQL Interface Demo (Recommended for Analysts)
 
 ```bash
-# Start FerrisStreams SQL server
+# Step 1: Generate demo data
+cd demo/datasource-demo
+./generate_demo_data.sh
+
+# Step 2: Start FerrisStreams SQL server  
 cargo run --bin ferris-sql --no-default-features
 
-# Run the SQL demo (copy/paste from file_processing_sql_demo.sql)
+# Step 3: Run the SQL demo (copy/paste from file_processing_sql_demo.sql)
 # OR execute directly:
 # ferris-sql --file ./demo/datasource-demo/file_processing_sql_demo.sql
 ```

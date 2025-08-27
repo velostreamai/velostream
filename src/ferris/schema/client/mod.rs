@@ -11,6 +11,7 @@ pub mod unified_client;
 // Caching system
 pub mod cache;
 pub mod enhanced_cache;
+pub mod multilevel_cache;
 
 // Reference resolution
 pub mod reference_resolver;
@@ -28,3 +29,4 @@ pub use crate::ferris::schema::registry::{ProviderMetadata, SchemaProvider};
 // Re-export caching components
 pub use cache::SchemaCache;
 pub use enhanced_cache::EnhancedSchemaCache;
+pub use multilevel_cache::{MultiLevelSchemaCache, MultiLevelCacheConfig, CacheStatsSummary};

@@ -1,6 +1,9 @@
 -- FerrisStreams SQL Demo: File Processing Pipeline
 -- This demo showcases FerrisStreams' SQL capabilities for file → processing → file pipelines
 -- with exact financial precision using ScaledInteger arithmetic (42x faster than f64)
+--
+-- PREREQUISITES: Run './generate_demo_data.sh' to create sample data
+-- This will generate 20 sample financial transactions in demo_data/financial_transactions.csv
 
 -- ====================================================================================
 -- SETUP: Create demo data and configure file sources/sinks  
@@ -289,14 +292,18 @@ FROM processed_transactions;
 /*
 To run this SQL demo:
 
-1. Start FerrisStreams SQL server:
+1. Generate sample data (REQUIRED):
+   cd demo/datasource-demo
+   ./generate_demo_data.sh
+
+2. Start FerrisStreams SQL server:
    cargo run --bin ferris-sql --no-default-features
 
-2. Connect and execute the SQL:
+3. Connect and execute the SQL:
    - Copy and paste the SQL commands above
    - Or run: ferris-sql --file ./demo/datasource-demo/file_processing_sql_demo.sql
 
-3. Monitor the output files:
+4. Monitor the output files:
    - ./demo_output/processed_transactions.jsonl.gz
    - ./demo_output/analytics_results.jsonl.gz  
    - ./demo_output/processing_monitor.jsonl
