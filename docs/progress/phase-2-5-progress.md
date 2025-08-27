@@ -1,23 +1,25 @@
 # Phase 2.5: Schema Registry Integration - Progress Update
 
-## Status: 🚀 Starting Implementation
+## Status: 🚀 Phase 2.5b Complete!
 
 ### Completed ✅
 - **Phase 2 Core**: Configurable serialization system fully implemented
 - **Design Document**: Comprehensive architecture for Schema Registry with references
 - **SQL Compliance**: Updated all examples to match streaming SQL syntax
 - **Tests**: All 109 tests passing with 0 failures
+- **Phase 2.5a: Core Registry Client** ✅
+  - [x] Basic HTTP client for Schema Registry API
+  - [x] Authentication support (Basic Auth, Bearer Token)
+  - [x] Schema caching implementation
+  - [x] Error handling and retry logic
+- **Phase 2.5b: Reference Resolution Engine** ✅
+  - [x] Circular dependency detection with DFS
+  - [x] Schema evolution tracking
+  - [x] Migration plan generation
+  - [x] Rollout strategies implementation
 
 ### In Progress 🔄
-- **Phase 2.5a: Core Registry Client**
-  - [ ] Basic HTTP client for Schema Registry API
-  - [ ] Authentication support (Basic Auth, Bearer Token)
-  - [ ] Schema caching implementation
-  - [ ] Error handling and retry logic
-
-### Upcoming 📋
-- **Phase 2.5b: Reference Resolution Engine**
-- **Phase 2.5c: Enhanced Caching System**  
+- **Phase 2.5c: Enhanced Caching System**
 - **Phase 2.5d: Integration & Performance**
 
 ### Key Achievements
