@@ -1,22 +1,25 @@
--- Simple SQL test file for batch execution
--- This demonstrates the SQL batch execution capability
+-- Simple SQL test file for batch execution (FR-047 compliant)
+-- This demonstrates the unified URI syntax for data sources
 
--- Create a stream for financial transactions
-CREATE STREAM financial_transactions (
-    transaction_id VARCHAR,
-    customer_id VARCHAR,
-    amount FLOAT,
-    currency VARCHAR,
-    timestamp INTEGER,
-    merchant_category VARCHAR,
-    description VARCHAR
+-- Basic select query with URI-based data source
+SELECT transaction_id, customer_id, amount 
+FROM 'file://./demo_data/financial_transactions.csv';
+
+-- Aggregation query with URI-based source and destination
+SELECT customer_id, SUM(amount) as total_amount
+FROM 'file://./demo_data/financial_transactions.csv'
+GROUP BY customer_id
+INTO 'file://./demo_output/customer_totals.jsonl'
+WITH (
+    format = 'jsonlines'
 );
 
--- Basic select query
-SELECT transaction_id, customer_id, amount 
-FROM financial_transactions;
-
--- Aggregation query  
-SELECT customer_id, SUM(amount) as total_amount
-FROM financial_transactions
-GROUP BY customer_id;
+-- Example with Kafka URI (commented for demo)
+-- SELECT transaction_id, amount, currency
+-- FROM 'kafka://localhost:9092/financial_transactions'
+-- WHERE amount > 1000
+-- INTO 'kafka://localhost:9092/high_value_transactions'
+-- WITH (
+--     key_format = 'string',
+--     value_format = 'json'
+-- );

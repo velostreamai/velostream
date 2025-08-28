@@ -1,0 +1,73 @@
+# Kafka Data Source Configuration
+# For consuming financial transactions from Kafka topics
+
+datasource:
+  type: "kafka"
+  name: "demo_transactions_consumer"
+  config:
+    # Kafka connection settings
+    bootstrap_servers: "localhost:9092"
+    topic: "demo-transactions"
+    group_id: "ferrisstreams-demo-consumer"
+    
+    # Consumer configuration
+    consumer:
+      # Delivery guarantees
+      enable_auto_commit: false
+      auto_offset_reset: "earliest"
+      
+      # Performance settings
+      fetch_min_bytes: 1024      # 1KB minimum fetch
+      fetch_max_wait_ms: 500     # 500ms max wait
+      max_poll_records: 500      # Batch up to 500 records
+      
+      # Session management
+      session_timeout_ms: 30000  # 30 seconds
+      heartbeat_interval_ms: 3000 # 3 seconds
+      
+    # Security configuration (if needed)
+    security:
+      protocol: "PLAINTEXT"
+      # For SASL/SSL, uncomment and configure:
+      # protocol: "SASL_SSL"
+      # sasl_mechanism: "PLAIN"
+      # sasl_username: "username"
+      # sasl_password: "password"
+      
+    # Schema Registry (if using Avro)
+    schema_registry:
+      url: "http://localhost:8081"
+      # auth_username: "username"
+      # auth_password: "password"
+      
+# Serialization configuration
+serialization:
+  format: "avro"
+  key_format: "string"  # Transaction ID as key
+  value_schema_file: "./schemas/financial_transaction.avsc"
+  
+# Consumer processing settings
+processing:
+  # Parallel processing
+  parallelism: 4
+  
+  # Batch processing
+  batch_size: 100
+  batch_timeout_ms: 1000
+  
+  # Error handling
+  error_handling:
+    strategy: "skip_and_log"  # Options: "fail_fast", "skip_and_log", "dead_letter_queue"
+    max_retries: 3
+    retry_delay_ms: 1000
+    
+  # Decimal precision handling
+  decimal_fields:
+    - field: "amount"
+      precision: 19
+      scale: 4
+      
+  # Metrics and monitoring
+  metrics:
+    enabled: true
+    report_interval_ms: 10000  # Report every 10 seconds

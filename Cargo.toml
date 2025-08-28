@@ -22,6 +22,7 @@ logtest = "2.0.0"
 futures = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 thiserror = "1.0.69"
 nom = "7.1.3"
 clap = { version = "4.0", features = ["derive"] }
@@ -33,9 +34,10 @@ async-trait = "0.1"
 lazy_static = "1.4"
 
 # Optional dependencies for additional serialization formats
-apache-avro = { version = "0.16.0", optional = true }
+apache-avro = { version = "0.20.0", optional = true }
 prost = { version = "0.14.1", optional = true }
 bincode = { version = "1.3.3", optional = true }
+base64 = "0.21"
 
 [build-dependencies]
 prost-build = { version = "0.14.1", optional = true }
@@ -95,7 +97,7 @@ path = "src/bin/sql_server.rs"
 # Multi-Job SQL Server Binary
 [[bin]]
 name = "ferris-sql-multi"
-path = "src/bin/multi_job_sql_server.rs"
+path = "src/bin/ferris-sql-multi.rs"
 
 # FerrisStreams CLI Binary
 [[bin]]
@@ -107,7 +109,37 @@ path = "src/bin/ferris_cli.rs"
 name = "file_processing_demo"
 path = "src/bin/file_processing_demo.rs"
 
+# Complete Pipeline Demo Binary
+[[bin]]
+name = "complete_pipeline_demo"
+path = "demo/datasource-demo/complete_pipeline_demo.rs"
+
 # SQL Batch Execution Binary
 [[bin]]
 name = "sql-batch"
 path = "src/bin/sql_batch.rs"
+
+# Debug Avro Schema Parsing
+[[bin]]
+name = "debug_avro_schema_parsing"
+path = "debug_avro_schema_parsing.rs"
+
+# Test Avro Decimal Direct
+[[bin]]
+name = "test_avro_decimal_direct"
+path = "test_avro_decimal_direct.rs"
+
+# Test Bytes Schema 
+[[bin]]
+name = "test_bytes_schema"
+path = "test_bytes_schema.rs"
+
+# Debug Encoding Test
+[[bin]]
+name = "debug_encoding_test"
+path = "debug_encoding_test.rs"
+
+# Test Standard Decimal Logical Type
+[[bin]]
+name = "test_standard_decimal_logical_type"
+path = "test_standard_decimal_logical_type.rs"

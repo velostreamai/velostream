@@ -2,7 +2,7 @@
 
 This demo showcases FerrisStreams' data processing capabilities with **both Rust and SQL interfaces**, demonstrating:
 
-- ✅ **42x faster DECIMAL arithmetic** for exact financial precision
+- ✅ **Exact DECIMAL arithmetic** for precise financial calculations
 - ✅ **Real-time streaming** with configurable backpressure  
 - ✅ **File rotation & compression** for production workloads
 - ✅ **Performance monitoring** with live metrics
@@ -93,13 +93,13 @@ rm -rf demo_data demo_output
 
 The demo specifically showcases FerrisStreams' financial precision capabilities:
 
-### ScaledInteger Arithmetic (42x Performance Improvement)
+### ScaledInteger Arithmetic (Exact Precision)
 
 ```rust
 // Input: $123.45 (from CSV)
 FieldValue::String("123.45")
 
-// Processed: Exact precision with 42x faster arithmetic  
+// Processed: Exact precision with fast arithmetic  
 FieldValue::ScaledInteger(12345, 2)  // 12345 cents, 2 decimal places
 
 // Output: Perfect precision maintained
@@ -107,8 +107,8 @@ FieldValue::ScaledInteger(12345, 2)  // 12345 cents, 2 decimal places
 ```
 
 **Performance Comparison**:
-- **f64**: 83.458µs (with precision errors)
-- **ScaledInteger**: 1.958µs (exact precision) → **42x FASTER** ⚡
+- **f64**: Has precision errors in financial calculations
+- **ScaledInteger**: Exact precision with optimized arithmetic
 
 ### Real-World Financial Data
 

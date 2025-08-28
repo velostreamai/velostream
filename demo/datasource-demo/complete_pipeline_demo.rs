@@ -7,7 +7,7 @@
 //! 4. Consuming from Kafka and writing final results to output files (FileSink)
 //!
 //! ## Performance Features Demonstrated:
-//! - **42x faster DECIMAL arithmetic** for financial precision
+//! - **Exact DECIMAL arithmetic** for financial precision
 //! - **High-throughput streaming** with configurable backpressure
 //! - **Exactly-once processing** guarantees via Kafka transactions
 //! - **File rotation** and compression for large-scale processing
@@ -199,7 +199,7 @@ fn generate_sample_transactions_csv() -> String {
 async fn test_kafka_connection() -> Result<(), Box<dyn std::error::Error>> {
     // Try to create a simple producer to test connectivity
     let config = ProducerConfig::new(KAFKA_BROKERS, "test-topic");
-    let _producer = KafkaProducer::with_config(config, JsonSerializer, JsonSerializer)?;
+    let _producer = KafkaProducer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)?;
     Ok(())
 }
 
@@ -212,19 +212,18 @@ async fn run_file_to_kafka_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
         .with_buffer_size(8192);
     
     let mut file_source = FileDataSource::new();
-    file_source.initialize(file_config.into()).await?;
+    file_source.initialize(file_config.into()).await.map_err(|e| format!("File source initialization error: {}", e))?;
     
-    let mut reader = file_source.create_reader().await?;
+    let mut reader = file_source.create_reader().await.map_err(|e| format!("File reader creation error: {}", e))?;
     
     // Configure Kafka producer
     println!("  📨 Starting Kafka producer...");
     let producer_config = ProducerConfig::new(KAFKA_BROKERS, KAFKA_TOPIC)
         .acks(AckMode::All)
         .idempotence(true)
-        .batch_size(16384)      // 16KB batches
-        .linger_ms(10);         // 10ms batching
+        .batching(16384, Duration::from_millis(10)); // 16KB batches, 10ms linger
         
-    let producer = KafkaProducer::with_config(producer_config, JsonSerializer, JsonSerializer)?;
+    let producer = KafkaProducer::<String, serde_json::Value, _, _>::with_config(producer_config, JsonSerializer, JsonSerializer)?;
     
     println!("  ✅ File → Kafka pipeline ready");
     
@@ -235,6 +234,9 @@ async fn run_file_to_kafka_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
         // Process the record (convert and enrich)
         match process_transaction_record(&record) {
             Ok(processed_record) => {
+                // Convert StreamRecord to JSON Value for Kafka
+                let json_value = stream_record_to_json_value(&processed_record);
+                
                 // Extract amount for metrics
                 if let Some(FieldValue::ScaledInteger(amount_cents, _)) = processed_record.fields.get("amount_cents") {
                     metrics.total_amount_processed.fetch_add(*amount_cents as u64, Ordering::Relaxed);
@@ -248,7 +250,7 @@ async fn run_file_to_kafka_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
                     })
                     .unwrap_or_else(|| "unknown".to_string());
                     
-                match producer.send(Some(&key), &processed_record, Headers::new(), None).await {
+                match producer.send(Some(&key), &json_value, Headers::new(), None).await {
                     Ok(_) => {
                         metrics.records_processed.fetch_add(1, Ordering::Relaxed);
                     }
@@ -277,9 +279,9 @@ async fn run_kafka_to_file_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
     // Configure Kafka consumer
     let consumer_config = ConsumerConfig::new(KAFKA_BROKERS, "demo-consumer-group")
         .auto_offset_reset(OffsetReset::Earliest)
-        .enable_auto_commit(false);
+        .auto_commit(false, Duration::from_millis(1000));
         
-    let consumer = KafkaConsumer::<String, StreamRecord, _, _>::with_config(
+    let consumer = KafkaConsumer::<String, serde_json::Value, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -296,7 +298,7 @@ async fn run_kafka_to_file_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
     let mut file_sink = FileSink::new();
     file_sink.initialize(sink_config.into()).await.map_err(|e| format!("Sink initialization error: {}", e))?;
     
-    let writer = file_sink.create_writer().await.map_err(|e| format!("Writer creation error: {}", e))?;
+    let mut writer = file_sink.create_writer().await.map_err(|e| format!("Writer creation error: {}", e))?;
     
     println!("  ✅ Kafka → File pipeline ready");
     
@@ -305,7 +307,10 @@ async fn run_kafka_to_file_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
     while let Some(message_result) = stream.next().await {
         match message_result {
             Ok(message) => {
-                let record = message.value().clone();
+                let json_value = message.value().clone();
+                
+                // Convert JSON value to StreamRecord for writing
+                let record = json_value_to_stream_record(&json_value);
                 
                 // Write to file
                 match writer.write(record).await {
@@ -333,7 +338,126 @@ async fn run_kafka_to_file_pipeline(metrics: Arc<PipelineMetrics>) -> Result<(),
     Ok(())
 }
 
-fn process_transaction_record(record: &StreamRecord) -> Result<StreamRecord, Box<dyn std::error::Error>> {
+fn stream_record_to_json_value(record: &StreamRecord) -> serde_json::Value {
+    let mut json_map = serde_json::Map::new();
+    
+    for (key, field_value) in &record.fields {
+        let json_value = match field_value {
+            FieldValue::String(s) => serde_json::Value::String(s.clone()),
+            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+            FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0))),
+            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+            FieldValue::ScaledInteger(value, scale) => {
+                // Convert scaled integer to decimal string representation
+                let divisor = 10_i64.pow(*scale as u32);
+                let decimal_value = *value as f64 / divisor as f64;
+                serde_json::Value::Number(serde_json::Number::from_f64(decimal_value).unwrap_or_else(|| serde_json::Number::from(0)))
+            }
+            FieldValue::Null => serde_json::Value::Null,
+            FieldValue::Date(d) => serde_json::Value::String(d.to_string()),
+            FieldValue::Timestamp(ts) => serde_json::Value::String(ts.to_string()),
+            FieldValue::Decimal(d) => serde_json::Value::String(d.to_string()),
+            FieldValue::Array(arr) => {
+                let json_arr: Vec<serde_json::Value> = arr.iter().map(|fv| stream_record_field_to_json_value(fv)).collect();
+                serde_json::Value::Array(json_arr)
+            }
+            FieldValue::Map(map) => {
+                let mut json_map = serde_json::Map::new();
+                for (k, v) in map {
+                    json_map.insert(k.clone(), stream_record_field_to_json_value(v));
+                }
+                serde_json::Value::Object(json_map)
+            }
+            FieldValue::Struct(map) => {
+                let mut json_map = serde_json::Map::new();
+                for (k, v) in map {
+                    json_map.insert(k.clone(), stream_record_field_to_json_value(v));
+                }
+                serde_json::Value::Object(json_map)
+            }
+            FieldValue::Interval { value, unit: _ } => {
+                serde_json::Value::Number(serde_json::Number::from(*value))
+            }
+        };
+        json_map.insert(key.clone(), json_value);
+    }
+    
+    serde_json::Value::Object(json_map)
+}
+
+fn stream_record_field_to_json_value(field_value: &FieldValue) -> serde_json::Value {
+    match field_value {
+        FieldValue::String(s) => serde_json::Value::String(s.clone()),
+        FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+        FieldValue::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0))),
+        FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+        FieldValue::ScaledInteger(value, scale) => {
+            let divisor = 10_i64.pow(*scale as u32);
+            let decimal_value = *value as f64 / divisor as f64;
+            serde_json::Value::Number(serde_json::Number::from_f64(decimal_value).unwrap_or_else(|| serde_json::Number::from(0)))
+        }
+        FieldValue::Null => serde_json::Value::Null,
+        FieldValue::Date(d) => serde_json::Value::String(d.to_string()),
+        FieldValue::Timestamp(ts) => serde_json::Value::String(ts.to_string()),
+        FieldValue::Decimal(d) => serde_json::Value::String(d.to_string()),
+        FieldValue::Array(arr) => {
+            let json_arr: Vec<serde_json::Value> = arr.iter().map(stream_record_field_to_json_value).collect();
+            serde_json::Value::Array(json_arr)
+        }
+        FieldValue::Map(map) => {
+            let mut json_map = serde_json::Map::new();
+            for (k, v) in map {
+                json_map.insert(k.clone(), stream_record_field_to_json_value(v));
+            }
+            serde_json::Value::Object(json_map)
+        }
+        FieldValue::Struct(map) => {
+            let mut json_map = serde_json::Map::new();
+            for (k, v) in map {
+                json_map.insert(k.clone(), stream_record_field_to_json_value(v));
+            }
+            serde_json::Value::Object(json_map)
+        }
+        FieldValue::Interval { value, unit: _ } => {
+            serde_json::Value::Number(serde_json::Number::from(*value))
+        }
+    }
+}
+
+fn json_value_to_stream_record(json_value: &serde_json::Value) -> StreamRecord {
+    let mut fields = HashMap::new();
+    
+    if let serde_json::Value::Object(map) = json_value {
+        for (key, value) in map {
+            let field_value = match value {
+                serde_json::Value::String(s) => FieldValue::String(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        FieldValue::Integer(i)
+                    } else if let Some(f) = n.as_f64() {
+                        FieldValue::Float(f)
+                    } else {
+                        FieldValue::String(n.to_string())
+                    }
+                }
+                serde_json::Value::Bool(b) => FieldValue::Boolean(*b),
+                serde_json::Value::Null => FieldValue::String("null".to_string()),
+                _ => FieldValue::String(value.to_string()),
+            };
+            fields.insert(key.clone(), field_value);
+        }
+    }
+    
+    StreamRecord {
+        fields,
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
+
+fn process_transaction_record(record: &StreamRecord) -> Result<StreamRecord, String> {
     let mut processed_fields = record.fields.clone();
     
     // Convert amount to ScaledInteger for exact financial precision
@@ -358,13 +482,13 @@ fn process_transaction_record(record: &StreamRecord) -> Result<StreamRecord, Box
     
     // Add processing metadata
     processed_fields.insert("processed_at".to_string(), 
-        FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64));
+        FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs() as i64));
     processed_fields.insert("pipeline_version".to_string(), 
         FieldValue::String("1.0.0".to_string()));
         
     Ok(StreamRecord {
         fields: processed_fields,
-        timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis() as i64,
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
