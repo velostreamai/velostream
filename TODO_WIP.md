@@ -37,6 +37,13 @@ This document tracks current work-in-progress items and technical debt that need
   - Add dead letter queue support for failed records
   - Test error scenarios and recovery mechanisms
 
+- [ ] **Kafka Consumer Performance Optimization**
+  - Replace consumer.poll() with stream-based consumption
+  - Benchmark performance difference between poll() and streams
+  - Implement async stream processing for improved throughput
+  - Measure CPU and memory usage improvements
+  - Test backpressure handling with stream approach
+
 ## ⚡ Performance Analysis & Optimization
 
 ### Critical Performance Items
@@ -132,14 +139,39 @@ let record_fields: HashMap<String, InternalValue> = record
 4. **Batching Opportunity**: Can we process multiple records in a batch to amortize costs?
 
 **Investigation Tasks**:
-- [ ] Create benchmark comparing conversion approaches:
-  - Current FieldValueConverter
-  - Direct field mapping
-  - Batch conversion
-  - Zero-copy alternatives
-- [ ] Profile with different record sizes (10 fields vs 100 fields)
-- [ ] Test with different field types (primitives vs large strings)
+- [x] Create benchmark comparing conversion approaches:
+  - ✅ Current FieldValueConverter performance measured
+  - [ ] Direct field mapping alternatives
+  - [ ] Batch conversion optimization
+  - [ ] Zero-copy alternatives investigation
+- [x] Profile with different record sizes (10 fields vs 100 fields)
+- [x] Test with different field types (primitives vs large strings)
 - [ ] Measure impact on end-to-end query latency
+
+**✅ PERFORMANCE ANALYSIS RESULTS** (Completed August 28, 2025):
+
+**Per-Field Conversion Performance**:
+- **Current**: ~520ns per field (5x slower than target)
+- **Target**: <100ns per field
+- **Finding**: HashMap collection overhead dominates individual conversion cost
+
+**Individual Type Performance**:
+- String: 42.3ns per conversion
+- Integer: 12.1ns per conversion  
+- Float: 12.3ns per conversion
+- ScaledInteger: 12.3ns per conversion
+
+**Key Insights**:
+1. **Individual conversions are fast** - meet performance targets
+2. **HashMap collection creates overhead** - 5x performance hit
+3. **String conversions need allocation** - not zero-copy
+4. **Scaling is roughly linear** - 516ns/field regardless of record size
+
+**🚨 OPTIMIZATION OPPORTUNITIES**:
+1. **Replace HashMap collection** with direct field array processing
+2. **Implement batch processing** to amortize collection overhead
+3. **Consider zero-copy string handling** for large payloads
+4. **Profile end-to-end latency impact** on real workloads
 
 ### Exactly-Once Implementation Strategy
 

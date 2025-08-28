@@ -143,3 +143,14 @@ path = "tests/debug/debug_encoding_test.rs"
 [[bin]]
 name = "test_standard_decimal_logical_type"
 path = "tests/debug/test_standard_decimal_logical_type.rs"
+
+# Performance Benchmarks
+[[bench]]
+name = "conversion_benchmark"
+path = "tests/performance/conversion_benchmark.rs"
+harness = false
+
+# Simple Conversion Performance Test
+[[bin]]
+name = "simple_conversion_test"
+path = "tests/debug/simple_conversion_test.rs"
