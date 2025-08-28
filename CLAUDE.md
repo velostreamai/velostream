@@ -211,8 +211,9 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 ## Testing Strategy
 
 ### Test Organization
-Tests are organized into dedicated test files outside of implementation modules:
-- **Module tests removed**: All `#[cfg(test)]` blocks have been moved out of source files
+**CRITICAL**: Tests MUST be organized into dedicated test files outside of implementation modules:
+- **NEVER add `#[cfg(test)]` blocks inside implementation files** - All tests must be in `tests/` directory
+- **NEVER add `#[test]` functions inside src files** - They belong in `tests/unit/` or `tests/integration/`
 - **Dedicated test files**: Tests are located in `tests/unit/` and `tests/integration/`
 - **Test module structure**: Mirrors source structure for easy navigation
 
@@ -230,6 +231,37 @@ tests/
 │   │   └── parser/                    # SQL parser tests
 │   └── kafka/                         # Kafka integration tests
 └── integration/                       # End-to-end tests
+```
+
+### Writing Tests - CORRECT Structure
+When adding new functionality:
+1. **Create test file** in `tests/unit/[module_path]/[feature]_test.rs`
+2. **Use proper imports** at the top of the test file
+3. **Write comprehensive test cases** covering:
+   - Happy path scenarios
+   - Error conditions
+   - Edge cases
+   - Performance considerations (if applicable)
+
+Example test file structure:
+```rust
+// tests/unit/sql/query_analyzer_test.rs
+use ferrisstreams::ferris::sql::{
+    query_analyzer::{QueryAnalyzer, QueryAnalysis},
+    ast::{StreamingQuery, StreamSource, SelectField},
+    SqlError,
+};
+use std::collections::HashMap;
+
+#[test]
+fn test_query_analyzer_select() {
+    // Test implementation
+}
+
+#[test]
+fn test_query_analyzer_error_handling() {
+    // Test implementation
+}
 ```
 
 ### Unit Tests

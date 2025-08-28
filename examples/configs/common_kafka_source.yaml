@@ -1,0 +1,46 @@
+# Common Kafka Data Source Configuration for Examples
+# Base configuration for all Kafka data sources
+# URIs are constructed as: kafka://{bootstrap_servers}/{topic_name}
+
+datasource:
+  type: kafka
+  
+  # Standard consumer configuration
+  consumer_config:
+    bootstrap_servers: "localhost:9092"
+    auto_offset_reset: "latest"
+    enable_auto_commit: true
+    auto_commit_interval_ms: 100
+    session_timeout_ms: 6000
+    heartbeat_interval_ms: 2000
+    
+  # Common schema settings
+  schema:
+    key_format: string
+    value_format: json
+    
+  # Default performance settings
+  performance:
+    compression_type: "gzip"
+    
+  # Default stream properties
+  stream_config:
+    replication_factor: 1  # Single node for examples
+    cleanup_policy: "delete"
+    
+# Performance profiles that can be referenced
+performance_profiles:
+  low_latency:
+    fetch_max_wait_ms: 10
+    max_poll_records: 500
+    buffer_size: 32768
+    
+  high_throughput:
+    fetch_max_wait_ms: 100
+    max_poll_records: 2000
+    buffer_size: 131072
+    
+  balanced:
+    fetch_max_wait_ms: 50
+    max_poll_records: 1000
+    buffer_size: 65536

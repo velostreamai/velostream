@@ -13,7 +13,7 @@ This directory contains all documentation related to the pluggable data sources 
 - **[DLQ_AND_METRICS_GUIDE.md](./DLQ_AND_METRICS_GUIDE.md)** - Dead letter queues and advanced metrics
 
 ### Planning & Implementation
-- **[FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md](./FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md)** - Original feature request and requirements
+- **[FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md](FR-047_PLUGGABLE_DATASOURCES.md)** - Original feature request and requirements
 - **[ARCHITECTURAL_DECOUPLING_PLAN.md](./ARCHITECTURAL_DECOUPLING_PLAN.md)** - 10-day implementation plan ✅ **100% COMPLETE**
 - **[KAFKA_COUPLING_AUDIT.md](./KAFKA_COUPLING_AUDIT.md)** - Audit of existing Kafka dependencies
 

@@ -1,0 +1,19 @@
+# Crisis Alerts Output Configuration
+# Emergency and crisis detection alerts
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "crisis_alerts"
+  
+delivery_profile: critical
+
+topic_config:
+  partitions: 8
+  replication_factor: 3
+  retention_ms: 7776000000  # 90 days retention for emergency response
+  
+metadata:
+  description: "Crisis and emergency detection alerts"
+  data_classification: "emergency_alerts"
+  priority: "critical"

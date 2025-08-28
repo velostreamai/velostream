@@ -1,0 +1,51 @@
+# Arbitrage Opportunities Topic Configuration
+# Time-sensitive arbitrage opportunity alerts
+
+extends: common_kafka_sink.yaml
+
+# Topic-specific settings
+topic:
+  name: "arbitrage_opportunities"
+  
+# High priority for time-sensitive opportunities
+delivery_profile: high_priority
+
+# Override for ultra-fast delivery
+producer_config:
+  linger_ms: 1  # Even faster for arbitrage
+  timeout_ms: 2000  # Very fast timeout
+
+# Topic-specific schema
+schema:
+  key_field: symbol
+  schema_file: "schemas/arbitrage_opportunities.avsc"
+  
+# Topic properties
+topic_config:
+  partitions: 6
+  retention_ms: 86400000  # 1 day retention (opportunities are short-lived)
+  segment_ms: 1800000     # 30 minute segments
+  
+# Alert-specific headers
+headers:
+  alert_type: "arbitrage_opportunity"
+  priority: "high"
+  time_sensitivity: "critical"
+  
+# Integration with trading systems
+integrations:
+  trading_bot_webhook:
+    enabled: true
+    endpoint: "https://trading-bot.example.com/arbitrage"
+    auth_header: "Bearer ${TRADING_BOT_TOKEN}"
+    
+  dashboard_updates:
+    enabled: true
+    websocket_url: "wss://dashboard.example.com/arbitrage-feed"
+    
+# Business context
+metadata:
+  description: "Cross-exchange arbitrage opportunity detection"
+  min_spread_bps: 10
+  min_volume: 50000
+  business_impact: "profit_opportunity"

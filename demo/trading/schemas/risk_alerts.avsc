@@ -1,0 +1,88 @@
+{
+  "type": "record",
+  "name": "RiskAlert",
+  "namespace": "com.trading.streams.alerts",
+  "doc": "Critical risk management alerts for regulatory compliance",
+  "fields": [
+    {
+      "name": "trader_id",
+      "type": "string",
+      "doc": "Trader identifier"
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "position_size",
+      "type": "long",
+      "doc": "Current position size"
+    },
+    {
+      "name": "current_pnl",
+      "type": "string",
+      "doc": "Current profit/loss as decimal string"
+    },
+    {
+      "name": "total_pnl",
+      "type": "string",
+      "doc": "Total trader P&L as decimal string"
+    },
+    {
+      "name": "position_value",
+      "type": "string",
+      "doc": "Current position value as decimal string"
+    },
+    {
+      "name": "risk_status",
+      "type": {
+        "type": "enum",
+        "name": "RiskStatus",
+        "symbols": [
+          "WITHIN_LIMITS",
+          "POSITION_WARNING", 
+          "POSITION_LIMIT_EXCEEDED",
+          "DAILY_LOSS_LIMIT_EXCEEDED"
+        ]
+      },
+      "doc": "Risk status classification"
+    },
+    {
+      "name": "current_price",
+      "type": "string",
+      "doc": "Current market price as decimal string"
+    },
+    {
+      "name": "risk_check_time",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Risk check timestamp"
+    },
+    {
+      "name": "alert_priority",
+      "type": {
+        "type": "enum",
+        "name": "AlertPriority",
+        "symbols": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+      },
+      "doc": "Alert priority level",
+      "default": "CRITICAL"
+    },
+    {
+      "name": "compliance_flags",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "doc": "Regulatory compliance flags",
+      "default": []
+    },
+    {
+      "name": "action_required",
+      "type": "boolean",
+      "doc": "Whether immediate action is required",
+      "default": true
+    }
+  ]
+}

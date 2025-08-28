@@ -1,0 +1,30 @@
+# Market Data Topic Configuration
+# Ultra-low latency market data feed specialization
+
+extends: common_kafka_source.yaml
+
+# Topic-specific settings
+topic:
+  name: "market_data"
+  
+# Consumer group for this specific use case
+consumer_group: "trading_analytics_group"
+
+# Performance profile override
+performance_profile: ultra_low_latency
+
+# Topic-specific schema
+schema:
+  key_field: symbol
+  schema_file: "schemas/market_data.avsc"
+  
+# Topic properties
+topic_config:
+  partitions: 12  # High parallelism for market data
+  retention_ms: 86400000  # 1 day retention
+  
+# Business context
+metadata:
+  description: "High-frequency trading market data feed"
+  data_classification: "real_time_financial"
+  update_frequency: "microseconds"

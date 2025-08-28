@@ -1,15 +1,27 @@
 -- SQL Application: IoT Sensor Monitoring Platform
--- Version: 2.1.0
+-- Version: 2.2.0
 -- Description: Real-time IoT sensor data processing and alerting system
 -- Author: IoT Platform Team
--- Dependencies: kafka-sensors, kafka-alerts, influxdb-connector
+-- Dependencies: Configuration files in configs/ directory using extends pattern
 -- Tag: environment:production
 -- Tag: domain:iot
 
--- Name: Temperature Alert System
--- Property: alert_threshold=80
--- Property: cooldown_period=5m
-START JOB temperature_alerts AS
+-- Configure IoT data streams using extends-based configuration
+CREATE STREAM sensor_data WITH (
+    config_file = 'examples/configs/sensor_data_topic.yaml'
+);
+
+CREATE STREAM device_status WITH (
+    config_file = 'examples/configs/device_status_topic.yaml'
+);
+
+CREATE STREAM critical_alerts WITH (
+    config_file = 'examples/configs/critical_alerts_sink.yaml'
+);
+
+-- Temperature Alert System
+-- Monitors temperature sensors for high temperature conditions
+INSERT INTO critical_alerts
 SELECT 
     device_id,
     sensor_type,
@@ -18,13 +30,15 @@ SELECT
     timestamp() as alert_time,
     'TEMPERATURE_HIGH' as alert_type
 FROM sensor_data
-WHERE sensor_type = 'temperature' AND temperature > 80
-WITH ('output.topic' = 'critical_alerts');
+WHERE sensor_type = 'temperature' AND temperature > 80;
 
--- Name: Pressure Monitoring
--- Property: min_pressure=10
--- Property: alert_level=critical
-START JOB pressure_monitoring AS
+-- Pressure Monitoring System
+-- Monitors pressure sensors for critical low pressure conditions
+CREATE STREAM pressure_alerts WITH (
+    config_file = 'examples/configs/pressure_alerts_sink.yaml'
+);
+
+INSERT INTO pressure_alerts
 SELECT 
     device_id,
     sensor_type,
@@ -37,13 +51,15 @@ SELECT
         ELSE 'NORMAL'
     END as pressure_status
 FROM sensor_data
-WHERE sensor_type = 'pressure' AND pressure < 15
-WITH ('output.topic' = 'pressure_alerts');
+WHERE sensor_type = 'pressure' AND pressure < 15;
 
--- Name: Vibration Analysis
--- Property: vibration_threshold=5.0
--- Property: analysis_window=10m
-START JOB vibration_analysis AS
+-- Vibration Analysis System
+-- Windowed analysis of vibration levels for predictive maintenance
+CREATE STREAM vibration_analytics WITH (
+    config_file = 'examples/configs/vibration_analytics_sink.yaml'
+);
+
+INSERT INTO vibration_analytics
 SELECT 
     device_id,
     location,
@@ -58,13 +74,15 @@ SELECT
 FROM sensor_data
 WHERE sensor_type = 'vibration'
 GROUP BY device_id, location
-WINDOW TUMBLING(10m)
-WITH ('output.topic' = 'vibration_analytics');
+WINDOW TUMBLING(10m);
 
--- Name: Battery Level Monitor
--- Property: low_battery_threshold=20
--- Property: critical_battery_threshold=5
-START JOB battery_monitoring AS
+-- Battery Level Monitor
+-- Monitors device battery levels for maintenance alerts
+CREATE STREAM battery_alerts WITH (
+    config_file = 'examples/configs/battery_alerts_sink.yaml'
+);
+
+INSERT INTO battery_alerts
 SELECT 
     device_id,
     location,
@@ -78,13 +96,15 @@ SELECT
         ELSE 'GOOD'
     END as battery_status
 FROM device_status
-WHERE battery_level IS NOT NULL
-WITH ('output.topic' = 'battery_alerts');
+WHERE battery_level IS NOT NULL;
 
--- Name: Sensor Health Check
--- Property: health_check_interval=1h
--- Property: timeout_threshold=15m
-START JOB sensor_health_check AS
+-- Sensor Health Check System
+-- Windowed health monitoring for sensor availability and performance
+CREATE STREAM sensor_health_reports WITH (
+    config_file = 'examples/configs/sensor_health_reports_sink.yaml'
+);
+
+INSERT INTO sensor_health_reports
 SELECT 
     device_id,
     location,
@@ -100,5 +120,4 @@ SELECT
     END as health_status
 FROM sensor_data
 GROUP BY device_id, location, sensor_type
-WINDOW TUMBLING(1h)
-WITH ('output.topic' = 'sensor_health_reports');
+WINDOW TUMBLING(1h);

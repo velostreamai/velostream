@@ -1,0 +1,18 @@
+# Battery Alerts Output Configuration
+# Battery level monitoring alerts
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "battery_alerts"
+  
+delivery_profile: medium_priority
+
+topic_config:
+  partitions: 4
+  retention_ms: 1209600000  # 14 days retention
+  
+metadata:
+  description: "Battery level alerts"
+  data_classification: "maintenance_alerts"
+  priority: "medium"

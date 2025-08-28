@@ -574,6 +574,9 @@ impl WithClauseParser {
                         // Set OAuth2 token
                     }
                 }
+                "none" => {
+                    // No authentication required - this is valid, just continue
+                }
                 _ => {
                     return Err(WithClauseError::InvalidValue {
                         key: "schema.registry.auth.type".to_string(),

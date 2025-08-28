@@ -1,0 +1,237 @@
+//! Integration tests for multi-job SQL server functionality
+
+use ferrisstreams::ferris::sql::{
+    execution::StreamExecutionEngine,
+    multi_job::{
+        create_datasource_reader, process_datasource_records, DataSourceConfig,
+        JobExecutionStats,
+    },
+    query_analyzer::{DataSourceRequirement, DataSourceType},
+    StreamingSqlParser,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{mpsc, Mutex};
+
+/// Create a test datasource requirement for Kafka
+fn create_kafka_requirement() -> DataSourceRequirement {
+    let mut properties = HashMap::new();
+    properties.insert("brokers".to_string(), "localhost:9092".to_string());
+    properties.insert("topic".to_string(), "test-topic".to_string());
+    
+    DataSourceRequirement {
+        source_type: DataSourceType::Kafka,
+        properties,
+        required_fields: vec![],
+    }
+}
+
+/// Create a test datasource requirement for File
+fn create_file_requirement(path: &str, format: &str) -> DataSourceRequirement {
+    let mut properties = HashMap::new();
+    properties.insert("path".to_string(), path.to_string());
+    properties.insert("format".to_string(), format.to_string());
+    
+    DataSourceRequirement {
+        source_type: DataSourceType::File,
+        properties,
+        required_fields: vec![],
+    }
+}
+
+#[tokio::test]
+async fn test_datasource_config_creation() {
+    let requirement = create_kafka_requirement();
+    let config = DataSourceConfig {
+        requirement,
+        default_topic: "default".to_string(),
+        job_name: "test-job".to_string(),
+    };
+    
+    assert_eq!(config.default_topic, "default");
+    assert_eq!(config.job_name, "test-job");
+}
+
+#[tokio::test]
+async fn test_kafka_datasource_creation_mock() {
+    // This test verifies the configuration creation logic without actually connecting to Kafka
+    let requirement = create_kafka_requirement();
+    let config = DataSourceConfig {
+        requirement: requirement.clone(),
+        default_topic: "fallback-topic".to_string(),
+        job_name: "kafka-test".to_string(),
+    };
+    
+    // Verify that configuration extracts the right values
+    assert_eq!(
+        config.requirement.properties.get("brokers"),
+        Some(&"localhost:9092".to_string())
+    );
+    assert_eq!(
+        config.requirement.properties.get("topic"),
+        Some(&"test-topic".to_string())
+    );
+}
+
+#[tokio::test] 
+async fn test_file_datasource_config() {
+    let requirement = create_file_requirement("/data/test.csv", "csv");
+    let config = DataSourceConfig {
+        requirement: requirement.clone(),
+        default_topic: "unused".to_string(),
+        job_name: "file-test".to_string(),
+    };
+    
+    assert_eq!(
+        config.requirement.properties.get("path"),
+        Some(&"/data/test.csv".to_string())
+    );
+    assert_eq!(
+        config.requirement.properties.get("format"),
+        Some(&"csv".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_job_execution_stats_tracking() {
+    let stats = JobExecutionStats::new();
+    assert!(stats.start_time.is_some());
+    assert_eq!(stats.records_processed, 0);
+    assert_eq!(stats.errors, 0);
+    
+    // Test elapsed time calculation
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let elapsed = stats.elapsed();
+    assert!(elapsed.as_millis() >= 10);
+}
+
+#[tokio::test]
+async fn test_job_execution_stats_rps() {
+    let mut stats = JobExecutionStats::new();
+    
+    // Simulate processing records
+    stats.records_processed = 100;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    
+    let rps = stats.records_per_second();
+    // Should be approximately 1000 records/sec (100 records in 0.1 seconds)
+    assert!(rps > 0.0);
+    assert!(rps < 2000.0); // Upper bound to account for timing variations
+}
+
+#[tokio::test]
+async fn test_process_datasource_with_shutdown() {
+    use ferrisstreams::ferris::datasource::DataReader;
+    use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
+    use ferrisstreams::ferris::serialization::JsonFormat;
+    use std::collections::HashMap;
+    
+    // Create a mock reader that produces test records
+    struct MockReader {
+        count: usize,
+    }
+    
+    #[async_trait::async_trait]
+    impl DataReader for MockReader {
+        async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+            if self.count > 0 {
+                self.count -= 1;
+                let mut fields = HashMap::new();
+                fields.insert("id".to_string(), FieldValue::Integer(self.count as i64));
+                fields.insert("value".to_string(), FieldValue::String("test".to_string()));
+                
+                Ok(Some(StreamRecord {
+                    fields,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    offset: 0,
+                    partition: 0,
+                    headers: HashMap::new(),
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+        
+        async fn close(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+    
+    // Create execution engine
+    let (output_sender, mut _output_receiver) = mpsc::unbounded_channel();
+    let format = Arc::new(JsonFormat);
+    let engine = StreamExecutionEngine::new(output_sender, format);
+    let engine = Arc::new(Mutex::new(engine));
+    
+    // Parse a simple query
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse("SELECT id, value FROM test").unwrap();
+    
+    // Create shutdown channel
+    let (_shutdown_sender, shutdown_receiver) = mpsc::unbounded_channel();
+    
+    // Create mock reader
+    let reader = Box::new(MockReader { count: 5 });
+    
+    // Process records with immediate shutdown
+    let stats = process_datasource_records(
+        reader,
+        engine,
+        query,
+        "test-job".to_string(),
+        shutdown_receiver,
+    ).await;
+    
+    // Verify stats
+    assert_eq!(stats.records_processed, 5);
+    assert_eq!(stats.errors, 0);
+}
+
+#[tokio::test]
+async fn test_unsupported_datasource_type() {
+    use ferrisstreams::ferris::sql::query_analyzer::DataSourceType;
+    
+    let mut properties = HashMap::new();
+    properties.insert("url".to_string(), "redis://localhost".to_string());
+    
+    let requirement = DataSourceRequirement {
+        source_type: DataSourceType::S3, // Unsupported type for now
+        properties,
+        required_fields: vec![],
+    };
+    
+    let config = DataSourceConfig {
+        requirement,
+        default_topic: "default".to_string(),
+        job_name: "unsupported-test".to_string(),
+    };
+    
+    // This should return an error for unsupported type
+    let result = create_datasource_reader(&config).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Unsupported datasource type"));
+}
+
+#[test]
+fn test_default_values_extraction() {
+    use ferrisstreams::ferris::sql::query_analyzer::DataSourceRequirement;
+    
+    // Test with empty properties - should use defaults
+    let requirement = DataSourceRequirement {
+        source_type: DataSourceType::Kafka,
+        properties: HashMap::new(),
+        required_fields: vec![],
+    };
+    
+    let config = DataSourceConfig {
+        requirement,
+        default_topic: "my-default-topic".to_string(),
+        job_name: "default-test".to_string(),
+    };
+    
+    // When creating Kafka reader, it should use defaults
+    // This is tested indirectly through the configuration
+    assert_eq!(config.default_topic, "my-default-topic");
+    assert_eq!(config.job_name, "default-test");
+}

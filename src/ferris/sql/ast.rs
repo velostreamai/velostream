@@ -407,6 +407,8 @@ pub enum StreamSource {
     Stream(String),
     /// Table reference (KTable)
     Table(String),
+    /// URI-based data source (FR-047 compliant)
+    Uri(String),
     /// Subquery (for future implementation)
     Subquery(Box<StreamingQuery>),
 }

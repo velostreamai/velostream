@@ -1,10 +1,10 @@
 use clap::{Parser, Subcommand};
-use ferrisstreams::ferris::{
-    sql::{
-        execution::performance::PerformanceMonitor,
-        execution_format_factory::ExecutionFormatFactory, query_analyzer::QueryAnalyzer,
-        SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine, StreamingSqlParser,
-    },
+use ferrisstreams::ferris::sql::{
+    execution::performance::PerformanceMonitor,
+    execution_format_factory::ExecutionFormatFactory,
+    multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
+    query_analyzer::QueryAnalyzer,
+    SqlApplication, SqlApplicationParser, SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{error, info, warn};
 use std::collections::HashMap;
@@ -271,7 +271,7 @@ impl MultiJobSqlServer {
             execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
         }
 
-        let _execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
+        let execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
 
         // Clone data for the job task
         let job_name = name.clone();
@@ -282,140 +282,41 @@ impl MultiJobSqlServer {
         let execution_handle = tokio::spawn(async move {
             info!("Starting job '{}' execution task", job_name);
 
-            // TODO: Create datasources based on query analysis
-            // The datasources themselves should create the appropriate consumers/producers
-            // For example:
-            // let datasource = KafkaDataSource::from_analysis(&analysis)?;
-            // let reader = datasource.create_reader().await?;
+            // Create datasource and process records using helper functions
+            if let Some(requirement) = analysis.required_sources.first() {
+                let datasource_config = DataSourceConfig {
+                    requirement: requirement.clone(),
+                    default_topic: topic_clone,
+                    job_name: job_name.clone(),
+                };
 
-            info!(
-                "Job '{}' would consume from topic '{}'",
-                job_name, topic_clone
-            );
-
-            let records_processed = 0u64;
-            let _start_time = std::time::Instant::now();
-
-            loop {
-                // Check for shutdown signal
-                if shutdown_receiver.try_recv().is_ok() {
-                    info!("Job '{}' received shutdown signal", job_name);
-                    break;
-                }
-
-                // TODO: Poll for messages using datasource reader
-                /*
-                match reader.read().await {
-                    Ok(Some(record)) => {
-                        records_processed += 1;
-
-                        // Extract headers
-                        let headers = message.headers().clone();
-                        let mut header_map = HashMap::new();
-                        for (key, value) in headers.iter() {
-                            if let Some(val) = value {
-                                header_map.insert(key.clone(), val.clone());
-                            }
-                        }
-
-                        // Convert JSON → InternalValue directly
-                        let record_json = if let Some(json_obj) = message.value().as_object() {
-                            // Convert JSON object to InternalValue map
-                            json_obj.iter().map(|(k, v)| {
-                                let internal_value = match v {
-                                    Value::String(s) => InternalValue::String(s.clone()),
-                                    Value::Number(n) => {
-                                        if let Some(i) = n.as_i64() {
-                                            InternalValue::Integer(i)
-                                        } else if let Some(f) = n.as_f64() {
-                                            InternalValue::Number(f)
-                                        } else {
-                                            InternalValue::String(n.to_string())
-                                        }
-                                    }
-                                    Value::Bool(b) => InternalValue::Boolean(*b),
-                                    Value::Null => InternalValue::Null,
-                                    Value::Array(arr) => InternalValue::Array(
-                                        arr.iter().map(|item| match item {
-                                            Value::String(s) => InternalValue::String(s.clone()),
-                                            Value::Number(n) => {
-                                                if let Some(i) = n.as_i64() {
-                                                    InternalValue::Integer(i)
-                                                } else if let Some(f) = n.as_f64() {
-                                                    InternalValue::Number(f)
-                                                } else {
-                                                    InternalValue::String(n.to_string())
-                                                }
-                                            }
-                                            Value::Bool(b) => InternalValue::Boolean(*b),
-                                            Value::Null => InternalValue::Null,
-                                            _ => InternalValue::String(item.to_string()),
-                                        }).collect()
-                                    ),
-                                    Value::Object(_) => InternalValue::String(v.to_string()),
-                                };
-                                (k.clone(), internal_value)
-                            }).collect()
-                        } else {
-                            // Handle non-object values
-                            let mut map = HashMap::new();
-                            map.insert("value".to_string(), match message.value() {
-                                Value::String(s) => InternalValue::String(s.clone()),
-                                Value::Number(n) => {
-                                    if let Some(i) = n.as_i64() {
-                                        InternalValue::Integer(i)
-                                    } else if let Some(f) = n.as_f64() {
-                                        InternalValue::Number(f)
-                                    } else {
-                                        InternalValue::String(n.to_string())
-                                    }
-                                }
-                                Value::Bool(b) => InternalValue::Boolean(*b),
-                                Value::Null => InternalValue::Null,
-                                _ => InternalValue::String(message.value().to_string()),
-                            });
-                            map
-                        };
-
-                        // Execute the query
-                        let mut engine = execution_engine.lock().await;
-                        if let Err(e) = engine
-                            .execute_with_headers(&parsed_query, record_json, header_map)
-                            .await
-                        {
-                            error!("Job '{}' failed to process record: {:?}", job_name, e);
-                        }
-                        drop(engine);
-
-                        // Log progress every 1000 records
-                        if records_processed % 1000 == 0 {
-                            let elapsed = start_time.elapsed().as_secs_f64();
-                            let rps = records_processed as f64 / elapsed;
-                            info!(
-                                "Job '{}': processed {} records ({:.2} records/sec)",
-                                job_name, records_processed, rps
-                            );
-                        }
-                    }
-                    Ok(None) => {
-                        // No messages available
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                match create_datasource_reader(&datasource_config).await {
+                    Ok(reader) => {
+                        info!("Job '{}' successfully created datasource reader", job_name);
+                        let job_name_clone = job_name.clone();
+                        let stats = process_datasource_records(
+                            reader,
+                            execution_engine,
+                            parsed_query,
+                            job_name_clone,
+                            shutdown_receiver,
+                        )
+                        .await;
+                        info!("Job '{}' final stats: {:?}", job_name, stats);
                     }
                     Err(e) => {
-                        warn!("Job '{}' error reading messages: {:?}", job_name, e);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        error!(
+                            "Job '{}' failed to create datasource reader: {}",
+                            job_name, e
+                        );
                     }
                 }
-                */
-
-                // Temporary: sleep to simulate processing
-                tokio::time::sleep(Duration::from_millis(1000)).await;
+            } else {
+                error!(
+                    "No supported datasource found in query analysis for job '{}'",
+                    job_name
+                );
             }
-
-            info!(
-                "Job '{}' execution task completed. Processed {} records",
-                job_name, records_processed
-            );
         });
 
         // Create the job record

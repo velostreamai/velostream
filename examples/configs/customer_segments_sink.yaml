@@ -1,0 +1,18 @@
+# Customer Segmentation Output Configuration
+# Customer tier analytics
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "customer_segments"
+  
+delivery_profile: low_priority
+
+topic_config:
+  partitions: 4
+  retention_ms: 7776000000  # 90 days retention
+  
+metadata:
+  description: "Customer segmentation analytics"
+  data_classification: "analytical_data"
+  priority: "low"

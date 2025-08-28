@@ -1,0 +1,56 @@
+# Common Kafka Data Source Configuration
+# Base configuration for all Kafka data sources in the trading system
+# URIs are constructed as: kafka://{bootstrap_servers}/{topic_name}
+
+datasource:
+  type: kafka
+  
+  # Standard consumer configuration for trading system
+  consumer_config:
+    bootstrap_servers: "broker:9092"
+    auto_offset_reset: "latest"
+    enable_auto_commit: true
+    auto_commit_interval_ms: 100
+    session_timeout_ms: 6000
+    heartbeat_interval_ms: 2000
+    
+  # Common schema settings
+  schema:
+    key_format: string
+    value_format: avro
+    schema_registry_url: "http://schema-registry:8081"
+    
+  # Default performance settings
+  performance:
+    compression_type: "lz4"
+    
+  # Default stream properties
+  stream_config:
+    replication_factor: 3
+    cleanup_policy: "delete"
+    
+# Performance profiles that can be referenced
+performance_profiles:
+  ultra_low_latency:
+    fetch_max_wait_ms: 10
+    max_poll_records: 1000
+    fetch_min_bytes: 1024
+    buffer_size: 65536
+    batch_size: 1000
+    linger_ms: 1
+    
+  high_throughput:
+    fetch_max_wait_ms: 50
+    max_poll_records: 2000
+    fetch_min_bytes: 2048
+    buffer_size: 131072
+    batch_size: 2000
+    linger_ms: 5
+    
+  balanced:
+    fetch_max_wait_ms: 20
+    max_poll_records: 1000
+    fetch_min_bytes: 1024
+    buffer_size: 65536
+    batch_size: 1000
+    linger_ms: 2

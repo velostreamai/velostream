@@ -32,7 +32,7 @@ impl JoinContext {
         context: &super::ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
         match source {
-            StreamSource::Stream(name) | StreamSource::Table(name) => {
+            StreamSource::Stream(name) | StreamSource::Table(name) | StreamSource::Uri(name) => {
                 // Use real data sources from ProcessorContext
                 if let Some(records) = context.data_sources.get(name) {
                     if let Some(record) = records.first() {

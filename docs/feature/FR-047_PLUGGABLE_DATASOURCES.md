@@ -180,6 +180,8 @@ WITH (
 
 ## Configuration
 
+### Basic Configuration Structure
+
 ```yaml
 # ferrisstreams-config.yaml
 data_sources:
@@ -201,6 +203,169 @@ data_sources:
     warehouse: "s3://warehouse/"
     table: "customer_metrics"
 ```
+
+### Configuration Inheritance with `extends`
+
+FerrisStreams supports DRY configuration management through the `extends` keyword, enabling configuration inheritance and reducing duplication.
+
+#### Base Configuration Files
+
+```yaml
+# configs/common_kafka_source.yaml
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap_servers: "broker:9092"
+    auto_offset_reset: "latest"
+    enable_auto_commit: true
+    auto_commit_interval_ms: 100
+    session_timeout_ms: 6000
+    heartbeat_interval_ms: 2000
+  schema:
+    key_format: string
+    value_format: avro
+    schema_registry_url: "http://schema-registry:8081"
+  stream_config:
+    replication_factor: 3
+    cleanup_policy: "delete"
+
+# Performance profiles for different use cases
+performance_profiles:
+  ultra_low_latency:
+    fetch_max_wait_ms: 10
+    max_poll_records: 1000
+    buffer_size: 65536
+  high_throughput:
+    fetch_max_wait_ms: 50
+    max_poll_records: 2000
+    buffer_size: 131072
+  balanced:
+    fetch_max_wait_ms: 20
+    max_poll_records: 1000
+    buffer_size: 65536
+```
+
+```yaml
+# configs/common_kafka_sink.yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "broker:9092"
+    retries: 3
+    batch_size: 16384
+    buffer_memory: 33554432
+  schema:
+    key_format: string
+    value_format: avro
+    schema_registry_url: "http://schema-registry:8081"
+  topic_config:
+    replication_factor: 3
+    cleanup_policy: "delete"
+    segment_ms: 3600000
+
+# Delivery profiles for different alert priorities
+delivery_profiles:
+  critical:
+    acks: "all"
+    linger_ms: 0
+    delivery_guarantee: "exactly_once"
+  high_priority:
+    acks: "1"
+    linger_ms: 1
+    delivery_guarantee: "at_least_once"
+  medium_priority:
+    acks: "1"
+    linger_ms: 5
+    delivery_guarantee: "at_least_once"
+```
+
+#### Topic-Specific Configurations
+
+```yaml
+# configs/market_data_topic.yaml
+extends: common_kafka_source.yaml
+
+topic:
+  name: "market_data"
+performance_profile: ultra_low_latency
+schema:
+  key_field: symbol
+  schema_file: "schemas/market_data.avsc"
+topic_config:
+  partitions: 12
+  retention_ms: 86400000
+metadata:
+  description: "High-frequency trading market data feed"
+  update_frequency: "microseconds"
+```
+
+```yaml
+# configs/risk_alerts_topic.yaml
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "risk_alerts"
+delivery_profile: critical
+schema:
+  key_field: trader_id
+  schema_file: "schemas/risk_alerts.avsc"
+topic_config:
+  partitions: 8
+  retention_ms: 2592000000  # 30 days for compliance
+headers:
+  alert_type: "risk_management"
+  regulatory_requirement: "true"
+integrations:
+  email_alerts:
+    enabled: true
+    recipients: ["risk-team@trading-firm.com"]
+  slack_notifications:
+    enabled: true
+    channel: "#risk-management"
+```
+
+### Configuration Inheritance Features
+
+#### 1. **Hierarchical Inheritance**
+- **Single Level**: `derived.yaml extends base.yaml`
+- **Multi-Level**: `specialized.yaml extends derived.yaml extends base.yaml`
+- **Circular Detection**: Prevents infinite inheritance loops
+
+#### 2. **Merge Strategy**
+- **Objects**: Recursive merge with derived values overriding base
+- **Arrays**: Derived arrays completely replace base arrays
+- **Primitives**: Derived values override base values
+
+#### 3. **Path Resolution**
+- **Relative Paths**: Resolved relative to the extending config file
+- **Absolute Paths**: Used as-is
+- **Cache Management**: Loaded configs are cached to prevent re-loading
+
+#### 4. **Validation**
+- **Schema Validation**: Final merged config is validated against schema
+- **Circular Dependency Detection**: Prevents inheritance loops
+- **Path Validation**: Ensures all extended files exist and are readable
+
+### Usage in SQL
+
+```sql
+INSERT INTO risk_alerts
+SELECT trader_id, position_value, risk_status
+FROM trading_positions 
+WHERE position_value > 1000000
+WITH (
+    source_config = 'configs/trading_positions_topic.yaml',
+    sink_config = 'configs/risk_alerts_topic.yaml'
+);
+```
+
+### Benefits of Configuration Inheritance
+
+1. **DRY Principle**: Common settings defined once, referenced everywhere
+2. **Maintainability**: Change bootstrap servers in one place, affects all configs  
+3. **Consistency**: Ensures uniform settings across all topics
+4. **Flexibility**: Override specific settings while inheriting common ones
+5. **Scalability**: Easy to add new topics without duplicating infrastructure settings
 
 ## Benefits
 

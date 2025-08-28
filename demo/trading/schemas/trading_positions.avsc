@@ -1,0 +1,69 @@
+{
+  "type": "record",
+  "name": "TradingPosition",
+  "namespace": "com.trading.streams",
+  "doc": "Real-time trading positions for risk monitoring",
+  "fields": [
+    {
+      "name": "trader_id",
+      "type": "string",
+      "doc": "Unique trader identifier"
+    },
+    {
+      "name": "account_id",
+      "type": "string",
+      "doc": "Trading account identifier"
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "position_size",
+      "type": "long",
+      "doc": "Position size (positive for long, negative for short)"
+    },
+    {
+      "name": "entry_price",
+      "type": "string",
+      "doc": "Average entry price as decimal string"
+    },
+    {
+      "name": "current_pnl",
+      "type": "string",
+      "doc": "Current profit/loss as decimal string"
+    },
+    {
+      "name": "unrealized_pnl",
+      "type": "string",
+      "doc": "Unrealized profit/loss as decimal string"
+    },
+    {
+      "name": "realized_pnl",
+      "type": "string",
+      "doc": "Realized profit/loss as decimal string"
+    },
+    {
+      "name": "position_value",
+      "type": "string",
+      "doc": "Total position value as decimal string"
+    },
+    {
+      "name": "margin_used",
+      "type": "string",
+      "doc": "Margin used for position as decimal string"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Position update timestamp"
+    },
+    {
+      "name": "last_update_source",
+      "type": "string",
+      "doc": "Source of last position update (trade, adjustment, etc.)"
+    }
+  ]
+}

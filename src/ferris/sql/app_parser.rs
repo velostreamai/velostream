@@ -422,6 +422,10 @@ impl SqlApplicationParser {
             StreamSource::Table(name) => {
                 dependencies.push(name.clone());
             }
+            StreamSource::Uri(uri) => {
+                // URI-based source dependency
+                dependencies.push(uri.clone());
+            }
             StreamSource::Subquery(subquery) => {
                 // Recursively extract dependencies from subquery
                 self.extract_dependencies_from_ast(subquery, dependencies);

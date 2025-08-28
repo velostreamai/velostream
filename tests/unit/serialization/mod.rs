@@ -8,6 +8,9 @@ pub mod json_serialization_tests;
 #[cfg(feature = "avro")]
 pub mod avro_serialization_tests;
 
+#[cfg(feature = "avro")]
+pub mod avro_scaled_integer_test;
+
 #[cfg(feature = "protobuf")]
 pub mod protobuf_serialization_tests;
 

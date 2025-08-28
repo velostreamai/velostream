@@ -19,7 +19,7 @@ use tokio::time::sleep;
 
 // Latency test configuration
 const MESSAGE_COUNT: u64 = 1_000; // Smaller count for latency focus
-const CONCURRENT_PRODUCERS: usize = 1; // Single producer for consistent latency
+const _CONCURRENT_PRODUCERS: usize = 1; // Single producer for consistent latency
 const CONSUMER_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

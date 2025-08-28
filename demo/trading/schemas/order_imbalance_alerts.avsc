@@ -1,0 +1,71 @@
+{
+  "type": "record",
+  "name": "OrderImbalanceAlert",
+  "namespace": "com.trading.streams.alerts",
+  "doc": "Order flow imbalance alerts for institutional activity detection",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "buy_volume",
+      "type": "long",
+      "doc": "Total buy volume in analysis window"
+    },
+    {
+      "name": "sell_volume",
+      "type": "long",
+      "doc": "Total sell volume in analysis window"
+    },
+    {
+      "name": "total_volume",
+      "type": "long",
+      "doc": "Total volume (buy + sell)"
+    },
+    {
+      "name": "buy_ratio",
+      "type": "string",
+      "doc": "Buy volume ratio as decimal string"
+    },
+    {
+      "name": "sell_ratio",
+      "type": "string",
+      "doc": "Sell volume ratio as decimal string"
+    },
+    {
+      "name": "analysis_time",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Analysis timestamp"
+    },
+    {
+      "name": "imbalance_type",
+      "type": {
+        "type": "enum",
+        "name": "ImbalanceType",
+        "symbols": ["BUY_HEAVY", "SELL_HEAVY", "BALANCED"]
+      },
+      "doc": "Type of order flow imbalance",
+      "default": "BUY_HEAVY"
+    },
+    {
+      "name": "imbalance_magnitude",
+      "type": "string",
+      "doc": "Magnitude of imbalance (0.7 = 70% one side) as decimal string"
+    },
+    {
+      "name": "institutional_indicator",
+      "type": "boolean",
+      "doc": "Whether this indicates institutional activity",
+      "default": false
+    },
+    {
+      "name": "analysis_window",
+      "type": "string",
+      "doc": "Time window used for analysis (e.g., '1m', '5m')",
+      "default": "1m"
+    }
+  ]
+}

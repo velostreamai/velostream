@@ -8,7 +8,10 @@ pub mod context;
 pub mod datasource;
 pub mod error;
 pub mod execution;
+pub mod execution_format_factory;
+pub mod multi_job;
 pub mod parser;
+pub mod query_analyzer;
 
 // Re-export main API
 pub use app_parser::{SqlApplication, SqlApplicationParser};

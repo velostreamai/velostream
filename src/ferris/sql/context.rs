@@ -77,6 +77,7 @@ impl StreamingSqlContext {
                 let stream_name = match from {
                     crate::ferris::sql::ast::StreamSource::Stream(name) => name,
                     crate::ferris::sql::ast::StreamSource::Table(name) => name,
+                    crate::ferris::sql::ast::StreamSource::Uri(uri) => uri,
                     crate::ferris::sql::ast::StreamSource::Subquery(_) => {
                         return Err(SqlError::ParseError {
                             message: "Subqueries not yet supported".to_string(),
@@ -267,6 +268,7 @@ impl StreamingSqlContext {
             StreamingQuery::Select { from, .. } => match from {
                 crate::ferris::sql::ast::StreamSource::Stream(name) => name,
                 crate::ferris::sql::ast::StreamSource::Table(name) => name,
+                crate::ferris::sql::ast::StreamSource::Uri(uri) => uri,
                 crate::ferris::sql::ast::StreamSource::Subquery(_) => {
                     return Err(SqlError::ParseError {
                         message: "Subqueries not yet supported".to_string(),

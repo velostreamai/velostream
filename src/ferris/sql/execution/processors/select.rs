@@ -47,6 +47,12 @@ impl SelectProcessor {
                     StreamSource::Stream(name) | StreamSource::Table(name) => {
                         format!("select_{}_windowed", name)
                     }
+                    StreamSource::Uri(uri) => {
+                        format!(
+                            "select_{}_windowed",
+                            uri.replace("://", "_").replace("/", "_")
+                        )
+                    }
                     StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
                 };
 

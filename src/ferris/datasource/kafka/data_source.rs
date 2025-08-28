@@ -6,10 +6,14 @@ use crate::ferris::kafka::KafkaConsumer;
 use crate::ferris::schema::{FieldDefinition, Schema};
 use crate::ferris::sql::ast::DataType;
 use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashMap;
 
 use super::error::KafkaDataSourceError;
-use super::reader::KafkaDataReader;
+use super::reader::{DynamicKafkaReader, KafkaDataReader};
+
+#[cfg(feature = "avro")]
+use crate::ferris::kafka::serialization::AvroSerializer;
 
 /// Kafka DataSource implementation
 pub struct KafkaDataSource {
@@ -40,6 +44,99 @@ impl KafkaDataSource {
     pub fn with_config(mut self, key: String, value: String) -> Self {
         self.config.insert(key, value);
         self
+    }
+
+    /// Create a consumer based on the serialization format in config
+    fn create_consumer_from_config(
+        &self,
+        group_id: &str,
+    ) -> Result<DynamicKafkaReader, Box<dyn std::error::Error + Send + Sync>> {
+        // Get serialization formats from config (default to JSON if not specified)
+        let key_format = self
+            .config
+            .get("key.serializer")
+            .map(|s| s.as_str())
+            .unwrap_or("json");
+        let value_format = self
+            .config
+            .get("value.serializer")
+            .map(|s| s.as_str())
+            .unwrap_or("json");
+
+        match (key_format, value_format) {
+            ("json", "json") => {
+                let consumer = KafkaConsumer::<String, Value, _, _>::new(
+                    &self.brokers,
+                    group_id,
+                    JsonSerializer,
+                    JsonSerializer,
+                )?;
+                consumer.subscribe(&[&self.topic])?;
+                Ok(DynamicKafkaReader::JsonReader(KafkaDataReader {
+                    consumer,
+                    topic: self.topic.clone(),
+                }))
+            }
+            #[cfg(feature = "avro")]
+            ("json", "avro") => {
+                use apache_avro::types::Value as AvroValue;
+                use apache_avro::Schema as AvroSchema;
+
+                // For now, use a generic schema - in production this would come from Schema Registry
+                let schema_str = r#"
+                {
+                    "type": "record",
+                    "name": "GenericRecord",
+                    "fields": []
+                }
+                "#;
+                let schema = AvroSchema::parse_str(schema_str)
+                    .map_err(|e| format!("Failed to parse Avro schema: {}", e))?;
+                let avro_serializer = AvroSerializer::new(schema);
+
+                let consumer = KafkaConsumer::<String, AvroValue, _, _>::new(
+                    &self.brokers,
+                    group_id,
+                    JsonSerializer,
+                    avro_serializer,
+                )?;
+                consumer.subscribe(&[&self.topic])?;
+                Ok(DynamicKafkaReader::AvroReader(KafkaDataReader {
+                    consumer,
+                    topic: self.topic.clone(),
+                }))
+            }
+            #[cfg(feature = "protobuf")]
+            ("json", "protobuf") | ("json", "proto") => {
+                // For protobuf, we use Vec<u8> as the value type with JsonSerializer
+                // The actual protobuf deserialization would happen at a higher level
+                let consumer = KafkaConsumer::<String, Vec<u8>, _, _>::new(
+                    &self.brokers,
+                    group_id,
+                    JsonSerializer,
+                    JsonSerializer, // Use JSON serializer for raw bytes
+                )?;
+                consumer.subscribe(&[&self.topic])?;
+                Ok(DynamicKafkaReader::ProtobufReader(KafkaDataReader {
+                    consumer,
+                    topic: self.topic.clone(),
+                }))
+            }
+            _ => {
+                // Default to JSON for unsupported combinations
+                let consumer = KafkaConsumer::<String, Value, _, _>::new(
+                    &self.brokers,
+                    group_id,
+                    JsonSerializer,
+                    JsonSerializer,
+                )?;
+                consumer.subscribe(&[&self.topic])?;
+                Ok(DynamicKafkaReader::JsonReader(KafkaDataReader {
+                    consumer,
+                    topic: self.topic.clone(),
+                }))
+            }
+        }
     }
 }
 
@@ -91,24 +188,10 @@ impl DataSource for KafkaDataSource {
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        let consumer = KafkaConsumer::<String, String, _, _>::new(
-            &self.brokers,
-            group_id,
-            JsonSerializer,
-            JsonSerializer,
-        )
-        .map_err(|e| {
-            Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        // Create the appropriate consumer based on serialization config
+        let reader = self.create_consumer_from_config(group_id)?;
 
-        consumer.subscribe(&[&self.topic]).map_err(|e| {
-            Box::new(KafkaDataSourceError::from(e)) as Box<dyn std::error::Error + Send + Sync>
-        })?;
-
-        Ok(Box::new(KafkaDataReader {
-            consumer,
-            topic: self.topic.clone(),
-        }))
+        Ok(Box::new(reader))
     }
 
     fn supports_streaming(&self) -> bool {

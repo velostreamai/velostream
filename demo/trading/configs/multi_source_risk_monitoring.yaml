@@ -1,0 +1,36 @@
+# Multi-Source Risk Monitoring Configuration
+# Handles JOINs between trading positions and market data
+
+extends: common_kafka_source.yaml
+
+datasource:
+  type: multi_stream
+  
+  # Source topic configurations
+  sources:
+    trading_positions:
+      extends: trading_positions_topic.yaml
+      
+    market_data:
+      extends: market_data_topic.yaml
+      consumer_group: "risk_monitoring_market_group"  # Different group for JOIN
+      
+  # JOIN configuration
+  join_config:
+    type: "inner"
+    condition: "trading_positions.symbol = market_data.symbol"
+    window_size: "1m"  # 1 minute window for join
+    grace_period: "10s"
+    
+  # Performance settings for JOIN operations
+  performance:
+    buffer_size: 131072  # Larger buffer for joins
+    join_cache_size: 10000
+    state_store_cache_size: 10485760  # 10MB cache
+    commit_interval_ms: 30000
+    
+# Business context
+metadata:
+  description: "Multi-stream configuration for risk monitoring JOINs"
+  join_type: "position_with_current_prices"
+  business_purpose: "real_time_risk_calculation"

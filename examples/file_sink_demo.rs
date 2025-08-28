@@ -3,11 +3,10 @@
 //! This example demonstrates the file sink implementation for writing streaming data
 //! to files with various formats and rotation strategies.
 
-use ferrisstreams::ferris::datasource::config::SinkConfig;
 use ferrisstreams::ferris::datasource::file::{
     CompressionType, FileFormat, FileSink, FileSinkConfig,
 };
-use ferrisstreams::ferris::datasource::traits::{DataSink, DataWriter};
+use ferrisstreams::ferris::datasource::traits::DataSink;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -44,9 +43,14 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
     .with_compression(CompressionType::Gzip);
 
     let mut sink = FileSink::new();
-    sink.initialize(config.into()).await?;
+    sink.initialize(config.into())
+        .await
+        .map_err(|e| format!("Initialize error: {}", e))?;
 
-    let mut writer = sink.create_writer().await?;
+    let mut writer = sink
+        .create_writer()
+        .await
+        .map_err(|e| format!("Create writer error: {}", e))?;
 
     // Generate sample transaction records
     for i in 1..=100 {
@@ -75,15 +79,27 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
             FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64),
         );
 
-        let record = StreamRecord { fields };
-        writer.write(record).await?;
+        let record = StreamRecord {
+            fields,
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+            offset: i,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        writer
+            .write(record)
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
 
         if i % 10 == 0 {
             sleep(Duration::from_millis(100)).await; // Simulate real-time processing
         }
     }
 
-    writer.flush().await?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("Flush error: {}", e))?;
     println!("  ✅ Written 100 transaction records to JSON Lines files");
 
     Ok(())
@@ -98,9 +114,14 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
     .with_compression(CompressionType::Snappy);
 
     let mut sink = FileSink::new();
-    sink.initialize(config.into()).await?;
+    sink.initialize(config.into())
+        .await
+        .map_err(|e| format!("Initialize error: {}", e))?;
 
-    let mut writer = sink.create_writer().await?;
+    let mut writer = sink
+        .create_writer()
+        .await
+        .map_err(|e| format!("Create writer error: {}", e))?;
 
     // Generate sample user metrics records
     for i in 1..=50 {
@@ -129,11 +150,23 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
             FieldValue::String(format!("2024-01-{:02}", 1 + (i % 30))),
         );
 
-        let record = StreamRecord { fields };
-        writer.write(record).await?;
+        let record = StreamRecord {
+            fields,
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+            offset: i,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        writer
+            .write(record)
+            .await
+            .map_err(|e| format!("Write error: {}", e))?;
     }
 
-    writer.flush().await?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("Flush error: {}", e))?;
     println!("  ✅ Written 50 user metrics records to CSV file");
 
     Ok(())
@@ -149,9 +182,14 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
     .with_rotation_interval(60_000); // 1 minute rotation
 
     let mut sink = FileSink::new();
-    sink.initialize(config.into()).await?;
+    sink.initialize(config.into())
+        .await
+        .map_err(|e| format!("Initialize error: {}", e))?;
 
-    let mut writer = sink.create_writer().await?;
+    let mut writer = sink
+        .create_writer()
+        .await
+        .map_err(|e| format!("Create writer error: {}", e))?;
 
     // Generate large batches of records
     let batch_size = 1000;
@@ -184,11 +222,20 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
                 FieldValue::Integer(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64),
             );
 
-            records.push(StreamRecord { fields });
+            records.push(StreamRecord {
+                fields,
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+                offset: record_id,
+                partition: 0,
+                headers: HashMap::new(),
+            });
         }
 
         // Write entire batch
-        writer.write_batch(records).await?;
+        writer
+            .write_batch(records)
+            .await
+            .map_err(|e| format!("Batch write error: {}", e))?;
 
         if batch % 2 == 0 {
             print!(".");
@@ -196,7 +243,10 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    writer.flush().await?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("Flush error: {}", e))?;
     println!(
         "\n  ✅ Written {} records in high-throughput batch mode",
         total_records

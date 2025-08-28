@@ -1,0 +1,89 @@
+{
+  "type": "record",
+  "name": "ArbitrageOpportunity",
+  "namespace": "com.trading.streams.alerts",
+  "doc": "Cross-exchange arbitrage opportunities for profit generation",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "exchange_a",
+      "type": "string",
+      "doc": "First exchange (higher bid)"
+    },
+    {
+      "name": "exchange_b",
+      "type": "string",
+      "doc": "Second exchange (lower ask)"
+    },
+    {
+      "name": "bid_a",
+      "type": "string",
+      "doc": "Bid price on exchange A as decimal string"
+    },
+    {
+      "name": "ask_b",
+      "type": "string",
+      "doc": "Ask price on exchange B as decimal string"
+    },
+    {
+      "name": "spread",
+      "type": "string",
+      "doc": "Price spread (bid_a - ask_b) as decimal string"
+    },
+    {
+      "name": "spread_bps",
+      "type": "string",
+      "doc": "Spread in basis points as decimal string"
+    },
+    {
+      "name": "available_volume",
+      "type": "long",
+      "doc": "Available volume for arbitrage"
+    },
+    {
+      "name": "potential_profit",
+      "type": "string",
+      "doc": "Potential profit (spread * volume) as decimal string"
+    },
+    {
+      "name": "opportunity_time",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Opportunity detection timestamp"
+    },
+    {
+      "name": "profit_category",
+      "type": {
+        "type": "enum",
+        "name": "ProfitCategory",
+        "symbols": ["SMALL", "MEDIUM", "LARGE", "EXCEPTIONAL"]
+      },
+      "doc": "Categorization of profit potential",
+      "default": "MEDIUM"
+    },
+    {
+      "name": "execution_complexity",
+      "type": {
+        "type": "enum",
+        "name": "ExecutionComplexity",
+        "symbols": ["SIMPLE", "MODERATE", "COMPLEX"]
+      },
+      "doc": "Complexity of executing this arbitrage",
+      "default": "SIMPLE"
+    },
+    {
+      "name": "time_sensitivity",
+      "type": {
+        "type": "enum",
+        "name": "TimeSensitivity",
+        "symbols": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+      },
+      "doc": "Time sensitivity of the opportunity",
+      "default": "CRITICAL"
+    }
+  ]
+}

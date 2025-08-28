@@ -851,9 +851,29 @@ impl<'a> TokenParser<'a> {
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
-            let stream_name = self.expect(TokenType::Identifier)?.value;
 
-            // Parse optional alias for FROM clause (e.g., "FROM events s")
+            // Support both identifiers and URI strings (FR-047)
+            let stream_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+                    name
+                }
+                TokenType::String => {
+                    // URI string like 'file://path' or 'kafka://broker/topic'
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected stream name or data source URI after FROM".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            // Parse optional alias for FROM clause (e.g., "FROM events s" or "FROM 'file://data.csv' f")
             let _from_alias = if self.current_token().token_type == TokenType::Identifier {
                 let alias = self.current_token().value.clone();
                 self.advance();
@@ -942,9 +962,18 @@ impl<'a> TokenParser<'a> {
             }
         }
 
+        // Determine if from_stream is a URI or named stream
+        let from_source = if from_stream.contains("://") {
+            StreamSource::Uri(from_stream)
+        } else if from_stream.is_empty() {
+            StreamSource::Stream(from_stream) // Scalar queries
+        } else {
+            StreamSource::Stream(from_stream) // Named streams
+        };
+
         Ok(StreamingQuery::Select {
             fields,
-            from: StreamSource::Stream(from_stream),
+            from: from_source,
             joins,
             where_clause,
             group_by,
@@ -2137,7 +2166,27 @@ impl<'a> TokenParser<'a> {
 
     fn parse_into_clause(&mut self) -> Result<IntoClause, SqlError> {
         self.expect(TokenType::Into)?;
-        let sink_name = self.expect(TokenType::Identifier)?.value;
+
+        // Support both identifiers and URI strings (FR-047) for INTO clause
+        let sink_name = match self.current_token().token_type {
+            TokenType::Identifier => {
+                let name = self.current_token().value.clone();
+                self.advance();
+                name
+            }
+            TokenType::String => {
+                // URI string like 'file://path' or 'kafka://broker/topic'
+                let uri = self.current_token().value.clone();
+                self.advance();
+                uri
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected sink name or data sink URI after INTO".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        };
 
         Ok(IntoClause {
             sink_name,

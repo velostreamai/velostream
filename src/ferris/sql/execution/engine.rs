@@ -330,6 +330,7 @@ impl StreamExecutionEngine {
                     "select_{}",
                     match from {
                         StreamSource::Stream(name) | StreamSource::Table(name) => name,
+                        StreamSource::Uri(uri) => uri,
                         StreamSource::Subquery(_) => "subquery",
                     }
                 );
@@ -741,6 +742,7 @@ impl StreamExecutionEngine {
         match query {
             StreamingQuery::Select { from, .. } => match from {
                 StreamSource::Stream(name) | StreamSource::Table(name) => name == stream_name,
+                StreamSource::Uri(uri) => uri == stream_name,
                 StreamSource::Subquery(_) => false,
             },
             StreamingQuery::CreateStream { as_select, .. } => {

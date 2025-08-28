@@ -38,6 +38,7 @@ pub mod environment;
 pub mod types;
 pub mod validation;
 pub mod with_clause_parser;
+pub mod yaml_loader;
 
 // Re-export main types for convenience
 pub use builder::DataSourceConfigBuilder;
@@ -48,4 +49,8 @@ pub use validation::{ValidationError, ValidationStats as ValidationStatsValidati
 pub use with_clause_parser::{
     ConfigKeySchema, ConfigValue, ConfigValueType, WithClauseConfig, WithClauseError,
     WithClauseParser,
+};
+pub use yaml_loader::{
+    load_yaml_config, ConfigResolutionMetadata, ResolvedYamlConfig, YamlConfigError,
+    YamlConfigLoader,
 };

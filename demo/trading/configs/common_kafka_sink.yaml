@@ -1,0 +1,62 @@
+# Common Kafka Data Sink Configuration
+# Base configuration for all Kafka data sinks in the trading system
+# URIs are constructed as: kafka://{bootstrap_servers}/{topic_name}
+
+datasink:
+  type: kafka
+  
+  # Standard producer configuration
+  producer_config:
+    bootstrap_servers: "broker:9092"
+    retries: 3
+    batch_size: 16384
+    buffer_memory: 33554432
+    max_in_flight_requests_per_connection: 5
+    
+  # Common schema settings
+  schema:
+    key_format: string
+    value_format: avro
+    schema_registry_url: "http://schema-registry:8081"
+    
+  # Default topic properties
+  topic_config:
+    replication_factor: 3
+    cleanup_policy: "delete"
+    segment_ms: 3600000  # 1 hour segments
+    
+  # Default headers for all messages
+  headers:
+    source_system: "ferris_streams"
+    compliance: "FR-047"
+    
+# Delivery profiles for different alert types
+delivery_profiles:
+  critical:
+    acks: "all"
+    linger_ms: 0
+    compression_type: "lz4"
+    max_in_flight_requests_per_connection: 1
+    delivery_guarantee: "exactly_once"
+    timeout_ms: 3000
+    
+  high_priority:
+    acks: "1"
+    linger_ms: 1
+    compression_type: "lz4"
+    delivery_guarantee: "at_least_once"
+    timeout_ms: 5000
+    
+  medium_priority:
+    acks: "1"
+    linger_ms: 5
+    compression_type: "snappy"
+    delivery_guarantee: "at_least_once"
+    timeout_ms: 8000
+    
+  balanced:
+    acks: "1"
+    linger_ms: 10
+    compression_type: "gzip"
+    delivery_guarantee: "at_least_once"
+    timeout_ms: 10000

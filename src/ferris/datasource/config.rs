@@ -15,6 +15,9 @@ pub enum SourceConfig {
         brokers: String,
         topic: String,
         group_id: Option<String>,
+        /// Serialization format for keys and values
+        /// Expected keys: "key.serializer", "value.serializer"
+        /// Expected values: "json", "avro", "protobuf"
         properties: HashMap<String, String>,
     },
     /// File system source configuration  

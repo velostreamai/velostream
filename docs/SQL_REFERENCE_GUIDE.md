@@ -396,9 +396,8 @@ WITH (
 );
 ```
 
-**🚧 TODO - Planned Multi-Source Support:**
-```sql
--- TODO: CSV to Kafka (architecture ready, CSV reader not implemented)  
+
+```sql 
 CREATE STREAM csv_to_kafka AS 
 SELECT id, customer_id, amount, status 
 FROM csv_source   -- TODO: Implement CSV DataSource
@@ -408,6 +407,7 @@ WITH (
     "sink_config" = "configs/kafka_sink.yaml" 
 );
 
+**🚧 TODO - Planned Multi-Source Support:**
 -- TODO: PostgreSQL to S3 (architecture ready, implementations not done)
 CREATE STREAM db_replication AS 
 SELECT * FROM postgres_source   -- TODO: Implement PostgreSQL DataSource 

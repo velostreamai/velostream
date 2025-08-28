@@ -1,0 +1,19 @@
+# Pressure Alerts Output Configuration
+# Pressure monitoring alerts
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "pressure_alerts"
+  
+delivery_profile: critical
+
+topic_config:
+  partitions: 6
+  replication_factor: 2
+  retention_ms: 2592000000  # 30 days retention
+  
+metadata:
+  description: "Pressure monitoring alerts"
+  data_classification: "safety_critical"
+  priority: "critical"
