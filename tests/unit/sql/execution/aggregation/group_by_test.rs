@@ -372,15 +372,18 @@ mod tests {
         // Create test records
         let mut fields1 = HashMap::new();
                 fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let record1 = create_stream_record_with_fields(fields1, 1);
+        let mut record1 = create_stream_record_with_fields(fields1, 1);
+        record1.fields.insert("amount".to_string(), FieldValue::Float(150.0));
 
         let mut fields2 = HashMap::new();
                 fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let record2 = create_stream_record_with_fields(fields2, 2);
+        let mut record2 = create_stream_record_with_fields(fields2, 2);
+        record2.fields.insert("amount".to_string(), FieldValue::Float(150.0));
 
         let mut fields3 = HashMap::new();
                 fields3.insert("customer_id".to_string(), FieldValue::Float(2.0));
-        let record3 = create_stream_record_with_fields(fields3, 3);
+        let mut record3 = create_stream_record_with_fields(fields3, 3);
+        record3.fields.insert("amount".to_string(), FieldValue::Float(100.0));
 
         // Test query with HAVING clause
         let query = parser
@@ -504,16 +507,19 @@ mod tests {
                 fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
         record1.fields.insert("_timestamp".to_string(), FieldValue::Float(60000.0)); // 1 minute
+        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
                 fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2.fields.insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
+        record2.fields.insert("amount".to_string(), FieldValue::Float(150.0));
 
         let mut fields3 = HashMap::new();
                 fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
         record3.fields.insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
+        record3.fields.insert("amount".to_string(), FieldValue::Float(200.0));
 
         // Test windowed GROUP BY
         let query = parser
@@ -575,11 +581,13 @@ mod tests {
                 fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
         record1.fields.insert("is_prime".to_string(), FieldValue::Boolean(true));
+        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0)); // Low value
 
         let mut fields2 = HashMap::new();
                 fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2.fields.insert("is_prime".to_string(), FieldValue::Boolean(false));
+        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0)); // High value
 
         // Test query that groups by a boolean condition
         let query = parser
@@ -1156,19 +1164,23 @@ mod tests {
         // Create test records with NULL values in grouping column
         let mut fields1 = HashMap::new();
                 fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let record1 = create_stream_record_with_fields(fields1, 1);
+        let mut record1 = create_stream_record_with_fields(fields1, 1);
+        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
                 fields2.insert("customer_id".to_string(), FieldValue::Null);
-        let record2 = create_stream_record_with_fields(fields2, 2);
+        let mut record2 = create_stream_record_with_fields(fields2, 2);
+        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0));
 
         let mut fields3 = HashMap::new();
                 fields3.insert("customer_id".to_string(), FieldValue::Null);
-        let record3 = create_stream_record_with_fields(fields3, 3);
+        let mut record3 = create_stream_record_with_fields(fields3, 3);
+        record3.fields.insert("amount".to_string(), FieldValue::Float(300.0));
 
         let mut fields4 = HashMap::new();
                 fields4.insert("customer_id".to_string(), FieldValue::Float(2.0));
-        let record4 = create_stream_record_with_fields(fields4, 4);
+        let mut record4 = create_stream_record_with_fields(fields4, 4);
+        record4.fields.insert("amount".to_string(), FieldValue::Float(200.0));
 
         // Test GROUP BY with NULL values in grouping column
         let query = parser
