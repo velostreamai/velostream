@@ -333,99 +333,10 @@ async fn execute_sql_query(
                         headers: header_map,
                     };
 
-                    // Convert FieldValue to InternalValue for execution engine
-                    let mut record_internal = HashMap::new();
-                    for (key, field_value) in &stream_record.fields {
-                        let internal_value = match field_value {
-                            FieldValue::String(s) => InternalValue::String(s.clone()),
-                            FieldValue::Integer(i) => InternalValue::Integer(*i),
-                            FieldValue::Float(f) => InternalValue::Number(*f),
-                            FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                            FieldValue::Null => InternalValue::Null,
-                            FieldValue::ScaledInteger(value, scale) => {
-                                InternalValue::ScaledNumber(*value, *scale)
-                            }
-                            FieldValue::Date(d) => {
-                                InternalValue::String(d.format("%Y-%m-%d").to_string())
-                            }
-                            FieldValue::Timestamp(ts) => InternalValue::String(
-                                ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-                            ),
-                            FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
-                            FieldValue::Array(arr) => {
-                                let internal_arr: Vec<InternalValue> = arr
-                                    .iter()
-                                    .map(|item| match item {
-                                        FieldValue::Integer(i) => InternalValue::Integer(*i),
-                                        FieldValue::Float(f) => InternalValue::Number(*f),
-                                        FieldValue::String(s) => InternalValue::String(s.clone()),
-                                        FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                                        FieldValue::Null => InternalValue::Null,
-                                        _ => InternalValue::String(format!("{:?}", item)),
-                                    })
-                                    .collect();
-                                InternalValue::Array(internal_arr)
-                            }
-                            FieldValue::Map(map) => {
-                                let internal_obj: HashMap<String, InternalValue> = map
-                                    .iter()
-                                    .map(|(k, v)| {
-                                        (
-                                            k.clone(),
-                                            match v {
-                                                FieldValue::Integer(i) => {
-                                                    InternalValue::Integer(*i)
-                                                }
-                                                FieldValue::Float(f) => InternalValue::Number(*f),
-                                                FieldValue::String(s) => {
-                                                    InternalValue::String(s.clone())
-                                                }
-                                                FieldValue::Boolean(b) => {
-                                                    InternalValue::Boolean(*b)
-                                                }
-                                                FieldValue::Null => InternalValue::Null,
-                                                _ => InternalValue::String(format!("{:?}", v)),
-                                            },
-                                        )
-                                    })
-                                    .collect();
-                                InternalValue::Object(internal_obj)
-                            }
-                            FieldValue::Struct(fields) => {
-                                let internal_obj: HashMap<String, InternalValue> = fields
-                                    .iter()
-                                    .map(|(k, v)| {
-                                        (
-                                            k.clone(),
-                                            match v {
-                                                FieldValue::Integer(i) => {
-                                                    InternalValue::Integer(*i)
-                                                }
-                                                FieldValue::Float(f) => InternalValue::Number(*f),
-                                                FieldValue::String(s) => {
-                                                    InternalValue::String(s.clone())
-                                                }
-                                                FieldValue::Boolean(b) => {
-                                                    InternalValue::Boolean(*b)
-                                                }
-                                                FieldValue::Null => InternalValue::Null,
-                                                _ => InternalValue::String(format!("{:?}", v)),
-                                            },
-                                        )
-                                    })
-                                    .collect();
-                                InternalValue::Object(internal_obj)
-                            }
-                            FieldValue::Interval { value, unit } => {
-                                InternalValue::String(format!("INTERVAL {} {:?}", value, unit))
-                            }
-                        };
-                        record_internal.insert(key.clone(), internal_value);
-                    }
-
+                    // Use StreamRecord directly - no conversion needed!
                     let mut engine = engine_clone.lock().await;
                     if let Err(e) = engine
-                        .execute_with_headers(&parsed_query, record_internal, stream_record.headers)
+                        .execute_with_record(&parsed_query, stream_record)
                         .await
                     {
                         error!("Failed to process record: {:?}", e);

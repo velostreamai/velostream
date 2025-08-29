@@ -133,9 +133,9 @@ use super::internal::{
     ExecutionMessage, ExecutionState, GroupByState, QueryExecution, WindowState,
 };
 use super::types::{FieldValue, StreamRecord};
-use super::utils::FieldValueConverter;
+// FieldValueConverter no longer needed since we use StreamRecord directly
 use crate::ferris::datasource::{DataReader, DataWriter};
-use crate::ferris::serialization::{InternalValue, SerializationFormat};
+use crate::ferris::serialization::SerializationFormat;
 use crate::ferris::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::ferris::sql::datasource::{create_sink, create_source};
 use crate::ferris::sql::error::SqlError;
@@ -152,7 +152,7 @@ pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
-    output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+    output_sender: mpsc::UnboundedSender<StreamRecord>,
     _serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
     // Stateful GROUP BY support
@@ -168,7 +168,7 @@ pub struct StreamExecutionEngine {
 
 impl StreamExecutionEngine {
     pub fn new(
-        output_sender: mpsc::UnboundedSender<HashMap<String, InternalValue>>,
+        output_sender: mpsc::UnboundedSender<StreamRecord>,
         _serialization_format: Arc<dyn SerializationFormat>,
     ) -> Self {
         let (message_sender, receiver) = mpsc::channel(1000);
@@ -375,78 +375,43 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
-    pub async fn execute(
-        &mut self,
-        query: &StreamingQuery,
-        record: HashMap<String, InternalValue>,
-    ) -> Result<(), SqlError> {
-        self.execute_with_headers(query, record, HashMap::new())
-            .await
-    }
-
-    pub async fn execute_with_headers(
-        &mut self,
-        query: &StreamingQuery,
-        record: HashMap<String, InternalValue>,
-        headers: HashMap<String, String>,
-    ) -> Result<(), SqlError> {
-        self.execute_with_metadata(query, record, headers, None, None, None)
-            .await
-    }
-
-    /// Executes a SQL query with full metadata (headers, timestamp, offset, partition).
+    /// Executes a SQL query with a StreamRecord directly.
+    /// This is the primary execution method - all other execution should use this.
     ///
     /// # Arguments
     ///
     /// * `query` - The parsed SQL query to execute
-    /// * `record` - The input record data  
-    /// * `headers` - Message headers
-    /// * `timestamp` - Record timestamp (optional)
-    /// * `offset` - Kafka offset (optional)
-    /// * `partition` - Kafka partition (optional)
-    pub async fn execute_with_metadata(
+    /// * `record` - The complete StreamRecord with fields, metadata, and headers
+    pub async fn execute_with_record(
         &mut self,
         query: &StreamingQuery,
-        record: HashMap<String, InternalValue>,
-        headers: HashMap<String, String>,
-        timestamp: Option<i64>,
-        offset: Option<i64>,
-        partition: Option<i32>,
+        mut stream_record: StreamRecord,
     ) -> Result<(), SqlError> {
-        // Convert input record to StreamRecord
-        let fields_map: HashMap<String, FieldValue> = record
-            .into_iter()
-            .map(|(k, v)| {
-                let field_value = FieldValueConverter::internal_to_field_value(v);
-                (k, field_value)
-            })
-            .collect();
-
         // For windowed queries, try to extract event time from _timestamp field if present
-        let record_timestamp = if let StreamingQuery::Select {
+        if let StreamingQuery::Select {
             window: Some(_), ..
         } = query
         {
-            if let Some(ts_field) = fields_map.get("_timestamp") {
+            if let Some(ts_field) = stream_record.fields.get("_timestamp") {
                 match ts_field {
-                    FieldValue::Integer(ts) => *ts,
-                    FieldValue::Float(ts) => *ts as i64,
-                    _ => timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                    FieldValue::Integer(ts) => stream_record.timestamp = *ts,
+                    FieldValue::Float(ts) => stream_record.timestamp = *ts as i64,
+                    _ => {
+                        // Keep existing timestamp if _timestamp field isn't a valid time
+                    }
                 }
-            } else {
-                timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
             }
-        } else {
-            timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
-        };
+        }
 
-        let stream_record = StreamRecord {
-            fields: fields_map,
-            timestamp: record_timestamp,
-            offset: offset.unwrap_or(0),
-            partition: partition.unwrap_or(0),
-            headers,
-        };
+        self.execute_internal(query, stream_record).await
+    }
+
+    /// Internal execute method that does the actual query processing
+    async fn execute_internal(
+        &mut self,
+        query: &StreamingQuery,
+        stream_record: StreamRecord,
+    ) -> Result<(), SqlError> {
 
         // Check if this is a windowed query and process accordingly
         let result = if let StreamingQuery::Select {
@@ -496,18 +461,11 @@ impl StreamExecutionEngine {
 
         // Process result if any
         if let Some(result) = result {
-            // Convert result to InternalValue format using utility
-            let internal_result: HashMap<String, InternalValue> = result
-                .fields
-                .into_iter()
-                .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
-                .collect();
-
-            // Send result through both channels
+            // Send result through both channels - no conversion needed!
             self.message_sender
                 .send(ExecutionMessage::QueryResult {
                     query_id: "default".to_string(),
-                    result: stream_record,
+                    result: result.clone(),
                 })
                 .await
                 .map_err(|_| SqlError::ExecutionError {
@@ -515,9 +473,9 @@ impl StreamExecutionEngine {
                     query: None,
                 })?;
 
-            // Send result to output channel (non-async send for unbounded channel)
+            // Send result to output channel directly (no conversion needed)
             self.output_sender
-                .send(internal_result)
+                .send(result)
                 .map_err(|_| SqlError::ExecutionError {
                     message: "Failed to send result to output channel".to_string(),
                     query: None,
@@ -653,25 +611,8 @@ impl StreamExecutionEngine {
         }
 
         for (_query_id, result) in results {
-            // Convert StreamRecord to HashMap<String, InternalValue> and send to output channel
-            let output_record: HashMap<String, InternalValue> = result
-                .fields
-                .into_iter()
-                .map(|(k, v)| {
-                    let internal_val = match v {
-                        FieldValue::Integer(i) => InternalValue::Integer(i),
-                        FieldValue::Float(f) => InternalValue::Number(f),
-                        FieldValue::String(s) => InternalValue::String(s),
-                        FieldValue::Boolean(b) => InternalValue::Boolean(b),
-                        FieldValue::Null => InternalValue::Null,
-                        _ => InternalValue::String(format!("{:?}", v)),
-                    };
-                    (k, internal_val)
-                })
-                .collect();
-
-            // Send result to output channel (used by tests and external consumers)
-            let _ = self.output_sender.send(output_record);
+            // Send result directly to output channel - no conversion needed!
+            let _ = self.output_sender.send(result);
         }
         Ok(())
     }
@@ -713,24 +654,8 @@ impl StreamExecutionEngine {
                         result
                     };
                     if let Some(result_record) = result {
-                        // Send the flushed result
-                        let output_record: HashMap<String, InternalValue> = result_record
-                            .fields
-                            .into_iter()
-                            .map(|(k, v)| {
-                                let internal_val = match v {
-                                    FieldValue::Integer(i) => InternalValue::Integer(i),
-                                    FieldValue::Float(f) => InternalValue::Number(f),
-                                    FieldValue::String(s) => InternalValue::String(s),
-                                    FieldValue::Boolean(b) => InternalValue::Boolean(b),
-                                    FieldValue::Null => InternalValue::Null,
-                                    _ => InternalValue::String(format!("{:?}", v)),
-                                };
-                                (k, internal_val)
-                            })
-                            .collect();
-
-                        let _ = self.output_sender.send(output_record);
+                        // Send the flushed result directly - no conversion needed!
+                        let _ = self.output_sender.send(result_record);
                     }
                 }
             }
@@ -962,14 +887,8 @@ impl StreamExecutionEngine {
                         .unwrap_or_default(),
                 };
 
-                // Convert to internal record and send
-                let internal_record: HashMap<String, InternalValue> = output_record
-                    .fields
-                    .into_iter()
-                    .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
-                    .collect();
-
-                if self.output_sender.send(internal_record).is_err() {
+                // Send output record directly - no conversion needed!
+                if self.output_sender.send(output_record).is_err() {
                     // Channel closed, continue processing
                 }
             }

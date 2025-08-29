@@ -154,3 +154,18 @@ harness = false
 [[bin]]
 name = "simple_conversion_test"
 path = "tests/debug/simple_conversion_test.rs"
+
+# Execution Performance Test (After Optimization)
+[[bin]]
+name = "test_execution_performance"
+path = "tests/debug/test_execution_performance.rs"
+
+# StreamRecord Performance Test
+[[bin]]
+name = "test_streamrecord_performance" 
+path = "tests/debug/test_streamrecord_performance.rs"
+
+# Final Complete Performance Test
+[[bin]]
+name = "test_final_performance"
+path = "tests/debug/test_final_performance.rs"

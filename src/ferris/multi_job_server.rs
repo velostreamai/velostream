@@ -6,6 +6,7 @@
 use crate::ferris::{
     serialization::SerializationFormat,
     sql::{
+        execution::utils::FieldValueConverter, 
         FieldValue, SqlApplicationParser, SqlError, StreamExecutionEngine, StreamRecord,
         StreamingQuery, StreamingSqlParser,
     },
@@ -226,7 +227,7 @@ impl MultiJobSqlServer {
 
             // Create output channel for SQL results with unbounded capacity
             let (result_sender, mut result_receiver) = tokio::sync::mpsc::unbounded_channel::<
-                HashMap<String, crate::ferris::serialization::InternalValue>,
+                StreamRecord,
             >();
             info!(
                 "Job '{}' created output channel for SQL results",
@@ -290,15 +291,12 @@ impl MultiJobSqlServer {
 
                     // Handle SQL execution results - prioritize this to prevent channel blocking
                     Some(result) = result_receiver.recv() => {
-                        info!("Job '{}' received SQL result with {} fields", job_name_clone, result.len());
+                        info!("Job '{}' received SQL result with {} fields", job_name_clone, result.fields.len());
                         // Use serialization format to convert results to bytes for Kafka output
                         let serialization_format = std::sync::Arc::new(crate::ferris::serialization::JsonFormat);
 
-                        // Convert InternalValue to FieldValue map
-                        let mut field_result = HashMap::new();
-                        for (key, internal_value) in result {
-                            field_result.insert(key, internal_to_field_value(&internal_value));
-                        }
+                        // Use StreamRecord fields directly - no conversion needed!
+                        let field_result = result.fields;
 
                         // Serialize using the pluggable format
                         match serialization_format.serialize_record(&field_result) {
@@ -658,16 +656,23 @@ async fn process_kafka_message(
             query: None,
         })?;
 
-    // Convert serde_json::Value to HashMap<String, InternalValue>
-    let record_map: HashMap<String, crate::ferris::serialization::InternalValue> = match json_value
-    {
+    // Convert serde_json::Value to StreamRecord
+    let stream_record = match json_value {
         Value::Object(map) => {
-            let mut internal_map = HashMap::new();
+            let mut field_map = HashMap::new();
             for (key, value) in map {
                 let internal_value = json_to_internal(&value)?;
-                internal_map.insert(key, internal_value);
+                let field_value = FieldValueConverter::internal_to_field_value(internal_value);
+                field_map.insert(key, field_value);
             }
-            internal_map
+            
+            StreamRecord {
+                fields: field_map,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                offset: 0,
+                partition: 0,
+                headers: HashMap::new(),
+            }
         }
         _ => {
             return Err(SqlError::ExecutionError {
@@ -677,9 +682,8 @@ async fn process_kafka_message(
         }
     };
 
-    // Execute the SQL query on this record
-    // This will process the record through the SQL pipeline and generate results
-    execution_engine.execute(query, record_map).await
+    // Execute the SQL query on this record using the efficient direct method
+    execution_engine.execute_with_record(query, stream_record).await
 }
 
 /// Convert JSON value to StreamRecord format
@@ -814,29 +818,3 @@ fn json_to_internal(
     }
 }
 
-/// Convert InternalValue to FieldValue
-fn internal_to_field_value(
-    internal_value: &crate::ferris::serialization::InternalValue,
-) -> FieldValue {
-    use crate::ferris::serialization::InternalValue;
-
-    match internal_value {
-        InternalValue::String(s) => FieldValue::String(s.clone()),
-        InternalValue::Number(n) => FieldValue::Float(*n),
-        InternalValue::Integer(i) => FieldValue::Integer(*i),
-        InternalValue::Boolean(b) => FieldValue::Boolean(*b),
-        InternalValue::Null => FieldValue::Null,
-        InternalValue::ScaledNumber(value, scale) => FieldValue::ScaledInteger(*value, *scale),
-        InternalValue::Array(arr) => {
-            let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
-            FieldValue::Array(field_arr)
-        }
-        InternalValue::Object(obj) => {
-            let mut field_map = HashMap::new();
-            for (k, v) in obj {
-                field_map.insert(k.clone(), internal_to_field_value(v));
-            }
-            FieldValue::Map(field_map)
-        }
-    }
-}

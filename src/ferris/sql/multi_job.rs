@@ -9,9 +9,9 @@ use crate::ferris::datasource::{
     kafka::KafkaDataSource,
     DataReader, DataSource,
 };
-use crate::ferris::serialization::InternalValue;
+// InternalValue no longer needed - using FieldValue directly
+// use crate::ferris::serialization::InternalValue;
 use crate::ferris::sql::{
-    execution::utils::FieldValueConverter,
     query_analyzer::{DataSourceRequirement, DataSourceType},
     StreamExecutionEngine, StreamingQuery,
 };
@@ -254,17 +254,10 @@ async fn process_single_record(
             stats.records_processed += 1;
             stats.last_record_time = Some(Instant::now());
 
-            // Convert StreamRecord fields to InternalValue
-            let record_fields: HashMap<String, InternalValue> = record
-                .fields
-                .into_iter()
-                .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
-                .collect();
-
-            // Execute the query
+            // Execute the query directly with StreamRecord (most efficient)
             let mut engine = execution_engine.lock().await;
             if let Err(e) = engine
-                .execute_with_headers(parsed_query, record_fields, record.headers)
+                .execute_with_record(parsed_query, record)
                 .await
             {
                 error!("Job '{}' failed to process record: {:?}", job_name, e);
