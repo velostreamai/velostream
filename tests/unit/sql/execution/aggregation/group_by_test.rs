@@ -513,13 +513,13 @@ mod tests {
                 fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2.fields.insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
-        record2.fields.insert("amount".to_string(), FieldValue::Float(150.0));
+        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
 
         let mut fields3 = HashMap::new();
                 fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
         record3.fields.insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
-        record3.fields.insert("amount".to_string(), FieldValue::Float(200.0));
+        record3.fields.insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
 
         // Test windowed GROUP BY
         let query = parser
