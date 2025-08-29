@@ -15,7 +15,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! # use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+//! # use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
 //! # use ferrisstreams::ferris::serialization::JsonFormat;
 //! # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 //! # use std::sync::Arc;
@@ -30,8 +30,8 @@
 //! // Parse a simple query and execute with a record
 //! let parser = StreamingSqlParser::new();
 //! let query = parser.parse("SELECT * FROM stream")?;
-//! let record = HashMap::new(); // Empty record for example
-//! engine.execute(&query, record).await?;
+//! let record = StreamRecord::new(HashMap::new()); // Empty record for example
+//! engine.execute_with_record(&query, record).await?;
 //! # Ok(())
 //! # }
 //! ```

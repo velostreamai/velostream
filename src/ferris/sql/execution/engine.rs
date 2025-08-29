@@ -16,7 +16,7 @@ The primary interface for executing SQL queries against streaming data:
 ## Usage
 
 ```rust,no_run
-# use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+# use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
 # use ferrisstreams::ferris::serialization::JsonFormat;
 # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 # use std::sync::Arc;
@@ -31,7 +31,7 @@ let mut engine = StreamExecutionEngine::new(output_sender, serialization_format)
 // Parse a simple query and execute with a record
 let parser = StreamingSqlParser::new();
 let query = parser.parse("SELECT * FROM stream")?;
-let record = StreamRecord::new();
+let record = StreamRecord::new(HashMap::new());
 engine.execute_with_record(&query, record).await?;
 # Ok(())
 # }
@@ -85,9 +85,9 @@ The execution engine follows a processor-based architecture with clean delegatio
 ## Examples
 
 ```rust,no_run
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -103,12 +103,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Execute a simple SELECT query
     let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
 
-    // Create test record using InternalValue types
-    let mut record = HashMap::new();
-    record.insert("customer_id".to_string(), InternalValue::String("123".to_string()));
-    record.insert("amount".to_string(), InternalValue::Number(150.0));
+    // Create test record using FieldValue types
+    let mut fields = HashMap::new();
+    fields.insert("customer_id".to_string(), FieldValue::String("123".to_string()));
+    fields.insert("amount".to_string(), FieldValue::Float(150.0));
+    let record = StreamRecord::new(fields);
 
-    engine.execute(&query, record).await?;
+    engine.execute_with_record(&query, record).await?;
 
     // Process results from output channel
     while let Some(result) = rx.recv().await {
