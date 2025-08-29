@@ -147,10 +147,10 @@ async fn execute_sql_file(
                     // Convert StreamRecord to JSON representation
                     let json_result = format!(
                         "{{\"record\":{},\"field_count\":{},\"timestamp\":{},\"partition\":{},\"offset\":{}}}",
-                        result_count, 
+                        result_count,
                         result.fields.len(),
                         result.timestamp,
-                        result.partition, 
+                        result.partition,
                         result.offset
                     );
                     println!("{}", json_result);

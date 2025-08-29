@@ -10,7 +10,7 @@ mod avro_decimal_tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_price_decimal_roundtrip() {
+    pub fn test_price_decimal_roundtrip() {
         println!("🧪 Testing price decimal round-trip (precision=19, scale=4)");
 
         // Define schema with decimal logical type for price
@@ -90,7 +90,7 @@ mod avro_decimal_tests {
     }
 
     #[test]
-    fn test_pnl_decimal_roundtrip() {
+    pub fn test_pnl_decimal_roundtrip() {
         println!("🧪 Testing P&L decimal round-trip (precision=19, scale=2)");
 
         let schema_json = r#"
@@ -149,7 +149,7 @@ mod avro_decimal_tests {
     }
 
     #[test]
-    fn test_mixed_precision_scales() {
+    pub fn test_mixed_precision_scales() {
         println!("🧪 Testing mixed precision/scale in same record");
 
         let schema_json = r#"

@@ -80,8 +80,11 @@ cargo fmt --all
 # Check formatting without making changes
 cargo fmt --all -- --check
 
-# Run before committing to ensure CI passes
-cargo fmt --all && cargo check --no-default-features
+# CRITICAL: Always run formatting check before committing
+cargo fmt --all -- --check
+
+# Run complete pre-commit verification to ensure CI passes
+cargo fmt --all -- --check && cargo check --no-default-features
 ```
 
 ### Git Workflow
@@ -288,7 +291,7 @@ fn test_query_analyzer_error_handling() {
 2. **Scale Alignment**: Different scales in ScaledInteger arithmetic
 3. **Serialization Round-trips**: Ensure exact precision preservation
 4. **Performance Regressions**: Monitor financial arithmetic benchmarks
-5. **CI/CD Formatting Failures**: Always run `cargo fmt --all` before committing
+5. **CI/CD Formatting Failures**: Always run `cargo fmt --all -- --check` before committing
 
 ### Useful Debug Commands
 ```bash
@@ -301,11 +304,13 @@ cargo test financial_precision_benchmark::performance_benchmarks -- --nocapture
 # Check for missing pattern matches
 cargo check --no-default-features
 
-# Fix formatting issues (GitHub Actions requirement)
+# CRITICAL: Fix formatting issues (GitHub Actions requirement)
 cargo fmt --all
 
-# Verify formatting and compilation before push
+# MANDATORY: Verify formatting and compilation before commit/push
 cargo fmt --all -- --check && cargo check --no-default-features
+
+# Run this exact sequence before every commit to avoid CI failures
 ```
 
 ## Architecture Principles
