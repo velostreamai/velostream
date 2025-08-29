@@ -5,6 +5,7 @@ Comprehensive test suite for INTERVAL literal parsing and arithmetic operations.
 */
 
 use ferrisstreams::ferris::serialization::JsonFormat;
+use ferrisstreams::ferris::sql::ast::TimeUnit;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -223,7 +224,19 @@ async fn test_interval_conversion_accuracy() {
         assert_eq!(results.len(), 1);
         let interval_value = match results[0].fields.get("interval_value") {
             Some(FieldValue::Integer(val)) => *val,
-            _ => panic!("Expected integer result for interval_value"),
+            Some(FieldValue::Float(val)) => *val as i64,
+            Some(FieldValue::Interval { value, unit }) => {
+                // Convert interval to milliseconds based on unit
+                match unit {
+                    TimeUnit::Millisecond => *value,
+                    TimeUnit::Second => *value * 1000,
+                    TimeUnit::Minute => *value * 60 * 1000,
+                    TimeUnit::Hour => *value * 60 * 60 * 1000,
+                    TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
+                }
+            },
+            Some(other) => panic!("Unexpected field type for interval_value: {:?}", other),
+            None => panic!("interval_value field not found in result: {:?}", results[0].fields),
         };
 
         assert_eq!(

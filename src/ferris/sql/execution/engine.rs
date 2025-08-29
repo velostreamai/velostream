@@ -31,8 +31,8 @@ let mut engine = StreamExecutionEngine::new(output_sender, serialization_format)
 // Parse a simple query and execute with a record
 let parser = StreamingSqlParser::new();
 let query = parser.parse("SELECT * FROM stream")?;
-let record = HashMap::new(); // Empty record for example
-engine.execute(&query, record).await?;
+let record = StreamRecord::new();
+engine.execute_with_record(&query, record).await?;
 # Ok(())
 # }
 ```

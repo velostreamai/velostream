@@ -13,6 +13,7 @@ use ferrisstreams::ferris::{
         parser::StreamingSqlParser,
     },
 };
+use ferrisstreams::ferris::serialization::SqlError;
 
 /// Common record creation utilities
 pub struct TestDataBuilder;
@@ -109,8 +110,7 @@ impl SqlExecutor {
         // Execute records
         for (i, record) in records.iter().enumerate() {
             // Convert StreamRecord to StreamRecord
-            let internal_record = Self::convert_to_internal_record(record);
-            let result = engine.execute_with_record(&query, internal_record).await;
+            let result = engine.execute_with_record(&query, record.clone()).await;
             if let Err(e) = result {
                 eprintln!("❌ Error executing record {}: {:?}", i + 1, e);
                 eprintln!("   Record: {:?}", record);
@@ -122,38 +122,15 @@ impl SqlExecutor {
             }
         }
 
+        // need to flush any remaining results for windowed queries with group by
+        let _flushed_results = engine.flush_group_by_results(&query);
+
         // Collect results
         let mut results = Vec::new();
         while let Ok(output) = rx.try_recv() {
             results.push(format!("{:?}", output));
         }
         results
-    }
-
-    /// Convert StreamRecord to StreamRecord
-    fn convert_to_internal_record(record: &StreamRecord) -> StreamRecord {
-        let mut internal_fields = HashMap::new();
-
-        for (key, field_value) in &record.fields {
-            let internal_value = match field_value {
-                FieldValue::Integer(i) => FieldValue::Integer(*i),
-                FieldValue::Float(f) => FieldValue::Float(*f),
-                FieldValue::String(s) => FieldValue::String(s.clone()),
-                FieldValue::Boolean(b) => FieldValue::Boolean(*b),
-                FieldValue::Null => FieldValue::Null,
-                // For now, convert other types to strings for simplicity
-                other => FieldValue::String(other.to_display_string()),
-            };
-            internal_fields.insert(key.clone(), internal_value);
-        }
-
-        StreamRecord {
-            fields: internal_fields,
-            timestamp: record.timestamp,
-            offset: record.offset,
-            partition: record.partition,
-            headers: record.headers.clone(),
-        }
     }
 }
 
