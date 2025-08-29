@@ -129,7 +129,7 @@ impl SqlExecutor {
         } else {
             println!("✅ Windows flushed successfully");
         }
-        
+
         let flushed_results = engine.flush_group_by_results(&query);
         println!("Group by flush results: {:?}", flushed_results);
         // Collect results
