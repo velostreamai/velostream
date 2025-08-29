@@ -813,6 +813,12 @@ impl WithClauseParser {
     }
 }
 
+impl Default for EnvironmentResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EnvironmentResolver {
     /// Create a new environment resolver
     pub fn new() -> Self {

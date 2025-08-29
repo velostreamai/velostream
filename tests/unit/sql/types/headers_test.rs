@@ -1,4 +1,3 @@
-use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;

@@ -63,6 +63,12 @@ pub struct SchemaEvolutionTracker {
     subject_compatibility: HashMap<String, CompatibilityLevel>,
 }
 
+impl Default for SchemaEvolutionTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SchemaEvolutionTracker {
     pub fn new() -> Self {
         Self {
@@ -473,7 +479,7 @@ impl SchemaReferenceResolver {
         resolved: &ResolvedSchema,
     ) -> SchemaResult<()> {
         // Basic validation - check if all dependencies are resolved
-        for (schema_id, _) in &resolved.dependencies {
+        for schema_id in resolved.dependencies.keys() {
             if self.registry.get_schema(*schema_id).await.is_err() {
                 return Err(SchemaError::NotFound {
                     source: format!("Referenced schema {} not found", schema_id),

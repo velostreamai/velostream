@@ -4,7 +4,6 @@
 Comprehensive test suite for ARRAY, MAP, and STRUCT data types and their operations.
 */
 
-use ferrisstreams::ferris::serialization::SerializationFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;

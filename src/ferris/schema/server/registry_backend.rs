@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ferris::schema::client::registry_client::SchemaReference;
-use crate::ferris::schema::{SchemaError, SchemaResult};
+use crate::ferris::schema::SchemaResult;
 
 pub use super::backends::{
     AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,

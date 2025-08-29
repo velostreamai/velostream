@@ -174,6 +174,12 @@ pub struct CacheMetrics {
     pub memory_pressure_events: u64,
 }
 
+impl Default for EnhancedSchemaCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EnhancedSchemaCache {
     /// Create a new enhanced cache with default configuration
     pub fn new() -> Self {

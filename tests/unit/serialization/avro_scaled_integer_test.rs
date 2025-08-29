@@ -270,17 +270,27 @@ mod avro_tests {
         // Test with decimal logical type enabled
         let decimal_result = field_value_to_avro_with_schema(&financial_value, true).unwrap();
         match decimal_result {
-            AvroValue::Bytes(bytes) => {
+            AvroValue::Decimal(decimal) => {
+                // Apache Avro 0.20.0+ uses Value::Decimal for decimal logical types
+                // Use TryFrom to convert Decimal to Vec<u8>
+                let bytes: Vec<u8> = std::convert::TryFrom::try_from(decimal)
+                    .expect("Failed to convert Decimal to bytes");
                 assert!(
                     !bytes.is_empty(),
                     "Decimal logical type should produce bytes"
                 );
-                // Note: try_decode_avro_decimal_bytes is a private function
-                // In a real implementation, this would be handled by the schema-aware deserializer
+                println!("Schema-aware encoding produced {} bytes in Decimal variant", bytes.len());
+            }
+            AvroValue::Bytes(bytes) => {
+                // Fallback for older Avro versions that might use Bytes
+                assert!(
+                    !bytes.is_empty(),
+                    "Decimal logical type should produce bytes"
+                );
                 println!("Schema-aware encoding produced {} bytes", bytes.len());
             }
             _ => panic!(
-                "Expected bytes for decimal logical type, got {:?}",
+                "Expected Decimal or Bytes for decimal logical type, got {:?}",
                 decimal_result
             ),
         }

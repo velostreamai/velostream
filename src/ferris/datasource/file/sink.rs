@@ -503,7 +503,7 @@ impl FileWriter {
             FileFormat::Csv | FileFormat::CsvNoHeader => {
                 // Convert record to CSV row
                 let mut csv_row = Vec::new();
-                for (_key, value) in &record.fields {
+                for value in record.fields.values() {
                     // Simple CSV serialization - in production use proper CSV library
                     let value_str = format!("{:?}", value); // TODO: Proper CSV escaping
                     csv_row.push(value_str);

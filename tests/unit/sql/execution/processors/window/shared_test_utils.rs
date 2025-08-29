@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use ferrisstreams::ferris::serialization::SqlError;
 use ferrisstreams::ferris::{
-    serialization::{InternalValue, JsonFormat},
+    serialization::JsonFormat,
     sql::{
         execution::{
             types::{FieldValue, StreamRecord},

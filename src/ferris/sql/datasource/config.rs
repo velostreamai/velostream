@@ -271,7 +271,7 @@ impl ConnectionString {
                 let uri = format!("file://{}", self.path);
                 let mut config =
                     crate::ferris::sql::datasource::file::FileSourceConfig::from_uri(&uri)
-                        .map_err(|e| DataSourceError::Configuration(e))?;
+                        .map_err(DataSourceError::Configuration)?;
 
                 // Override with any additional parameters from the connection string
                 for (key, value) in &self.params {

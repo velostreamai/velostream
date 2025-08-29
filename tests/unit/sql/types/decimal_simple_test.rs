@@ -3,7 +3,6 @@
 //! This module tests basic DECIMAL type implementation that works with
 //! the current codebase structure.
 
-use std::collections::HashMap;
 
 use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::sql::ast::{DataType, Expr, LiteralValue, SelectField, StreamingQuery};

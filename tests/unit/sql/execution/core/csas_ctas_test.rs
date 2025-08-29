@@ -7,7 +7,6 @@ use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {

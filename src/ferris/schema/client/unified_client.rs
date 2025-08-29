@@ -4,11 +4,10 @@
 //! while maintaining the same high-level API and caching capabilities.
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use super::enhanced_cache::EnhancedSchemaCache;
 use super::reference_resolver::SchemaReferenceResolver;
-use super::registry_client::{CachedSchema, DependencyGraph, ResolvedSchema, SchemaReference};
+use super::registry_client::{CachedSchema, ResolvedSchema, SchemaReference};
 use crate::ferris::schema::server::{
     BackendConfig, BackendMetadata, ConfluentAuth, HealthStatus, SchemaRegistryBackend,
     SchemaRegistryBackendFactory,

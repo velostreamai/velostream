@@ -3,7 +3,7 @@
 //! This module analyzes parsed SQL queries to determine what Kafka consumers, producers,
 //! and serializers need to be created dynamically based on the query requirements.
 
-use crate::ferris::kafka::serialization_format::{SerializationConfig, SerializationFormat};
+use crate::ferris::kafka::serialization_format::SerializationConfig;
 use crate::ferris::sql::{
     ast::{IntoClause, StreamSource, StreamingQuery},
     SqlError,

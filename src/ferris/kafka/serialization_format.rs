@@ -9,11 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
-#[cfg(feature = "avro")]
-use crate::ferris::kafka::serialization::AvroSerializer;
 
-#[cfg(feature = "protobuf")]
-use crate::ferris::kafka::serialization::ProtoSerializer;
 
 /// Enumeration of supported serialization formats for Kafka messages
 ///

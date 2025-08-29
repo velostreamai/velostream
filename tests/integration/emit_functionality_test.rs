@@ -2,7 +2,7 @@
 Integration test for EMIT functionality
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;

@@ -765,7 +765,7 @@ impl SchemaCache {
 
         self.subject_versions
             .entry(subject)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(version, id);
     }
 
@@ -817,11 +817,11 @@ impl DependencyGraph {
         let mut queue = std::collections::VecDeque::new();
 
         // Calculate in-degrees
-        for (node, _) in &self.nodes {
+        for node in self.nodes.keys() {
             in_degrees.insert(*node, 0);
         }
 
-        for (_, deps) in &self.edges {
+        for deps in self.edges.values() {
             for dep in deps {
                 *in_degrees.get_mut(dep).unwrap() += 1;
             }

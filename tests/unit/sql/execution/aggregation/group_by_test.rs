@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;

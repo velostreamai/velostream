@@ -491,7 +491,7 @@ WITH ('output.topic' = 'output2');
     match result {
         Ok(job_names) => {
             println!("✅ SQL application deployed with {} jobs", job_names.len());
-            assert!(job_names.len() > 0, "Should deploy at least one job");
+            assert!(!job_names.is_empty(), "Should deploy at least one job");
         }
         Err(e) => {
             println!(

@@ -42,9 +42,9 @@ impl DataSourceRegistry {
     /// Create a registry with default implementations
     /// TODO: Implement with generic datasource implementations
     pub fn with_defaults() -> Self {
-        let registry = Self::new();
+        
         // TODO: Add factory registrations when async architecture is resolved
-        registry
+        Self::new()
     }
 
     /// Register a source factory for a specific scheme

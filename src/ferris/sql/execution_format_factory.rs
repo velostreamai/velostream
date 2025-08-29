@@ -9,11 +9,7 @@ use crate::ferris::{
 };
 use std::sync::Arc;
 
-#[cfg(feature = "avro")]
-use crate::ferris::serialization::AvroFormat;
 
-#[cfg(feature = "protobuf")]
-use crate::ferris::serialization::ProtobufFormat;
 
 /// Factory for creating execution formats based on query analysis
 pub struct ExecutionFormatFactory;
