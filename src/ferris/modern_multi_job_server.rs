@@ -198,6 +198,35 @@ impl MultiJobSqlServer {
         }
         drop(jobs);
 
+        // Input validation
+        if name.trim().is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "job name cannot be empty".to_string(),
+                query: None,
+            });
+        }
+        
+        if version.trim().is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "job version cannot be empty".to_string(),
+                query: None,
+            });
+        }
+        
+        if query.trim().is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "query cannot be empty".to_string(),
+                query: None,
+            });
+        }
+        
+        if topic.trim().is_empty() {
+            return Err(SqlError::ExecutionError {
+                message: "topic cannot be empty".to_string(),
+                query: None,
+            });
+        }
+
         // Parse and validate the query
         let parser = StreamingSqlParser::new();
         let parsed_query = parser.parse(&query)?;
