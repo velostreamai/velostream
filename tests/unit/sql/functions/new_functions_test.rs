@@ -4,7 +4,7 @@
 Comprehensive test suite for newly added math, string, and date/time functions.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -38,27 +38,11 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
+// Removed conversion helper - now using StreamRecord directly
 
 async fn execute_query(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -66,20 +50,8 @@ async fn execute_query(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let internal_record = convert_stream_record_to_internal(&record);
-
-    // Execute the query with internal record, including metadata
-    engine
-        .execute_with_metadata(
-            &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
-        .await?;
+    // Execute the query with StreamRecord directly
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -95,64 +67,64 @@ async fn test_math_functions() {
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["abs_result"], InternalValue::Integer(15));
+    assert_eq!(results[0].fields.get("abs_result"), Some(&FieldValue::Integer(15)));
 
     let results = execute_query("SELECT ABS(amount) as abs_amount FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_amount"], InternalValue::Number(123.456));
+    assert_eq!(results[0].fields.get("abs_amount"), Some(&FieldValue::Float(123.456)));
 
     // Test ROUND function
     let results = execute_query("SELECT ROUND(amount) as rounded FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["rounded"], InternalValue::Number(123.0));
+    assert_eq!(results[0].fields.get("rounded"), Some(&FieldValue::Float(123.0)));
 
     let results = execute_query("SELECT ROUND(amount, 2) as rounded_2 FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["rounded_2"], InternalValue::Number(123.46));
+    assert_eq!(results[0].fields.get("rounded_2"), Some(&FieldValue::Float(123.46)));
 
     // Test CEIL function
     let results = execute_query("SELECT CEIL(amount) as ceiling FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["ceiling"], InternalValue::Integer(124));
+    assert_eq!(results[0].fields.get("ceiling"), Some(&FieldValue::Integer(124)));
 
     let results = execute_query("SELECT CEILING(amount) as ceiling2 FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["ceiling2"], InternalValue::Integer(124));
+    assert_eq!(results[0].fields.get("ceiling2"), Some(&FieldValue::Integer(124)));
 
     // Test FLOOR function
     let results = execute_query("SELECT FLOOR(amount) as floor_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["floor_result"], InternalValue::Integer(123));
+    assert_eq!(results[0].fields.get("floor_result"), Some(&FieldValue::Integer(123)));
 
     // Test MOD function
     let results = execute_query("SELECT MOD(quantity, 10) as mod_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["mod_result"], InternalValue::Integer(2));
+    assert_eq!(results[0].fields.get("mod_result"), Some(&FieldValue::Integer(2)));
 
     // Test POWER function
     let results = execute_query("SELECT POWER(2, 3) as power_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["power_result"], InternalValue::Number(8.0));
+    assert_eq!(results[0].fields.get("power_result"), Some(&FieldValue::Float(8.0)));
 
     let results = execute_query("SELECT POW(quantity, 2) as pow_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["pow_result"], InternalValue::Number(1764.0));
+    assert_eq!(results[0].fields.get("pow_result"), Some(&FieldValue::Float(1764.0)));
 
     // Test SQRT function
     let results = execute_query("SELECT SQRT(quantity) as sqrt_result FROM test_stream")
         .await
         .unwrap();
-    let sqrt_val = match &results[0]["sqrt_result"] {
-        InternalValue::Number(n) => *n,
+    let sqrt_val = match results[0].fields.get("sqrt_result") {
+        Some(FieldValue::Float(n)) => *n,
         _ => panic!("Expected Number for sqrt result"),
     };
     assert!((sqrt_val - 6.48074069840786).abs() < 1e-10);
@@ -166,8 +138,8 @@ async fn test_string_functions() {
             .await
             .unwrap();
     assert_eq!(
-        results[0]["concat_result"],
-        InternalValue::String("Hello World".to_string())
+        results[0].fields.get("concat_result"),
+        Some(&FieldValue::String("Hello World".to_string()))
     );
 
     let results = execute_query(
@@ -176,44 +148,44 @@ async fn test_string_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["concat_product"],
-        InternalValue::String("Test Product - Version 2".to_string())
+        results[0].fields.get("concat_product"),
+        Some(&FieldValue::String("Test Product - Version 2".to_string()))
     );
 
     // Test LENGTH function
     let results = execute_query("SELECT LENGTH(product_name) as name_length FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["name_length"], InternalValue::Integer(12));
+    assert_eq!(results[0].fields.get("name_length"), Some(&FieldValue::Integer(12)));
 
     let results = execute_query("SELECT LEN(product_name) as name_len FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["name_len"], InternalValue::Integer(12));
+    assert_eq!(results[0].fields.get("name_len"), Some(&FieldValue::Integer(12)));
 
     // Test TRIM functions
     let results = execute_query("SELECT TRIM(description) as trimmed FROM test_stream")
         .await
         .unwrap();
     assert_eq!(
-        results[0]["trimmed"],
-        InternalValue::String("This is a test description".to_string())
+        results[0].fields.get("trimmed"),
+        Some(&FieldValue::String("This is a test description".to_string()))
     );
 
     let results = execute_query("SELECT LTRIM(description) as left_trimmed FROM test_stream")
         .await
         .unwrap();
     assert_eq!(
-        results[0]["left_trimmed"],
-        InternalValue::String("This is a test description  ".to_string())
+        results[0].fields.get("left_trimmed"),
+        Some(&FieldValue::String("This is a test description  ".to_string()))
     );
 
     let results = execute_query("SELECT RTRIM(description) as right_trimmed FROM test_stream")
         .await
         .unwrap();
     assert_eq!(
-        results[0]["right_trimmed"],
-        InternalValue::String("  This is a test description".to_string())
+        results[0].fields.get("right_trimmed"),
+        Some(&FieldValue::String("  This is a test description".to_string()))
     );
 
     // Test UPPER and LOWER functions
@@ -221,16 +193,16 @@ async fn test_string_functions() {
         .await
         .unwrap();
     assert_eq!(
-        results[0]["upper_name"],
-        InternalValue::String("TEST PRODUCT".to_string())
+        results[0].fields.get("upper_name"),
+        Some(&FieldValue::String("TEST PRODUCT".to_string()))
     );
 
     let results = execute_query("SELECT LOWER(product_name) as lower_name FROM test_stream")
         .await
         .unwrap();
     assert_eq!(
-        results[0]["lower_name"],
-        InternalValue::String("test product".to_string())
+        results[0].fields.get("lower_name"),
+        Some(&FieldValue::String("test product".to_string()))
     );
 
     // Test REPLACE function
@@ -239,8 +211,8 @@ async fn test_string_functions() {
             .await
             .unwrap();
     assert_eq!(
-        results[0]["replaced"],
-        InternalValue::String("Demo Product".to_string())
+        results[0].fields.get("replaced"),
+        Some(&FieldValue::String("Demo Product".to_string()))
     );
 
     // Test LEFT and RIGHT functions
@@ -248,16 +220,16 @@ async fn test_string_functions() {
         .await
         .unwrap();
     assert_eq!(
-        results[0]["left_part"],
-        InternalValue::String("Test".to_string())
+        results[0].fields.get("left_part"),
+        Some(&FieldValue::String("Test".to_string()))
     );
 
     let results = execute_query("SELECT RIGHT(product_name, 7) as right_part FROM test_stream")
         .await
         .unwrap();
     assert_eq!(
-        results[0]["right_part"],
-        InternalValue::String("Product".to_string())
+        results[0].fields.get("right_part"),
+        Some(&FieldValue::String("Product".to_string()))
     );
 }
 
@@ -267,8 +239,8 @@ async fn test_date_time_functions() {
     let results = execute_query("SELECT NOW() as current_time FROM test_stream")
         .await
         .unwrap();
-    let now_result = match &results[0]["current_time"] {
-        InternalValue::Integer(n) => *n,
+    let now_result = match results[0].fields.get("current_time") {
+        Some(FieldValue::Integer(n)) => *n,
         _ => panic!("Expected Integer for current_time"),
     };
     assert!(now_result > 1734652800000); // Should be after our test timestamp
@@ -277,8 +249,8 @@ async fn test_date_time_functions() {
     let results = execute_query("SELECT CURRENT_TIMESTAMP as current_ts FROM test_stream")
         .await
         .unwrap();
-    let ts_result = match &results[0]["current_ts"] {
-        InternalValue::Integer(n) => *n,
+    let ts_result = match results[0].fields.get("current_ts") {
+        Some(FieldValue::Integer(n)) => *n,
         _ => panic!("Expected Integer for current_ts"),
     };
     assert!(ts_result > 1734652800000);
@@ -287,23 +259,23 @@ async fn test_date_time_functions() {
     let results = execute_query("SELECT EXTRACT('YEAR', _timestamp) as year_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["year_part"], InternalValue::Integer(2024));
+    assert_eq!(results[0].fields.get("year_part"), Some(&FieldValue::Integer(2024)));
 
     let results =
         execute_query("SELECT EXTRACT('MONTH', _timestamp) as month_part FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["month_part"], InternalValue::Integer(12));
+    assert_eq!(results[0].fields.get("month_part"), Some(&FieldValue::Integer(12)));
 
     let results = execute_query("SELECT EXTRACT('DAY', _timestamp) as day_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["day_part"], InternalValue::Integer(20));
+    assert_eq!(results[0].fields.get("day_part"), Some(&FieldValue::Integer(20)));
 
     let results = execute_query("SELECT EXTRACT('HOUR', _timestamp) as hour_part FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["hour_part"], InternalValue::Integer(0));
+    assert_eq!(results[0].fields.get("hour_part"), Some(&FieldValue::Integer(0)));
 
     // Test DATE_FORMAT function
     let results = execute_query(
@@ -312,14 +284,14 @@ async fn test_date_time_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["formatted_date"],
-        InternalValue::String("2024-12-20".to_string())
+        results[0].fields.get("formatted_date"),
+        Some(&FieldValue::String("2024-12-20".to_string()))
     );
 
     let results = execute_query("SELECT DATE_FORMAT(_timestamp, '%Y-%m-%d %H:%M:%S') as formatted_datetime FROM test_stream").await.unwrap();
     assert_eq!(
-        results[0]["formatted_datetime"],
-        InternalValue::String("2024-12-20 00:00:00".to_string())
+        results[0].fields.get("formatted_datetime"),
+        Some(&FieldValue::String("2024-12-20 00:00:00".to_string()))
     );
 }
 
@@ -332,8 +304,8 @@ async fn test_utility_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["coalesce_result"],
-        InternalValue::String("default".to_string())
+        results[0].fields.get("coalesce_result"),
+        Some(&FieldValue::String("default".to_string()))
     );
 
     let results = execute_query(
@@ -342,8 +314,8 @@ async fn test_utility_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["coalesce_product"],
-        InternalValue::String("Test Product".to_string())
+        results[0].fields.get("coalesce_product"),
+        Some(&FieldValue::String("Test Product".to_string()))
     );
 
     // Test NULLIF function
@@ -352,7 +324,7 @@ async fn test_utility_functions() {
     )
     .await
     .unwrap();
-    assert_eq!(results[0]["nullif_result"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("nullif_result"), Some(&FieldValue::Null));
 
     let results = execute_query(
         "SELECT NULLIF(product_name, 'Different') as nullif_different FROM test_stream",
@@ -360,8 +332,8 @@ async fn test_utility_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["nullif_different"],
-        InternalValue::String("Test Product".to_string())
+        results[0].fields.get("nullif_different"),
+        Some(&FieldValue::String("Test Product".to_string()))
     );
 }
 
@@ -374,22 +346,22 @@ async fn test_complex_expressions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["complex_string"],
-        InternalValue::String("THIS IS A ".to_string())
+        results[0].fields.get("complex_string"),
+        Some(&FieldValue::String("THIS IS A ".to_string()))
     );
 
     let results =
         execute_query("SELECT ROUND(ABS(negative_num) * 1.5, 1) as complex_math FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["complex_math"], InternalValue::Number(22.5));
+    assert_eq!(results[0].fields.get("complex_math"), Some(&FieldValue::Float(22.5)));
 
     let results = execute_query(
         "SELECT CONCAT('Order ', quantity, ' at $', ROUND(amount, 2)) as order_summary FROM test_stream"
     ).await.unwrap();
     assert_eq!(
-        results[0]["order_summary"],
-        InternalValue::String("Order 42 at $123.46".to_string())
+        results[0].fields.get("order_summary"),
+        Some(&FieldValue::String("Order 42 at $123.46".to_string()))
     );
 }
 
@@ -421,17 +393,17 @@ async fn test_null_handling() {
     let results = execute_query("SELECT LENGTH(NULL) as null_length FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["null_length"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("null_length"), Some(&FieldValue::Null));
 
     let results = execute_query("SELECT UPPER(NULL) as null_upper FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["null_upper"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("null_upper"), Some(&FieldValue::Null));
 
     let results = execute_query("SELECT TRIM(NULL) as null_trim FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["null_trim"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("null_trim"), Some(&FieldValue::Null));
 }
 
 #[tokio::test]
@@ -442,8 +414,8 @@ async fn test_type_conversions() {
             .await
             .unwrap();
     assert_eq!(
-        results[0]["concat_int"],
-        InternalValue::String("Value: 42".to_string())
+        results[0].fields.get("concat_int"),
+        Some(&FieldValue::String("Value: 42".to_string()))
     );
 
     let results =
@@ -451,15 +423,15 @@ async fn test_type_conversions() {
             .await
             .unwrap();
     assert_eq!(
-        results[0]["concat_float"],
-        InternalValue::String("Amount: $123.456".to_string())
+        results[0].fields.get("concat_float"),
+        Some(&FieldValue::String("Amount: $123.456".to_string()))
     );
 
     // Test POWER with integer inputs
     let results = execute_query("SELECT POWER(quantity, 2) as power_int FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["power_int"], InternalValue::Number(1764.0));
+    assert_eq!(results[0].fields.get("power_int"), Some(&FieldValue::Float(1764.0)));
 }
 
 #[tokio::test]
@@ -468,24 +440,24 @@ async fn test_new_comparison_functions() {
     let results = execute_query("SELECT LEAST(10, 5, 15) as least_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_result"], InternalValue::Integer(5));
+    assert_eq!(results[0].fields.get("least_result"), Some(&FieldValue::Integer(5)));
 
     let results = execute_query("SELECT LEAST(amount, quantity) as least_mixed FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_mixed"], InternalValue::Number(42.0));
+    assert_eq!(results[0].fields.get("least_mixed"), Some(&FieldValue::Float(42.0)));
 
     // Test GREATEST function
     let results = execute_query("SELECT GREATEST(10, 5, 15) as greatest_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["greatest_result"], InternalValue::Integer(15));
+    assert_eq!(results[0].fields.get("greatest_result"), Some(&FieldValue::Integer(15)));
 
     let results =
         execute_query("SELECT GREATEST(amount, quantity) as greatest_mixed FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["greatest_mixed"], InternalValue::Number(123.456));
+    assert_eq!(results[0].fields.get("greatest_mixed"), Some(&FieldValue::Float(123.456)));
 
     // Test with strings
     let results =
@@ -493,8 +465,8 @@ async fn test_new_comparison_functions() {
             .await
             .unwrap();
     assert_eq!(
-        results[0]["least_string"],
-        InternalValue::String("apple".to_string())
+        results[0].fields.get("least_string"),
+        Some(&FieldValue::String("apple".to_string()))
     );
 
     let results = execute_query(
@@ -503,21 +475,21 @@ async fn test_new_comparison_functions() {
     .await
     .unwrap();
     assert_eq!(
-        results[0]["greatest_string"],
-        InternalValue::String("cherry".to_string())
+        results[0].fields.get("greatest_string"),
+        Some(&FieldValue::String("cherry".to_string()))
     );
 
     // Test with NULL values
     let results = execute_query("SELECT LEAST(10, NULL, 5) as least_with_null FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["least_with_null"], InternalValue::Integer(5));
+    assert_eq!(results[0].fields.get("least_with_null"), Some(&FieldValue::Integer(5)));
 
     let results =
         execute_query("SELECT GREATEST(10, NULL, 5) as greatest_with_null FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["greatest_with_null"], InternalValue::Integer(10));
+    assert_eq!(results[0].fields.get("greatest_with_null"), Some(&FieldValue::Integer(10)));
 }
 
 #[tokio::test]
@@ -531,8 +503,8 @@ async fn test_datediff_function() {
     )
     .await
     .unwrap();
-    let hour_diff = match &results[0]["hour_diff"] {
-        InternalValue::Integer(val) => *val,
+    let hour_diff = match results[0].fields.get("hour_diff") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for DATEDIFF hours"),
     };
     assert_eq!(hour_diff, 24); // 24 hours difference
@@ -543,8 +515,8 @@ async fn test_datediff_function() {
     )
     .await
     .unwrap();
-    let day_diff = match &results[0]["day_diff"] {
-        InternalValue::Integer(val) => *val,
+    let day_diff = match results[0].fields.get("day_diff") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for DATEDIFF days"),
     };
     assert_eq!(day_diff, 1); // 1 day difference
@@ -556,8 +528,8 @@ async fn test_position_function() {
     let results = execute_query("SELECT POSITION('t', product_name) as t_pos FROM test_stream")
         .await
         .unwrap();
-    let t_pos = match &results[0]["t_pos"] {
-        InternalValue::Integer(val) => *val,
+    let t_pos = match results[0].fields.get("t_pos") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for POSITION"),
     };
     assert_eq!(t_pos, 4); // Position of 't' in "Test Product" (case-sensitive, first lowercase 't' in "Test")
@@ -567,8 +539,8 @@ async fn test_position_function() {
         execute_query("SELECT POSITION('xyz', product_name) as not_found FROM test_stream")
             .await
             .unwrap();
-    let not_found = match &results[0]["not_found"] {
-        InternalValue::Integer(val) => *val,
+    let not_found = match results[0].fields.get("not_found") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for POSITION not found"),
     };
     assert_eq!(not_found, 0); // Should return 0 when not found
@@ -581,8 +553,8 @@ async fn test_listagg_function() {
         execute_query("SELECT LISTAGG(product_name, '; ') as single_product FROM test_stream")
             .await
             .unwrap();
-    let single_product = match &results[0]["single_product"] {
-        InternalValue::String(val) => val,
+    let single_product = match results[0].fields.get("single_product") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for LISTAGG single value"),
     };
     assert_eq!(single_product, "Test Product");
@@ -616,16 +588,16 @@ async fn test_having_clause_execution() {
     }
 
     let test_record = create_test_record();
-    let internal_record = convert_stream_record_to_internal(&test_record);
+    // Using test_record directly now
     engine
-        .execute(&parsed_query, internal_record)
+        .execute_with_record(&parsed_query, test_record)
         .await
         .unwrap();
 
     let result = rx.try_recv().unwrap();
     // Should return the record since quantity (42) > 40
-    let quantity_result = match &result["quantity"] {
-        ferrisstreams::ferris::serialization::InternalValue::Integer(val) => *val,
+    let quantity_result = match result.fields.get("quantity") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for quantity"),
     };
     assert_eq!(quantity_result, 42);
@@ -635,8 +607,8 @@ async fn test_having_clause_execution() {
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
 
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     // Should return an error or Ok(None) since quantity (42) is not > 50
     // For now, let's just check it executes without panicking
     assert!(result.is_ok());
@@ -655,8 +627,8 @@ async fn test_datediff_error_cases() {
     let query = "SELECT DATEDIFF('hours', 123456789) FROM test";
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     assert!(
         result.is_err(),
         "DATEDIFF should fail with wrong number of arguments"
@@ -666,8 +638,8 @@ async fn test_datediff_error_cases() {
     let test_record = create_test_record();
     let query = "SELECT DATEDIFF('invalid_unit', 123456789, 987654321) FROM test";
     let parsed_query = parser.parse(query).unwrap();
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     assert!(
         result.is_err(),
         "DATEDIFF should fail with invalid time unit"
@@ -687,8 +659,8 @@ async fn test_position_error_cases() {
     let query = "SELECT POSITION('test') FROM test";
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     assert!(
         result.is_err(),
         "POSITION should fail with too few arguments"
@@ -698,8 +670,8 @@ async fn test_position_error_cases() {
     let query = "SELECT POSITION('a', 'test', 1, 'extra') FROM test";
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     assert!(
         result.is_err(),
         "POSITION should fail with too many arguments"
@@ -719,8 +691,8 @@ async fn test_listagg_error_cases() {
     let query = "SELECT LISTAGG('test') FROM test";
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
-    let internal_record = convert_stream_record_to_internal(&test_record);
-    let result = engine.execute(&parsed_query, internal_record).await;
+    // Using test_record directly now
+    let result = engine.execute_with_record(&parsed_query, test_record).await;
     assert!(
         result.is_err(),
         "LISTAGG should fail with wrong number of arguments"
@@ -741,20 +713,20 @@ async fn test_comprehensive_new_functions_integration() {
     .unwrap();
 
     // Verify all function results
-    let letter_pos = match &results[0]["letter_pos"] {
-        InternalValue::Integer(val) => *val,
+    let letter_pos = match results[0].fields.get("letter_pos") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer for letter_pos"),
     };
     assert_eq!(letter_pos, 8); // Position of 'o' in "Test Product" (first 'o' in "Product")
 
-    let absolute_val = match &results[0]["absolute_val"] {
-        InternalValue::Integer(val) => *val,
+    let absolute_val = match results[0].fields.get("absolute_val") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer for absolute_val"),
     };
     assert_eq!(absolute_val, 15); // ABS(-15) = 15
 
-    let first_word_upper = match &results[0]["first_word_upper"] {
-        InternalValue::String(val) => val,
+    let first_word_upper = match results[0].fields.get("first_word_upper") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string for first_word_upper"),
     };
     assert_eq!(first_word_upper, "TEST");
@@ -766,24 +738,24 @@ async fn test_abs_function_extended() {
     let results = execute_query("SELECT ABS(negative_num) as abs_int FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_int"], InternalValue::Integer(15));
+    assert_eq!(results[0].fields.get("abs_int"), Some(&FieldValue::Integer(15)));
 
     let results = execute_query("SELECT ABS(quantity) as abs_positive FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_positive"], InternalValue::Integer(42));
+    assert_eq!(results[0].fields.get("abs_positive"), Some(&FieldValue::Integer(42)));
 
     // Test ABS with floats
     let results = execute_query("SELECT ABS(amount) as abs_float FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_float"], InternalValue::Number(123.456));
+    assert_eq!(results[0].fields.get("abs_float"), Some(&FieldValue::Float(123.456)));
 
     // Test ABS with NULL
     let results = execute_query("SELECT ABS(NULL) as abs_null FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["abs_null"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("abs_null"), Some(&FieldValue::Null));
 }
 
 #[tokio::test]
@@ -792,56 +764,56 @@ async fn test_statistical_functions() {
     let results = execute_query("SELECT STDDEV(amount) as stddev_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["stddev_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("stddev_result"), Some(&FieldValue::Float(0.0)));
 
     // Test STDDEV_SAMP function
     let results =
         execute_query("SELECT STDDEV_SAMP(quantity) as stddev_samp_result FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["stddev_samp_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("stddev_samp_result"), Some(&FieldValue::Float(0.0)));
 
     // Test STDDEV_POP function
     let results = execute_query("SELECT STDDEV_POP(amount) as stddev_pop_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["stddev_pop_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("stddev_pop_result"), Some(&FieldValue::Float(0.0)));
 
     // Test VARIANCE function
     let results = execute_query("SELECT VARIANCE(amount) as variance_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["variance_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("variance_result"), Some(&FieldValue::Float(0.0)));
 
     // Test VAR_SAMP function
     let results = execute_query("SELECT VAR_SAMP(quantity) as var_samp_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["var_samp_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("var_samp_result"), Some(&FieldValue::Float(0.0)));
 
     // Test VAR_POP function
     let results = execute_query("SELECT VAR_POP(amount) as var_pop_result FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["var_pop_result"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("var_pop_result"), Some(&FieldValue::Float(0.0)));
 
     // Test MEDIAN function with integer
     let results = execute_query("SELECT MEDIAN(quantity) as median_int FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["median_int"], InternalValue::Integer(42));
+    assert_eq!(results[0].fields.get("median_int"), Some(&FieldValue::Integer(42)));
 
     // Test MEDIAN function with float
     let results = execute_query("SELECT MEDIAN(amount) as median_float FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["median_float"], InternalValue::Number(123.456));
+    assert_eq!(results[0].fields.get("median_float"), Some(&FieldValue::Float(123.456)));
 
     // Test MEDIAN with NULL
     let results = execute_query("SELECT MEDIAN(NULL) as median_null FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["median_null"], InternalValue::Null);
+    assert_eq!(results[0].fields.get("median_null"), Some(&FieldValue::Null));
 }
 
 #[tokio::test]
@@ -900,20 +872,20 @@ async fn test_statistical_functions_with_expressions() {
     let results = execute_query("SELECT STDDEV(ABS(negative_num)) as stddev_expr FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["stddev_expr"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("stddev_expr"), Some(&FieldValue::Float(0.0)));
 
     // Test MEDIAN with expression
     let results = execute_query("SELECT MEDIAN(quantity * 2) as median_expr FROM test_stream")
         .await
         .unwrap();
-    assert_eq!(results[0]["median_expr"], InternalValue::Integer(84));
+    assert_eq!(results[0].fields.get("median_expr"), Some(&FieldValue::Integer(84)));
 
     // Test VARIANCE with ROUND expression
     let results =
         execute_query("SELECT VARIANCE(ROUND(amount)) as variance_round FROM test_stream")
             .await
             .unwrap();
-    assert_eq!(results[0]["variance_round"], InternalValue::Number(0.0));
+    assert_eq!(results[0].fields.get("variance_round"), Some(&FieldValue::Float(0.0)));
 }
 
 #[tokio::test]
@@ -926,7 +898,7 @@ async fn test_multiple_statistical_functions() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["std"], InternalValue::Number(0.0));
-    assert_eq!(results[0]["var"], InternalValue::Number(0.0));
-    assert_eq!(results[0]["med"], InternalValue::Integer(42));
+    assert_eq!(results[0].fields.get("std"), Some(&FieldValue::Float(0.0)));
+    assert_eq!(results[0].fields.get("var"), Some(&FieldValue::Float(0.0)));
+    assert_eq!(results[0].fields.get("med"), Some(&FieldValue::Integer(42)));
 }

@@ -9,7 +9,7 @@ Comprehensive tests for the newly implemented subquery functionality including:
 - NOT IN subqueries: WHERE column NOT IN (SELECT id FROM table WHERE condition)
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -38,27 +38,11 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
+// Conversion function no longer needed - using StreamRecord directly
 
 async fn execute_subquery_test(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -66,20 +50,8 @@ async fn execute_subquery_test(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let internal_record = convert_stream_record_to_internal(&record);
-
-    // Execute the query with internal record, including metadata
-    engine
-        .execute_with_metadata(
-            &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
-        .await?;
+    // Execute the query with StreamRecord directly
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -101,11 +73,11 @@ async fn test_scalar_subquery_parsing() {
     assert_eq!(results.len(), 1);
 
     // Verify the record contains the original fields plus the subquery result
-    assert!(results[0].contains_key("id"));
-    assert!(results[0].contains_key("config_value"));
+    assert!(results[0].fields.contains_key("id"));
+    assert!(results[0].fields.contains_key("config_value"));
 
     // Mock implementation should return 1 for scalar subqueries
-    assert_eq!(results[0]["config_value"], InternalValue::Integer(1));
+    assert_eq!(results[0].fields.get("config_value"), Some(&FieldValue::Integer(1)));
 }
 
 #[tokio::test]
@@ -120,8 +92,8 @@ async fn test_exists_subquery() {
     let results = result.unwrap();
     // Mock implementation returns true for EXISTS, so record should be included
     assert_eq!(results.len(), 1);
-    assert!(results[0].contains_key("id"));
-    assert!(results[0].contains_key("name"));
+    assert!(results[0].fields.contains_key("id"));
+    assert!(results[0].fields.contains_key("name"));
 }
 
 #[tokio::test]
@@ -157,7 +129,7 @@ async fn test_in_subquery_with_positive_value() {
     // Mock implementation returns true for positive integers in IN subqueries
     // Since id = 42 (positive), it should match
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["id"], InternalValue::Integer(42));
+    assert_eq!(results[0].fields.get("id"), Some(&FieldValue::Integer(42)));
 }
 
 #[tokio::test]
@@ -198,14 +170,14 @@ async fn test_complex_subquery_in_select() {
     assert_eq!(results.len(), 1);
 
     // Verify all expected fields are present
-    assert!(results[0].contains_key("id"));
-    assert!(results[0].contains_key("name"));
-    assert!(results[0].contains_key("config_type"));
-    assert!(results[0].contains_key("max_limit"));
+    assert!(results[0].fields.contains_key("id"));
+    assert!(results[0].fields.contains_key("name"));
+    assert!(results[0].fields.contains_key("config_type"));
+    assert!(results[0].fields.contains_key("max_limit"));
 
     // Verify subquery results (mock implementations)
-    assert_eq!(results[0]["config_type"], InternalValue::Integer(1)); // Scalar subquery mock
-    assert_eq!(results[0]["max_limit"], InternalValue::Integer(1)); // Scalar subquery mock
+    assert_eq!(results[0].fields.get("config_type"), Some(&FieldValue::Integer(1))); // Scalar subquery mock
+    assert_eq!(results[0].fields.get("max_limit"), Some(&FieldValue::Integer(1))); // Scalar subquery mock
 }
 
 #[tokio::test]
@@ -223,7 +195,7 @@ async fn test_nested_subqueries() {
 
     let results = result.unwrap();
     assert_eq!(results.len(), 1);
-    assert!(results[0].contains_key("outer_config"));
+    assert!(results[0].fields.contains_key("outer_config"));
 }
 
 #[tokio::test]
@@ -242,8 +214,8 @@ async fn test_subquery_with_string_field() {
     // Since name = "test_record" (non-empty), it should match
     assert_eq!(results.len(), 1);
     assert_eq!(
-        results[0]["name"],
-        InternalValue::String("test_record".to_string())
+        results[0].fields.get("name"),
+        Some(&FieldValue::String("test_record".to_string()))
     );
 }
 
@@ -262,7 +234,7 @@ async fn test_subquery_with_boolean_field() {
     // Mock implementation returns the boolean value itself for IN subqueries
     // Since active = true, it should match
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["active"], InternalValue::Boolean(true));
+    assert_eq!(results[0].fields.get("active"), Some(&FieldValue::Boolean(true)));
 }
 
 #[tokio::test]

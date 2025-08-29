@@ -1,10 +1,24 @@
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+fn create_test_record(id: i64, amount: f64) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
+    
+    StreamRecord {
+        fields,
+        timestamp: 1609459200000, // Fixed timestamp for test consistency
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -72,33 +86,40 @@ mod tests {
             .unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
-        record.insert("amount".to_string(), InternalValue::Number(299.99));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        fields.insert("amount".to_string(), FieldValue::Float(299.99));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute query
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output contains system columns
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("_timestamp"));
-        assert!(output.contains_key("_offset"));
-        assert!(output.contains_key("_partition"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("_timestamp"));
+        assert!(output.fields.contains_key("_offset"));
+        assert!(output.fields.contains_key("_partition"));
 
         // Verify system column values are integers
         assert!(matches!(
-            output.get("_timestamp").unwrap(),
-            InternalValue::Integer(_)
+            output.fields.get("_timestamp").unwrap(),
+            FieldValue::Integer(_)
         ));
         assert!(matches!(
-            output.get("_offset").unwrap(),
-            InternalValue::Integer(_)
+            output.fields.get("_offset").unwrap(),
+            FieldValue::Integer(_)
         ));
         assert!(matches!(
-            output.get("_partition").unwrap(),
-            InternalValue::Integer(_)
+            output.fields.get("_partition").unwrap(),
+            FieldValue::Integer(_)
         ));
     }
 
@@ -115,19 +136,26 @@ mod tests {
             .unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(456));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(456));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute query
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output has aliased names, not original system column names
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("event_time"));
-        assert!(output.contains_key("kafka_partition"));
-        assert!(!output.contains_key("_timestamp"));
-        assert!(!output.contains_key("_partition"));
+        assert!(output.fields.contains_key("event_time"));
+        assert!(output.fields.contains_key("kafka_partition"));
+        assert!(!output.fields.contains_key("_timestamp"));
+        assert!(!output.fields.contains_key("_partition"));
     }
 
     #[tokio::test]
@@ -143,16 +171,23 @@ mod tests {
             .unwrap();
 
         // Create test record (partition will be 0 by default in test)
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(789));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(789));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute query
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Should produce output since _partition = 0 matches
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
+        assert!(output.fields.contains_key("customer_id"));
     }
 
     #[tokio::test]
@@ -168,27 +203,34 @@ mod tests {
             .unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(101));
-        record.insert("amount".to_string(), InternalValue::Number(59.99));
-        record.insert(
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(101));
+        fields.insert("amount".to_string(), FieldValue::Float(59.99));
+        fields.insert(
             "status".to_string(),
-            InternalValue::String("active".to_string()),
+            FieldValue::String("active".to_string()),
         );
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute query
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output has both regular and system columns
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.len(), 4);
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(output.contains_key("_timestamp"));
-        assert!(output.contains_key("_offset"));
+        assert_eq!(output.fields.len(), 4);
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(output.fields.contains_key("_timestamp"));
+        assert!(output.fields.contains_key("_offset"));
         // status should not be included since not selected
-        assert!(!output.contains_key("status"));
+        assert!(!output.fields.contains_key("status"));
     }
 
     #[tokio::test]
@@ -202,21 +244,28 @@ mod tests {
         let query = parser.parse("SELECT * FROM orders").unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(202));
-        record.insert("amount".to_string(), InternalValue::Number(149.99));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(202));
+        fields.insert("amount".to_string(), FieldValue::Float(149.99));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute query
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check that wildcard does NOT include system columns
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("_timestamp"));
-        assert!(!output.contains_key("_offset"));
-        assert!(!output.contains_key("_partition"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("_timestamp"));
+        assert!(!output.fields.contains_key("_offset"));
+        assert!(!output.fields.contains_key("_partition"));
     }
 
     #[tokio::test]
@@ -237,11 +286,18 @@ mod tests {
             let query = parser.parse(query_str).unwrap();
 
             // Create test record
-            let mut record = HashMap::new();
-            record.insert("test_id".to_string(), InternalValue::Integer(i as i64));
+            let mut fields = HashMap::new();
+            fields.insert("test_id".to_string(), FieldValue::Integer(i as i64));
+            let record = StreamRecord {
+                fields,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                offset: 0,
+                partition: 0,
+                headers: HashMap::new(),
+            };
 
             // Execute query
-            let result = engine.execute(&query, record).await;
+            let result = engine.execute_with_record(&query, record).await;
             assert!(result.is_ok(), "Failed to execute query: {}", query_str);
 
             // Should produce timestamp output
@@ -254,7 +310,7 @@ mod tests {
             } else {
                 "_timestamp"
             };
-            assert!(output.contains_key(expected_key));
+            assert!(output.fields.contains_key(expected_key));
         }
     }
 
@@ -269,20 +325,27 @@ mod tests {
         let query = parser.parse("CREATE STREAM enriched_orders AS SELECT customer_id, amount, _timestamp, _partition FROM orders").unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(303));
-        record.insert("amount".to_string(), InternalValue::Number(75.50));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(303));
+        fields.insert("amount".to_string(), FieldValue::Float(75.50));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
         // Execute CREATE STREAM
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check that system columns are included in the output
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(output.contains_key("_timestamp"));
-        assert!(output.contains_key("_partition"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(output.fields.contains_key("_timestamp"));
+        assert!(output.fields.contains_key("_partition"));
     }
 
     #[test]

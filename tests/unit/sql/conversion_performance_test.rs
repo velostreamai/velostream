@@ -43,7 +43,7 @@ fn test_conversion_performance_baseline() {
         
         // Warm up
         for _ in 0..10 {
-            let _: HashMap<String, InternalValue> = record
+            let _: StreamRecord = record
                 .fields
                 .iter()
                 .map(|(k, v)| (k.clone(), FieldValueConverter::field_value_to_internal(v.clone())))
@@ -55,7 +55,7 @@ fn test_conversion_performance_baseline() {
         let start = Instant::now();
         
         for _ in 0..iterations {
-            let _converted: HashMap<String, InternalValue> = record
+            let _converted: StreamRecord = record
                 .fields
                 .iter()
                 .map(|(k, v)| (k.clone(), FieldValueConverter::field_value_to_internal(v.clone())))
@@ -147,15 +147,15 @@ fn test_conversion_correctness() {
         
         match field_value {
             FieldValue::String(_) => {
-                assert!(matches!(internal_value, InternalValue::String(_)), 
+                assert!(matches!(internal_value, FieldValue::String(_)), 
                        "String field '{}' converted incorrectly", key);
             }
             FieldValue::Integer(_) => {
-                assert!(matches!(internal_value, InternalValue::Integer(_)), 
+                assert!(matches!(internal_value, FieldValue::Integer(_)), 
                        "Integer field '{}' converted incorrectly", key);
             }
             FieldValue::Float(_) => {
-                assert!(matches!(internal_value, InternalValue::Number(_)), 
+                assert!(matches!(internal_value, FieldValue::Float(_)), 
                        "Float field '{}' converted incorrectly", key);
             }
             FieldValue::ScaledInteger(_, _) => {
@@ -180,7 +180,7 @@ fn test_memory_allocation_patterns() {
     let field_value = FieldValue::String(string_value.clone());
     let internal_value = FieldValueConverter::field_value_to_internal(field_value);
     
-    if let InternalValue::String(converted_string) = internal_value {
+    if let FieldValue::String(converted_string) = internal_value {
         let converted_ptr = converted_string.as_ptr();
         
         if original_ptr == converted_ptr {

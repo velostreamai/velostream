@@ -2,7 +2,7 @@
 //! This measures the cumulative benefit of all our optimizations:
 //! 1. Eliminated double FieldValue → InternalValue → FieldValue conversions
 //! 2. Direct StreamRecord usage in execute_with_record
-//! 3. StreamRecord direct output (no conversion to HashMap<String, InternalValue>)
+//! 3. StreamRecord direct output (no conversion to StreamRecord)
 
 use ferrisstreams::ferris::sql::execution::{
     types::{FieldValue, StreamRecord},
@@ -113,7 +113,7 @@ fn main() {
     println!("🎯 ARCHITECTURAL ACHIEVEMENTS:");
     println!("✓ Unified API: execute_with_record(query, stream_record)");
     println!("✓ Zero conversions: StreamRecord flows through unchanged");
-    println!("✓ Direct output: No HashMap<String, InternalValue> conversion");
+    println!("✓ Direct output: No StreamRecord conversion");
     println!("✓ Clean codebase: Removed ~150+ lines of conversion logic");
     println!();
     println!("🚀 PERFORMANCE ACHIEVEMENTS:");

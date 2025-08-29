@@ -5,11 +5,11 @@ Tests for SQL expression evaluation including arithmetic operations, boolean exp
 and complex nested expressions.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -19,22 +19,29 @@ fn create_test_record(
     customer_id: i64,
     amount: f64,
     status: Option<&str>,
-) -> HashMap<String, InternalValue> {
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(id));
-    record.insert(
+) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert(
         "customer_id".to_string(),
-        InternalValue::Integer(customer_id),
+        FieldValue::Integer(customer_id),
     );
-    record.insert("amount".to_string(), InternalValue::Number(amount));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
     if let Some(s) = status {
-        record.insert("status".to_string(), InternalValue::String(s.to_string()));
+        fields.insert("status".to_string(), FieldValue::String(s.to_string()));
     }
-    record.insert(
+    fields.insert(
         "timestamp".to_string(),
-        InternalValue::Integer(chrono::Utc::now().timestamp()),
+        FieldValue::Integer(chrono::Utc::now().timestamp()),
     );
-    record
+    
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
 }
 
 #[tokio::test]
@@ -64,11 +71,11 @@ async fn test_arithmetic_expressions() {
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    if let Some(InternalValue::Number(result_float)) = output.get("amount_with_tax") {
+    if let Some(FieldValue::Float(result_float)) = output.fields.get("amount_with_tax") {
         assert!((result_float - 110.0).abs() < 0.001); // 100.0 * 1.1 = 110.0
     } else {
         panic!("Expected numeric result for arithmetic operation");
@@ -102,13 +109,13 @@ async fn test_boolean_expressions() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
     assert_eq!(
-        output.get("is_large_order"),
-        Some(&InternalValue::Boolean(true))
+        output.fields.get("is_large_order"),
+        Some(&FieldValue::Boolean(true))
     );
 }
 
@@ -144,11 +151,11 @@ async fn test_complex_expression_evaluation() {
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    if let Some(InternalValue::Number(result_float)) = output.get("complex_calc") {
+    if let Some(FieldValue::Float(result_float)) = output.fields.get("complex_calc") {
         assert!((result_float - 120.0).abs() < 0.001); // (100.0 * 1.1) + 10 = 120.0
     } else {
         panic!("Expected numeric result for complex expression");

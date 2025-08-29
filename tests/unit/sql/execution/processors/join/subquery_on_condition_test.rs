@@ -5,7 +5,7 @@ Tests for JOIN operations with subqueries in the ON condition - these should wor
 because the ExpressionEvaluator already supports EXISTS, NOT EXISTS, IN, NOT IN subqueries.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ fn create_test_record_for_on_condition() -> StreamRecord {
 
 async fn execute_on_condition_test(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
@@ -45,24 +45,7 @@ async fn execute_on_condition_test(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_for_on_condition();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let json_record: HashMap<String, InternalValue> = record
-        .fields
-        .into_iter()
-        .map(|(k, v)| {
-            let json_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(i),
-                FieldValue::Float(f) => InternalValue::Number(f),
-                FieldValue::String(s) => InternalValue::String(s),
-                FieldValue::Boolean(b) => InternalValue::Boolean(b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k, json_val)
-        })
-        .collect();
-
-    engine.execute(&parsed_query, json_record).await?;
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

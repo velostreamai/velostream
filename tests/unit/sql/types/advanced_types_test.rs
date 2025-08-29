@@ -65,43 +65,37 @@ async fn execute_query(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_with_advanced_types();
 
-    // Convert StreamRecord to HashMap<String, InternalValue> using proper serialization
-    let internal_record = serialization_format.to_execution_format(&record.fields)?;
-
     // Execute the query with internal record, including metadata
     engine
-        .execute_with_metadata(
+        .execute_with_record(
             &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
+            record
         )
         .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
-        // Convert HashMap<String, InternalValue> to HashMap<String, serde_json::Value>
+        // Convert StreamRecord to HashMap<String, serde_json::Value>
         let converted: HashMap<String, serde_json::Value> = result
+            .fields
             .into_iter()
             .map(|(k, v)| {
                 let json_val = match v {
-                    ferrisstreams::ferris::serialization::InternalValue::Integer(i) => {
+                    FieldValue::Integer(i) => {
                         serde_json::Value::Number(serde_json::Number::from(i))
                     }
-                    ferrisstreams::ferris::serialization::InternalValue::Number(f) => {
+                    FieldValue::Float(f) => {
                         serde_json::Value::Number(
                             serde_json::Number::from_f64(f).unwrap_or(0.into()),
                         )
                     }
-                    ferrisstreams::ferris::serialization::InternalValue::String(s) => {
+                    FieldValue::String(s) => {
                         serde_json::Value::String(s)
                     }
-                    ferrisstreams::ferris::serialization::InternalValue::Boolean(b) => {
+                    FieldValue::Boolean(b) => {
                         serde_json::Value::Bool(b)
                     }
-                    ferrisstreams::ferris::serialization::InternalValue::Null => {
+                    FieldValue::Null => {
                         serde_json::Value::Null
                     }
                     _ => serde_json::Value::String(format!("{:?}", v)),

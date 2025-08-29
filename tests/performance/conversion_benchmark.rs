@@ -157,7 +157,7 @@ mod tests {
         let start = std::time::Instant::now();
         let record = create_test_record(100);
 
-        let _converted: HashMap<String, InternalValue> = record
+        let _converted: StreamRecord = record
             .fields
             .into_iter()
             .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))

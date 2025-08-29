@@ -1,14 +1,29 @@
-use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use ferrisstreams::ferris::sql::DataType;
 
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
+
+fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
+    fields.insert("status".to_string(), FieldValue::String(status.to_string()));
+    
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -240,21 +255,21 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
-        record.insert("amount".to_string(), InternalValue::Number(299.99));
+        record.insert("customer_id".to_string(), FieldValue::Integer(123));
+        record.insert("amount".to_string(), FieldValue::Float(299.99));
         record.insert(
             "status".to_string(),
-            InternalValue::String("pending".to_string()),
+            FieldValue::String("pending".to_string()),
         );
         // Execute CREATE STREAM
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("status")); // Should be filtered out
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("status")); // Should be filtered out
     }
 
     #[tokio::test]
@@ -273,16 +288,16 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(456));
-        record.insert("amount".to_string(), InternalValue::Number(150.00));
+        record.insert("customer_id".to_string(), FieldValue::Integer(456));
+        record.insert("amount".to_string(), FieldValue::Float(150.00));
 
         // Execute CREATE TABLE
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
+        assert!(output.fields.contains_key("customer_id"));
         // COUNT(*) should be present (though implementation details may vary)
     }
 
@@ -709,19 +724,19 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("order_id".to_string(), InternalValue::Integer(12345));
-        record.insert("amount".to_string(), InternalValue::Number(599.99));
-        record.insert("customer_id".to_string(), InternalValue::Integer(789)); // Extra field
+        record.insert("order_id".to_string(), FieldValue::Integer(12345));
+        record.insert("amount".to_string(), FieldValue::Float(599.99));
+        record.insert("customer_id".to_string(), FieldValue::Integer(789)); // Extra field
 
         // Execute CREATE STREAM INTO
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("order_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("customer_id")); // Should be filtered out by SELECT
+        assert!(output.fields.contains_key("order_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("customer_id")); // Should be filtered out by SELECT
     }
 
     #[tokio::test]
@@ -739,16 +754,16 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(555));
-        record.insert("amount".to_string(), InternalValue::Number(299.50));
+        record.insert("customer_id".to_string(), FieldValue::Integer(555));
+        record.insert("amount".to_string(), FieldValue::Float(299.50));
 
         // Execute CREATE TABLE INTO
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
+        assert!(output.fields.contains_key("customer_id"));
         // COUNT(*) result may vary based on aggregation implementation
     }
 

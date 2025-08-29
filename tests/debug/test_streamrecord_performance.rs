@@ -47,10 +47,10 @@ fn main() {
         
         let iterations = 100000;
         
-        // Test OLD approach: decompose → reconstruct (what execute_with_metadata did)
+        // Test OLD approach: decompose → reconstruct (what execute_with_record did)
         let start = Instant::now();
         for _ in 0..iterations {
-            // Simulate the old execute_with_metadata approach:
+            // Simulate the old execute_with_record approach:
             // 1. Take individual parameters 
             let record_fields = record.fields.clone();
             let headers = record.headers.clone();
@@ -103,7 +103,7 @@ fn main() {
 
     println!("=== ARCHITECTURAL IMPROVEMENT SUMMARY ===");
     println!("✓ Eliminated unnecessary StreamRecord decomposition/reconstruction overhead");
-    println!("✓ Simplified API: execute_with_record(record) vs execute_with_metadata(fields, headers, ts, offset, partition)");
+    println!("✓ Simplified API: execute_with_record(record) vs execute_with_record(fields, headers, ts, offset, partition)");
     println!("✓ Reduced parameter count from 6 to 2 in the most common execution path");
     println!("✓ Cleaner, more intuitive interface that matches data flow");
     println!("✓ Zero functional changes - pure performance optimization");

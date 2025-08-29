@@ -3,7 +3,7 @@
 //! Note: Critical tests have been moved to test_multi_job_critical_unit_tests.rs
 //! This file contains additional tests that are not part of the critical test suite.
 
-use ferrisstreams::ferris::multi_job_server::MultiJobSqlServer;
+use ferrisstreams::ferris::MultiJobSqlServer;
 // use std::time::Duration; // Unused import
 
 #[tokio::test]
@@ -71,7 +71,7 @@ async fn test_resource_cleanup() {
     }
 
     // Verify all jobs are cleaned up
-    assert_eq!(server.job_count().await, 0, "All jobs should be cleaned up");
+    assert_eq!(server.list_jobs().await.len(), 0, "All jobs should be cleaned up");
     println!("✅ Resource cleanup validated");
 }
 
@@ -96,8 +96,8 @@ async fn test_job_metrics() {
     // Verify metrics are initialized to zero
     if let Some(status) = server.get_job_status(job_name).await {
         assert_eq!(status.metrics.records_processed, 0);
-        assert_eq!(status.metrics.errors_count, 0);
-        assert!(status.metrics.last_processed.is_none());
+        assert_eq!(status.metrics.errors, 0);
+        assert!(status.metrics.last_record_time.is_none());
     }
 
     println!("✅ Job metrics tracking validated");

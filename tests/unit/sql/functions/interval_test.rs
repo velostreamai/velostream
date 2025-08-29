@@ -4,7 +4,7 @@
 Comprehensive test suite for INTERVAL literal parsing and arithmetic operations.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -32,40 +32,11 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                FieldValue::Interval { value, unit } => {
-                    // Convert interval to milliseconds for output
-                    let millis = match unit {
-                        ferrisstreams::ferris::sql::ast::TimeUnit::Millisecond => *value,
-                        ferrisstreams::ferris::sql::ast::TimeUnit::Second => *value * 1000,
-                        ferrisstreams::ferris::sql::ast::TimeUnit::Minute => *value * 60 * 1000,
-                        ferrisstreams::ferris::sql::ast::TimeUnit::Hour => *value * 60 * 60 * 1000,
-                        ferrisstreams::ferris::sql::ast::TimeUnit::Day => {
-                            *value * 24 * 60 * 60 * 1000
-                        }
-                    };
-                    InternalValue::Integer(millis)
-                }
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
+// Removed conversion helper - now using StreamRecord directly
 
 async fn execute_query(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -73,20 +44,8 @@ async fn execute_query(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let internal_record = convert_stream_record_to_internal(&record);
-
-    // Execute the query with internal record, including metadata
-    engine
-        .execute_with_metadata(
-            &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
-        .await?;
+    // Execute the query with StreamRecord directly
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -145,8 +104,8 @@ async fn test_interval_arithmetic_with_timestamps() {
             .unwrap();
 
     assert_eq!(results.len(), 1);
-    let future_time = match &results[0]["future_time"] {
-        InternalValue::Integer(val) => *val,
+    let future_time = match results[0].fields.get("future_time") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for future_time"),
     };
 
@@ -164,8 +123,8 @@ async fn test_interval_arithmetic_subtraction() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let past_time = match &results[0]["past_time"] {
-        InternalValue::Integer(val) => *val,
+    let past_time = match results[0].fields.get("past_time") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for past_time"),
     };
 
@@ -183,8 +142,8 @@ async fn test_interval_with_system_columns() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let event_plus_5min = match &results[0]["event_plus_5min"] {
-        InternalValue::Integer(val) => *val,
+    let event_plus_5min = match results[0].fields.get("event_plus_5min") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for event_plus_5min"),
     };
 
@@ -207,20 +166,20 @@ async fn test_multiple_interval_operations() {
 
     assert_eq!(results.len(), 1);
 
-    let plus_hour = match &results[0]["plus_hour"] {
-        InternalValue::Integer(val) => *val,
+    let plus_hour = match results[0].fields.get("plus_hour") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for plus_hour"),
     };
     assert_eq!(plus_hour, 1734652800000 + 3600000); // +1 hour
 
-    let minus_30min = match &results[0]["minus_30min"] {
-        InternalValue::Integer(val) => *val,
+    let minus_30min = match results[0].fields.get("minus_30min") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for minus_30min"),
     };
     assert_eq!(minus_30min, 1734652800000 - 1800000); // -30 minutes
 
-    let plus_day = match &results[0]["plus_day"] {
-        InternalValue::Integer(val) => *val,
+    let plus_day = match results[0].fields.get("plus_day") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for plus_day"),
     };
     assert_eq!(plus_day, 1734652800000 + 86400000); // +1 day
@@ -262,8 +221,8 @@ async fn test_interval_conversion_accuracy() {
         let results = execute_query(&query).await.unwrap();
 
         assert_eq!(results.len(), 1);
-        let interval_value = match &results[0]["interval_value"] {
-            InternalValue::Integer(val) => *val,
+        let interval_value = match results[0].fields.get("interval_value") {
+            Some(FieldValue::Integer(val)) => *val,
             _ => panic!("Expected integer result for interval_value"),
         };
 
@@ -287,8 +246,8 @@ async fn test_interval_with_computed_expressions() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let time_diff = match &results[0]["time_diff"] {
-        InternalValue::Integer(val) => *val,
+    let time_diff = match results[0].fields.get("time_diff") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for time_diff"),
     };
 
@@ -326,7 +285,7 @@ async fn test_interval_with_null_values() {
         Ok(res) => {
             if !res.is_empty() {
                 // If it succeeds, result should be NULL
-                assert_eq!(res[0]["null_plus_interval"], InternalValue::Null);
+                assert_eq!(res[0].fields.get("null_plus_interval"), Some(&FieldValue::Null));
             }
         }
         Err(_) => {
@@ -349,14 +308,14 @@ async fn test_interval_edge_cases() {
 
     assert_eq!(results.len(), 1);
 
-    let zero_interval = match &results[0]["zero_interval"] {
-        InternalValue::Integer(val) => *val,
+    let zero_interval = match results[0].fields.get("zero_interval") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for zero_interval"),
     };
     assert_eq!(zero_interval, 1734652800000); // Should be unchanged
 
-    let large_interval = match &results[0]["large_interval"] {
-        InternalValue::Integer(val) => *val,
+    let large_interval = match results[0].fields.get("large_interval") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for large_interval"),
     };
     assert_eq!(large_interval, 1734652800000 + 999999);

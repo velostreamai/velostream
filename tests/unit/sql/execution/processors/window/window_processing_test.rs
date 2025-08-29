@@ -9,7 +9,7 @@ Comprehensive tests for the newly implemented window processing functionality in
 - Window boundary detection and emission logic
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -31,28 +31,10 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
-
 async fn execute_windowed_test(
     query: &str,
     records: Vec<StreamRecord>,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -136,12 +118,12 @@ async fn test_tumbling_window_count() {
 
     // First window should have count of 3
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["order_count"], InternalValue::Integer(3));
+        assert_eq!(first_result.fields.get("order_count"), Some(&FieldValue::Integer(3)));
     }
 
     // Second window should have count of 2
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result["order_count"], InternalValue::Integer(2));
+        assert_eq!(second_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
     }
 }
 
@@ -163,12 +145,12 @@ async fn test_tumbling_window_sum() {
 
     // First window: 100 + 200 = 300
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["total_amount"], InternalValue::Number(300.0));
+        assert_eq!(first_result.fields.get("total_amount"), Some(&FieldValue::Float(300.0)));
     }
 
     // Second window: 300 + 400 = 700
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result["total_amount"], InternalValue::Number(700.0));
+        assert_eq!(second_result.fields.get("total_amount"), Some(&FieldValue::Float(700.0)));
     }
 }
 
@@ -190,12 +172,12 @@ async fn test_tumbling_window_avg() {
 
     // First window: (100 + 200) / 2 = 150
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["avg_amount"], InternalValue::Number(150.0));
+        assert_eq!(first_result.fields.get("avg_amount"), Some(&FieldValue::Float(150.0)));
     }
 
     // Second window: (400 + 600) / 2 = 500
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result["avg_amount"], InternalValue::Number(500.0));
+        assert_eq!(second_result.fields.get("avg_amount"), Some(&FieldValue::Float(500.0)));
     }
 }
 
@@ -218,14 +200,14 @@ async fn test_tumbling_window_min_max() {
 
     // First window: MIN=100, MAX=300
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["min_amount"], InternalValue::Number(100.0));
-        assert_eq!(first_result["max_amount"], InternalValue::Number(300.0));
+        assert_eq!(first_result.fields.get("min_amount"), Some(&FieldValue::Float(100.0)));
+        assert_eq!(first_result.fields.get("max_amount"), Some(&FieldValue::Float(300.0)));
     }
 
     // Second window: MIN=400, MAX=500
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result["min_amount"], InternalValue::Number(400.0));
-        assert_eq!(second_result["max_amount"], InternalValue::Number(500.0));
+        assert_eq!(second_result.fields.get("min_amount"), Some(&FieldValue::Float(400.0)));
+        assert_eq!(second_result.fields.get("max_amount"), Some(&FieldValue::Float(500.0)));
     }
 }
 
@@ -252,8 +234,8 @@ async fn test_sliding_window() {
 
     // Each result should contain a count
     for result in &results {
-        assert!(result.contains_key("order_count"));
-        if let InternalValue::Integer(count) = &result["order_count"] {
+        assert!(result.fields.contains_key("order_count"));
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
             assert!(*count > 0, "Count should be positive");
         }
     }
@@ -278,8 +260,8 @@ async fn test_session_window() {
     assert!(results.len() >= 2, "Should emit session window results");
 
     for result in &results {
-        assert!(result.contains_key("order_count"));
-        if let InternalValue::Integer(count) = &result["order_count"] {
+        assert!(result.fields.contains_key("order_count"));
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
             assert!(*count > 0, "Session count should be positive");
         }
     }
@@ -304,14 +286,14 @@ async fn test_window_with_where_clause() {
 
     // First window: 2 records with amount > 250
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["high_value_orders"], InternalValue::Integer(2));
+        assert_eq!(first_result.fields.get("high_value_orders"), Some(&FieldValue::Integer(2)));
     }
 
     // Second window: 1 record with amount > 250
     if let Some(second_result) = results.get(1) {
         assert_eq!(
-            second_result["high_value_orders"],
-            InternalValue::Integer(1)
+            second_result.fields.get("high_value_orders"),
+            Some(&FieldValue::Integer(1))
         );
     }
 }
@@ -334,7 +316,7 @@ async fn test_window_with_having_clause() {
     assert_eq!(results.len(), 1, "Should emit only 1 result");
 
     if let Some(result) = results.first() {
-        assert_eq!(result["order_count"], InternalValue::Integer(3));
+        assert_eq!(result.fields.get("order_count"), Some(&FieldValue::Integer(3)));
     }
 }
 
@@ -377,11 +359,11 @@ async fn test_window_boundary_alignment() {
 
     // First window should have 2 records (including the one at 9999ms)
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result["order_count"], InternalValue::Integer(2));
+        assert_eq!(first_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
     }
 
     // Second window should have 2 records (starting exactly at 10000ms)
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result["order_count"], InternalValue::Integer(2));
+        assert_eq!(second_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
     }
 }

@@ -1,7 +1,7 @@
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, types::{FieldValue, StreamRecord}};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::DataType;
 use std::collections::HashMap;
@@ -31,29 +31,56 @@ mod tests {
         ])
     }
 
+    // Helper function to convert InternalValue to FieldValue
+    fn internal_to_field_value(internal: &InternalValue) -> FieldValue {
+        match internal {
+            InternalValue::String(s) => FieldValue::String(s.clone()),
+            InternalValue::Number(n) => FieldValue::Float(*n),
+            InternalValue::Integer(i) => FieldValue::Integer(*i),
+            InternalValue::Boolean(b) => FieldValue::Boolean(*b),
+            InternalValue::Null => FieldValue::Null,
+            InternalValue::ScaledNumber(value, scale) => FieldValue::ScaledInteger(*value, *scale),
+            InternalValue::Array(arr) => {
+                let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
+                FieldValue::Array(field_arr)
+            }
+            InternalValue::Object(obj) => {
+                let mut field_map = HashMap::new();
+                for (k, v) in obj {
+                    field_map.insert(k.clone(), internal_to_field_value(v));
+                }
+                FieldValue::Map(field_map)
+            }
+        }
+    }
+
     fn create_order_record(
         order_id: i64,
         customer_id: i64,
         amount: f64,
         status: Option<&str>,
-    ) -> HashMap<String, InternalValue> {
-        let mut record = HashMap::new();
-        record.insert("order_id".to_string(), InternalValue::Integer(order_id));
-        record.insert(
-            "customer_id".to_string(),
-            InternalValue::Integer(customer_id),
-        );
-        record.insert("amount".to_string(), InternalValue::Number(amount));
+    ) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("order_id".to_string(), FieldValue::Integer(order_id));
+        fields.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
+        fields.insert("amount".to_string(), FieldValue::Float(amount));
         if let Some(s) = status {
-            record.insert("status".to_string(), InternalValue::String(s.to_string()));
+            fields.insert("status".to_string(), FieldValue::String(s.to_string()));
         }
         // Use safe, controlled timestamp to avoid arithmetic overflow
         let safe_timestamp = 1000 + (order_id * 1000); // Each record 1 second apart
-        record.insert(
+        fields.insert(
             "timestamp".to_string(),
-            InternalValue::Integer(safe_timestamp),
+            FieldValue::Integer(safe_timestamp),
         );
-        record
+        
+        StreamRecord {
+            fields,
+            timestamp: safe_timestamp,
+            offset: order_id,
+            partition: 0,
+            headers: HashMap::new(),
+        }
     }
 
     fn create_user_record(
@@ -61,18 +88,22 @@ mod tests {
         name: &str,
         email: &str,
         age: Option<i64>,
-    ) -> HashMap<String, InternalValue> {
-        let mut record = HashMap::new();
-        record.insert("user_id".to_string(), InternalValue::Integer(user_id));
-        record.insert("name".to_string(), InternalValue::String(name.to_string()));
-        record.insert(
-            "email".to_string(),
-            InternalValue::String(email.to_string()),
-        );
+    ) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("user_id".to_string(), FieldValue::Integer(user_id));
+        fields.insert("name".to_string(), FieldValue::String(name.to_string()));
+        fields.insert("email".to_string(), FieldValue::String(email.to_string()));
         if let Some(a) = age {
-            record.insert("age".to_string(), InternalValue::Integer(a));
+            fields.insert("age".to_string(), FieldValue::Integer(a));
         }
-        record
+        
+        StreamRecord {
+            fields,
+            timestamp: 1000 + user_id * 1000,
+            offset: user_id,
+            partition: 0,
+            headers: HashMap::new(),
+        }
     }
 
     #[tokio::test]
@@ -99,14 +130,14 @@ mod tests {
 
         // Execute query
         let record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Verify output
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("order_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("customer_id")); // Should not be included
+        assert!(output.fields.contains_key("order_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("customer_id")); // Should not be included
     }
 
     #[tokio::test]
@@ -141,7 +172,7 @@ mod tests {
         ];
 
         for record in records {
-            let result = engine.execute(&query, record).await;
+            let result = engine.execute_with_record(&query, record).await;
             assert!(result.is_ok());
         }
 
@@ -187,23 +218,23 @@ mod tests {
             .parse("SELECT order_id, customer_id FROM orders")
             .unwrap();
         let order_record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute(&orders_query, order_record).await;
+        let result = engine.execute_with_record(&orders_query, order_record).await;
         assert!(result.is_ok());
 
         // Test users query
         let users_query = parser.parse("SELECT user_id, name FROM users").unwrap();
         let user_record = create_user_record(100, "John Doe", "john@example.com", Some(30));
-        let result = engine.execute(&users_query, user_record).await;
+        let result = engine.execute_with_record(&users_query, user_record).await;
         assert!(result.is_ok());
 
         // Verify outputs
         let orders_output = rx.try_recv().unwrap();
-        assert!(orders_output.contains_key("order_id"));
-        assert!(orders_output.contains_key("customer_id"));
+        assert!(orders_output.fields.contains_key("order_id"));
+        assert!(orders_output.fields.contains_key("customer_id"));
 
         let users_output = rx.try_recv().unwrap();
-        assert!(users_output.contains_key("user_id"));
-        assert!(users_output.contains_key("name"));
+        assert!(users_output.fields.contains_key("user_id"));
+        assert!(users_output.fields.contains_key("name"));
     }
 
     #[tokio::test]
@@ -231,24 +262,24 @@ mod tests {
 
         // Execute query
         let record = create_order_record(1, 100, 100.0, Some("pending"));
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Verify complex output
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("order_id"));
-        assert!(output.contains_key("amount_with_tax"));
-        assert!(output.contains_key("new_status"));
+        assert!(output.fields.contains_key("order_id"));
+        assert!(output.fields.contains_key("amount_with_tax"));
+        assert!(output.fields.contains_key("new_status"));
 
         // Check calculated value
-        if let Some(InternalValue::Number(tax_value)) = output.get("amount_with_tax") {
+        if let Some(FieldValue::Float(tax_value)) = output.fields.get("amount_with_tax") {
             assert!((tax_value - 108.0).abs() < 0.001); // 100.0 * 1.08 = 108.0
         }
 
         // Check literal value
         assert_eq!(
-            output.get("new_status"),
-            Some(&InternalValue::String("processed".to_string()))
+            output.fields.get("new_status"),
+            Some(&FieldValue::String("processed".to_string()))
         );
     }
 
@@ -305,7 +336,7 @@ mod tests {
         // Execute with multiple records
         for i in 1..=5 {
             let record = create_order_record(i, 100 + i, 100.0 * i as f64, Some("pending"));
-            let result = engine.execute(&query, record).await;
+            let result = engine.execute_with_record(&query, record).await;
             assert!(result.is_ok());
         }
 
@@ -342,15 +373,16 @@ mod tests {
         // Execute with multiple records to trigger session window
         // First record starts a session
         let record1 = create_order_record(1, 100, 299.99, Some("pending"));
-        let result1 = engine.execute(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, record1).await;
         assert!(result1.is_ok());
 
         // Second record after session gap (30s + buffer) to close the session
         // Using timestamps that are far apart to trigger session boundary
         let mut record2_data = create_order_record(2, 100, 199.99, Some("completed"));
         // Set timestamp to be 35 seconds after the first record (exceeds 30s session gap)
-        record2_data.insert("timestamp".to_string(), InternalValue::Integer(36000)); // 36 seconds
-        let result2 = engine.execute(&query, record2_data).await;
+        record2_data.fields.insert("timestamp".to_string(), FieldValue::Integer(36000)); // 36 seconds
+        record2_data.timestamp = 36000; // Also update the StreamRecord timestamp
+        let result2 = engine.execute_with_record(&query, record2_data).await;
         assert!(result2.is_ok());
 
         // Check for session window output - should have emission from first session
@@ -358,7 +390,7 @@ mod tests {
         for _ in 0..10 {
             // Try multiple times as session windows can be async
             if let Ok(output) = rx.try_recv() {
-                if output.contains_key("session_count") {
+                if output.fields.contains_key("session_count") {
                     output_found = true;
                     break;
                 }
@@ -384,11 +416,11 @@ mod tests {
 
         // Execute with valid record - nonexistent columns return NULL
         let record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.get("nonexistent_column"), Some(&InternalValue::Null));
+        assert_eq!(output.fields.get("nonexistent_column"), Some(&FieldValue::Null));
     }
 
     #[tokio::test]
@@ -412,18 +444,18 @@ mod tests {
         let valid_record = create_order_record(1, 100, 299.99, Some("pending"));
         // Convert InternalValue to serde_json::Value for validation
         let valid_json_record: HashMap<String, serde_json::Value> = valid_record
-            .iter()
+            .fields.iter()
             .map(|(k, v)| {
                 let json_val = match v {
-                    InternalValue::Integer(i) => {
+                    FieldValue::Integer(i) => {
                         serde_json::Value::Number(serde_json::Number::from(*i))
                     }
-                    InternalValue::Number(f) => serde_json::Value::Number(
+                    FieldValue::Float(f) => serde_json::Value::Number(
                         serde_json::Number::from_f64(*f).unwrap_or(serde_json::Number::from(0)),
                     ),
-                    InternalValue::String(s) => serde_json::Value::String(s.clone()),
-                    InternalValue::Boolean(b) => serde_json::Value::Bool(*b),
-                    InternalValue::Null => serde_json::Value::Null,
+                    FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                    FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+                    FieldValue::Null => serde_json::Value::Null,
                     _ => serde_json::Value::String(format!("{:?}", v)),
                 };
                 (k.clone(), json_val)
@@ -494,16 +526,16 @@ mod tests {
         ];
 
         for record in records {
-            let result = engine.execute(&query, record).await;
+            let result = engine.execute_with_record(&query, record).await;
             assert!(result.is_ok());
         }
 
         // Check outputs
         for _ in 0..3 {
             let output = rx.try_recv().unwrap();
-            assert!(output.contains_key("order_count"));
-            assert!(output.contains_key("total_amount"));
-            assert!(output.contains_key("avg_amount"));
+            assert!(output.fields.contains_key("order_count"));
+            assert!(output.fields.contains_key("total_amount"));
+            assert!(output.fields.contains_key("avg_amount"));
         }
     }
 

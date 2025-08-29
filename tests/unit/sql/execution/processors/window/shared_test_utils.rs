@@ -108,9 +108,9 @@ impl SqlExecutor {
 
         // Execute records
         for (i, record) in records.iter().enumerate() {
-            // Convert StreamRecord to HashMap<String, InternalValue>
+            // Convert StreamRecord to StreamRecord
             let internal_record = Self::convert_to_internal_record(record);
-            let result = engine.execute(&query, internal_record).await;
+            let result = engine.execute_with_record(&query, internal_record).await;
             if let Err(e) = result {
                 eprintln!("❌ Error executing record {}: {:?}", i + 1, e);
                 eprintln!("   Record: {:?}", record);
@@ -130,24 +130,30 @@ impl SqlExecutor {
         results
     }
 
-    /// Convert StreamRecord to HashMap<String, InternalValue>
-    fn convert_to_internal_record(record: &StreamRecord) -> HashMap<String, InternalValue> {
-        let mut internal_record = HashMap::new();
+    /// Convert StreamRecord to StreamRecord
+    fn convert_to_internal_record(record: &StreamRecord) -> StreamRecord {
+        let mut internal_fields = HashMap::new();
 
         for (key, field_value) in &record.fields {
             let internal_value = match field_value {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
+                FieldValue::Integer(i) => FieldValue::Integer(*i),
+                FieldValue::Float(f) => FieldValue::Float(*f),
+                FieldValue::String(s) => FieldValue::String(s.clone()),
+                FieldValue::Boolean(b) => FieldValue::Boolean(*b),
+                FieldValue::Null => FieldValue::Null,
                 // For now, convert other types to strings for simplicity
-                other => InternalValue::String(other.to_display_string()),
+                other => FieldValue::String(other.to_display_string()),
             };
-            internal_record.insert(key.clone(), internal_value);
+            internal_fields.insert(key.clone(), internal_value);
         }
 
-        internal_record
+        StreamRecord {
+            fields: internal_fields,
+            timestamp: record.timestamp,
+            offset: record.offset,
+            partition: record.partition,
+            headers: record.headers.clone(),
+        }
     }
 }
 

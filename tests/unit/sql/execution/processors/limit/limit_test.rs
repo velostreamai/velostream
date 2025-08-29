@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::serialization::JsonFormat;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,16 +80,23 @@ mod tests {
             .unwrap();
 
         // Create test records
-        let _records: Vec<HashMap<String, InternalValue>> = Vec::new();
+        let _records: Vec<StreamRecord> = Vec::new();
         for i in 1..=3 {
-            let mut record = HashMap::new();
-            record.insert("customer_id".to_string(), InternalValue::Integer(i));
-            record.insert(
+            let mut fields = HashMap::new();
+            fields.insert("customer_id".to_string(), FieldValue::Integer(i));
+            fields.insert(
                 "amount".to_string(),
-                InternalValue::Number(100.0 * i as f64),
+                FieldValue::Float(100.0 * i as f64),
             );
+            let record = StreamRecord {
+                fields,
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                offset: i,
+                partition: 0,
+                headers: HashMap::new(),
+            };
             // Execute each record individually
-            engine.execute(&query, record).await.unwrap();
+            engine.execute_with_record(&query, record).await.unwrap();
         }
 
         // Check results with timeout to avoid hanging
@@ -121,25 +128,46 @@ mod tests {
             .unwrap();
 
         // Create and execute test records
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
-        record.insert("amount".to_string(), InternalValue::Number(100.0));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::Integer(1));
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record1 = StreamRecord {
+            fields: fields1,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record1).await.unwrap();
 
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(2));
-        record.insert("amount".to_string(), InternalValue::Number(200.0));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0));
+        let record2 = StreamRecord {
+            fields: fields2,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 2,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record2).await.unwrap();
 
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(3));
-        record.insert("amount".to_string(), InternalValue::Number(300.0));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields3 = HashMap::new();
+        fields3.insert("customer_id".to_string(), FieldValue::Integer(3));
+        fields3.insert("amount".to_string(), FieldValue::Float(300.0));
+        let record3 = StreamRecord {
+            fields: fields3,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 3,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record3).await.unwrap();
 
         // Should receive exactly 1 output (first record matching WHERE clause)
         if let Some(output) = rx.recv().await {
-            match (&output["customer_id"], &output["amount"]) {
-                (InternalValue::Integer(id), InternalValue::Number(amount)) => {
+            match (output.fields.get("customer_id"), output.fields.get("amount")) {
+                (Some(FieldValue::Integer(id)), Some(FieldValue::Float(amount))) => {
                     assert_eq!(*id, 2);
                     assert_eq!(*amount, 200.0);
                 }
@@ -167,9 +195,16 @@ mod tests {
             .unwrap();
 
         // Create and execute test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(1));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record).await.unwrap();
 
         // Should not receive any output due to LIMIT 0
         assert!(
@@ -191,20 +226,34 @@ mod tests {
             .unwrap();
 
         // Create and execute test records
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
-        record.insert("amount".to_string(), InternalValue::Number(100.0));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::Integer(1));
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record1 = StreamRecord {
+            fields: fields1,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record1).await.unwrap();
 
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(2));
-        record.insert("amount".to_string(), InternalValue::Number(200.0));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0));
+        let record2 = StreamRecord {
+            fields: fields2,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 2,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
-            match &output["customer_id"] {
-                InternalValue::Integer(id) => assert_eq!(*id, 1),
+            match output.fields.get("customer_id") {
+                Some(FieldValue::Integer(id)) => assert_eq!(*id, 1),
                 _ => panic!("Unexpected customer_id type"),
             }
         } else {
@@ -231,22 +280,36 @@ mod tests {
             .unwrap();
 
         // Create and execute test records
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::Integer(1));
+        let record1 = StreamRecord {
+            fields: fields1,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record1).await.unwrap();
 
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(2));
-        engine.execute(&query, record).await.unwrap();
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
+        let record2 = StreamRecord {
+            fields: fields2,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 2,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+        engine.execute_with_record(&query, record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
-            match &output["customer_id"] {
-                InternalValue::Integer(id) => assert_eq!(*id, 1),
+            match output.fields.get("customer_id") {
+                Some(FieldValue::Integer(id)) => assert_eq!(*id, 1),
                 _ => panic!("Unexpected customer_id type"),
             }
-            assert!(output.contains_key("_timestamp"));
-            assert!(output.contains_key("_partition"));
+            assert!(output.fields.contains_key("_timestamp"));
+            assert!(output.fields.contains_key("_partition"));
         }
 
         // Should not receive second record
@@ -273,24 +336,32 @@ mod tests {
             .unwrap();
 
         // Create and execute test records
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
-        engine
-            .execute_with_headers(&query, record, headers.clone())
-            .await
-            .unwrap();
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::Integer(1));
+        let record1 = StreamRecord {
+            fields: fields1,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            headers: headers.clone(),
+        };
+        engine.execute_with_record(&query, record1).await.unwrap();
 
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(2));
-        engine
-            .execute_with_headers(&query, record, headers)
-            .await
-            .unwrap();
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
+        let record2 = StreamRecord {
+            fields: fields2,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 2,
+            partition: 0,
+            headers,
+        };
+        engine.execute_with_record(&query, record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
-            match (&output["customer_id"], &output["source"]) {
-                (InternalValue::Integer(id), InternalValue::String(source)) => {
+            match (output.fields.get("customer_id"), output.fields.get("source")) {
+                (Some(FieldValue::Integer(id)), Some(FieldValue::String(source))) => {
                     assert_eq!(*id, 1);
                     assert_eq!(source, "test-app");
                 }

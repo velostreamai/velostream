@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::serialization::InternalValue;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -47,27 +47,34 @@ mod tests {
         let query = parser.parse("SELECT customer_id, HEADER('content-type') AS content_type, HEADER('user-id') AS user FROM orders").unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
-        record.insert("amount".to_string(), InternalValue::Number(299.99));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        fields.insert("amount".to_string(), FieldValue::Float(299.99));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query with headers
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output contains header values
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("content_type"));
-        assert!(output.contains_key("user"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("content_type"));
+        assert!(output.fields.contains_key("user"));
 
         // Match on InternalValue variants
-        match output.get("content_type").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "application/json"),
+        match output.fields.get("content_type").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "application/json"),
             _ => panic!("Expected String value for content_type"),
         }
-        match output.get("user").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "12345"),
+        match output.fields.get("user").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "12345"),
             _ => panic!("Expected String value for user"),
         }
     }
@@ -91,20 +98,27 @@ mod tests {
             .unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output - missing header should be null
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("missing"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("missing"));
 
-        match output.get("missing").unwrap() {
-            InternalValue::Null => (), // Expected
+        match output.fields.get("missing").unwrap() {
+            FieldValue::Null => (), // Expected
             _ => panic!("Expected Null value for missing header"),
         }
     }
@@ -130,20 +144,27 @@ mod tests {
             .unwrap();
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output contains comma-separated header keys
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("all_headers"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("all_headers"));
 
-        match output.get("all_headers").unwrap() {
-            InternalValue::String(s) => {
+        match output.fields.get("all_headers").unwrap() {
+            FieldValue::String(s) => {
                 assert!(s.contains("content-type"));
                 assert!(s.contains("user-id"));
                 assert!(s.contains("trace-id"));
@@ -170,24 +191,31 @@ mod tests {
         let query = parser.parse("SELECT HAS_HEADER('content-type') AS has_content_type, HAS_HEADER('missing-key') AS has_missing FROM orders").unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output contains boolean values
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("has_content_type"));
-        assert!(output.contains_key("has_missing"));
+        assert!(output.fields.contains_key("has_content_type"));
+        assert!(output.fields.contains_key("has_missing"));
 
-        match output.get("has_content_type").unwrap() {
-            InternalValue::Boolean(b) => assert!(*b),
+        match output.fields.get("has_content_type").unwrap() {
+            FieldValue::Boolean(b) => assert!(*b),
             _ => panic!("Expected Boolean value for has_content_type"),
         }
-        match output.get("has_missing").unwrap() {
-            InternalValue::Boolean(b) => assert!(!*b),
+        match output.fields.get("has_missing").unwrap() {
+            FieldValue::Boolean(b) => assert!(!*b),
             _ => panic!("Expected Boolean value for has_missing"),
         }
     }
@@ -212,26 +240,40 @@ mod tests {
             .unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers: headers.clone(),
+        };
 
         // Execute query - should pass WHERE condition
-        let result = engine
-            .execute_with_headers(&query, record.clone(), headers.clone())
-            .await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Should produce output since priority = 'high'
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        match output.get("customer_id").unwrap() {
-            InternalValue::Integer(i) => assert_eq!(*i, 123),
+        assert!(output.fields.contains_key("customer_id"));
+        match output.fields.get("customer_id").unwrap() {
+            FieldValue::Integer(i) => assert_eq!(*i, 123),
             _ => panic!("Expected Integer value for customer_id"),
         }
 
         // Test with different priority that doesn't match
         headers.insert("priority".to_string(), "low".to_string());
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record2 = StreamRecord {
+            fields: fields2,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
+        let result = engine.execute_with_record(&query, record2).await;
         assert!(result.is_ok());
 
         // Should not produce output since priority != 'high' - check no more messages
@@ -256,35 +298,42 @@ mod tests {
         let query = parser.parse("CREATE STREAM enriched_orders AS SELECT customer_id, amount, HEADER('source') AS source, HEADER('version') AS app_version FROM orders").unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(456));
-        record.insert("amount".to_string(), InternalValue::Number(199.99));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(456));
+        fields.insert("amount".to_string(), FieldValue::Float(199.99));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute CREATE STREAM
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check that header values are included in the output
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(output.contains_key("source"));
-        assert!(output.contains_key("app_version"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(output.fields.contains_key("source"));
+        assert!(output.fields.contains_key("app_version"));
 
-        match output.get("source").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "mobile-app"),
+        match output.fields.get("source").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "mobile-app"),
             _ => panic!("Expected String value for source"),
         }
-        match output.get("app_version").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "2.1.0"),
+        match output.fields.get("app_version").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "2.1.0"),
             _ => panic!("Expected String value for app_version"),
         }
-        match output.get("customer_id").unwrap() {
-            InternalValue::Integer(i) => assert_eq!(*i, 456),
+        match output.fields.get("customer_id").unwrap() {
+            FieldValue::Integer(i) => assert_eq!(*i, 456),
             _ => panic!("Expected Integer value for customer_id"),
         }
-        match output.get("amount").unwrap() {
-            InternalValue::Number(n) => assert_eq!(*n, 199.99),
+        match output.fields.get("amount").unwrap() {
+            FieldValue::Float(n) => assert_eq!(*n, 199.99),
             _ => panic!("Expected Number value for amount"),
         }
     }
@@ -306,33 +355,40 @@ mod tests {
         let query = parser.parse("SELECT customer_id, _timestamp, _partition, HEADER('request-id') AS request_id FROM orders").unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(789));
-        record.insert("amount".to_string(), InternalValue::Number(99.99));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(789));
+        fields.insert("amount".to_string(), FieldValue::Float(99.99));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output has regular fields, system columns, and headers
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.len(), 4);
+        assert_eq!(output.fields.len(), 4);
 
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("_timestamp"));
-        assert!(output.contains_key("_partition"));
-        assert!(output.contains_key("request_id"));
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("_timestamp"));
+        assert!(output.fields.contains_key("_partition"));
+        assert!(output.fields.contains_key("request_id"));
 
-        match output.get("request_id").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "req-789"),
+        match output.fields.get("request_id").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "req-789"),
             _ => panic!("Expected String value for request_id"),
         }
-        match output.get("_timestamp").unwrap() {
-            InternalValue::Number(_) | InternalValue::Integer(_) => (),
+        match output.fields.get("_timestamp").unwrap() {
+            FieldValue::Float(_) | FieldValue::Integer(_) => (),
             _ => panic!("Expected numeric value for _timestamp"),
         }
-        match output.get("_partition").unwrap() {
-            InternalValue::Number(_) | InternalValue::Integer(_) => (),
+        match output.fields.get("_partition").unwrap() {
+            FieldValue::Float(_) | FieldValue::Integer(_) => (),
             _ => panic!("Expected numeric value for _partition"),
         }
     }
@@ -394,25 +450,32 @@ mod tests {
         let query = parser.parse("SELECT HEADER('Content-Type') AS ct, HEADER('USER-ID') AS uid, HEADER('trace_id') AS tid FROM orders").unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output contains header values with exact case match
         let output = rx.try_recv().unwrap();
-        match output.get("ct").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "application/json"),
+        match output.fields.get("ct").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "application/json"),
             _ => panic!("Expected String value for ct"),
         }
-        match output.get("uid").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "12345"),
+        match output.fields.get("uid").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "12345"),
             _ => panic!("Expected String value for uid"),
         }
-        match output.get("tid").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, "abc-123"),
+        match output.fields.get("tid").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, "abc-123"),
             _ => panic!("Expected String value for tid"),
         }
     }
@@ -433,29 +496,36 @@ mod tests {
         let query = parser.parse("SELECT customer_id, HEADER('any-key') AS header_val, HEADER_KEYS() AS keys, HAS_HEADER('any-key') AS has_key FROM orders").unwrap();
 
         // Create test record with InternalValue directly
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(123));
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            headers,
+        };
 
         // Execute query
-        let result = engine.execute_with_headers(&query, record, headers).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
 
         // Check output with empty headers
         let output = rx.try_recv().unwrap();
-        match output.get("header_val").unwrap() {
-            InternalValue::Null => (),
+        match output.fields.get("header_val").unwrap() {
+            FieldValue::Null => (),
             _ => panic!("Expected Null value for header_val"),
         }
-        match output.get("keys").unwrap() {
-            InternalValue::String(s) => assert_eq!(s, ""),
+        match output.fields.get("keys").unwrap() {
+            FieldValue::String(s) => assert_eq!(s, ""),
             _ => panic!("Expected empty String value for keys"),
         }
-        match output.get("has_key").unwrap() {
-            InternalValue::Boolean(b) => assert!(!b),
+        match output.fields.get("has_key").unwrap() {
+            FieldValue::Boolean(b) => assert!(!b),
             _ => panic!("Expected Boolean value for has_key"),
         }
-        match output.get("customer_id").unwrap() {
-            InternalValue::Integer(i) => assert_eq!(*i, 123),
+        match output.fields.get("customer_id").unwrap() {
+            FieldValue::Integer(i) => assert_eq!(*i, 123),
             _ => panic!("Expected Integer value for customer_id"),
         }
     }

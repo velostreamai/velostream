@@ -4,7 +4,7 @@
 Comprehensive test suite for CASE WHEN expressions and their use in aggregation functions.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -41,27 +41,10 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
 
 async fn execute_query(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -69,19 +52,9 @@ async fn execute_query(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let internal_record = convert_stream_record_to_internal(&record);
-
-    // Execute the query with internal record, including metadata
+    // Execute the query with StreamRecord
     engine
-        .execute_with_metadata(
-            &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
+        .execute_with_record(&parsed_query, record)
         .await?;
 
     let mut results = Vec::new();
@@ -139,8 +112,8 @@ async fn test_simple_case_when_execution() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let is_active = match &results[0]["is_active"] {
-        InternalValue::Integer(val) => *val,
+    let is_active = match results[0].fields.get("is_active") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for is_active"),
     };
     assert_eq!(is_active, 1); // status is 'active'
@@ -161,8 +134,8 @@ async fn test_multiple_when_clauses() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let amount_tier = match &results[0]["amount_tier"] {
-        InternalValue::String(val) => val,
+    let amount_tier = match results[0].fields.get("amount_tier") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for amount_tier"),
     };
     assert_eq!(amount_tier, "high"); // amount is 123.45, so > 100
@@ -182,8 +155,8 @@ async fn test_case_when_with_expressions() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let adjusted_amount = match &results[0]["adjusted_amount"] {
-        InternalValue::Number(val) => *val,
+    let adjusted_amount = match results[0].fields.get("adjusted_amount") {
+        Some(FieldValue::Float(val)) => *val,
         _ => panic!("Expected number result for adjusted_amount"),
     };
     assert_eq!(adjusted_amount, 246.9); // priority is 'high', so amount * 2 = 123.45 * 2
@@ -199,8 +172,8 @@ async fn test_case_when_without_else() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let inactive_flag = &results[0]["inactive_flag"];
-    assert_eq!(*inactive_flag, InternalValue::Null); // status is 'active', not 'inactive'
+    let inactive_flag = results[0].fields.get("inactive_flag");
+    assert_eq!(inactive_flag, Some(&FieldValue::Null)); // status is 'active', not 'inactive'
 }
 
 #[tokio::test]
@@ -213,8 +186,8 @@ async fn test_conditional_aggregation_count() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let active_count = match &results[0]["active_count"] {
-        InternalValue::Integer(val) => *val,
+    let active_count = match results[0].fields.get("active_count") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for active_count"),
     };
     assert_eq!(active_count, 1); // Should count 1 because status is 'active'
@@ -230,8 +203,8 @@ async fn test_conditional_aggregation_sum() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let high_priority_total = match &results[0]["high_priority_total"] {
-        InternalValue::Number(val) => *val,
+    let high_priority_total = match results[0].fields.get("high_priority_total") {
+        Some(FieldValue::Float(val)) => *val,
         _ => panic!("Expected number result for high_priority_total"),
     };
     assert_eq!(high_priority_total, 123.45); // Should sum amount because priority is 'high'
@@ -247,8 +220,8 @@ async fn test_conditional_aggregation_avg() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let high_score_avg = match &results[0]["high_score_avg"] {
-        InternalValue::Integer(val) => *val,
+    let high_score_avg = match results[0].fields.get("high_score_avg") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for high_score_avg"),
     };
     assert_eq!(high_score_avg, 85); // Should average score because score (85) >= 80
@@ -269,20 +242,20 @@ async fn test_multiple_conditional_aggregations() {
 
     assert_eq!(results.len(), 1);
 
-    let active_count = match &results[0]["active_count"] {
-        InternalValue::Integer(val) => *val,
+    let active_count = match results[0].fields.get("active_count") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for active_count"),
     };
     assert_eq!(active_count, 1);
 
-    let high_priority_sum = match &results[0]["high_priority_sum"] {
-        InternalValue::Number(val) => *val,
+    let high_priority_sum = match results[0].fields.get("high_priority_sum") {
+        Some(FieldValue::Float(val)) => *val,
         _ => panic!("Expected number result for high_priority_sum"),
     };
     assert_eq!(high_priority_sum, 123.45);
 
-    let premium_avg_score = match &results[0]["premium_avg_score"] {
-        InternalValue::Integer(val) => *val,
+    let premium_avg_score = match results[0].fields.get("premium_avg_score") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for premium_avg_score"),
     };
     assert_eq!(premium_avg_score, 85);
@@ -302,8 +275,8 @@ async fn test_nested_case_expressions() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let status_priority = match &results[0]["status_priority"] {
-        InternalValue::String(val) => val,
+    let status_priority = match results[0].fields.get("status_priority") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for status_priority"),
     };
     assert_eq!(status_priority, "active_high"); // status is 'active' and priority is 'high'
@@ -322,8 +295,8 @@ async fn test_case_when_with_null_values() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let null_check = match &results[0]["null_check"] {
-        InternalValue::String(val) => val,
+    let null_check = match results[0].fields.get("null_check") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for null_check"),
     };
     assert_eq!(null_check, "null_detected");
@@ -342,8 +315,8 @@ async fn test_case_when_boolean_results() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let is_high_amount = match &results[0]["is_high_amount"] {
-        InternalValue::Boolean(val) => *val,
+    let is_high_amount = match results[0].fields.get("is_high_amount") {
+        Some(FieldValue::Boolean(val)) => *val,
         _ => panic!("Expected boolean result for is_high_amount"),
     };
     assert!(is_high_amount); // amount (123.45) > 100
@@ -359,8 +332,8 @@ async fn test_conditional_aggregation_listagg() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    let high_priority_statuses = match &results[0]["high_priority_statuses"] {
-        InternalValue::String(val) => val,
+    let high_priority_statuses = match results[0].fields.get("high_priority_statuses") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for high_priority_statuses"),
     };
     assert_eq!(high_priority_statuses, "active"); // Should include status because priority is 'high'
@@ -401,26 +374,26 @@ async fn test_case_when_performance_patterns() {
     assert_eq!(results.len(), 1);
 
     // Verify all results
-    let active_count = match &results[0]["active_count"] {
-        InternalValue::Integer(val) => *val,
+    let active_count = match results[0].fields.get("active_count") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for active_count"),
     };
     assert_eq!(active_count, 1);
 
-    let inactive_count = match &results[0]["inactive_count"] {
-        InternalValue::Integer(val) => *val,
+    let inactive_count = match results[0].fields.get("inactive_count") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for inactive_count"),
     };
     assert_eq!(inactive_count, 0);
 
-    let high_priority_revenue = match &results[0]["high_priority_revenue"] {
-        InternalValue::Number(val) => *val,
+    let high_priority_revenue = match results[0].fields.get("high_priority_revenue") {
+        Some(FieldValue::Float(val)) => *val,
         _ => panic!("Expected number result for high_priority_revenue"),
     };
     assert_eq!(high_priority_revenue, 123.45);
 
-    let premium_avg_score = match &results[0]["premium_avg_score"] {
-        InternalValue::Integer(val) => *val,
+    let premium_avg_score = match results[0].fields.get("premium_avg_score") {
+        Some(FieldValue::Integer(val)) => *val,
         _ => panic!("Expected integer result for premium_avg_score"),
     };
     assert_eq!(premium_avg_score, 85);
@@ -441,20 +414,20 @@ async fn test_case_when_with_comparison_operators() {
 
     assert_eq!(results.len(), 1);
 
-    let amount_gte_check = match &results[0]["amount_gte_check"] {
-        InternalValue::String(val) => val,
+    let amount_gte_check = match results[0].fields.get("amount_gte_check") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for amount_gte_check"),
     };
     assert_eq!(amount_gte_check, "gte_100"); // amount (123.45) >= 100
 
-    let quantity_lte_check = match &results[0]["quantity_lte_check"] {
-        InternalValue::String(val) => val,
+    let quantity_lte_check = match results[0].fields.get("quantity_lte_check") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for quantity_lte_check"),
     };
     assert_eq!(quantity_lte_check, "lte_50"); // quantity (42) <= 50
 
-    let score_neq_check = match &results[0]["score_neq_check"] {
-        InternalValue::String(val) => val,
+    let score_neq_check = match results[0].fields.get("score_neq_check") {
+        Some(FieldValue::String(val)) => val,
         _ => panic!("Expected string result for score_neq_check"),
     };
     assert_eq!(score_neq_check, "not_90"); // score (85) <> 90

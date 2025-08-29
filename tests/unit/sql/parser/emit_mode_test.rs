@@ -133,7 +133,7 @@ fn test_emit_final_parsing_without_window() {
         use ferrisstreams::ferris::serialization::{
             InternalValue, JsonFormat, SerializationFormat,
         };
-        use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+        use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::mpsc;
@@ -148,11 +148,14 @@ fn test_emit_final_parsing_without_window() {
         let query = parser.parse(query_str).expect("Should parse successfully");
 
         // Create test record
-        let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(1));
+        let mut fields = HashMap::new();
+        fields.insert("customer_id".to_string(), FieldValue::Integer(1));
+
+        let record1 = StreamRecord::new(fields);
+
 
         // Execution should fail with validation error
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record1).await;
         assert!(result.is_err(), "Expected execution to fail");
 
         if let Err(error) = result {

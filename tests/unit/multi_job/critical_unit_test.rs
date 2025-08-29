@@ -7,6 +7,7 @@
 //! 4. Input validation and error handling
 
 use ferrisstreams::ferris::{JobStatus, MultiJobSqlServer};
+use ferrisstreams::ferris::sql::SqlApplicationParser;
 use std::time::Duration;
 
 // Test helper functions
@@ -43,11 +44,9 @@ async fn test_multi_job_server_creation() {
 
     let server = MultiJobSqlServer::new(brokers.clone(), group_id.clone(), max_jobs);
 
-    // Validate configuration
-    assert_eq!(server.max_jobs(), max_jobs);
-    assert_eq!(server.brokers(), &brokers);
-    assert_eq!(server.base_group_id(), &group_id);
-    assert_eq!(server.job_count().await, 0);
+    // Validate configuration - we can only test the initially empty jobs list
+    let jobs = server.list_jobs().await;
+    assert_eq!(jobs.len(), 0);
 
     println!("✅ Server created with correct configuration");
 }
@@ -62,7 +61,7 @@ async fn test_deploy_job_success() {
     assert!(result.is_ok(), "Job deployment should succeed");
 
     // Verify job was added
-    assert_eq!(server.job_count().await, 1);
+    assert_eq!(server.list_jobs().await.len(), 1);
 
     // Verify job status
     let jobs = server.list_jobs().await;
@@ -114,14 +113,14 @@ async fn test_stop_job_success() {
 
     // Deploy a job
     deploy_test_job(&server, "stop_test", "1.0").await.unwrap();
-    assert_eq!(server.job_count().await, 1);
+    assert_eq!(server.list_jobs().await.len(), 1);
 
     // Stop the job
     let result = server.stop_job("stop_test").await;
     assert!(result.is_ok(), "Job stopping should succeed");
 
     // Verify job was removed
-    assert_eq!(server.job_count().await, 0);
+    assert_eq!(server.list_jobs().await.len(), 0);
 
     // Verify job no longer exists
     let status = server.get_job_status("stop_test").await;
@@ -162,7 +161,7 @@ async fn test_max_jobs_limit_enforcement() {
         assert!(result.is_ok(), "Job {} should deploy successfully", i);
     }
 
-    assert_eq!(server.job_count().await, max_jobs);
+    assert_eq!(server.list_jobs().await.len(), max_jobs);
 
     // Try to deploy one more job (should fail)
     let result = deploy_test_job(&server, "overflow_job", "1.0").await;
@@ -179,7 +178,7 @@ async fn test_max_jobs_limit_enforcement() {
     );
 
     // Verify job count hasn't increased
-    assert_eq!(server.job_count().await, max_jobs);
+    assert_eq!(server.list_jobs().await.len(), max_jobs);
 
     println!("✅ Max jobs limit properly enforced at {}", max_jobs);
 }
@@ -194,7 +193,7 @@ async fn test_max_jobs_limit_after_stopping() {
     // Fill to capacity
     deploy_test_job(&server, "job1", "1.0").await.unwrap();
     deploy_test_job(&server, "job2", "1.0").await.unwrap();
-    assert_eq!(server.job_count().await, max_jobs);
+    assert_eq!(server.list_jobs().await.len(), max_jobs);
 
     // Try to add another (should fail)
     let result = deploy_test_job(&server, "job3", "1.0").await;
@@ -202,12 +201,12 @@ async fn test_max_jobs_limit_after_stopping() {
 
     // Stop one job
     server.stop_job("job1").await.unwrap();
-    assert_eq!(server.job_count().await, max_jobs - 1);
+    assert_eq!(server.list_jobs().await.len(), max_jobs - 1);
 
     // Now should be able to add another job
     let result = deploy_test_job(&server, "job3", "1.0").await;
     assert!(result.is_ok(), "Should succeed after freeing capacity");
-    assert_eq!(server.job_count().await, max_jobs);
+    assert_eq!(server.list_jobs().await.len(), max_jobs);
 
     println!("✅ Max jobs limit works correctly after stopping jobs");
 }
@@ -233,7 +232,7 @@ async fn test_duplicate_job_name_rejection() {
     );
 
     // Verify only one job exists
-    assert_eq!(server.job_count().await, 1);
+    assert_eq!(server.list_jobs().await.len(), 1);
 
     let jobs = server.list_jobs().await;
     assert_eq!(jobs.len(), 1);
@@ -477,16 +476,20 @@ SELECT * FROM test_topic2
 WITH ('output.topic' = 'output2');
 "#;
 
+    // Parse the SQL application string
+    let parser = SqlApplicationParser::new();
+    let parsed_app = parser.parse_application(sql_app).expect("Failed to parse SQL application");
+
     let result = server
-        .deploy_sql_application(sql_app, Some("default_topic".to_string()))
+        .deploy_sql_application(parsed_app, Some("default_topic".to_string()))
         .await;
 
     // Note: This might fail due to SQL parsing limitations in our mock implementation
     // but we can test the basic functionality
     match result {
-        Ok(count) => {
-            println!("✅ SQL application deployed with {} jobs", count);
-            assert!(count > 0, "Should deploy at least one job");
+        Ok(job_names) => {
+            println!("✅ SQL application deployed with {} jobs", job_names.len());
+            assert!(job_names.len() > 0, "Should deploy at least one job");
         }
         Err(e) => {
             println!(
@@ -563,13 +566,11 @@ async fn test_job_metrics_initialization() {
     // Verify metrics are initialized
     assert_eq!(job.metrics.records_processed, 0);
     assert_eq!(job.metrics.records_per_second, 0.0);
-    assert_eq!(job.metrics.errors_count, 0);
-    assert!(job.metrics.last_processed.is_none());
+    assert_eq!(job.metrics.errors, 0);
+    assert!(job.metrics.last_record_time.is_none());
 
     // Verify timestamps
     assert!(job.created_at <= chrono::Utc::now());
-    assert!(job.updated_at <= chrono::Utc::now());
-    assert!(job.created_at <= job.updated_at);
 
     println!("✅ Job metrics properly initialized");
 }
