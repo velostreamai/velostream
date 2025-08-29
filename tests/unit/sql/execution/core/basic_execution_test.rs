@@ -22,10 +22,7 @@ fn create_test_record(
 ) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(id));
-    fields.insert(
-        "customer_id".to_string(),
-        FieldValue::Integer(customer_id),
-    );
+    fields.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     if let Some(s) = status {
         fields.insert("status".to_string(), FieldValue::String(s.to_string()));
@@ -36,7 +33,7 @@ fn create_test_record(
         "timestamp".to_string(),
         FieldValue::Integer(chrono::Utc::now().timestamp()),
     );
-    
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -155,7 +152,10 @@ async fn test_execute_with_literals() {
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    assert_eq!(output.fields.get("constant"), Some(&FieldValue::Integer(42)));
+    assert_eq!(
+        output.fields.get("constant"),
+        Some(&FieldValue::Integer(42))
+    );
     assert_eq!(
         output.fields.get("message"),
         Some(&FieldValue::String("test".to_string()))
@@ -190,7 +190,10 @@ async fn test_missing_column_returns_null() {
 
     let output = rx.try_recv().unwrap();
     // Missing columns should return NULL
-    assert_eq!(output.fields.get("nonexistent_column"), Some(&FieldValue::Null));
+    assert_eq!(
+        output.fields.get("nonexistent_column"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]
@@ -258,7 +261,7 @@ async fn test_null_value_handling() {
     let output = rx.try_recv().unwrap();
     // The status field should either be absent or null
     match output.fields.get("status") {
-        None => {}                      // Field is absent, which is acceptable
+        None => {}                   // Field is absent, which is acceptable
         Some(FieldValue::Null) => {} // Field is explicitly null, which is also acceptable
         _ => panic!("Expected null or absent status field"),
     }

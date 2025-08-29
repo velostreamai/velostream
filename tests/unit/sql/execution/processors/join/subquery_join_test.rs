@@ -40,7 +40,6 @@ fn create_test_record_for_subquery_join() -> StreamRecord {
 
 async fn execute_subquery_join_test(
     query: &str,
-
 ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
@@ -49,7 +48,6 @@ async fn execute_subquery_join_test(
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_for_subquery_join();
-
 
     engine.execute_with_record(&parsed_query, record).await?;
 

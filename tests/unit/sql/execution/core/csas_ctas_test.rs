@@ -1,7 +1,7 @@
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::DataType;
 
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
@@ -15,7 +15,7 @@ fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     fields.insert("status".to_string(), FieldValue::String(status.to_string()));
-    
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -262,7 +262,9 @@ mod tests {
             FieldValue::String("pending".to_string()),
         );
         // Execute CREATE STREAM
-        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
@@ -292,7 +294,9 @@ mod tests {
         record.insert("amount".to_string(), FieldValue::Float(150.00));
 
         // Execute CREATE TABLE
-        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
@@ -729,7 +733,9 @@ mod tests {
         record.insert("customer_id".to_string(), FieldValue::Integer(789)); // Extra field
 
         // Execute CREATE STREAM INTO
-        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
@@ -758,7 +764,9 @@ mod tests {
         record.insert("amount".to_string(), FieldValue::Float(299.50));
 
         // Execute CREATE TABLE INTO
-        let result = engine.execute_with_record(&query, StreamRecord::new(record)).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed

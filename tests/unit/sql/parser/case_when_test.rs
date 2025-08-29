@@ -41,10 +41,7 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-
-async fn execute_query(
-    query: &str,
-) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -53,9 +50,7 @@ async fn execute_query(
     let record = create_test_record();
 
     // Execute the query with StreamRecord
-    engine
-        .execute_with_record(&parsed_query, record)
-        .await?;
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

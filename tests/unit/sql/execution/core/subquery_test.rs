@@ -77,7 +77,10 @@ async fn test_scalar_subquery_parsing() {
     assert!(results[0].fields.contains_key("config_value"));
 
     // Mock implementation should return 1 for scalar subqueries
-    assert_eq!(results[0].fields.get("config_value"), Some(&FieldValue::Integer(1)));
+    assert_eq!(
+        results[0].fields.get("config_value"),
+        Some(&FieldValue::Integer(1))
+    );
 }
 
 #[tokio::test]
@@ -176,8 +179,14 @@ async fn test_complex_subquery_in_select() {
     assert!(results[0].fields.contains_key("max_limit"));
 
     // Verify subquery results (mock implementations)
-    assert_eq!(results[0].fields.get("config_type"), Some(&FieldValue::Integer(1))); // Scalar subquery mock
-    assert_eq!(results[0].fields.get("max_limit"), Some(&FieldValue::Integer(1))); // Scalar subquery mock
+    assert_eq!(
+        results[0].fields.get("config_type"),
+        Some(&FieldValue::Integer(1))
+    ); // Scalar subquery mock
+    assert_eq!(
+        results[0].fields.get("max_limit"),
+        Some(&FieldValue::Integer(1))
+    ); // Scalar subquery mock
 }
 
 #[tokio::test]
@@ -234,7 +243,10 @@ async fn test_subquery_with_boolean_field() {
     // Mock implementation returns the boolean value itself for IN subqueries
     // Since active = true, it should match
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("active"), Some(&FieldValue::Boolean(true)));
+    assert_eq!(
+        results[0].fields.get("active"),
+        Some(&FieldValue::Boolean(true))
+    );
 }
 
 #[tokio::test]

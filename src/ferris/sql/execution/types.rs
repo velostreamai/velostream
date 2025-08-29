@@ -840,8 +840,7 @@ pub struct StreamRecord {
     pub headers: HashMap<String, String>,
 }
 
-impl StreamRecord {
-}
+impl StreamRecord {}
 
 impl StreamRecord {
     /// Create a new StreamRecord with the given fields

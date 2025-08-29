@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -84,10 +84,7 @@ mod tests {
         for i in 1..=3 {
             let mut fields = HashMap::new();
             fields.insert("customer_id".to_string(), FieldValue::Integer(i));
-            fields.insert(
-                "amount".to_string(),
-                FieldValue::Float(100.0 * i as f64),
-            );
+            fields.insert("amount".to_string(), FieldValue::Float(100.0 * i as f64));
             let record = StreamRecord {
                 fields,
                 timestamp: chrono::Utc::now().timestamp_millis(),
@@ -166,7 +163,10 @@ mod tests {
 
         // Should receive exactly 1 output (first record matching WHERE clause)
         if let Some(output) = rx.recv().await {
-            match (output.fields.get("customer_id"), output.fields.get("amount")) {
+            match (
+                output.fields.get("customer_id"),
+                output.fields.get("amount"),
+            ) {
                 (Some(FieldValue::Integer(id)), Some(FieldValue::Float(amount))) => {
                     assert_eq!(*id, 2);
                     assert_eq!(*amount, 200.0);
@@ -360,7 +360,10 @@ mod tests {
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
-            match (output.fields.get("customer_id"), output.fields.get("source")) {
+            match (
+                output.fields.get("customer_id"),
+                output.fields.get("source"),
+            ) {
                 (Some(FieldValue::Integer(id)), Some(FieldValue::String(source))) => {
                     assert_eq!(*id, 1);
                     assert_eq!(source, "test-app");

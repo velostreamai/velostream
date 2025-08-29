@@ -64,12 +64,15 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("ROW_NUMBER()") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("row_num"))
                 .cloned()
                 .collect();
             for key in keys_to_update {
-                result.fields.insert(key, FieldValue::Integer((i + 1) as i64));
+                result
+                    .fields
+                    .insert(key, FieldValue::Integer((i + 1) as i64));
             }
         }
     }
@@ -78,12 +81,15 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("RANK()") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("rank_num"))
                 .cloned()
                 .collect();
             for key in keys_to_update {
-                result.fields.insert(key, FieldValue::Integer((i + 1) as i64));
+                result
+                    .fields
+                    .insert(key, FieldValue::Integer((i + 1) as i64));
             }
         }
     }
@@ -92,12 +98,15 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("DENSE_RANK()") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("dense_rank_num"))
                 .cloned()
                 .collect();
             for key in keys_to_update {
-                result.fields.insert(key, FieldValue::Integer((i + 1) as i64));
+                result
+                    .fields
+                    .insert(key, FieldValue::Integer((i + 1) as i64));
             }
         }
     }
@@ -109,14 +118,15 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
             // For the test case where we have records with values [100, 200, 300],
             // LAG(value) should return [NULL, 100, 200]
             let expected_lag_values = vec![
-                None,                              // First record always NULL
+                None,                           // First record always NULL
                 Some(FieldValue::Integer(100)), // Second record gets first record's value
                 Some(FieldValue::Integer(200)), // Third record gets second record's value
             ];
 
             for i in 0..results.len() {
                 let keys_to_update: Vec<String> = results[i]
-                    .fields.keys()
+                    .fields
+                    .keys()
                     .filter(|k| k.contains("prev_value"))
                     .cloned()
                     .collect();
@@ -142,14 +152,18 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
                     if i < 2 {
                         None
                     } else {
-                        results.get(i - 2).and_then(|r| r.fields.get("value")).cloned()
+                        results
+                            .get(i - 2)
+                            .and_then(|r| r.fields.get("value"))
+                            .cloned()
                     }
                 })
                 .collect();
 
             for i in 0..results.len() {
                 let keys_to_update: Vec<String> = results[i]
-                    .fields.keys()
+                    .fields
+                    .keys()
                     .filter(|k| k.contains("lag2_value"))
                     .cloned()
                     .collect();
@@ -171,14 +185,18 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
                     if i == 0 {
                         None
                     } else {
-                        results.get(i - 1).and_then(|r| r.fields.get("value")).cloned()
+                        results
+                            .get(i - 1)
+                            .and_then(|r| r.fields.get("value"))
+                            .cloned()
                     }
                 })
                 .collect();
 
             for i in 0..results.len() {
                 let keys_to_update: Vec<String> = results[i]
-                    .fields.keys()
+                    .fields
+                    .keys()
                     .filter(|k| k.contains("lag_with_default"))
                     .cloned()
                     .collect();
@@ -197,7 +215,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("LEAD(VALUE, 1, -999)") {
         for result in results.iter_mut() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("lead_with_default"))
                 .cloned()
                 .collect();
@@ -208,7 +227,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     } else if query_upper.contains("LEAD(") {
         for result in results.iter_mut() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("next_value"))
                 .cloned()
                 .collect();
@@ -222,7 +242,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("FIRST_VALUE(") {
         for result in results.iter_mut() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("first_val"))
                 .cloned()
                 .collect();
@@ -236,7 +257,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("LAST_VALUE(") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("last_val"))
                 .cloned()
                 .collect();
@@ -252,7 +274,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("NTH_VALUE(") && query_upper.contains("NTH_VALUE(VALUE, 2)") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("nth_val"))
                 .cloned()
                 .collect();
@@ -270,7 +293,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("PERCENT_RANK()") {
         for (i, result) in results.iter_mut().enumerate() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("percent_rank"))
                 .cloned()
                 .collect();
@@ -285,7 +309,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("CUME_DIST()") {
         for result in results.iter_mut() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("cume_dist"))
                 .cloned()
                 .collect();
@@ -299,7 +324,8 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
     if query_upper.contains("NTILE(") {
         for result in results.iter_mut() {
             let keys_to_update: Vec<String> = result
-                .fields.keys()
+                .fields
+                .keys()
                 .filter(|k| k.contains("tile") || k.contains("quartile"))
                 .cloned()
                 .collect();
@@ -361,12 +387,18 @@ async fn test_lag_function_basic() {
 
     // Second record should have first record's value
     if results.len() > 1 {
-        assert_eq!(results[1].fields.get("prev_value"), Some(&FieldValue::Integer(100)));
+        assert_eq!(
+            results[1].fields.get("prev_value"),
+            Some(&FieldValue::Integer(100))
+        );
     }
 
     // Third record should have second record's value
     if results.len() > 2 {
-        assert_eq!(results[2].fields.get("prev_value"), Some(&FieldValue::Integer(200)));
+        assert_eq!(
+            results[2].fields.get("prev_value"),
+            Some(&FieldValue::Integer(200))
+        );
     }
 }
 
@@ -397,12 +429,18 @@ async fn test_lag_function_with_offset() {
 
     // Third record should have first record's value
     if results.len() > 2 {
-        assert_eq!(results[2].fields.get("lag2_value"), Some(&FieldValue::Integer(100)));
+        assert_eq!(
+            results[2].fields.get("lag2_value"),
+            Some(&FieldValue::Integer(100))
+        );
     }
 
     // Fourth record should have second record's value
     if results.len() > 3 {
-        assert_eq!(results[3].fields.get("lag2_value"), Some(&FieldValue::Integer(200)));
+        assert_eq!(
+            results[3].fields.get("lag2_value"),
+            Some(&FieldValue::Integer(200))
+        );
     }
 }
 
@@ -423,11 +461,17 @@ async fn test_lag_function_with_default() {
     assert_eq!(results.len(), 2);
 
     // First record should have default value -1
-    assert_eq!(results[0].fields.get("lag_with_default"), Some(&FieldValue::Integer(-1)));
+    assert_eq!(
+        results[0].fields.get("lag_with_default"),
+        Some(&FieldValue::Integer(-1))
+    );
 
     // Second record should have first record's value
     if results.len() > 1 {
-        assert_eq!(results[1].fields.get("lag_with_default"), Some(&FieldValue::Integer(100)));
+        assert_eq!(
+            results[1].fields.get("lag_with_default"),
+            Some(&FieldValue::Integer(100))
+        );
     }
 }
 
@@ -472,7 +516,10 @@ async fn test_lead_function_with_default() {
 
     // All LEAD values should be the default value -999 in streaming
     for result in &results {
-        assert_eq!(result.fields.get("lead_with_default"), Some(&FieldValue::Integer(-999)));
+        assert_eq!(
+            result.fields.get("lead_with_default"),
+            Some(&FieldValue::Integer(-999))
+        );
     }
 }
 
@@ -567,7 +614,10 @@ async fn test_multiple_window_functions() {
             assert_eq!(result.fields.get("prev_value"), Some(&FieldValue::Null));
         } else {
             let expected_prev = (i as i64) * 100; // Previous record's value
-            assert_eq!(result.fields.get("prev_value"), Some(&FieldValue::Integer(expected_prev)));
+            assert_eq!(
+                result.fields.get("prev_value"),
+                Some(&FieldValue::Integer(expected_prev))
+            );
         }
     }
 }
@@ -591,7 +641,10 @@ async fn test_first_value_function() {
 
     // All records should return the first value (100)
     for result in &results {
-        assert_eq!(result.fields.get("first_val"), Some(&FieldValue::Integer(100)));
+        assert_eq!(
+            result.fields.get("first_val"),
+            Some(&FieldValue::Integer(100))
+        );
     }
 }
 
@@ -613,9 +666,18 @@ async fn test_last_value_function() {
     assert_eq!(results.len(), 3);
 
     // Each record should return its own value as the "last" value in streaming
-    assert_eq!(results[0].fields.get("last_val"), Some(&FieldValue::Integer(100)));
-    assert_eq!(results[1].fields.get("last_val"), Some(&FieldValue::Integer(200)));
-    assert_eq!(results[2].fields.get("last_val"), Some(&FieldValue::Integer(300)));
+    assert_eq!(
+        results[0].fields.get("last_val"),
+        Some(&FieldValue::Integer(100))
+    );
+    assert_eq!(
+        results[1].fields.get("last_val"),
+        Some(&FieldValue::Integer(200))
+    );
+    assert_eq!(
+        results[2].fields.get("last_val"),
+        Some(&FieldValue::Integer(300))
+    );
 }
 
 #[tokio::test]
@@ -642,7 +704,10 @@ async fn test_nth_value_function() {
 
     // Second record onwards: should return the 2nd value (200)
     for i in 1..results.len() {
-        assert_eq!(results[i].fields.get("nth_val"), Some(&FieldValue::Integer(200)));
+        assert_eq!(
+            results[i].fields.get("nth_val"),
+            Some(&FieldValue::Integer(200))
+        );
     }
 }
 
@@ -665,13 +730,22 @@ async fn test_percent_rank_function() {
 
     // In streaming context, each record has its own perspective
     // First record: rank=1, total=1 -> (1-1)/(1-1) = 0/0 = 0.0
-    assert_eq!(results[0].fields.get("percent_rank"), Some(&FieldValue::Float(0.0)));
+    assert_eq!(
+        results[0].fields.get("percent_rank"),
+        Some(&FieldValue::Float(0.0))
+    );
 
     // Second record: rank=2, total=2 -> (2-1)/(2-1) = 1/1 = 1.0
-    assert_eq!(results[1].fields.get("percent_rank"), Some(&FieldValue::Float(1.0)));
+    assert_eq!(
+        results[1].fields.get("percent_rank"),
+        Some(&FieldValue::Float(1.0))
+    );
 
     // Third record: rank=3, total=3 -> (3-1)/(3-1) = 2/2 = 1.0
-    assert_eq!(results[2].fields.get("percent_rank"), Some(&FieldValue::Float(1.0)));
+    assert_eq!(
+        results[2].fields.get("percent_rank"),
+        Some(&FieldValue::Float(1.0))
+    );
 }
 
 #[tokio::test]
@@ -692,9 +766,18 @@ async fn test_cume_dist_function() {
     assert_eq!(results.len(), 3);
 
     // In streaming context, each record sees current_position / total_known_rows
-    assert_eq!(results[0].fields.get("cume_dist"), Some(&FieldValue::Float(1.0))); // 1/1
-    assert_eq!(results[1].fields.get("cume_dist"), Some(&FieldValue::Float(1.0))); // 2/2
-    assert_eq!(results[2].fields.get("cume_dist"), Some(&FieldValue::Float(1.0))); // 3/3
+    assert_eq!(
+        results[0].fields.get("cume_dist"),
+        Some(&FieldValue::Float(1.0))
+    ); // 1/1
+    assert_eq!(
+        results[1].fields.get("cume_dist"),
+        Some(&FieldValue::Float(1.0))
+    ); // 2/2
+    assert_eq!(
+        results[2].fields.get("cume_dist"),
+        Some(&FieldValue::Float(1.0))
+    ); // 3/3
 }
 
 #[tokio::test]
@@ -744,7 +827,8 @@ async fn test_ntile_quartiles() {
 
     // Each record gets its own quartile in streaming
     for result in &results {
-        assert_eq!(result.fields.get("quartile"), Some(&FieldValue::Integer(1))); // All get quartile 1 in streaming context
+        assert_eq!(result.fields.get("quartile"), Some(&FieldValue::Integer(1)));
+        // All get quartile 1 in streaming context
     }
 }
 

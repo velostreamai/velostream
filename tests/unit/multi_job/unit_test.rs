@@ -71,7 +71,11 @@ async fn test_resource_cleanup() {
     }
 
     // Verify all jobs are cleaned up
-    assert_eq!(server.list_jobs().await.len(), 0, "All jobs should be cleaned up");
+    assert_eq!(
+        server.list_jobs().await.len(),
+        0,
+        "All jobs should be cleaned up"
+    );
     println!("✅ Resource cleanup validated");
 }
 

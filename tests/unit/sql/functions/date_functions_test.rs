@@ -37,10 +37,7 @@ fn create_test_record_with_timestamps() -> StreamRecord {
     }
 }
 
-
-async fn execute_date_query(
-    query: &str,
-) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+async fn execute_date_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -49,9 +46,7 @@ async fn execute_date_query(
     let record = create_test_record_with_timestamps();
 
     // Execute the query with StreamRecord
-    engine
-        .execute_with_record(&parsed_query, record)
-        .await?;
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -69,7 +64,10 @@ async fn test_extract_epoch() {
 
     assert_eq!(results.len(), 1);
     // EPOCH should return Unix timestamp in seconds
-    assert_eq!(results[0].fields.get("epoch_time"), Some(&FieldValue::Integer(1672575045))); // seconds, not milliseconds
+    assert_eq!(
+        results[0].fields.get("epoch_time"),
+        Some(&FieldValue::Integer(1672575045))
+    ); // seconds, not milliseconds
 }
 
 #[tokio::test]
@@ -81,7 +79,10 @@ async fn test_extract_week() {
 
     assert_eq!(results.len(), 1);
     // January 9, 2023 should be week 2 (ISO week)
-    assert_eq!(results[0].fields.get("week_number"), Some(&FieldValue::Integer(2)));
+    assert_eq!(
+        results[0].fields.get("week_number"),
+        Some(&FieldValue::Integer(2))
+    );
 }
 
 #[tokio::test]
@@ -95,7 +96,10 @@ async fn test_extract_quarter() {
 
     assert_eq!(results.len(), 1);
     // March should be Q1 (quarter 1)
-    assert_eq!(results[0].fields.get("quarter_num"), Some(&FieldValue::Integer(1)));
+    assert_eq!(
+        results[0].fields.get("quarter_num"),
+        Some(&FieldValue::Integer(1))
+    );
 
     // Test Q3 (July) using end_time
     let results =
@@ -105,7 +109,10 @@ async fn test_extract_quarter() {
 
     assert_eq!(results.len(), 1);
     // July should be Q3 (quarter 3)
-    assert_eq!(results[0].fields.get("quarter_num"), Some(&FieldValue::Integer(3)));
+    assert_eq!(
+        results[0].fields.get("quarter_num"),
+        Some(&FieldValue::Integer(3))
+    );
 }
 
 #[tokio::test]
@@ -129,7 +136,10 @@ async fn test_extract_microsecond() {
 
     assert_eq!(results.len(), 1);
     // Should extract microsecond component (123000 - milliseconds converted to microseconds)
-    assert_eq!(results[0].fields.get("us"), Some(&FieldValue::Integer(123000)));
+    assert_eq!(
+        results[0].fields.get("us"),
+        Some(&FieldValue::Integer(123000))
+    );
 }
 
 #[tokio::test]
@@ -141,7 +151,10 @@ async fn test_extract_nanosecond() {
 
     assert_eq!(results.len(), 1);
     // Should extract nanosecond component (123000000 - milliseconds converted to nanoseconds)
-    assert_eq!(results[0].fields.get("ns"), Some(&FieldValue::Integer(123000000)));
+    assert_eq!(
+        results[0].fields.get("ns"),
+        Some(&FieldValue::Integer(123000000))
+    );
 }
 
 #[tokio::test]
@@ -175,7 +188,10 @@ async fn test_datediff_months() {
 
     assert_eq!(results.len(), 1);
     // From Jan 1, 2023 to Jul 15, 2024 should be 18 months (Jan 2023 to Jul 2024)
-    assert_eq!(results[0].fields.get("month_diff"), Some(&FieldValue::Integer(18)));
+    assert_eq!(
+        results[0].fields.get("month_diff"),
+        Some(&FieldValue::Integer(18))
+    );
 }
 
 #[tokio::test]
@@ -188,7 +204,10 @@ async fn test_datediff_quarters() {
 
     assert_eq!(results.len(), 1);
     // From Q1 2023 to Q3 2024 should be 6 quarters
-    assert_eq!(results[0].fields.get("quarter_diff"), Some(&FieldValue::Integer(6)));
+    assert_eq!(
+        results[0].fields.get("quarter_diff"),
+        Some(&FieldValue::Integer(6))
+    );
 }
 
 #[tokio::test]
@@ -201,7 +220,10 @@ async fn test_datediff_years() {
 
     assert_eq!(results.len(), 1);
     // From 2023 to 2024 should be 1 year
-    assert_eq!(results[0].fields.get("year_diff"), Some(&FieldValue::Integer(1)));
+    assert_eq!(
+        results[0].fields.get("year_diff"),
+        Some(&FieldValue::Integer(1))
+    );
 }
 
 #[tokio::test]
@@ -220,7 +242,10 @@ async fn test_datediff_month_precision() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("feb_diff"), Some(&FieldValue::Integer(0))); // Same month
+    assert_eq!(
+        results[0].fields.get("feb_diff"),
+        Some(&FieldValue::Integer(0))
+    ); // Same month
 
     let results = execute_date_query(&format!(
         "SELECT DATEDIFF('months', {}, {}) as mar_diff FROM test_stream",
@@ -230,7 +255,10 @@ async fn test_datediff_month_precision() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("mar_diff"), Some(&FieldValue::Integer(1))); // Next month
+    assert_eq!(
+        results[0].fields.get("mar_diff"),
+        Some(&FieldValue::Integer(1))
+    ); // Next month
 }
 
 #[tokio::test]
@@ -256,9 +284,18 @@ async fn test_extract_all_new_units_in_single_query() {
     //     results[0].fields.get("quarter_val"),
     //     Some(&FieldValue::Integer(_))
     // ));
-    assert!(matches!(results[0].fields.get("ms_val"), Some(&FieldValue::Integer(_))));
-    assert!(matches!(results[0].fields.get("us_val"), Some(&FieldValue::Integer(_))));
-    assert!(matches!(results[0].fields.get("ns_val"), Some(&FieldValue::Integer(_))));
+    assert!(matches!(
+        results[0].fields.get("ms_val"),
+        Some(&FieldValue::Integer(_))
+    ));
+    assert!(matches!(
+        results[0].fields.get("us_val"),
+        Some(&FieldValue::Integer(_))
+    ));
+    assert!(matches!(
+        results[0].fields.get("ns_val"),
+        Some(&FieldValue::Integer(_))
+    ));
 }
 
 #[tokio::test]
@@ -338,7 +375,10 @@ async fn test_edge_case_same_timestamps() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("same_day"), Some(&FieldValue::Integer(0)));
+    assert_eq!(
+        results[0].fields.get("same_day"),
+        Some(&FieldValue::Integer(0))
+    );
 }
 
 #[tokio::test]

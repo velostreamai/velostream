@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ fn create_test_record(id: i64, amount: f64) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
-    
+
     StreamRecord {
         fields,
         timestamp: 1609459200000, // Fixed timestamp for test consistency

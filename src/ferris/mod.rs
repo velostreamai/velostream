@@ -9,4 +9,6 @@ pub mod sql;
 // Re-export modern error types for convenience
 
 // Re-export multi-job server types
-pub use modern_multi_job_server::{JobStatus, JobMetrics, JobSummary, MultiJobSqlServer, RunningJob};
+pub use modern_multi_job_server::{
+    JobMetrics, JobStatus, JobSummary, MultiJobSqlServer, RunningJob,
+};

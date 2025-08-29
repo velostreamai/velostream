@@ -15,7 +15,7 @@ use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     Expr, SelectField, StreamSource, StreamingQuery, WindowSpec,
 };
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,10 +39,7 @@ fn create_test_record_with_timestamp(
 ) -> StreamRecord {
     let mut record = HashMap::new();
     record.insert("id".to_string(), FieldValue::Integer(id));
-    record.insert(
-        "customer_id".to_string(),
-        FieldValue::Integer(customer_id),
-    );
+    record.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
     record.insert("amount".to_string(), FieldValue::Float(amount));
     if let Some(s) = status {
         record.insert("status".to_string(), FieldValue::String(s.to_string()));
@@ -58,7 +55,7 @@ fn create_test_record_with_timestamp(
     };
 
     record.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
-    
+
     StreamRecord {
         fields: record,
         timestamp,
@@ -98,7 +95,9 @@ async fn test_windowed_execution_tumbling() {
     // Create records with specific timestamps to trigger window emission
     let base_time = 1000; // Start at 1 second (1000ms)
     let mut record = create_test_record(1, 100, 299.99, Some("pending"));
-    record.fields.insert("timestamp".to_string(), FieldValue::Integer(base_time));
+    record
+        .fields
+        .insert("timestamp".to_string(), FieldValue::Integer(base_time));
 
     // Execute first record
     println!("Executing first record with timestamp: {}", base_time);
@@ -338,7 +337,9 @@ async fn test_aggregation_functions() {
     // Create records with specific timestamps to trigger window emission
     let base_time = 1000; // Start at 1 second (1000ms)
     let mut record = create_test_record(1, 100, 299.99, Some("pending"));
-    record.fields.insert("timestamp".to_string(), FieldValue::Integer(base_time));
+    record
+        .fields
+        .insert("timestamp".to_string(), FieldValue::Integer(base_time));
 
     let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());

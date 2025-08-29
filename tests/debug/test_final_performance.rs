@@ -4,9 +4,7 @@
 //! 2. Direct StreamRecord usage in execute_with_record
 //! 3. StreamRecord direct output (no conversion to StreamRecord)
 
-use ferrisstreams::ferris::sql::execution::{
-    types::{FieldValue, StreamRecord},
-};
+use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -38,7 +36,10 @@ fn create_test_record(field_count: usize) -> StreamRecord {
         headers: {
             let mut headers = HashMap::new();
             headers.insert("content-type".to_string(), "application/json".to_string());
-            headers.insert("producer-id".to_string(), format!("producer-{}", field_count));
+            headers.insert(
+                "producer-id".to_string(),
+                format!("producer-{}", field_count),
+            );
             headers
         },
     }
@@ -88,10 +89,19 @@ fn main() {
         let overhead = optimized_ns_per_record - baseline_ns_per_record;
         let per_field_overhead = overhead / field_count as f64;
 
-        println!("Baseline (creation only): {:8.1}ns per record", baseline_ns_per_record);
-        println!("Optimized execution:      {:8.1}ns per record", optimized_ns_per_record);
+        println!(
+            "Baseline (creation only): {:8.1}ns per record",
+            baseline_ns_per_record
+        );
+        println!(
+            "Optimized execution:      {:8.1}ns per record",
+            optimized_ns_per_record
+        );
         println!("Execution overhead:       {:8.1}ns per record", overhead);
-        println!("Per-field overhead:       {:8.1}ns per field", per_field_overhead);
+        println!(
+            "Per-field overhead:       {:8.1}ns per field",
+            per_field_overhead
+        );
 
         // Efficiency analysis
         let efficiency = if per_field_overhead < 5.0 {

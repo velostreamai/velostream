@@ -2,7 +2,13 @@
 
 use ferrisstreams::ferris::{
     serialization::JsonFormat,
-    sql::{execution::{StreamExecutionEngine, types::{FieldValue, StreamRecord}}, parser::StreamingSqlParser},
+    sql::{
+        execution::{
+            types::{FieldValue, StreamRecord},
+            StreamExecutionEngine,
+        },
+        parser::StreamingSqlParser,
+    },
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc;
@@ -16,17 +22,14 @@ fn create_market_data_record(
     ask_size: i64,
 ) -> StreamRecord {
     let mut fields = HashMap::new();
-    fields.insert(
-        "symbol".to_string(),
-        FieldValue::String(symbol.to_string()),
-    );
+    fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
     fields.insert("bid_price".to_string(), FieldValue::Float(bid_price));
     fields.insert("ask_price".to_string(), FieldValue::Float(ask_price));
     fields.insert("bid_size".to_string(), FieldValue::Integer(bid_size));
     fields.insert("ask_size".to_string(), FieldValue::Integer(ask_size));
     let timestamp = chrono::Utc::now().timestamp_millis();
     fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
-    
+
     StreamRecord {
         fields,
         timestamp,
@@ -89,7 +92,10 @@ async fn test_simple_select_query() {
         results[0].fields.get("symbol"),
         Some(&FieldValue::String("AAPL".to_string()))
     );
-    assert_eq!(results[0].fields.get("bid_price"), Some(&FieldValue::Float(150.0)));
+    assert_eq!(
+        results[0].fields.get("bid_price"),
+        Some(&FieldValue::Float(150.0))
+    );
     assert!(!results[0].fields.contains_key("ask_price")); // Should not be selected
 
     // Check second result
@@ -97,7 +103,10 @@ async fn test_simple_select_query() {
         results[1].fields.get("symbol"),
         Some(&FieldValue::String("GOOGL".to_string()))
     );
-    assert_eq!(results[1].fields.get("bid_price"), Some(&FieldValue::Float(2500.0)));
+    assert_eq!(
+        results[1].fields.get("bid_price"),
+        Some(&FieldValue::Float(2500.0))
+    );
 
     println!("✅ Simple SELECT query works correctly");
 }
@@ -120,7 +129,10 @@ async fn test_select_with_where_clause() {
         results[0].fields.get("symbol"),
         Some(&FieldValue::String("GOOGL".to_string()))
     );
-    assert_eq!(results[0].fields.get("bid_price"), Some(&FieldValue::Float(2500.0)));
+    assert_eq!(
+        results[0].fields.get("bid_price"),
+        Some(&FieldValue::Float(2500.0))
+    );
 
     println!("✅ WHERE clause filtering works correctly");
 }
@@ -137,10 +149,19 @@ async fn test_arithmetic_functions() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result.fields.get("symbol"), Some(&FieldValue::String("AAPL".to_string())));
+    assert_eq!(
+        result.fields.get("symbol"),
+        Some(&FieldValue::String("AAPL".to_string()))
+    );
     assert_eq!(result.fields.get("spread"), Some(&FieldValue::Float(1.0))); // ABS(150.0 - 151.0) = 1.0
-    assert_eq!(result.fields.get("min_size"), Some(&FieldValue::Integer(100))); // LEAST(100, 200) = 100
-    assert_eq!(result.fields.get("max_size"), Some(&FieldValue::Integer(200))); // GREATEST(100, 200) = 200
+    assert_eq!(
+        result.fields.get("min_size"),
+        Some(&FieldValue::Integer(100))
+    ); // LEAST(100, 200) = 100
+    assert_eq!(
+        result.fields.get("max_size"),
+        Some(&FieldValue::Integer(200))
+    ); // GREATEST(100, 200) = 200
 
     println!("✅ Arithmetic functions work correctly");
 }
@@ -176,10 +197,22 @@ async fn test_trading_arbitrage_query() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result.fields.get("symbol"), Some(&FieldValue::String("GOOGL".to_string())));
-    assert_eq!(result.fields.get("bid_price"), Some(&FieldValue::Float(2502.0)));
-    assert_eq!(result.fields.get("ask_price"), Some(&FieldValue::Float(2501.0)));
-    assert_eq!(result.fields.get("available_volume"), Some(&FieldValue::Integer(50))); // LEAST(50, 75) = 50
+    assert_eq!(
+        result.fields.get("symbol"),
+        Some(&FieldValue::String("GOOGL".to_string()))
+    );
+    assert_eq!(
+        result.fields.get("bid_price"),
+        Some(&FieldValue::Float(2502.0))
+    );
+    assert_eq!(
+        result.fields.get("ask_price"),
+        Some(&FieldValue::Float(2501.0))
+    );
+    assert_eq!(
+        result.fields.get("available_volume"),
+        Some(&FieldValue::Integer(50))
+    ); // LEAST(50, 75) = 50
     assert_eq!(result.fields.get("spread"), Some(&FieldValue::Float(1.0))); // ABS(2502.0 - 2501.0) = 1.0
 
     println!("✅ Arbitrage detection query works correctly");
@@ -230,7 +263,10 @@ async fn test_string_functions() {
         result.fields.get("upper_symbol"),
         Some(&FieldValue::String("AAPL".to_string()))
     );
-    assert_eq!(result.fields.get("symbol_length"), Some(&FieldValue::Integer(4)));
+    assert_eq!(
+        result.fields.get("symbol_length"),
+        Some(&FieldValue::Integer(4))
+    );
 
     println!("✅ String functions work correctly");
 }
@@ -243,13 +279,10 @@ async fn test_null_handling() {
 
     // Create a record with null bid_price
     let mut fields = HashMap::new();
-    fields.insert(
-        "symbol".to_string(),
-        FieldValue::String("TEST".to_string()),
-    );
+    fields.insert("symbol".to_string(), FieldValue::String("TEST".to_string()));
     fields.insert("bid_price".to_string(), FieldValue::Null);
     fields.insert("ask_price".to_string(), FieldValue::Float(100.0));
-    
+
     let record = StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -263,8 +296,14 @@ async fn test_null_handling() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result.fields.get("symbol"), Some(&FieldValue::String("TEST".to_string())));
-    assert_eq!(result.fields.get("safe_bid_price"), Some(&FieldValue::Float(0.0))); // COALESCE should return 0.0 for null
+    assert_eq!(
+        result.fields.get("symbol"),
+        Some(&FieldValue::String("TEST".to_string()))
+    );
+    assert_eq!(
+        result.fields.get("safe_bid_price"),
+        Some(&FieldValue::Float(0.0))
+    ); // COALESCE should return 0.0 for null
 
     println!("✅ NULL handling works correctly");
 }
@@ -288,9 +327,15 @@ async fn test_complex_expression() {
     assert_eq!(results.len(), 1);
     let result = &results[0];
 
-    assert_eq!(result.fields.get("symbol"), Some(&FieldValue::String("AAPL".to_string())));
+    assert_eq!(
+        result.fields.get("symbol"),
+        Some(&FieldValue::String("AAPL".to_string()))
+    );
     // ROUND(ABS(150.5 - 151.7) * LEAST(100, 200), 2) = ROUND(1.2 * 100, 2) = 120.0
-    assert_eq!(result.fields.get("total_opportunity"), Some(&FieldValue::Float(120.0)));
+    assert_eq!(
+        result.fields.get("total_opportunity"),
+        Some(&FieldValue::Float(120.0))
+    );
 
     println!("✅ Complex expressions work correctly");
 }
@@ -344,7 +389,10 @@ async fn test_streaming_behavior() {
         results[0].fields.get("symbol"),
         Some(&FieldValue::String("GOOGL".to_string()))
     );
-    assert_eq!(results[0].fields.get("bid_price"), Some(&FieldValue::Float(2500.0)));
+    assert_eq!(
+        results[0].fields.get("bid_price"),
+        Some(&FieldValue::Float(2500.0))
+    );
 
     println!("✅ Streaming behavior works correctly - each record processed independently");
 }
@@ -386,8 +434,14 @@ async fn test_end_to_end_integration() {
         googl_result.fields.get("symbol"),
         Some(&FieldValue::String("GOOGL".to_string()))
     );
-    assert_eq!(googl_result.fields.get("available_volume"), Some(&FieldValue::Integer(50))); // LEAST(50, 75)
-    assert_eq!(googl_result.fields.get("spread"), Some(&FieldValue::Float(1.5))); // ABS(2502.5 - 2501.0)
+    assert_eq!(
+        googl_result.fields.get("available_volume"),
+        Some(&FieldValue::Integer(50))
+    ); // LEAST(50, 75)
+    assert_eq!(
+        googl_result.fields.get("spread"),
+        Some(&FieldValue::Float(1.5))
+    ); // ABS(2502.5 - 2501.0)
     assert_eq!(
         googl_result.fields.get("potential_profit"),
         Some(&FieldValue::Float(75.0))
@@ -399,9 +453,18 @@ async fn test_end_to_end_integration() {
         tsla_result.fields.get("symbol"),
         Some(&FieldValue::String("TSLA".to_string()))
     );
-    assert_eq!(tsla_result.fields.get("available_volume"), Some(&FieldValue::Integer(25))); // LEAST(30, 25)
-    assert_eq!(tsla_result.fields.get("spread"), Some(&FieldValue::Float(0.5))); // ABS(801.0 - 800.5)
-    assert_eq!(tsla_result.fields.get("potential_profit"), Some(&FieldValue::Float(12.5))); // (801.0 - 800.5) * 25
+    assert_eq!(
+        tsla_result.fields.get("available_volume"),
+        Some(&FieldValue::Integer(25))
+    ); // LEAST(30, 25)
+    assert_eq!(
+        tsla_result.fields.get("spread"),
+        Some(&FieldValue::Float(0.5))
+    ); // ABS(801.0 - 800.5)
+    assert_eq!(
+        tsla_result.fields.get("potential_profit"),
+        Some(&FieldValue::Float(12.5))
+    ); // (801.0 - 800.5) * 25
 
     println!("✅ End-to-end integration test passed - arbitrage detection working perfectly!");
     println!("   Found {} arbitrage opportunities", results.len());

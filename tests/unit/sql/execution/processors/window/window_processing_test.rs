@@ -118,12 +118,18 @@ async fn test_tumbling_window_count() {
 
     // First window should have count of 3
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("order_count"), Some(&FieldValue::Integer(3)));
+        assert_eq!(
+            first_result.fields.get("order_count"),
+            Some(&FieldValue::Integer(3))
+        );
     }
 
     // Second window should have count of 2
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
+        assert_eq!(
+            second_result.fields.get("order_count"),
+            Some(&FieldValue::Integer(2))
+        );
     }
 }
 
@@ -145,12 +151,18 @@ async fn test_tumbling_window_sum() {
 
     // First window: 100 + 200 = 300
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("total_amount"), Some(&FieldValue::Float(300.0)));
+        assert_eq!(
+            first_result.fields.get("total_amount"),
+            Some(&FieldValue::Float(300.0))
+        );
     }
 
     // Second window: 300 + 400 = 700
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result.fields.get("total_amount"), Some(&FieldValue::Float(700.0)));
+        assert_eq!(
+            second_result.fields.get("total_amount"),
+            Some(&FieldValue::Float(700.0))
+        );
     }
 }
 
@@ -172,12 +184,18 @@ async fn test_tumbling_window_avg() {
 
     // First window: (100 + 200) / 2 = 150
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("avg_amount"), Some(&FieldValue::Float(150.0)));
+        assert_eq!(
+            first_result.fields.get("avg_amount"),
+            Some(&FieldValue::Float(150.0))
+        );
     }
 
     // Second window: (400 + 600) / 2 = 500
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result.fields.get("avg_amount"), Some(&FieldValue::Float(500.0)));
+        assert_eq!(
+            second_result.fields.get("avg_amount"),
+            Some(&FieldValue::Float(500.0))
+        );
     }
 }
 
@@ -200,14 +218,26 @@ async fn test_tumbling_window_min_max() {
 
     // First window: MIN=100, MAX=300
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("min_amount"), Some(&FieldValue::Float(100.0)));
-        assert_eq!(first_result.fields.get("max_amount"), Some(&FieldValue::Float(300.0)));
+        assert_eq!(
+            first_result.fields.get("min_amount"),
+            Some(&FieldValue::Float(100.0))
+        );
+        assert_eq!(
+            first_result.fields.get("max_amount"),
+            Some(&FieldValue::Float(300.0))
+        );
     }
 
     // Second window: MIN=400, MAX=500
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result.fields.get("min_amount"), Some(&FieldValue::Float(400.0)));
-        assert_eq!(second_result.fields.get("max_amount"), Some(&FieldValue::Float(500.0)));
+        assert_eq!(
+            second_result.fields.get("min_amount"),
+            Some(&FieldValue::Float(400.0))
+        );
+        assert_eq!(
+            second_result.fields.get("max_amount"),
+            Some(&FieldValue::Float(500.0))
+        );
     }
 }
 
@@ -286,7 +316,10 @@ async fn test_window_with_where_clause() {
 
     // First window: 2 records with amount > 250
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("high_value_orders"), Some(&FieldValue::Integer(2)));
+        assert_eq!(
+            first_result.fields.get("high_value_orders"),
+            Some(&FieldValue::Integer(2))
+        );
     }
 
     // Second window: 1 record with amount > 250
@@ -316,7 +349,10 @@ async fn test_window_with_having_clause() {
     assert_eq!(results.len(), 1, "Should emit only 1 result");
 
     if let Some(result) = results.first() {
-        assert_eq!(result.fields.get("order_count"), Some(&FieldValue::Integer(3)));
+        assert_eq!(
+            result.fields.get("order_count"),
+            Some(&FieldValue::Integer(3))
+        );
     }
 }
 
@@ -359,11 +395,17 @@ async fn test_window_boundary_alignment() {
 
     // First window should have 2 records (including the one at 9999ms)
     if let Some(first_result) = results.first() {
-        assert_eq!(first_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
+        assert_eq!(
+            first_result.fields.get("order_count"),
+            Some(&FieldValue::Integer(2))
+        );
     }
 
     // Second window should have 2 records (starting exactly at 10000ms)
     if let Some(second_result) = results.get(1) {
-        assert_eq!(second_result.fields.get("order_count"), Some(&FieldValue::Integer(2)));
+        assert_eq!(
+            second_result.fields.get("order_count"),
+            Some(&FieldValue::Integer(2))
+        );
     }
 }

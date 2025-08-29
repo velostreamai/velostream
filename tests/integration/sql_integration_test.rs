@@ -1,7 +1,10 @@
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, types::{FieldValue, StreamRecord}};
+use ferrisstreams::ferris::sql::execution::{
+    types::{FieldValue, StreamRecord},
+    StreamExecutionEngine,
+};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use ferrisstreams::ferris::sql::DataType;
 use std::collections::HashMap;
@@ -69,11 +72,8 @@ mod tests {
         }
         // Use safe, controlled timestamp to avoid arithmetic overflow
         let safe_timestamp = 1000 + (order_id * 1000); // Each record 1 second apart
-        fields.insert(
-            "timestamp".to_string(),
-            FieldValue::Integer(safe_timestamp),
-        );
-        
+        fields.insert("timestamp".to_string(), FieldValue::Integer(safe_timestamp));
+
         StreamRecord {
             fields,
             timestamp: safe_timestamp,
@@ -83,12 +83,7 @@ mod tests {
         }
     }
 
-    fn create_user_record(
-        user_id: i64,
-        name: &str,
-        email: &str,
-        age: Option<i64>,
-    ) -> StreamRecord {
+    fn create_user_record(user_id: i64, name: &str, email: &str, age: Option<i64>) -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("user_id".to_string(), FieldValue::Integer(user_id));
         fields.insert("name".to_string(), FieldValue::String(name.to_string()));
@@ -96,7 +91,7 @@ mod tests {
         if let Some(a) = age {
             fields.insert("age".to_string(), FieldValue::Integer(a));
         }
-        
+
         StreamRecord {
             fields,
             timestamp: 1000 + user_id * 1000,
@@ -218,7 +213,9 @@ mod tests {
             .parse("SELECT order_id, customer_id FROM orders")
             .unwrap();
         let order_record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute_with_record(&orders_query, order_record).await;
+        let result = engine
+            .execute_with_record(&orders_query, order_record)
+            .await;
         assert!(result.is_ok());
 
         // Test users query
@@ -380,7 +377,9 @@ mod tests {
         // Using timestamps that are far apart to trigger session boundary
         let mut record2_data = create_order_record(2, 100, 199.99, Some("completed"));
         // Set timestamp to be 35 seconds after the first record (exceeds 30s session gap)
-        record2_data.fields.insert("timestamp".to_string(), FieldValue::Integer(36000)); // 36 seconds
+        record2_data
+            .fields
+            .insert("timestamp".to_string(), FieldValue::Integer(36000)); // 36 seconds
         record2_data.timestamp = 36000; // Also update the StreamRecord timestamp
         let result2 = engine.execute_with_record(&query, record2_data).await;
         assert!(result2.is_ok());
@@ -420,7 +419,10 @@ mod tests {
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
-        assert_eq!(output.fields.get("nonexistent_column"), Some(&FieldValue::Null));
+        assert_eq!(
+            output.fields.get("nonexistent_column"),
+            Some(&FieldValue::Null)
+        );
     }
 
     #[tokio::test]
@@ -444,7 +446,8 @@ mod tests {
         let valid_record = create_order_record(1, 100, 299.99, Some("pending"));
         // Convert InternalValue to serde_json::Value for validation
         let valid_json_record: HashMap<String, serde_json::Value> = valid_record
-            .fields.iter()
+            .fields
+            .iter()
             .map(|(k, v)| {
                 let json_val = match v {
                     FieldValue::Integer(i) => {

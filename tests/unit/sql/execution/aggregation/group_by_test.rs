@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,17 +11,17 @@ use tokio::sync::mpsc;
 mod tests {
     use super::*;
 
-    fn create_test_engine() -> (
-        StreamExecutionEngine,
-        mpsc::UnboundedReceiver<StreamRecord>,
-    ) {
+    fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<StreamRecord>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
         let engine = StreamExecutionEngine::new(sender, format);
         (engine, receiver)
     }
 
-    fn create_stream_record_with_fields(fields: HashMap<String, FieldValue>, offset: i64) -> StreamRecord {
+    fn create_stream_record_with_fields(
+        fields: HashMap<String, FieldValue>,
+        offset: i64,
+    ) -> StreamRecord {
         StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -371,19 +371,25 @@ mod tests {
 
         // Create test records
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert("amount".to_string(), FieldValue::Float(150.0));
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(150.0));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("amount".to_string(), FieldValue::Float(150.0));
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(150.0));
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Float(2.0));
+        fields3.insert("customer_id".to_string(), FieldValue::Float(2.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert("amount".to_string(), FieldValue::Float(100.0));
+        record3
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0));
 
         // Test query with HAVING clause
         let query = parser
@@ -408,7 +414,10 @@ mod tests {
 
             let result = &results[0];
             // Verify that only customer 1's group (sum = 300) is included
-            match (&result.fields.get("customer_id"), &result.fields.get("total")) {
+            match (
+                &result.fields.get("customer_id"),
+                &result.fields.get("total"),
+            ) {
                 (Some(FieldValue::Float(cust_id)), Some(FieldValue::Float(sum))) => {
                     assert_eq!(*cust_id, 1.0);
                     assert_eq!(*sum, 300.0);
@@ -504,22 +513,34 @@ mod tests {
 
         // Create test records
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert("_timestamp".to_string(), FieldValue::Float(60000.0)); // 1 minute
-        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
+        record1
+            .fields
+            .insert("_timestamp".to_string(), FieldValue::Float(60000.0)); // 1 minute
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
-        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
+        record2
+            .fields
+            .insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
-        record3.fields.insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
+        record3
+            .fields
+            .insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
+        record3
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
 
         // Test windowed GROUP BY
         let query = parser
@@ -578,16 +599,24 @@ mod tests {
 
         // Create test records
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert("is_prime".to_string(), FieldValue::Boolean(true));
-        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0)); // Low value
+        record1
+            .fields
+            .insert("is_prime".to_string(), FieldValue::Boolean(true));
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0)); // Low value
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("is_prime".to_string(), FieldValue::Boolean(false));
-        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0)); // High value
+        record2
+            .fields
+            .insert("is_prime".to_string(), FieldValue::Boolean(false));
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(200.0)); // High value
 
         // Test query that groups by a boolean condition
         let query = parser
@@ -638,7 +667,10 @@ mod tests {
             }
 
             // Verify high value group
-            match (high_value.fields.get("count"), high_value.fields.get("total")) {
+            match (
+                high_value.fields.get("count"),
+                high_value.fields.get("total"),
+            ) {
                 (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                     assert_eq!(*count, 1);
                     assert_eq!(*total, 200.0);
@@ -787,7 +819,7 @@ mod tests {
 
         // Create test records in a specific order
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
         record1.fields.insert(
             "product".to_string(),
@@ -795,7 +827,7 @@ mod tests {
         );
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2.fields.insert(
             "product".to_string(),
@@ -803,7 +835,7 @@ mod tests {
         );
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
         record3.fields.insert(
             "product".to_string(),
@@ -864,28 +896,25 @@ mod tests {
 
         // Create test records with string values
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert(
-            "tag".to_string(),
-            FieldValue::String("red".to_string()),
-        );
+        record1
+            .fields
+            .insert("tag".to_string(), FieldValue::String("red".to_string()));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert(
-            "tag".to_string(),
-            FieldValue::String("green".to_string()),
-        );
+        record2
+            .fields
+            .insert("tag".to_string(), FieldValue::String("green".to_string()));
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert(
-            "tag".to_string(),
-            FieldValue::String("blue".to_string()),
-        );
+        record3
+            .fields
+            .insert("tag".to_string(), FieldValue::String("blue".to_string()));
 
         // Test STRING_AGG function with comma separator
         let query = parser
@@ -1039,28 +1068,25 @@ mod tests {
         fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         fields1.insert("amount".to_string(), FieldValue::Float(100.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert(
-            "category".to_string(),
-            FieldValue::String("A".to_string()),
-        );
+        record1
+            .fields
+            .insert("category".to_string(), FieldValue::String("A".to_string()));
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         fields2.insert("amount".to_string(), FieldValue::Float(200.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert(
-            "category".to_string(),
-            FieldValue::String("B".to_string()),
-        );
+        record2
+            .fields
+            .insert("category".to_string(), FieldValue::String("B".to_string()));
 
         let mut fields3 = HashMap::new();
         fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         fields3.insert("amount".to_string(), FieldValue::Float(300.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert(
-            "category".to_string(),
-            FieldValue::String("A".to_string()),
-        );
+        record3
+            .fields
+            .insert("category".to_string(), FieldValue::String("A".to_string()));
 
         // Test query combining multiple new aggregate functions
         let query = parser
@@ -1163,24 +1189,32 @@ mod tests {
 
         // Create test records with NULL values in grouping column
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Null);
+        fields2.insert("customer_id".to_string(), FieldValue::Null);
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0));
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(200.0));
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Null);
+        fields3.insert("customer_id".to_string(), FieldValue::Null);
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert("amount".to_string(), FieldValue::Float(300.0));
+        record3
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(300.0));
 
         let mut fields4 = HashMap::new();
-                fields4.insert("customer_id".to_string(), FieldValue::Float(2.0));
+        fields4.insert("customer_id".to_string(), FieldValue::Float(2.0));
         let mut record4 = create_stream_record_with_fields(fields4, 4);
-        record4.fields.insert("amount".to_string(), FieldValue::Float(400.0));
+        record4
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(400.0));
 
         // Test GROUP BY with NULL values in grouping column
         let query = parser
@@ -1228,7 +1262,10 @@ mod tests {
                 .find(|r| matches!(r.fields.get("customer_id"), Some(FieldValue::Null)))
                 .expect("Should have group for customer_id = NULL");
 
-            match (null_group.fields.get("count"), null_group.fields.get("total")) {
+            match (
+                null_group.fields.get("count"),
+                null_group.fields.get("total"),
+            ) {
                 (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                     assert_eq!(*count, 2);
                     assert_eq!(*total, 500.0);
@@ -1267,28 +1304,44 @@ mod tests {
 
         // Create test records with NULL values in aggregation columns
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert("quantity".to_string(), FieldValue::Float(5.0));
-        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
+        record1
+            .fields
+            .insert("quantity".to_string(), FieldValue::Float(5.0));
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("quantity".to_string(), FieldValue::Float(3.0));
-        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0));
+        record2
+            .fields
+            .insert("quantity".to_string(), FieldValue::Float(3.0));
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(200.0));
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert("quantity".to_string(), FieldValue::Null);
-        record3.fields.insert("amount".to_string(), FieldValue::Null);
+        record3
+            .fields
+            .insert("quantity".to_string(), FieldValue::Null);
+        record3
+            .fields
+            .insert("amount".to_string(), FieldValue::Null);
 
         let mut fields4 = HashMap::new();
-                fields4.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields4.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record4 = create_stream_record_with_fields(fields4, 4);
-        record4.fields.insert("quantity".to_string(), FieldValue::Null);
-        record4.fields.insert("amount".to_string(), FieldValue::Null);
+        record4
+            .fields
+            .insert("quantity".to_string(), FieldValue::Null);
+        record4
+            .fields
+            .insert("amount".to_string(), FieldValue::Null);
 
         // Test aggregate functions with NULL values
         let query = parser
@@ -1382,32 +1435,38 @@ mod tests {
 
         // Create test records with NULL values in multiple grouping columns
         let mut fields1 = HashMap::new();
-                fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1.fields.insert(
-            "region".to_string(),
-            FieldValue::String("US".to_string()),
-        );
-        record1.fields.insert("amount".to_string(), FieldValue::Float(100.0));
+        record1
+            .fields
+            .insert("region".to_string(), FieldValue::String("US".to_string()));
+        record1
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(100.0));
 
         let mut fields2 = HashMap::new();
-                fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
+        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
         let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2.fields.insert("amount".to_string(), FieldValue::Float(200.0));
+        record2
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(200.0));
 
         let mut fields3 = HashMap::new();
-                fields3.insert("customer_id".to_string(), FieldValue::Null);
+        fields3.insert("customer_id".to_string(), FieldValue::Null);
         let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3.fields.insert(
-            "region".to_string(),
-            FieldValue::String("EU".to_string()),
-        );
-        record3.fields.insert("amount".to_string(), FieldValue::Float(300.0));
+        record3
+            .fields
+            .insert("region".to_string(), FieldValue::String("EU".to_string()));
+        record3
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(300.0));
 
         let mut fields4 = HashMap::new();
-                fields4.insert("customer_id".to_string(), FieldValue::Null);
+        fields4.insert("customer_id".to_string(), FieldValue::Null);
         let mut record4 = create_stream_record_with_fields(fields4, 4);
-        record4.fields.insert("amount".to_string(), FieldValue::Float(400.0));
+        record4
+            .fields
+            .insert("amount".to_string(), FieldValue::Float(400.0));
 
         // Test GROUP BY with multiple columns containing NULLs
         let query = parser
@@ -1437,23 +1496,20 @@ mod tests {
 
             // Verify each group combination
             for result in &results {
-                match (result.fields.get("customer_id"), result.fields.get("region")) {
+                match (
+                    result.fields.get("customer_id"),
+                    result.fields.get("region"),
+                ) {
                     (Some(FieldValue::Float(1.0)), Some(FieldValue::String(region)))
                         if region == "US" =>
                     {
                         // Group: customer_id=1, region=US
                         match (result.fields.get("count"), result.fields.get("total")) {
-                            (
-                                Some(FieldValue::Integer(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1);
                                 assert_eq!(*total, 100.0);
                             }
-                            (
-                                Some(FieldValue::Float(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Float(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1.0);
                                 assert_eq!(*total, 100.0);
                             }
@@ -1463,17 +1519,11 @@ mod tests {
                     (Some(FieldValue::Float(1.0)), Some(FieldValue::Null)) => {
                         // Group: customer_id=1, region=NULL
                         match (result.fields.get("count"), result.fields.get("total")) {
-                            (
-                                Some(FieldValue::Integer(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1);
                                 assert_eq!(*total, 200.0);
                             }
-                            (
-                                Some(FieldValue::Float(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Float(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1.0);
                                 assert_eq!(*total, 200.0);
                             }
@@ -1485,17 +1535,11 @@ mod tests {
                     {
                         // Group: customer_id=NULL, region=EU
                         match (result.fields.get("count"), result.fields.get("total")) {
-                            (
-                                Some(FieldValue::Integer(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1);
                                 assert_eq!(*total, 300.0);
                             }
-                            (
-                                Some(FieldValue::Float(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Float(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1.0);
                                 assert_eq!(*total, 300.0);
                             }
@@ -1505,17 +1549,11 @@ mod tests {
                     (Some(FieldValue::Null), Some(FieldValue::Null)) => {
                         // Group: customer_id=NULL, region=NULL
                         match (result.fields.get("count"), result.fields.get("total")) {
-                            (
-                                Some(FieldValue::Integer(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Integer(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1);
                                 assert_eq!(*total, 400.0);
                             }
-                            (
-                                Some(FieldValue::Float(count)),
-                                Some(FieldValue::Float(total)),
-                            ) => {
+                            (Some(FieldValue::Float(count)), Some(FieldValue::Float(total))) => {
                                 assert_eq!(*count, 1.0);
                                 assert_eq!(*total, 400.0);
                             }

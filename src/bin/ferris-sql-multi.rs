@@ -1,8 +1,5 @@
 use clap::{Parser, Subcommand};
-use ferrisstreams::ferris::{
-    MultiJobSqlServer,
-    sql::{SqlApplicationParser},
-};
+use ferrisstreams::ferris::{sql::SqlApplicationParser, MultiJobSqlServer};
 use log::{error, info};
 use std::fs;
 use std::time::Duration;

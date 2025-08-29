@@ -15,8 +15,11 @@ use tokio::sync::mpsc;
 
 fn create_test_record(text_field: &str) -> StreamRecord {
     let mut fields = HashMap::new();
-    fields.insert("text_field".to_string(), FieldValue::String(text_field.to_string()));
-    
+    fields.insert(
+        "text_field".to_string(),
+        FieldValue::String(text_field.to_string()),
+    );
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -28,10 +31,16 @@ fn create_test_record(text_field: &str) -> StreamRecord {
 
 fn create_edge_case_record() -> StreamRecord {
     let mut fields = HashMap::new();
-    fields.insert("text_field".to_string(), FieldValue::String("Hello World".to_string()));
+    fields.insert(
+        "text_field".to_string(),
+        FieldValue::String("Hello World".to_string()),
+    );
     fields.insert("null_field".to_string(), FieldValue::Null);
-    fields.insert("number_field".to_string(), FieldValue::String("123".to_string()));
-    
+    fields.insert(
+        "number_field".to_string(),
+        FieldValue::String("123".to_string()),
+    );
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -299,12 +308,9 @@ async fn test_in_operator_basic() {
     // Create test record
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(2));
-    fields.insert(
-        "name".to_string(),
-        FieldValue::String("test".to_string()),
-    );
+    fields.insert("name".to_string(), FieldValue::String("test".to_string()));
     fields.insert("amount".to_string(), FieldValue::Float(150.0));
-    
+
     let record = StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -380,11 +386,8 @@ async fn test_not_in_operator_basic() {
     // Create test record
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(2));
-    fields.insert(
-        "name".to_string(),
-        FieldValue::String("test".to_string()),
-    );
-    
+    fields.insert("name".to_string(), FieldValue::String("test".to_string()));
+
     let record = StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -450,7 +453,7 @@ async fn test_in_operator_with_null_values() {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(1));
     fields.insert("nullable_field".to_string(), FieldValue::Null);
-    
+
     let record = StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -532,11 +535,8 @@ async fn test_in_operator_edge_cases() {
     // Create test record
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(5));
-    fields.insert(
-        "name".to_string(),
-        FieldValue::String("hello".to_string()),
-    );
-    
+    fields.insert("name".to_string(), FieldValue::String("hello".to_string()));
+
     let record = StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),
@@ -572,7 +572,9 @@ async fn test_in_operator_edge_cases() {
         emit_mode: None,
     };
 
-    let result_large = engine.execute_with_record(&query_large, record.clone()).await;
+    let result_large = engine
+        .execute_with_record(&query_large, record.clone())
+        .await;
     assert!(result_large.is_ok());
 
     // Should match since 5 is in 1..=100

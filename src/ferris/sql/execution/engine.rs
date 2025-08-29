@@ -412,7 +412,6 @@ impl StreamExecutionEngine {
         query: &StreamingQuery,
         stream_record: StreamRecord,
     ) -> Result<(), SqlError> {
-
         // Check if this is a windowed query and process accordingly
         let result = if let StreamingQuery::Select {
             window: Some(window_spec),

@@ -6,8 +6,8 @@
 //! 3. Duplicate job name rejection
 //! 4. Input validation and error handling
 
-use ferrisstreams::ferris::{JobStatus, MultiJobSqlServer};
 use ferrisstreams::ferris::sql::SqlApplicationParser;
+use ferrisstreams::ferris::{JobStatus, MultiJobSqlServer};
 use std::time::Duration;
 
 // Test helper functions
@@ -478,7 +478,9 @@ WITH ('output.topic' = 'output2');
 
     // Parse the SQL application string
     let parser = SqlApplicationParser::new();
-    let parsed_app = parser.parse_application(sql_app).expect("Failed to parse SQL application");
+    let parsed_app = parser
+        .parse_application(sql_app)
+        .expect("Failed to parse SQL application");
 
     let result = server
         .deploy_sql_application(parsed_app, Some("default_topic".to_string()))

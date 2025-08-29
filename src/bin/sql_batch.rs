@@ -144,7 +144,7 @@ async fn execute_sql_file(
                     if result_count > 1 {
                         print!(",");
                     }
-                    // Convert StreamRecord to JSON representation 
+                    // Convert StreamRecord to JSON representation
                     let json_result = format!(
                         "{{\"record\":{},\"field_count\":{},\"timestamp\":{},\"partition\":{},\"offset\":{}}}",
                         result_count, 

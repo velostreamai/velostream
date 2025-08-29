@@ -133,7 +133,9 @@ fn test_emit_final_parsing_without_window() {
         use ferrisstreams::ferris::serialization::{
             InternalValue, JsonFormat, SerializationFormat,
         };
-        use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+        use ferrisstreams::ferris::sql::execution::{
+            FieldValue, StreamExecutionEngine, StreamRecord,
+        };
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::mpsc;
@@ -152,7 +154,6 @@ fn test_emit_final_parsing_without_window() {
         fields.insert("customer_id".to_string(), FieldValue::Integer(1));
 
         let record1 = StreamRecord::new(fields);
-
 
         // Execution should fail with validation error
         let result = engine.execute_with_record(&query, record1).await;

@@ -1,9 +1,7 @@
 //! Test to verify the performance improvement from passing StreamRecord directly
 //! This measures the benefit of avoiding decomposition/reconstruction
 
-use ferrisstreams::ferris::sql::execution::{
-    types::{FieldValue, StreamRecord},
-};
+use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -44,20 +42,20 @@ fn main() {
     for field_count in [10, 50, 100, 200].iter() {
         let record = create_test_record(*field_count);
         println!("=== Testing with {} fields ===", field_count);
-        
+
         let iterations = 100000;
-        
+
         // Test OLD approach: decompose → reconstruct (what execute_with_record did)
         let start = Instant::now();
         for _ in 0..iterations {
             // Simulate the old execute_with_record approach:
-            // 1. Take individual parameters 
+            // 1. Take individual parameters
             let record_fields = record.fields.clone();
             let headers = record.headers.clone();
             let timestamp = Some(record.timestamp);
             let offset = Some(record.offset);
             let partition = Some(record.partition);
-            
+
             // 2. Reconstruct StreamRecord (line 448-454 in original code)
             let _reconstructed = StreamRecord {
                 fields: record_fields,
@@ -68,7 +66,7 @@ fn main() {
             };
         }
         let old_time = start.elapsed();
-        
+
         // Test NEW approach: direct usage (what execute_with_record does)
         let start = Instant::now();
         for _ in 0..iterations {
@@ -76,20 +74,29 @@ fn main() {
             let _direct = record.clone();
         }
         let new_time = start.elapsed();
-        
+
         // Calculate metrics
         let old_ns_per_iter = old_time.as_nanos() as f64 / iterations as f64;
         let new_ns_per_iter = new_time.as_nanos() as f64 / iterations as f64;
         let improvement_factor = old_ns_per_iter / new_ns_per_iter;
         let time_saved = old_ns_per_iter - new_ns_per_iter;
         let per_field_savings = time_saved / *field_count as f64;
-        
-        println!("OLD (decompose+reconstruct): {:8.1}ns per call", old_ns_per_iter);
-        println!("NEW (direct usage):          {:8.1}ns per call", new_ns_per_iter);
+
+        println!(
+            "OLD (decompose+reconstruct): {:8.1}ns per call",
+            old_ns_per_iter
+        );
+        println!(
+            "NEW (direct usage):          {:8.1}ns per call",
+            new_ns_per_iter
+        );
         println!("Time saved per call:         {:8.1}ns", time_saved);
         println!("Time saved per field:        {:8.1}ns", per_field_savings);
-        println!("Improvement factor:          {:.2}x FASTER", improvement_factor);
-        
+        println!(
+            "Improvement factor:          {:.2}x FASTER",
+            improvement_factor
+        );
+
         // Assess significance
         if time_saved > 1000.0 {
             println!("Result: ✓ SIGNIFICANT IMPROVEMENT");
@@ -108,7 +115,9 @@ fn main() {
     println!("✓ Cleaner, more intuitive interface that matches data flow");
     println!("✓ Zero functional changes - pure performance optimization");
     println!("\n=== OPTIMIZATION LINEAGE ===");
-    println!("1. PHASE 1: Removed FieldValue → InternalValue → FieldValue conversion (8.3x improvement)");
+    println!(
+        "1. PHASE 1: Removed FieldValue → InternalValue → FieldValue conversion (8.3x improvement)"
+    );
     println!("2. PHASE 2: Added execute_with_record to eliminate decompose/reconstruct overhead");
     println!("\nBoth optimizations work together to create a highly efficient execution pipeline!");
 }

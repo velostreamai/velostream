@@ -205,21 +205,21 @@ impl MultiJobSqlServer {
                 query: None,
             });
         }
-        
+
         if version.trim().is_empty() {
             return Err(SqlError::ExecutionError {
                 message: "job version cannot be empty".to_string(),
                 query: None,
             });
         }
-        
+
         if query.trim().is_empty() {
             return Err(SqlError::ExecutionError {
                 message: "query cannot be empty".to_string(),
                 query: None,
             });
         }
-        
+
         if topic.trim().is_empty() {
             return Err(SqlError::ExecutionError {
                 message: "topic cannot be empty".to_string(),

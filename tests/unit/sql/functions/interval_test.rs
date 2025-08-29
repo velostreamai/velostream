@@ -35,9 +35,7 @@ fn create_test_record() -> StreamRecord {
 
 // Removed conversion helper - now using StreamRecord directly
 
-async fn execute_query(
-    query: &str,
-) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -234,9 +232,12 @@ async fn test_interval_conversion_accuracy() {
                     TimeUnit::Hour => *value * 60 * 60 * 1000,
                     TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
                 }
-            },
+            }
             Some(other) => panic!("Unexpected field type for interval_value: {:?}", other),
-            None => panic!("interval_value field not found in result: {:?}", results[0].fields),
+            None => panic!(
+                "interval_value field not found in result: {:?}",
+                results[0].fields
+            ),
         };
 
         assert_eq!(
@@ -298,7 +299,10 @@ async fn test_interval_with_null_values() {
         Ok(res) => {
             if !res.is_empty() {
                 // If it succeeds, result should be NULL
-                assert_eq!(res[0].fields.get("null_plus_interval"), Some(&FieldValue::Null));
+                assert_eq!(
+                    res[0].fields.get("null_plus_interval"),
+                    Some(&FieldValue::Null)
+                );
             }
         }
         Err(_) => {

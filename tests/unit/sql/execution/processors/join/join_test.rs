@@ -25,9 +25,7 @@ fn create_test_record_for_join() -> StreamRecord {
     }
 }
 
-async fn execute_join_query(
-    query: &str,
-) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+async fn execute_join_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());

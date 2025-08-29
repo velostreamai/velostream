@@ -256,10 +256,7 @@ async fn process_single_record(
 
             // Execute the query directly with StreamRecord (most efficient)
             let mut engine = execution_engine.lock().await;
-            if let Err(e) = engine
-                .execute_with_record(parsed_query, record)
-                .await
-            {
+            if let Err(e) = engine.execute_with_record(parsed_query, record).await {
                 error!("Job '{}' failed to process record: {:?}", job_name, e);
                 stats.errors += 1;
             }

@@ -16,7 +16,7 @@ use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ fn create_test_record() -> StreamRecord {
     fields.insert("zero_value".to_string(), FieldValue::Integer(0));
     fields.insert("null_value".to_string(), FieldValue::Null);
     fields.insert("large_value".to_string(), FieldValue::Float(1000.5));
-    
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),

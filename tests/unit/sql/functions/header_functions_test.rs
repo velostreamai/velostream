@@ -33,10 +33,7 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-
-async fn execute_query(
-    query: &str,
-) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
     let parser = StreamingSqlParser::new();
@@ -177,7 +174,10 @@ async fn test_remove_header_nonexistent() {
     assert_eq!(results.len(), 1);
 
     // REMOVE_HEADER should return NULL for nonexistent headers
-    assert_eq!(results[0].fields.get("remove_result"), Some(&FieldValue::Null));
+    assert_eq!(
+        results[0].fields.get("remove_result"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]

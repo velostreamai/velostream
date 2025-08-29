@@ -9,7 +9,7 @@ use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord, FieldValue};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -22,10 +22,7 @@ fn create_test_record(
 ) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(id));
-    fields.insert(
-        "customer_id".to_string(),
-        FieldValue::Integer(customer_id),
-    );
+    fields.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     if let Some(s) = status {
         fields.insert("status".to_string(), FieldValue::String(s.to_string()));
@@ -34,7 +31,7 @@ fn create_test_record(
         "timestamp".to_string(),
         FieldValue::Integer(chrono::Utc::now().timestamp()),
     );
-    
+
     StreamRecord {
         fields,
         timestamp: chrono::Utc::now().timestamp_millis(),

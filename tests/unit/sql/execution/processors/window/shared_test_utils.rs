@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use ferrisstreams::ferris::serialization::SqlError;
 use ferrisstreams::ferris::{
     serialization::{InternalValue, JsonFormat},
     sql::{
@@ -13,7 +14,6 @@ use ferrisstreams::ferris::{
         parser::StreamingSqlParser,
     },
 };
-use ferrisstreams::ferris::serialization::SqlError;
 
 /// Common record creation utilities
 pub struct TestDataBuilder;
