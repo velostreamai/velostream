@@ -2,8 +2,8 @@
 
 use super::helpers::{
     avro_value_to_field_value, avro_value_to_field_value_with_schema, field_value_to_avro,
-    field_value_to_avro_with_decimal_schema,
-    field_value_to_internal, internal_to_field_value, DecimalSchemaInfo,
+    field_value_to_avro_with_decimal_schema, field_value_to_internal, internal_to_field_value,
+    DecimalSchemaInfo,
 };
 use super::{FieldValue, InternalValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;

@@ -130,9 +130,7 @@ fn test_emit_final_parsing_without_window() {
 
     #[tokio::test]
     async fn test_emit_final_validation_error() {
-        use ferrisstreams::ferris::serialization::{
-            JsonFormat, SerializationFormat,
-        };
+        use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
         use ferrisstreams::ferris::sql::execution::{
             FieldValue, StreamExecutionEngine, StreamRecord,
         };

@@ -3,7 +3,6 @@
 //! This module tests basic DECIMAL type implementation that works with
 //! the current codebase structure.
 
-
 use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::sql::ast::{DataType, Expr, LiteralValue, SelectField, StreamingQuery};
 use ferrisstreams::ferris::sql::execution::types::FieldValue;

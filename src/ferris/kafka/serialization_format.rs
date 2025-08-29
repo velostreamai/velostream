@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
-
-
 /// Enumeration of supported serialization formats for Kafka messages
 ///
 /// This enum enables runtime selection of serialization formats, supporting

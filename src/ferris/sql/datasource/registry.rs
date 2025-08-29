@@ -42,7 +42,6 @@ impl DataSourceRegistry {
     /// Create a registry with default implementations
     /// TODO: Implement with generic datasource implementations
     pub fn with_defaults() -> Self {
-        
         // TODO: Add factory registrations when async architecture is resolved
         Self::new()
     }

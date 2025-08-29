@@ -279,7 +279,10 @@ mod avro_tests {
                     !bytes.is_empty(),
                     "Decimal logical type should produce bytes"
                 );
-                println!("Schema-aware encoding produced {} bytes in Decimal variant", bytes.len());
+                println!(
+                    "Schema-aware encoding produced {} bytes in Decimal variant",
+                    bytes.len()
+                );
             }
             AvroValue::Bytes(bytes) => {
                 // Fallback for older Avro versions that might use Bytes

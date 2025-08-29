@@ -9,8 +9,6 @@ use crate::ferris::{
 };
 use std::sync::Arc;
 
-
-
 /// Factory for creating execution formats based on query analysis
 pub struct ExecutionFormatFactory;
 
