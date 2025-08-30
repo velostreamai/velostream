@@ -1,20 +1,13 @@
 //! Kafka data sink implementation
 
 use crate::ferris::datasource::{DataSink, DataWriter, SinkConfig, SinkMetadata};
-use crate::ferris::kafka::serialization::JsonSerializer;
-use crate::ferris::kafka::KafkaProducer;
 use crate::ferris::schema::Schema;
 use async_trait::async_trait;
-use serde_json::Value;
 use std::collections::HashMap;
 
 use super::error::KafkaDataSourceError;
-use super::writer::{DynamicKafkaWriter, KafkaDataWriter};
-
-#[cfg(feature = "avro")]
-use crate::ferris::kafka::serialization::AvroSerializer;
-#[cfg(feature = "avro")]
-use apache_avro::types::Value as AvroValue;
+use super::reader::SerializationFormat;
+use super::writer::KafkaDataWriter;
 
 /// Kafka DataSink implementation
 pub struct KafkaDataSink {
@@ -33,91 +26,33 @@ impl KafkaDataSink {
         }
     }
 
-    /// Create a producer based on the serialization format in config
-    fn create_producer_from_config(
+    /// Create a unified writer based on the serialization format in config
+    async fn create_unified_writer(
         &self,
-    ) -> Result<DynamicKafkaWriter, Box<dyn std::error::Error + Send + Sync>> {
-        // Get serialization formats from config (default to JSON if not specified)
-        let key_format = self
-            .config
-            .get("key.serializer")
-            .map(|s| s.as_str())
-            .unwrap_or("json");
+    ) -> Result<KafkaDataWriter, Box<dyn std::error::Error + Send + Sync>> {
+        // Get serialization format from config (default to JSON if not specified)
         let value_format = self
             .config
             .get("value.serializer")
             .map(|s| s.as_str())
             .unwrap_or("json");
 
-        match (key_format, value_format) {
-            ("json", "json") => {
-                let producer = KafkaProducer::<String, Value, _, _>::new(
-                    &self.brokers,
-                    &self.topic,
-                    JsonSerializer,
-                    JsonSerializer,
-                )?;
-                Ok(DynamicKafkaWriter::JsonWriter(KafkaDataWriter {
-                    producer,
-                    topic: self.topic.clone(),
-                }))
-            }
+        // Map config value to SerializationFormat enum
+        let format = match value_format {
+            "json" => SerializationFormat::Json,
             #[cfg(feature = "avro")]
-            ("json", "avro") => {
-                use apache_avro::Schema as AvroSchema;
-
-                // For now, use a generic schema - in production this would come from Schema Registry
-                let schema_str = r#"
-                {
-                    "type": "record",
-                    "name": "GenericRecord",
-                    "fields": []
-                }
-                "#;
-                let schema = AvroSchema::parse_str(schema_str)
-                    .map_err(|e| format!("Failed to parse Avro schema: {}", e))?;
-                let avro_serializer = AvroSerializer::new(schema);
-
-                let producer = KafkaProducer::<String, AvroValue, _, _>::new(
-                    &self.brokers,
-                    &self.topic,
-                    JsonSerializer,
-                    avro_serializer,
-                )?;
-                Ok(DynamicKafkaWriter::AvroWriter(KafkaDataWriter {
-                    producer,
-                    topic: self.topic.clone(),
-                }))
-            }
+            "avro" => SerializationFormat::Avro,
             #[cfg(feature = "protobuf")]
-            ("json", "protobuf") | ("json", "proto") => {
-                // For protobuf, we use Vec<u8> as the value type with JsonSerializer
-                // The actual protobuf serialization would happen at a higher level
-                let producer = KafkaProducer::<String, Vec<u8>, _, _>::new(
-                    &self.brokers,
-                    &self.topic,
-                    JsonSerializer,
-                    JsonSerializer, // Use JSON serializer for raw bytes
-                )?;
-                Ok(DynamicKafkaWriter::ProtobufWriter(KafkaDataWriter {
-                    producer,
-                    topic: self.topic.clone(),
-                }))
-            }
-            _ => {
-                // Default to JSON for unsupported combinations
-                let producer = KafkaProducer::<String, Value, _, _>::new(
-                    &self.brokers,
-                    &self.topic,
-                    JsonSerializer,
-                    JsonSerializer,
-                )?;
-                Ok(DynamicKafkaWriter::JsonWriter(KafkaDataWriter {
-                    producer,
-                    topic: self.topic.clone(),
-                }))
-            }
-        }
+            "protobuf" | "proto" => SerializationFormat::Protobuf,
+            "auto" => SerializationFormat::Auto,
+            _ => SerializationFormat::Json, // Default fallback
+        };
+
+        // Get key field for message partitioning
+        let key_field = self.config.get("key.field").cloned();
+
+        // Create unified writer
+        KafkaDataWriter::new(&self.brokers, self.topic.clone(), format, key_field).await
     }
 
     /// Add a configuration parameter
@@ -162,10 +97,10 @@ impl DataSink for KafkaDataSink {
     async fn create_writer(
         &self,
     ) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
-        // Create the appropriate producer based on serialization config
-        let writer = self.create_producer_from_config().map_err(|e| {
+        // Create the unified writer
+        let writer = self.create_unified_writer().await.map_err(|e| {
             Box::new(KafkaDataSourceError::Configuration(format!(
-                "Failed to create producer: {}",
+                "Failed to create writer: {}",
                 e
             ))) as Box<dyn std::error::Error + Send + Sync>
         })?;

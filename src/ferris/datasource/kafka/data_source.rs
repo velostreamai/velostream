@@ -1,19 +1,14 @@
 //! Kafka data source implementation
 
 use crate::ferris::datasource::{DataReader, DataSource, SourceConfig, SourceMetadata};
-use crate::ferris::kafka::serialization::JsonSerializer;
-use crate::ferris::kafka::KafkaConsumer;
 use crate::ferris::schema::{FieldDefinition, Schema};
 use crate::ferris::sql::ast::DataType;
 use async_trait::async_trait;
-use serde_json::Value;
 use std::collections::HashMap;
 
 use super::error::KafkaDataSourceError;
-use super::reader::{DynamicKafkaReader, KafkaDataReader};
+use super::reader::{KafkaDataReader, SerializationFormat};
 
-#[cfg(feature = "avro")]
-use crate::ferris::kafka::serialization::AvroSerializer;
 
 /// Kafka DataSource implementation
 pub struct KafkaDataSource {
@@ -92,96 +87,37 @@ impl KafkaDataSource {
     }
 
     /// Create a consumer based on the serialization format in config
-    fn create_consumer_from_config(
+    async fn create_unified_reader(
         &self,
         group_id: &str,
-    ) -> Result<DynamicKafkaReader, Box<dyn std::error::Error + Send + Sync>> {
-        // Get serialization formats from config (default to JSON if not specified)
-        let key_format = self
-            .config
-            .get("key.serializer")
-            .map(|s| s.as_str())
-            .unwrap_or("json");
+        batch_size: Option<usize>,
+    ) -> Result<KafkaDataReader, Box<dyn std::error::Error + Send + Sync>> {
+        // Get serialization format from config (default to JSON if not specified)
         let value_format = self
             .config
             .get("value.serializer")
             .map(|s| s.as_str())
             .unwrap_or("json");
 
-        match (key_format, value_format) {
-            ("json", "json") => {
-                let consumer = KafkaConsumer::<String, Value, _, _>::new(
-                    &self.brokers,
-                    group_id,
-                    JsonSerializer,
-                    JsonSerializer,
-                )?;
-                consumer.subscribe(&[&self.topic])?;
-                Ok(DynamicKafkaReader::JsonReader(KafkaDataReader {
-                    consumer,
-                    topic: self.topic.clone(),
-                }))
-            }
+        // Map config value to SerializationFormat enum
+        let format = match value_format {
+            "json" => SerializationFormat::Json,
             #[cfg(feature = "avro")]
-            ("json", "avro") => {
-                use apache_avro::types::Value as AvroValue;
-                use apache_avro::Schema as AvroSchema;
-
-                // For now, use a generic schema - in production this would come from Schema Registry
-                let schema_str = r#"
-                {
-                    "type": "record",
-                    "name": "GenericRecord",
-                    "fields": []
-                }
-                "#;
-                let schema = AvroSchema::parse_str(schema_str)
-                    .map_err(|e| format!("Failed to parse Avro schema: {}", e))?;
-                let avro_serializer = AvroSerializer::new(schema);
-
-                let consumer = KafkaConsumer::<String, AvroValue, _, _>::new(
-                    &self.brokers,
-                    group_id,
-                    JsonSerializer,
-                    avro_serializer,
-                )?;
-                consumer.subscribe(&[&self.topic])?;
-                Ok(DynamicKafkaReader::AvroReader(KafkaDataReader {
-                    consumer,
-                    topic: self.topic.clone(),
-                }))
-            }
+            "avro" => SerializationFormat::Avro,
             #[cfg(feature = "protobuf")]
-            ("json", "protobuf") | ("json", "proto") => {
-                // For protobuf, we use Vec<u8> as the value type with JsonSerializer
-                // The actual protobuf deserialization would happen at a higher level
-                let consumer = KafkaConsumer::<String, Vec<u8>, _, _>::new(
-                    &self.brokers,
-                    group_id,
-                    JsonSerializer,
-                    JsonSerializer, // Use JSON serializer for raw bytes
-                )?;
-                consumer.subscribe(&[&self.topic])?;
-                Ok(DynamicKafkaReader::ProtobufReader(KafkaDataReader {
-                    consumer,
-                    topic: self.topic.clone(),
-                }))
-            }
-            _ => {
-                // Default to JSON for unsupported combinations
-                let consumer = KafkaConsumer::<String, Value, _, _>::new(
-                    &self.brokers,
-                    group_id,
-                    JsonSerializer,
-                    JsonSerializer,
-                )?;
-                consumer.subscribe(&[&self.topic])?;
-                Ok(DynamicKafkaReader::JsonReader(KafkaDataReader {
-                    consumer,
-                    topic: self.topic.clone(),
-                }))
-            }
-        }
+            "protobuf" | "proto" => SerializationFormat::Protobuf,
+            "auto" => SerializationFormat::Auto,
+            _ => SerializationFormat::Json, // Default fallback
+        };
+
+        // Create unified reader with detected format
+        KafkaDataReader::new(
+            &self.brokers,
+            self.topic.clone(),
+            group_id,
+            format,
+            batch_size,
+        ).await
     }
 }
 
@@ -242,8 +178,13 @@ impl DataSource for KafkaDataSource {
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        // Create the appropriate consumer based on serialization config
-        let reader = self.create_consumer_from_config(group_id)?;
+        // Extract batch size from config if available
+        let batch_size = self.config
+            .get("max.poll.records")
+            .and_then(|s| s.parse::<usize>().ok());
+
+        // Create the unified reader
+        let reader = self.create_unified_reader(group_id, batch_size).await?;
 
         Ok(Box::new(reader))
     }

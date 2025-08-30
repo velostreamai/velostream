@@ -10,7 +10,7 @@ use crate::ferris::datasource::config::SinkConfig;
 use crate::ferris::datasource::traits::{DataSink, DataWriter};
 use crate::ferris::datasource::types::SinkMetadata;
 use crate::ferris::schema::Schema;
-use crate::ferris::sql::ast::TimeUnit;
+use crate::ferris::serialization::helpers::field_value_to_json;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use std::error::Error;
@@ -374,68 +374,9 @@ impl FileWriter {
         Ok(())
     }
 
-    /// Convert FieldValue to JSON-serializable value
-    fn field_value_to_json(&self, field_value: &FieldValue) -> serde_json::Value {
-        match field_value {
-            FieldValue::String(s) => serde_json::Value::String(s.clone()),
-            FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-            FieldValue::Float(f) => serde_json::Value::Number(
-                serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0)),
-            ),
-            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
-            FieldValue::ScaledInteger(value, scale) => {
-                // Convert to decimal string representation
-                let divisor = 10_i64.pow(*scale as u32);
-                let decimal_str = if *scale > 0 {
-                    format!(
-                        "{:.1$}",
-                        (*value as f64) / (divisor as f64),
-                        *scale as usize
-                    )
-                } else {
-                    value.to_string()
-                };
-                serde_json::Value::String(decimal_str)
-            }
-            FieldValue::Date(date) => {
-                serde_json::Value::String(date.format("%Y-%m-%d").to_string())
-            }
-            FieldValue::Timestamp(datetime) => {
-                serde_json::Value::String(datetime.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
-            }
-            FieldValue::Decimal(decimal) => serde_json::Value::String(decimal.to_string()),
-            FieldValue::Array(arr) => {
-                let json_array: Vec<serde_json::Value> =
-                    arr.iter().map(|v| self.field_value_to_json(v)).collect();
-                serde_json::Value::Array(json_array)
-            }
-            FieldValue::Map(map) => {
-                let json_object: serde_json::Map<String, serde_json::Value> = map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
-                    .collect();
-                serde_json::Value::Object(json_object)
-            }
-            FieldValue::Struct(map) => {
-                let json_object: serde_json::Map<String, serde_json::Value> = map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), self.field_value_to_json(v)))
-                    .collect();
-                serde_json::Value::Object(json_object)
-            }
-            FieldValue::Interval { value, unit } => {
-                // Convert interval to a readable string format
-                let unit_str = match unit {
-                    TimeUnit::Millisecond => "milliseconds",
-                    TimeUnit::Second => "seconds",
-                    TimeUnit::Minute => "minutes",
-                    TimeUnit::Hour => "hours",
-                    TimeUnit::Day => "days",
-                };
-                serde_json::Value::String(format!("{} {}", value, unit_str))
-            }
-            FieldValue::Null => serde_json::Value::Null,
-        }
+    /// Convert FieldValue to JSON-serializable value using the standard serialization helper
+    fn field_value_to_json_value(&self, field_value: &FieldValue) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+        field_value_to_json(field_value).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     /// Check if file rotation is needed
@@ -478,7 +419,7 @@ impl FileWriter {
                 // Convert record to JSON-serializable map
                 let mut json_map = serde_json::Map::new();
                 for (key, value) in &record.fields {
-                    json_map.insert(key.clone(), self.field_value_to_json(value));
+                    json_map.insert(key.clone(), self.field_value_to_json_value(value)?);
                 }
 
                 let json = serde_json::to_string(&json_map).map_err(|e| {
@@ -491,7 +432,7 @@ impl FileWriter {
                 // Convert record to JSON-serializable map
                 let mut json_map = serde_json::Map::new();
                 for (key, value) in &record.fields {
-                    json_map.insert(key.clone(), self.field_value_to_json(value));
+                    json_map.insert(key.clone(), self.field_value_to_json_value(value)?);
                 }
 
                 let json = serde_json::to_string(&json_map).map_err(|e| {

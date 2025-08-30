@@ -1,59 +1,197 @@
-//! Kafka data reader implementation
+//! Unified Kafka data reader implementation
 
 use crate::ferris::datasource::{DataReader, SourceOffset};
-use crate::ferris::kafka::{
-    kafka_error::ConsumerError, serialization::JsonSerializer, KafkaConsumer,
-};
-#[cfg(feature = "avro")]
-use crate::ferris::serialization::avro_value_to_field_value;
+use crate::ferris::serialization::helpers::json_to_field_value;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
-use futures::StreamExt;
+use rdkafka::{
+    consumer::{Consumer, StreamConsumer},
+    message::{Headers, Message},
+    ClientConfig, TopicPartitionList,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-#[cfg(feature = "avro")]
-use crate::ferris::kafka::serialization::AvroSerializer;
-#[cfg(feature = "avro")]
-use apache_avro::types::Value as AvroValue;
+/// Supported serialization formats for Kafka messages
+#[derive(Debug, Clone, PartialEq)]
+pub enum SerializationFormat {
+    Json,
+    #[cfg(feature = "avro")]
+    Avro,
+    #[cfg(feature = "protobuf")]
+    Protobuf,
+    /// Auto-detect format from message headers or content
+    Auto,
+}
 
-/// Generic Kafka DataReader implementation
-pub struct KafkaDataReader<C> {
-    pub consumer: C,
-    pub topic: String,
+/// Unified Kafka DataReader that handles all serialization formats
+pub struct KafkaDataReader {
+    consumer: StreamConsumer,
+    topic: String,
+    format: SerializationFormat,
+    batch_size: usize,
+}
+
+impl KafkaDataReader {
+    /// Create a new Kafka data reader
+    pub async fn new(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        format: SerializationFormat,
+        batch_size: Option<usize>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let mut config = ClientConfig::new();
+        config
+            .set("bootstrap.servers", brokers)
+            .set("group.id", group_id)
+            .set("enable.partition.eof", "false")
+            .set("session.timeout.ms", "6000")
+            .set("enable.auto.commit", "false")
+            // Set batch size via max.poll.records
+            .set("max.poll.records", batch_size.unwrap_or(100).to_string());
+
+        let consumer: StreamConsumer = config.create()?;
+        
+        // Subscribe to the topic
+        let topics = vec![topic.as_str()];
+        consumer.subscribe(&topics)?;
+
+        Ok(Self {
+            consumer,
+            topic,
+            format,
+            batch_size: batch_size.unwrap_or(100),
+        })
+    }
+
+
+    /// Parse message payload based on format
+    fn parse_message_payload(
+        &self,
+        message: &rdkafka::message::BorrowedMessage,
+        format: &SerializationFormat,
+    ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
+        let mut fields = HashMap::new();
+
+        // Add key if present
+        if let Some(key) = message.key() {
+            fields.insert("key".to_string(), FieldValue::String(String::from_utf8_lossy(key).to_string()));
+        } else {
+            fields.insert("key".to_string(), FieldValue::Null);
+        }
+
+        // Parse payload based on format
+        if let Some(payload) = message.payload() {
+            match format {
+                SerializationFormat::Json => {
+                    // Parse as JSON
+                    let json_str = String::from_utf8_lossy(payload);
+                    match serde_json::from_str::<Value>(&json_str) {
+                        Ok(json_value) => {
+                            self.json_value_to_fields(&json_value, &mut fields)?;
+                        }
+                        Err(_) => {
+                            // If JSON parsing fails, store as string
+                            fields.insert("value".to_string(), FieldValue::String(json_str.to_string()));
+                        }
+                    }
+                }
+                SerializationFormat::Avro => {
+                    // For Avro, we would need the schema to deserialize properly
+                    // For now, store as base64 encoded string with metadata
+                    use base64::Engine;
+                    let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
+                    fields.insert("value".to_string(), FieldValue::String(value_str));
+                    fields.insert("_raw_avro".to_string(), FieldValue::Boolean(true));
+                }
+                SerializationFormat::Protobuf => {
+                    // Store protobuf as base64 encoded string
+                    use base64::Engine;
+                    let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
+                    fields.insert("value".to_string(), FieldValue::String(value_str));
+                    fields.insert("_raw_protobuf".to_string(), FieldValue::Boolean(true));
+                }
+                SerializationFormat::Auto => {
+                    // Try to detect from payload content for Auto format
+                    if payload.starts_with(b"{") || payload.starts_with(b"[") {
+                        // Parse as JSON
+                        let json_str = String::from_utf8_lossy(payload);
+                        match serde_json::from_str::<Value>(&json_str) {
+                            Ok(json_value) => {
+                                self.json_value_to_fields(&json_value, &mut fields)?;
+                            }
+                            Err(_) => {
+                                // If JSON parsing fails, store as string
+                                fields.insert("value".to_string(), FieldValue::String(json_str.to_string()));
+                            }
+                        }
+                    } else {
+                        // For binary data, store as base64 encoded string
+                        use base64::Engine;
+                        let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
+                        fields.insert("value".to_string(), FieldValue::String(value_str));
+                    }
+                }
+            }
+        } else {
+            fields.insert("value".to_string(), FieldValue::Null);
+        }
+
+        Ok(fields)
+    }
+
+    /// Convert JSON Value to FieldValue entries using the standard serialization helper
+    fn json_value_to_fields(
+        &self,
+        json_value: &Value,
+        fields: &mut HashMap<String, FieldValue>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match json_value {
+            Value::Object(obj) => {
+                // If it's a JSON object, add each field
+                for (key, value) in obj {
+                    let field_value = json_to_field_value(value)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+                    fields.insert(key.clone(), field_value);
+                }
+            }
+            _ => {
+                // If it's not an object, store as single "value" field
+                let field_value = json_to_field_value(json_value)
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+                fields.insert("value".to_string(), field_value);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
-impl DataReader for KafkaDataReader<KafkaConsumer<String, String, JsonSerializer, JsonSerializer>> {
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        // Use stream() instead of poll() for better async performance
-        let mut stream = self.consumer.stream();
-        match tokio::time::timeout(Duration::from_millis(1000), stream.next()).await {
-            Ok(Some(result)) => match result {
-                Ok(message) => {
-                    let mut fields = HashMap::new();
-
-                    // Add key if present
-                    if let Some(key) = message.key() {
-                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                    } else {
-                        fields.insert("key".to_string(), FieldValue::Null);
-                    }
-
-                    // Add value
-                    fields.insert(
-                        "value".to_string(),
-                        FieldValue::String(message.value().clone()),
-                    );
+impl DataReader for KafkaDataReader {
+    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        let mut records = Vec::with_capacity(self.batch_size);
+        
+        for _ in 0..self.batch_size {
+            match tokio::time::timeout(Duration::from_millis(1000), self.consumer.recv()).await {
+                Ok(Ok(message)) => {
+                    // Parse payload using configured format
+                    let fields = self.parse_message_payload(&message, &self.format)?;
 
                     // Convert headers
                     let mut header_map = HashMap::new();
-                    for (key, value) in message.headers().iter() {
-                        if let Some(v) = value {
-                            header_map.insert(key.clone(), v.clone());
+                    if let Some(headers) = message.headers() {
+                        for i in 0..headers.count() {
+                            let header = headers.get(i);
+                            let key = header.key;
+                            if let Some(value) = header.value {
+                                if let Ok(value_str) = std::str::from_utf8(value) {
+                                    header_map.insert(key.to_string(), value_str.to_string());
+                                }
+                            }
                         }
                     }
 
@@ -61,73 +199,25 @@ impl DataReader for KafkaDataReader<KafkaConsumer<String, String, JsonSerializer
                         fields,
                         timestamp: message
                             .timestamp()
-                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
+                            .to_millis()
+                            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
                         offset: message.offset(),
                         partition: message.partition(),
-                        headers: header_map,
-                    };
-
-                    Ok(Some(record))
-                }
-                Err(ConsumerError::Timeout) => Ok(None),
-                Err(err) => Err(Box::new(err)),
-            },
-            Ok(None) => Ok(None), // Stream ended
-            Err(_) => Ok(None),   // Timeout
-        }
-    }
-
-    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        // Kafka's native batching is controlled by consumer configuration:
-        // - max.poll.records: controls how many records are returned
-        // - fetch.min.bytes: minimum data to fetch in a request  
-        // - fetch.max.wait.ms: max time to wait for fetch.min.bytes
-        // These are set during consumer creation based on BatchConfig
-        
-        // Use poll() which returns multiple messages based on configuration
-        let messages = self.consumer.poll(Duration::from_millis(1000));
-        let mut records = Vec::new();
-
-        for message in messages {
-            match message {
-                Ok(msg) => {
-                    let mut fields = HashMap::new();
-
-                    // Add key if present
-                    if let Some(key) = msg.key() {
-                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                    } else {
-                        fields.insert("key".to_string(), FieldValue::Null);
-                    }
-
-                    // Add value
-                    fields.insert(
-                        "value".to_string(),
-                        FieldValue::String(msg.value().clone()),
-                    );
-
-                    // Convert headers
-                    let mut header_map = HashMap::new();
-                    for (key, value) in msg.headers().iter() {
-                        if let Some(v) = value {
-                            header_map.insert(key.clone(), v.clone());
-                        }
-                    }
-
-                    let record = StreamRecord {
-                        fields,
-                        timestamp: msg
-                            .timestamp()
-                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
-                        offset: msg.offset(),
-                        partition: msg.partition(),
                         headers: header_map,
                     };
 
                     records.push(record);
                 }
-                Err(ConsumerError::Timeout) => continue,
-                Err(err) => return Err(Box::new(err)),
+                Ok(Err(e)) => {
+                    return Err(Box::new(e));
+                }
+                Err(_) => {
+                    // Timeout - break if we have some records, otherwise continue
+                    if !records.is_empty() {
+                        break;
+                    }
+                    // For empty batch, continue trying up to batch_size attempts
+                }
             }
         }
 
@@ -135,20 +225,17 @@ impl DataReader for KafkaDataReader<KafkaConsumer<String, String, JsonSerializer
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer
-            .commit()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        self.consumer.commit_consumer_state(rdkafka::consumer::CommitMode::Async)?;
+        Ok(())
     }
 
     async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
         match offset {
-            SourceOffset::Kafka {
-                partition: _,
-                offset: _,
-            } => {
-                // TODO: Implement seek functionality
-                // This would require exposing seek methods from the KafkaConsumer
-                Err("Seek not yet implemented for Kafka adapter".into())
+            SourceOffset::Kafka { partition, offset } => {
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset(&self.topic, partition, rdkafka::Offset::Offset(offset))?;
+                self.consumer.assign(&tpl)?;
+                Ok(())
             }
             _ => Err("Invalid offset type for Kafka source".into()),
         }
@@ -158,357 +245,25 @@ impl DataReader for KafkaDataReader<KafkaConsumer<String, String, JsonSerializer
         // For Kafka, we always potentially have more data unless the consumer is closed
         Ok(true)
     }
-}
 
-#[async_trait]
-impl DataReader for KafkaDataReader<KafkaConsumer<String, Value, JsonSerializer, JsonSerializer>> {
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut stream = self.consumer.stream();
-        match tokio::time::timeout(Duration::from_millis(1000), stream.next()).await {
-            Ok(Some(result)) => match result {
-                Ok(message) => {
-                    let mut fields = HashMap::new();
-
-                    // Add key if present
-                    if let Some(key) = message.key() {
-                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                    } else {
-                        fields.insert("key".to_string(), FieldValue::Null);
-                    }
-
-                    // Add value as JSON
-                    let value_str = serde_json::to_string(message.value())
-                        .unwrap_or_else(|_| message.value().to_string());
-                    fields.insert("value".to_string(), FieldValue::String(value_str));
-
-                    // Convert headers
-                    let mut header_map = HashMap::new();
-                    for (key, value) in message.headers().iter() {
-                        if let Some(v) = value {
-                            header_map.insert(key.clone(), v.clone());
-                        }
-                    }
-
-                    let record = StreamRecord {
-                        fields,
-                        timestamp: message
-                            .timestamp()
-                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
-                        offset: message.offset(),
-                        partition: message.partition(),
-                        headers: header_map,
-                    };
-
-                    Ok(Some(record))
-                }
-                Err(ConsumerError::Timeout) => Ok(None),
-                Err(err) => Err(Box::new(err)),
-            },
-            Ok(None) => Ok(None), // Stream ended
-            Err(_) => Ok(None),   // Timeout
-        }
-    }
-
-    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        // Kafka's native batching via consumer configuration
-        let messages = self.consumer.poll(Duration::from_millis(1000));
-        let mut records = Vec::new();
-
-        for message in messages {
-            match self.read().await? {
-                Some(record) => records.push(record),
-                None => break,
-            }
-        }
-
-        Ok(records)
-    }
-
-    async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer
-            .commit()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-    }
-
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match offset {
-            SourceOffset::Kafka {
-                partition: _,
-                offset: _,
-            } => {
-                // TODO: Implement seek functionality
-                Err("Seek not yet implemented for Kafka adapter".into())
-            }
-            _ => Err("Invalid offset type for Kafka source".into()),
-        }
-    }
-
-    async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    // Transaction support methods (Kafka exactly-once semantics)
+    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // Kafka transactions would be handled at the producer level
+        // For consumers, we use manual commit mode for exactly-once processing
         Ok(true)
     }
-}
 
-#[cfg(feature = "protobuf")]
-#[async_trait]
-impl DataReader
-    for KafkaDataReader<KafkaConsumer<String, Vec<u8>, JsonSerializer, JsonSerializer>>
-{
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut stream = self.consumer.stream();
-        match tokio::time::timeout(Duration::from_millis(1000), stream.next()).await {
-            Ok(Some(result)) => match result {
-                Ok(message) => {
-                    let mut fields = HashMap::new();
-
-                    // Add key if present
-                    if let Some(key) = message.key() {
-                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                    } else {
-                        fields.insert("key".to_string(), FieldValue::Null);
-                    }
-
-                    // For protobuf, store the raw bytes as a base64 string
-                    // The actual protobuf deserialization would happen at a higher level
-                    use base64::Engine;
-                    let value_str =
-                        base64::engine::general_purpose::STANDARD.encode(message.value());
-                    fields.insert("value".to_string(), FieldValue::String(value_str));
-                    fields.insert("_raw_protobuf".to_string(), FieldValue::Boolean(true));
-
-                    // Convert headers
-                    let mut header_map = HashMap::new();
-                    for (key, value) in message.headers().iter() {
-                        if let Some(v) = value {
-                            header_map.insert(key.clone(), v.clone());
-                        }
-                    }
-
-                    let record = StreamRecord {
-                        fields,
-                        timestamp: message
-                            .timestamp()
-                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
-                        offset: message.offset(),
-                        partition: message.partition(),
-                        headers: header_map,
-                    };
-
-                    Ok(Some(record))
-                }
-                Err(ConsumerError::Timeout) => Ok(None),
-                Err(err) => Err(Box::new(err)),
-            },
-            Ok(None) => Ok(None), // Stream ended
-            Err(_) => Ok(None),   // Timeout
-        }
+    async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.commit().await
     }
 
-    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        // Kafka's native batching via consumer configuration
-        let messages = self.consumer.poll(Duration::from_millis(1000));
-        let mut records = Vec::new();
-
-        for message in messages {
-            match self.read().await? {
-                Some(record) => records.push(record),
-                None => break,
-            }
-        }
-
-        Ok(records)
+    async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // For Kafka consumers, we can't really "abort" a read transaction
+        // The best we can do is not commit the offsets
+        Ok(())
     }
 
-    async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer
-            .commit()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-    }
-
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match offset {
-            SourceOffset::Kafka {
-                partition: _,
-                offset: _,
-            } => {
-                // TODO: Implement seek functionality
-                Err("Seek not yet implemented for Kafka adapter".into())
-            }
-            _ => Err("Invalid offset type for Kafka source".into()),
-        }
-    }
-
-    async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        Ok(true)
-    }
-}
-
-/// Dynamic Kafka reader that can handle different serialization formats
-pub enum DynamicKafkaReader {
-    JsonReader(KafkaDataReader<KafkaConsumer<String, Value, JsonSerializer, JsonSerializer>>),
-    #[cfg(feature = "avro")]
-    AvroReader(KafkaDataReader<KafkaConsumer<String, AvroValue, JsonSerializer, AvroSerializer>>),
-    #[cfg(feature = "protobuf")]
-    ProtobufReader(KafkaDataReader<KafkaConsumer<String, Vec<u8>, JsonSerializer, JsonSerializer>>),
-}
-
-#[async_trait]
-impl DataReader for DynamicKafkaReader {
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        match self {
-            DynamicKafkaReader::JsonReader(reader) => reader.read().await,
-            #[cfg(feature = "avro")]
-            DynamicKafkaReader::AvroReader(reader) => reader.read().await,
-            #[cfg(feature = "protobuf")]
-            DynamicKafkaReader::ProtobufReader(reader) => reader.read().await,
-        }
-    }
-
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        match self {
-            DynamicKafkaReader::JsonReader(reader) => reader.read_batch(max_size).await,
-            #[cfg(feature = "avro")]
-            DynamicKafkaReader::AvroReader(reader) => reader.read_batch(max_size).await,
-            #[cfg(feature = "protobuf")]
-            DynamicKafkaReader::ProtobufReader(reader) => reader.read_batch(max_size).await,
-        }
-    }
-
-    async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match self {
-            DynamicKafkaReader::JsonReader(reader) => reader.commit().await,
-            #[cfg(feature = "avro")]
-            DynamicKafkaReader::AvroReader(reader) => reader.commit().await,
-            #[cfg(feature = "protobuf")]
-            DynamicKafkaReader::ProtobufReader(reader) => reader.commit().await,
-        }
-    }
-
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match self {
-            DynamicKafkaReader::JsonReader(reader) => reader.seek(offset).await,
-            #[cfg(feature = "avro")]
-            DynamicKafkaReader::AvroReader(reader) => reader.seek(offset).await,
-            #[cfg(feature = "protobuf")]
-            DynamicKafkaReader::ProtobufReader(reader) => reader.seek(offset).await,
-        }
-    }
-
-    async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        match self {
-            DynamicKafkaReader::JsonReader(reader) => reader.has_more().await,
-            #[cfg(feature = "avro")]
-            DynamicKafkaReader::AvroReader(reader) => reader.has_more().await,
-            #[cfg(feature = "protobuf")]
-            DynamicKafkaReader::ProtobufReader(reader) => reader.has_more().await,
-        }
-    }
-}
-
-#[cfg(feature = "avro")]
-#[async_trait]
-impl DataReader
-    for KafkaDataReader<KafkaConsumer<String, AvroValue, JsonSerializer, AvroSerializer>>
-{
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut stream = self.consumer.stream();
-        match tokio::time::timeout(Duration::from_millis(1000), stream.next()).await {
-            Ok(Some(result)) => match result {
-                Ok(message) => {
-                    let mut fields = HashMap::new();
-
-                    // Add key if present
-                    if let Some(key) = message.key() {
-                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
-                    } else {
-                        fields.insert("key".to_string(), FieldValue::Null);
-                    }
-
-                    // Parse the Avro value and add all fields
-                    let payload = message.value();
-                    // Convert AvroValue to our field format
-                    match payload {
-                        AvroValue::Record(record_fields) => {
-                            for (k, v) in record_fields {
-                                if let Ok(field_value) = avro_value_to_field_value(v) {
-                                    fields.insert(k.clone(), field_value);
-                                }
-                            }
-                        }
-                        _ => {
-                            // If it's not a record, store as a single 'value' field
-                            if let Ok(field_value) = avro_value_to_field_value(payload) {
-                                fields.insert("value".to_string(), field_value);
-                            }
-                        }
-                    }
-
-                    // Convert headers
-                    let mut header_map = HashMap::new();
-                    for (key, value) in message.headers().iter() {
-                        if let Some(v) = value {
-                            header_map.insert(key.clone(), v.clone());
-                        }
-                    }
-
-                    let record = StreamRecord {
-                        fields,
-                        timestamp: message
-                            .timestamp()
-                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
-                        offset: message.offset(),
-                        partition: message.partition(),
-                        headers: header_map,
-                    };
-
-                    Ok(Some(record))
-                }
-                Err(e) => Err(Box::new(e)),
-            },
-            Ok(None) => Ok(None), // No more messages
-            Err(_) => Ok(None),   // Timeout
-        }
-    }
-
-    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        // Kafka's native batching via consumer configuration
-        let messages = self.consumer.poll(Duration::from_millis(1000));
-        let mut records = Vec::new();
-
-        for message in messages {
-            match self.read().await? {
-                Some(record) => records.push(record),
-                None => break,
-            }
-        }
-
-        Ok(records)
-    }
-
-    async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer
-            .commit()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-    }
-
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match offset {
-            SourceOffset::Kafka {
-                partition: _,
-                offset: _,
-            } => {
-                // TODO: Implement seek functionality
-                // This would require exposing seek methods from the KafkaConsumer
-                Err("Seek not yet implemented for Kafka adapter".into())
-            }
-            _ => Err("Invalid offset type for Kafka source".into()),
-        }
-    }
-
-    async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // For Kafka, we always potentially have more data unless the consumer is closed
-        Ok(true)
+    fn supports_transactions(&self) -> bool {
+        true
     }
 }
