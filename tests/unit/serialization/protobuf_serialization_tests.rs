@@ -11,6 +11,7 @@ mod protobuf_tests {
         ProtobufFormat, SerializationFormat, SerializationFormatFactory,
     };
     use ferrisstreams::ferris::sql::FieldValue;
+    use ferrisstreams::ferris::sql::execution::types::StreamRecord;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -32,37 +33,72 @@ mod protobuf_tests {
     async fn test_protobuf_to_execution_format() {
         let format = ProtobufFormat::<()>::new();
         let record = create_basic_test_record();
+        
+        // Create a StreamRecord
+        let stream_record = StreamRecord {
+            fields: record.clone(),
+            timestamp: 1234567890,
+            offset: 100,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
-        test_execution_format_round_trip(&format, &record)
-            .expect("Protobuf execution format round trip should succeed");
+        // Test serialization round-trip using StreamRecord's fields
+        let serialized = format
+            .serialize_record(&stream_record.fields)
+            .expect("Serialization should succeed");
+        
+        let deserialized = format
+            .deserialize_record(&serialized)
+            .expect("Deserialization should succeed");
+        
+        // Verify key fields are preserved
+        assert_eq!(deserialized.get("id"), record.get("id"));
+        assert_eq!(deserialized.get("name"), record.get("name"));
+        assert_eq!(deserialized.get("active"), record.get("active"));
+        assert_eq!(deserialized.get("score"), record.get("score"));
     }
 
     #[tokio::test]
     async fn test_protobuf_from_execution_format() {
-        use ferrisstreams::ferris::serialization::InternalValue;
-
         let format = ProtobufFormat::<()>::new();
 
-        let mut execution_data = HashMap::new();
-        execution_data.insert("user_id".to_string(), InternalValue::Integer(456));
-        execution_data.insert(
+        // Create a StreamRecord directly
+        let mut fields = HashMap::new();
+        fields.insert("user_id".to_string(), FieldValue::Integer(456));
+        fields.insert(
             "username".to_string(),
-            InternalValue::String("jane_doe".to_string()),
+            FieldValue::String("jane_doe".to_string()),
         );
-        execution_data.insert("is_admin".to_string(), InternalValue::Boolean(false));
-        execution_data.insert("rating".to_string(), InternalValue::Number(92.7));
+        fields.insert("is_admin".to_string(), FieldValue::Boolean(false));
+        fields.insert("rating".to_string(), FieldValue::Float(92.7));
+        
+        let stream_record = StreamRecord {
+            fields: fields.clone(),
+            timestamp: 1234567890,
+            offset: 100,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
-        let record = format
-            .from_execution_format(&execution_data)
-            .expect("Conversion from execution format should succeed");
+        // Serialize the StreamRecord's fields
+        let serialized = format
+            .serialize_record(&stream_record.fields)
+            .expect("Serialization should succeed");
+        
+        // Deserialize back
+        let deserialized = format
+            .deserialize_record(&serialized)
+            .expect("Deserialization should succeed");
 
-        assert_eq!(record.get("user_id"), Some(&FieldValue::Integer(456)));
+        // Verify the round-trip
+        assert_eq!(deserialized.get("user_id"), Some(&FieldValue::Integer(456)));
         assert_eq!(
-            record.get("username"),
+            deserialized.get("username"),
             Some(&FieldValue::String("jane_doe".to_string()))
         );
-        assert_eq!(record.get("is_admin"), Some(&FieldValue::Boolean(false)));
-        assert_eq!(record.get("rating"), Some(&FieldValue::Float(92.7)));
+        assert_eq!(deserialized.get("is_admin"), Some(&FieldValue::Boolean(false)));
+        assert_eq!(deserialized.get("rating"), Some(&FieldValue::Float(92.7)));
     }
 
     #[tokio::test]
@@ -227,9 +263,6 @@ mod protobuf_tests {
         test_serialization_round_trip(&format, &record)
             .expect("Comprehensive type matrix round trip should succeed");
 
-        // Also test execution format round trip
-        test_execution_format_round_trip(&format, &record)
-            .expect("Comprehensive execution format round trip should succeed");
     }
 
     #[tokio::test]

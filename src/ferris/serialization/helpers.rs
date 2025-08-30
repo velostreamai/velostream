@@ -1,6 +1,6 @@
 //! Helper functions for serialization conversions
 
-use super::{FieldValue, InternalValue, SerializationError};
+use super::{FieldValue, SerializationError};
 use std::collections::HashMap;
 
 // JSON conversion helpers
@@ -86,18 +86,21 @@ pub fn field_value_to_json(
             let divisor = 10_i64.pow(*scale as u32);
             let integer_part = value / divisor;
             let fractional_part = (value % divisor).abs();
-            let decimal_str = if fractional_part == 0 {
+            
+            // CRITICAL: For financial precision, preserve ALL digits including trailing zeros
+            // The scale is semantically important and must be preserved for round-trip compatibility
+            let decimal_str = if *scale == 0 {
+                // For scale 0, just use integer format
                 integer_part.to_string()
             } else {
+                // Always format with full precision - DO NOT trim trailing zeros
+                // ScaledInteger(125000, 3) must serialize as "125.000", not "125.0"
                 format!(
                     "{}.{:0width$}",
                     integer_part,
                     fractional_part,
                     width = *scale as usize
                 )
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_string()
             };
             Ok(serde_json::Value::String(decimal_str))
         }
@@ -130,81 +133,6 @@ pub fn field_value_to_json(
                 serde_json::Value::String(format!("{:?}", unit)),
             );
             Ok(serde_json::Value::Object(interval_obj))
-        }
-    }
-}
-
-// Internal value conversion helpers
-
-/// Convert FieldValue to InternalValue
-pub fn field_value_to_internal(
-    field_value: &FieldValue,
-) -> Result<InternalValue, SerializationError> {
-    match field_value {
-        FieldValue::String(s) => Ok(InternalValue::String(s.clone())),
-        FieldValue::Integer(i) => Ok(InternalValue::Integer(*i)),
-        FieldValue::Float(f) => Ok(InternalValue::Number(*f)),
-        FieldValue::Boolean(b) => Ok(InternalValue::Boolean(*b)),
-        FieldValue::Null => Ok(InternalValue::Null),
-        FieldValue::Date(d) => Ok(InternalValue::String(d.format("%Y-%m-%d").to_string())),
-        FieldValue::Timestamp(ts) => Ok(InternalValue::String(
-            ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-        )),
-        FieldValue::Decimal(dec) => Ok(InternalValue::String(dec.to_string())),
-        FieldValue::ScaledInteger(value, scale) => Ok(InternalValue::ScaledNumber(*value, *scale)),
-        FieldValue::Array(arr) => {
-            let internal_arr: Result<Vec<_>, _> = arr.iter().map(field_value_to_internal).collect();
-            Ok(InternalValue::Array(internal_arr?))
-        }
-        FieldValue::Map(map) => {
-            let mut internal_map = HashMap::new();
-            for (k, v) in map {
-                internal_map.insert(k.clone(), field_value_to_internal(v)?);
-            }
-            Ok(InternalValue::Object(internal_map))
-        }
-        FieldValue::Struct(fields) => {
-            let mut internal_map = HashMap::new();
-            for (k, v) in fields {
-                internal_map.insert(k.clone(), field_value_to_internal(v)?);
-            }
-            Ok(InternalValue::Object(internal_map))
-        }
-        FieldValue::Interval { value, unit } => {
-            // Convert interval to milliseconds for output
-            let millis = match unit {
-                crate::ferris::sql::ast::TimeUnit::Millisecond => *value,
-                crate::ferris::sql::ast::TimeUnit::Second => *value * 1000,
-                crate::ferris::sql::ast::TimeUnit::Minute => *value * 60 * 1000,
-                crate::ferris::sql::ast::TimeUnit::Hour => *value * 60 * 60 * 1000,
-                crate::ferris::sql::ast::TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
-            };
-            Ok(InternalValue::Integer(millis))
-        }
-    }
-}
-
-/// Convert InternalValue to FieldValue
-pub fn internal_to_field_value(
-    internal_value: &InternalValue,
-) -> Result<FieldValue, SerializationError> {
-    match internal_value {
-        InternalValue::String(s) => Ok(FieldValue::String(s.clone())),
-        InternalValue::Integer(i) => Ok(FieldValue::Integer(*i)),
-        InternalValue::Number(f) => Ok(FieldValue::Float(*f)),
-        InternalValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
-        InternalValue::Null => Ok(FieldValue::Null),
-        InternalValue::ScaledNumber(value, scale) => Ok(FieldValue::ScaledInteger(*value, *scale)),
-        InternalValue::Array(arr) => {
-            let field_arr: Result<Vec<_>, _> = arr.iter().map(internal_to_field_value).collect();
-            Ok(FieldValue::Array(field_arr?))
-        }
-        InternalValue::Object(obj) => {
-            let mut field_map = HashMap::new();
-            for (k, v) in obj {
-                field_map.insert(k.clone(), internal_to_field_value(v)?);
-            }
-            Ok(FieldValue::Map(field_map))
         }
     }
 }

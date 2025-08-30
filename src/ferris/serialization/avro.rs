@@ -2,10 +2,10 @@
 
 use super::helpers::{
     avro_value_to_field_value, avro_value_to_field_value_with_schema, field_value_to_avro,
-    field_value_to_avro_with_decimal_schema, field_value_to_internal, internal_to_field_value,
+    field_value_to_avro_with_decimal_schema,
     DecimalSchemaInfo,
 };
-use super::{FieldValue, InternalValue, SerializationError, SerializationFormat};
+use super::{FieldValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;
 
 /// Avro serialization implementation (feature-gated)
@@ -13,6 +13,7 @@ pub struct AvroFormat {
     writer_schema: apache_avro::Schema,
     reader_schema: apache_avro::Schema,
     decimal_fields: HashMap<String, DecimalSchemaInfo>,
+    union_null_indices: HashMap<String, usize>, // Field name -> null index in union
 }
 
 impl AvroFormat {
@@ -23,11 +24,13 @@ impl AvroFormat {
         })?;
 
         let decimal_fields = extract_decimal_fields(&schema)?;
+        let union_null_indices = extract_union_null_indices(&schema)?;
 
         Ok(AvroFormat {
             writer_schema: schema.clone(),
             reader_schema: schema,
             decimal_fields,
+            union_null_indices,
         })
     }
 
@@ -45,11 +48,13 @@ impl AvroFormat {
 
         // Extract decimal fields from reader schema (used for deserialization)
         let decimal_fields = extract_decimal_fields(&reader_schema)?;
+        let union_null_indices = extract_union_null_indices(&writer_schema)?;
 
         Ok(AvroFormat {
             writer_schema,
             reader_schema,
             decimal_fields,
+            union_null_indices,
         })
     }
 
@@ -76,7 +81,7 @@ impl SerializationFormat for AvroFormat {
         use apache_avro::Writer;
 
         // Convert record to Avro value (schema-aware for decimal fields)
-        let avro_value = record_to_avro_value_with_schema(record, &self.decimal_fields)?;
+        let avro_value = record_to_avro_value_with_schema(record, &self.decimal_fields, &self.union_null_indices)?;
 
         // Create writer and encode
         let mut writer = Writer::new(&self.writer_schema, Vec::new());
@@ -119,34 +124,6 @@ impl SerializationFormat for AvroFormat {
         ))
     }
 
-    fn to_execution_format(
-        &self,
-        record: &HashMap<String, FieldValue>,
-    ) -> Result<HashMap<String, InternalValue>, SerializationError> {
-        let mut execution_map = HashMap::new();
-
-        for (key, field_value) in record {
-            let internal_value = field_value_to_internal(field_value)?;
-            execution_map.insert(key.clone(), internal_value);
-        }
-
-        Ok(execution_map)
-    }
-
-    fn from_execution_format(
-        &self,
-        data: &HashMap<String, InternalValue>,
-    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        let mut record = HashMap::new();
-
-        for (key, internal_value) in data {
-            let field_value = internal_to_field_value(internal_value)?;
-            record.insert(key.clone(), field_value);
-        }
-
-        Ok(record)
-    }
-
     fn format_name(&self) -> &'static str {
         "Avro"
     }
@@ -156,6 +133,7 @@ impl SerializationFormat for AvroFormat {
 
 fn record_to_avro_value(
     record: &HashMap<String, FieldValue>,
+    union_null_indices: &HashMap<String, usize>,
 ) -> Result<apache_avro::types::Value, SerializationError> {
     use apache_avro::types::Value;
 
@@ -163,9 +141,9 @@ fn record_to_avro_value(
     for (key, field_value) in record {
         let avro_value = match field_value {
             FieldValue::Null => {
-                // For nullable fields in unions, wrap null in union with index 1
-                // (assuming ["string", "null"] or similar patterns where null is typically second)
-                Value::Union(1, Box::new(Value::Null))
+                // Look up the correct union index for null in this field
+                let null_index = union_null_indices.get(key).copied().unwrap_or(0);
+                Value::Union(null_index.try_into().unwrap(), Box::new(Value::Null))
             }
             _ => field_value_to_avro(field_value)?,
         };
@@ -178,6 +156,7 @@ fn record_to_avro_value(
 fn record_to_avro_value_with_schema(
     record: &HashMap<String, FieldValue>,
     decimal_fields: &HashMap<String, DecimalSchemaInfo>,
+    union_null_indices: &HashMap<String, usize>,
 ) -> Result<apache_avro::types::Value, SerializationError> {
     use apache_avro::types::Value;
 
@@ -198,8 +177,10 @@ fn record_to_avro_value_with_schema(
         let avro_value = match field_value {
             FieldValue::Null => {
                 eprintln!("DEBUG: Field '{}' is null", key);
-                // For nullable fields in unions, wrap null in union with index 1
-                Value::Union(1, Box::new(Value::Null))
+                // Look up the correct union index for null in this field
+                let null_index = union_null_indices.get(key).copied().unwrap_or(0);
+                eprintln!("DEBUG: Using null index {} for field '{}'", null_index, key);
+                Value::Union(null_index.try_into().unwrap(), Box::new(Value::Null))
             }
             _ => {
                 // Check if this field is a decimal field and get its schema info
@@ -252,6 +233,42 @@ fn avro_value_to_record_with_schema(
             "Expected Avro record".to_string(),
         )),
     }
+}
+
+/// Extract union null indices for each field from Avro schema
+fn extract_union_null_indices(schema: &apache_avro::Schema) -> Result<HashMap<String, usize>, SerializationError> {
+    use apache_avro::Schema;
+    
+    let mut null_indices = HashMap::new();
+    
+    match schema {
+        Schema::Record(record_schema) => {
+            for field in &record_schema.fields {
+                let field_name = &field.name;
+                
+                // Check if the field schema is a union that contains null
+                match &field.schema {
+                    Schema::Union(union_schema) => {
+                        // Look for null in the union schemas and record its index
+                        for (index, union_member) in union_schema.variants().iter().enumerate() {
+                            if matches!(union_member, Schema::Null) {
+                                null_indices.insert(field_name.clone(), index);
+                                break;
+                            }
+                        }
+                    }
+                    _ => {
+                        // Not a union field, skip
+                    }
+                }
+            }
+        }
+        _ => {
+            // Not a record schema, no fields to process
+        }
+    }
+    
+    Ok(null_indices)
 }
 
 /// Extract decimal field information from Avro schema for schema-aware conversion

@@ -321,13 +321,14 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
     }
 }
 
-/// Test execution format conversion consistency
+/// Test execution format conversion consistency (now uses serialize/deserialize)
 pub fn test_execution_format_round_trip(
     format: &dyn ferrisstreams::ferris::serialization::SerializationFormat,
     record: &HashMap<String, FieldValue>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let execution_format = format.to_execution_format(record)?;
-    let converted_back = format.from_execution_format(&execution_format)?;
+    // Use serialize/deserialize instead of the old execution format methods
+    let serialized = format.serialize_record(record)?;
+    let converted_back = format.deserialize_record(&serialized)?;
     assert_records_equivalent(record, &converted_back);
     Ok(())
 }
