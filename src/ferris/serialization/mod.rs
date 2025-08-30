@@ -105,9 +105,7 @@ pub use avro::AvroFormat;
 pub use protobuf::ProtobufFormat;
 
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
-pub use helpers::{
-    field_value_to_json, json_to_field_value,
-};
+pub use helpers::{field_value_to_json, json_to_field_value};
 
 #[cfg(feature = "avro")]
 pub use helpers::{avro_value_to_field_value, field_value_to_avro};

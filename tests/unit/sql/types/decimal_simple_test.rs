@@ -169,13 +169,13 @@ mod decimal_simple_tests {
     #[test]
     fn test_serialization_roundtrip() {
         let original = FieldValue::ScaledInteger(12345, 2); // 123.45
-        
+
         // Test that ScaledInteger maintains precision internally
         match &original {
             FieldValue::ScaledInteger(value, scale) => {
                 assert_eq!(*value, 12345);
                 assert_eq!(*scale, 2);
-                
+
                 // Test string conversion maintains precision
                 let display = original.to_display_string();
                 assert_eq!(display, "123.45");

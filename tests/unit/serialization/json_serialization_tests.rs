@@ -7,8 +7,8 @@ are properly converted to/from JSON format.
 
 use super::common_test_data::*;
 use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::FieldValue;
 use ferrisstreams::ferris::sql::execution::types::StreamRecord;
+use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn test_json_from_execution_format() {
     );
     fields.insert("test_bool".to_string(), FieldValue::Boolean(false));
     fields.insert("test_null".to_string(), FieldValue::Null);
-    
+
     let stream_record = StreamRecord {
         fields: fields.clone(),
         timestamp: 1234567890,
@@ -58,7 +58,7 @@ async fn test_json_from_execution_format() {
     let serialized = format
         .serialize_record(&stream_record.fields)
         .expect("Serialization should succeed");
-    
+
     // Deserialize back
     let deserialized = format
         .deserialize_record(&serialized)
@@ -74,7 +74,10 @@ async fn test_json_from_execution_format() {
         deserialized.get("test_float"),
         Some(&FieldValue::Float(std::f64::consts::PI))
     );
-    assert_eq!(deserialized.get("test_bool"), Some(&FieldValue::Boolean(false)));
+    assert_eq!(
+        deserialized.get("test_bool"),
+        Some(&FieldValue::Boolean(false))
+    );
     assert_eq!(deserialized.get("test_null"), Some(&FieldValue::Null));
 }
 

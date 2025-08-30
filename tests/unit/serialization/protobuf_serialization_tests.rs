@@ -10,8 +10,8 @@ mod protobuf_tests {
     use ferrisstreams::ferris::serialization::{
         ProtobufFormat, SerializationFormat, SerializationFormatFactory,
     };
-    use ferrisstreams::ferris::sql::FieldValue;
     use ferrisstreams::ferris::sql::execution::types::StreamRecord;
+    use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -33,7 +33,7 @@ mod protobuf_tests {
     async fn test_protobuf_to_execution_format() {
         let format = ProtobufFormat::<()>::new();
         let record = create_basic_test_record();
-        
+
         // Create a StreamRecord
         let stream_record = StreamRecord {
             fields: record.clone(),
@@ -47,11 +47,11 @@ mod protobuf_tests {
         let serialized = format
             .serialize_record(&stream_record.fields)
             .expect("Serialization should succeed");
-        
+
         let deserialized = format
             .deserialize_record(&serialized)
             .expect("Deserialization should succeed");
-        
+
         // Verify key fields are preserved
         assert_eq!(deserialized.get("id"), record.get("id"));
         assert_eq!(deserialized.get("name"), record.get("name"));
@@ -72,7 +72,7 @@ mod protobuf_tests {
         );
         fields.insert("is_admin".to_string(), FieldValue::Boolean(false));
         fields.insert("rating".to_string(), FieldValue::Float(92.7));
-        
+
         let stream_record = StreamRecord {
             fields: fields.clone(),
             timestamp: 1234567890,
@@ -85,7 +85,7 @@ mod protobuf_tests {
         let serialized = format
             .serialize_record(&stream_record.fields)
             .expect("Serialization should succeed");
-        
+
         // Deserialize back
         let deserialized = format
             .deserialize_record(&serialized)
@@ -97,7 +97,10 @@ mod protobuf_tests {
             deserialized.get("username"),
             Some(&FieldValue::String("jane_doe".to_string()))
         );
-        assert_eq!(deserialized.get("is_admin"), Some(&FieldValue::Boolean(false)));
+        assert_eq!(
+            deserialized.get("is_admin"),
+            Some(&FieldValue::Boolean(false))
+        );
         assert_eq!(deserialized.get("rating"), Some(&FieldValue::Float(92.7)));
     }
 
@@ -262,7 +265,6 @@ mod protobuf_tests {
         // Test serialization round trip
         test_serialization_round_trip(&format, &record)
             .expect("Comprehensive type matrix round trip should succeed");
-
     }
 
     #[tokio::test]

@@ -110,7 +110,7 @@ mod avro_tests {
     #[tokio::test]
     async fn test_avro_from_execution_format() {
         use ferrisstreams::ferris::sql::execution::types::StreamRecord;
-        
+
         let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
 
@@ -123,7 +123,7 @@ mod avro_tests {
         );
         fields.insert("active".to_string(), FieldValue::Boolean(false));
         fields.insert("score".to_string(), FieldValue::Float(87.3));
-        
+
         let stream_record = StreamRecord {
             fields: fields.clone(),
             timestamp: 1234567890,
@@ -136,7 +136,7 @@ mod avro_tests {
         let serialized = format
             .serialize_record(&stream_record.fields)
             .expect("Serialization should succeed");
-        
+
         // Deserialize back
         let deserialized = format
             .deserialize_record(&serialized)
@@ -148,7 +148,10 @@ mod avro_tests {
             deserialized.get("name"),
             Some(&FieldValue::String("Jane Smith".to_string()))
         );
-        assert_eq!(deserialized.get("active"), Some(&FieldValue::Boolean(false)));
+        assert_eq!(
+            deserialized.get("active"),
+            Some(&FieldValue::Boolean(false))
+        );
         assert_eq!(deserialized.get("score"), Some(&FieldValue::Float(87.3)));
     }
 
@@ -402,7 +405,10 @@ mod avro_tests {
             "nested_string".to_string(),
             FieldValue::String("nested_value".to_string()),
         );
-        map.insert("nested_key2".to_string(), FieldValue::String("another_value".to_string()));
+        map.insert(
+            "nested_key2".to_string(),
+            FieldValue::String("another_value".to_string()),
+        );
         record.insert("map_field".to_string(), FieldValue::Map(map));
 
         test_serialization_round_trip(&format, &record)

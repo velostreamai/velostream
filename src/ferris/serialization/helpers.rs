@@ -86,7 +86,7 @@ pub fn field_value_to_json(
             let divisor = 10_i64.pow(*scale as u32);
             let integer_part = value / divisor;
             let fractional_part = (value % divisor).abs();
-            
+
             // CRITICAL: For financial precision, preserve ALL digits including trailing zeros
             // The scale is semantically important and must be preserved for round-trip compatibility
             let decimal_str = if *scale == 0 {

@@ -1,8 +1,6 @@
 //! JSON serialization format implementation
 
-use super::helpers::{
-    field_value_to_json, json_to_field_value,
-};
+use super::helpers::{field_value_to_json, json_to_field_value};
 use super::{FieldValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;
 
