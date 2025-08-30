@@ -135,10 +135,9 @@ use super::internal::{
 };
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
-use crate::ferris::datasource::{DataReader, DataWriter};
+use crate::ferris::datasource::{create_sink, create_source, DataReader, DataWriter};
 use crate::ferris::serialization::SerializationFormat;
 use crate::ferris::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
-use crate::ferris::sql::datasource::{create_sink, create_source};
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;

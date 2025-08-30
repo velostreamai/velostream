@@ -36,14 +36,18 @@
 pub mod config;
 pub mod file;
 pub mod kafka;
+pub mod registry;
 pub mod traits;
 pub mod types;
 
 // Re-export core types
-pub use config::{CdcFormat, FileFormat, SinkConfig, SourceConfig};
+pub use config::{BatchConfig, BatchStrategy, CdcFormat, CompressionType, ConnectionString, FileFormat, SinkConfig, SourceConfig, WriteMode};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 
 // Re-export specific implementations
 pub use file::{FileDataSource, FileSink};
 pub use kafka::{KafkaDataSink, KafkaDataSource};
+
+// Re-export registry functions
+pub use registry::{create_sink, create_source, DataSourceRegistry};

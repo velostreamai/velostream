@@ -2,17 +2,17 @@
 //!
 //! This module provides a registry system for managing different data source implementations.
 //! It allows for dynamic registration and creation of data sources and sinks based on URI schemes.
-//!
-//! TODO: This module needs architectural rework to properly integrate with the generic
-//! datasource implementations. The current version provides a minimal working implementation.
+//! 
+//! This is the generic registry that works with any data processing system.
 
-use crate::ferris::datasource::{DataSink, DataSource, DataSourceError};
-use crate::ferris::sql::datasource::config::{SinkConfig, SourceConfig};
-use crate::ferris::sql::datasource::ConnectionString;
+use crate::ferris::datasource::{
+    config::{ConnectionString, SinkConfig, SourceConfig},
+    DataSink, DataSource, DataSourceError,
+};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-// Simplified type-erased factories using SQL config types
+// Type-erased factories using generic config types
 type SourceFactory = Box<
     dyn Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>>
         + Send
@@ -40,10 +40,16 @@ impl DataSourceRegistry {
     }
 
     /// Create a registry with default implementations
-    /// TODO: Implement with generic datasource implementations
     pub fn with_defaults() -> Self {
-        // TODO: Add factory registrations when async architecture is resolved
-        Self::new()
+        let registry = Self::new();
+        
+        // TODO: Register default implementations when available
+        // registry.register_source("kafka", |config| { ... });
+        // registry.register_source("file", |config| { ... });
+        // registry.register_sink("kafka", |config| { ... });
+        // registry.register_sink("file", |config| { ... });
+        
+        registry
     }
 
     /// Register a source factory for a specific scheme
@@ -99,26 +105,26 @@ impl DataSourceRegistry {
             ))
         })?;
 
-        factory(config).map_err(DataSourceError::SourceSpecific)
+        factory(config).map_err(DataSourceError::SinkSpecific)
     }
 
     /// List all registered source schemes
-    pub fn list_source_schemes(&self) -> Vec<String> {
+    pub fn source_schemes(&self) -> Vec<String> {
         self.source_factories.keys().cloned().collect()
     }
 
     /// List all registered sink schemes
-    pub fn list_sink_schemes(&self) -> Vec<String> {
+    pub fn sink_schemes(&self) -> Vec<String> {
         self.sink_factories.keys().cloned().collect()
     }
 
-    /// Check if a source scheme is supported
-    pub fn supports_source(&self, scheme: &str) -> bool {
+    /// Check if a source scheme is registered
+    pub fn has_source_scheme(&self, scheme: &str) -> bool {
         self.source_factories.contains_key(scheme)
     }
 
-    /// Check if a sink scheme is supported
-    pub fn supports_sink(&self, scheme: &str) -> bool {
+    /// Check if a sink scheme is registered
+    pub fn has_sink_scheme(&self, scheme: &str) -> bool {
         self.sink_factories.contains_key(scheme)
     }
 }
@@ -129,15 +135,17 @@ impl Default for DataSourceRegistry {
     }
 }
 
-// Global registry instance
-lazy_static::lazy_static! {
-    static ref GLOBAL_REGISTRY: Arc<Mutex<DataSourceRegistry>> =
-        Arc::new(Mutex::new(DataSourceRegistry::with_defaults()));
+/// Global registry instance
+static GLOBAL_REGISTRY: OnceLock<Arc<Mutex<DataSourceRegistry>>> = OnceLock::new();
+
+/// Get or initialize the global registry
+pub fn global_registry() -> &'static Arc<Mutex<DataSourceRegistry>> {
+    GLOBAL_REGISTRY.get_or_init(|| Arc::new(Mutex::new(DataSourceRegistry::with_defaults())))
 }
 
-/// Get the global data source registry
-pub fn global_registry() -> Arc<Mutex<DataSourceRegistry>> {
-    GLOBAL_REGISTRY.clone()
+/// Initialize the global registry with a custom registry
+pub fn initialize_global_registry(registry: DataSourceRegistry) {
+    let _ = GLOBAL_REGISTRY.set(Arc::new(Mutex::new(registry)));
 }
 
 /// Convenience function to create a data source from URI using global registry
@@ -158,7 +166,7 @@ pub fn create_sink(uri: &str) -> Result<Box<dyn DataSink>, DataSourceError> {
     registry.create_sink(uri)
 }
 
-/// Register a source factory globally
+/// Register a source factory in the global registry
 pub fn register_global_source<F>(scheme: &str, factory: F)
 where
     F: Fn(SourceConfig) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>>
@@ -167,11 +175,12 @@ where
         + 'static,
 {
     let registry = global_registry();
-    let mut registry = registry.lock().expect("Failed to acquire registry lock");
-    registry.register_source(scheme, factory);
+    if let Ok(mut registry) = registry.lock() {
+        registry.register_source(scheme, factory);
+    }
 }
 
-/// Register a sink factory globally
+/// Register a sink factory in the global registry
 pub fn register_global_sink<F>(scheme: &str, factory: F)
 where
     F: Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>>
@@ -180,59 +189,45 @@ where
         + 'static,
 {
     let registry = global_registry();
-    let mut registry = registry.lock().expect("Failed to acquire registry lock");
-    registry.register_sink(scheme, factory);
+    if let Ok(mut registry) = registry.lock() {
+        registry.register_sink(scheme, factory);
+    }
 }
 
-/// Builder pattern for creating custom registries
-pub struct RegistryBuilder {
-    registry: DataSourceRegistry,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl RegistryBuilder {
-    /// Create a new builder
-    pub fn new() -> Self {
-        Self {
-            registry: DataSourceRegistry::new(),
+    #[test]
+    fn test_registry_creation() {
+        let registry = DataSourceRegistry::new();
+        assert!(registry.source_schemes().is_empty());
+        assert!(registry.sink_schemes().is_empty());
+    }
+
+    #[test]
+    fn test_global_registry_access() {
+        let registry = global_registry();
+        assert!(registry.lock().is_ok());
+    }
+
+    #[test]
+    fn test_create_source_no_factory() {
+        let registry = DataSourceRegistry::new();
+        let result = registry.create_source("unknown://localhost/test");
+        assert!(result.is_err());
+        if let Err(DataSourceError::Configuration(msg)) = result {
+            assert!(msg.contains("No factory registered"));
         }
     }
 
-    /// Add a source factory
-    pub fn with_source<F>(mut self, scheme: &str, factory: F) -> Self
-    where
-        F: Fn(
-                SourceConfig,
-            ) -> Result<Box<dyn DataSource>, Box<dyn std::error::Error + Send + Sync>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.registry.register_source(scheme, factory);
-        self
-    }
-
-    /// Add a sink factory
-    pub fn with_sink<F>(mut self, scheme: &str, factory: F) -> Self
-    where
-        F: Fn(SinkConfig) -> Result<Box<dyn DataSink>, Box<dyn std::error::Error + Send + Sync>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.registry.register_sink(scheme, factory);
-        self
-    }
-
-    /// Build the registry
-    pub fn build(self) -> DataSourceRegistry {
-        self.registry
+    #[test]
+    fn test_create_sink_no_factory() {
+        let registry = DataSourceRegistry::new();
+        let result = registry.create_sink("unknown://localhost/test");
+        assert!(result.is_err());
+        if let Err(DataSourceError::Configuration(msg)) = result {
+            assert!(msg.contains("No factory registered"));
+        }
     }
 }
-
-impl Default for RegistryBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// TODO: Add tests when registry implementation is complete

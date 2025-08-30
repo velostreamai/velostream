@@ -77,10 +77,8 @@ pub trait DataReader: Send + Sync + 'static {
 
     /// Read multiple records in a batch (more efficient for some sources)
     /// Returns empty vector when no more data is available
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
+    /// Batch size is determined by the batch configuration provided during initialization
+    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
 
     /// Commit the current reading position (for sources that support it)
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
@@ -90,6 +88,32 @@ pub trait DataReader: Send + Sync + 'static {
 
     /// Check if more data is available (non-blocking)
     async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    /// Begin a transaction (for sources that support exactly-once processing)
+    /// Returns true if transactions are supported, false otherwise
+    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // Default implementation: transactions not supported
+        Ok(false)
+    }
+
+    /// Commit the current transaction (for sources that support exactly-once processing)
+    /// Should only be called if begin_transaction() returned true
+    async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Default implementation: no-op (fallback to regular commit)
+        self.commit().await
+    }
+
+    /// Abort/rollback the current transaction (for sources that support exactly-once processing)
+    /// Should only be called if begin_transaction() returned true
+    async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Default implementation: not supported
+        Err("Transaction abort not supported by this datasource".into())
+    }
+
+    /// Check if this datasource supports transactional processing
+    fn supports_transactions(&self) -> bool {
+        false
+    }
 }
 
 /// Writer trait for publishing data to any sink
@@ -117,9 +141,21 @@ pub trait DataWriter: Send + Sync + 'static {
     /// Flush any buffered writes
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
 
+    /// Begin a transaction (for sinks that support exactly-once processing)
+    /// Returns true if transactions are supported, false otherwise
+    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // Default implementation: transactions not supported
+        Ok(false)
+    }
+
     /// Commit the current transaction (for transactional sinks)
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Rollback the current transaction (for transactional sinks)
     async fn rollback(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
+
+    /// Check if this datasink supports transactional processing
+    fn supports_transactions(&self) -> bool {
+        false
+    }
 }

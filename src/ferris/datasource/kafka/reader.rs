@@ -77,16 +77,57 @@ impl DataReader for KafkaDataReader<KafkaConsumer<String, String, JsonSerializer
         }
     }
 
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut records = Vec::with_capacity(max_size);
+    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        // Kafka's native batching is controlled by consumer configuration:
+        // - max.poll.records: controls how many records are returned
+        // - fetch.min.bytes: minimum data to fetch in a request  
+        // - fetch.max.wait.ms: max time to wait for fetch.min.bytes
+        // These are set during consumer creation based on BatchConfig
+        
+        // Use poll() which returns multiple messages based on configuration
+        let messages = self.consumer.poll(Duration::from_millis(1000));
+        let mut records = Vec::new();
 
-        for _ in 0..max_size {
-            match self.read().await? {
-                Some(record) => records.push(record),
-                None => break,
+        for message in messages {
+            match message {
+                Ok(msg) => {
+                    let mut fields = HashMap::new();
+
+                    // Add key if present
+                    if let Some(key) = msg.key() {
+                        fields.insert("key".to_string(), FieldValue::String(key.clone()));
+                    } else {
+                        fields.insert("key".to_string(), FieldValue::Null);
+                    }
+
+                    // Add value
+                    fields.insert(
+                        "value".to_string(),
+                        FieldValue::String(msg.value().clone()),
+                    );
+
+                    // Convert headers
+                    let mut header_map = HashMap::new();
+                    for (key, value) in msg.headers().iter() {
+                        if let Some(v) = value {
+                            header_map.insert(key.clone(), v.clone());
+                        }
+                    }
+
+                    let record = StreamRecord {
+                        fields,
+                        timestamp: msg
+                            .timestamp()
+                            .unwrap_or(chrono::Utc::now().timestamp_millis()),
+                        offset: msg.offset(),
+                        partition: msg.partition(),
+                        headers: header_map,
+                    };
+
+                    records.push(record);
+                }
+                Err(ConsumerError::Timeout) => continue,
+                Err(err) => return Err(Box::new(err)),
             }
         }
 
@@ -168,13 +209,12 @@ impl DataReader for KafkaDataReader<KafkaConsumer<String, Value, JsonSerializer,
         }
     }
 
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut records = Vec::with_capacity(max_size);
+    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        // Kafka's native batching via consumer configuration
+        let messages = self.consumer.poll(Duration::from_millis(1000));
+        let mut records = Vec::new();
 
-        for _ in 0..max_size {
+        for message in messages {
             match self.read().await? {
                 Some(record) => records.push(record),
                 None => break,
@@ -263,13 +303,12 @@ impl DataReader
         }
     }
 
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut records = Vec::with_capacity(max_size);
+    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        // Kafka's native batching via consumer configuration
+        let messages = self.consumer.poll(Duration::from_millis(1000));
+        let mut records = Vec::new();
 
-        for _ in 0..max_size {
+        for message in messages {
             match self.read().await? {
                 Some(record) => records.push(record),
                 None => break,
@@ -433,13 +472,12 @@ impl DataReader
         }
     }
 
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut records = Vec::with_capacity(max_size);
+    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        // Kafka's native batching via consumer configuration
+        let messages = self.consumer.poll(Duration::from_millis(1000));
+        let mut records = Vec::new();
 
-        for _ in 0..max_size {
+        for message in messages {
             match self.read().await? {
                 Some(record) => records.push(record),
                 None => break,

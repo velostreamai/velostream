@@ -5,7 +5,6 @@ pub mod app_parser;
 pub mod ast;
 pub mod config;
 pub mod context;
-pub mod datasource;
 pub mod error;
 pub mod execution;
 pub mod execution_format_factory;

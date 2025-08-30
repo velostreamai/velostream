@@ -17,8 +17,8 @@
 use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
 use ferrisstreams::ferris::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
 use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::config::ConnectionString;
-use ferrisstreams::ferris::sql::datasource::create_source;
+use ferrisstreams::ferris::datasource::config::ConnectionString;
+use ferrisstreams::ferris::datasource::create_source;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

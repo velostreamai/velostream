@@ -127,6 +127,7 @@ impl FileSourceConfig {
             path,
             format,
             properties,
+            ..
         } = config
         {
             let mut file_config = Self::new(path.clone(), FileFormat::Csv);
@@ -410,6 +411,7 @@ impl From<FileSourceConfig> for SourceConfig {
             path: config.path,
             format: generic_format,
             properties,
+            batch_config: Default::default(),
         }
     }
 }
@@ -495,6 +497,7 @@ impl FileSinkConfig {
         if let crate::ferris::datasource::config::SinkConfig::File {
             path,
             format,
+            compression: _,
             properties,
         } = config
         {
@@ -660,6 +663,7 @@ impl From<FileSinkConfig> for crate::ferris::datasource::config::SinkConfig {
         crate::ferris::datasource::config::SinkConfig::File {
             path: config.path,
             format: generic_format,
+            compression: None, // Default to no compression
             properties,
         }
     }

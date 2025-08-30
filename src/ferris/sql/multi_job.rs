@@ -4,7 +4,7 @@
 //! with support for different datasources and execution monitoring.
 
 use crate::ferris::datasource::{
-    config::{FileFormat, SourceConfig},
+    config::{BatchConfig, BatchStrategy, FileFormat, SourceConfig},
     file::FileDataSource,
     kafka::KafkaDataSource,
     DataReader, DataSource,
@@ -12,6 +12,7 @@ use crate::ferris::datasource::{
 // InternalValue no longer needed - using FieldValue directly
 // use crate::ferris::serialization::InternalValue;
 use crate::ferris::sql::{
+    execution::types::StreamRecord,
     query_analyzer::{DataSourceRequirement, DataSourceType},
     StreamExecutionEngine, StreamingQuery,
 };
@@ -32,6 +33,16 @@ pub struct DataSourceConfig {
 /// Result of datasource creation
 pub type DataSourceResult = Result<Box<dyn DataReader>, String>;
 
+
+/// Result of batch processing
+#[derive(Debug)]
+pub struct BatchResult {
+    pub records_processed: usize,
+    pub records_failed: usize,
+    pub processing_time: Duration,
+    pub batch_size: usize,
+}
+
 /// Statistics for job execution
 #[derive(Debug, Clone, Default)]
 pub struct JobExecutionStats {
@@ -39,6 +50,10 @@ pub struct JobExecutionStats {
     pub start_time: Option<Instant>,
     pub errors: u64,
     pub last_record_time: Option<Instant>,
+    // Batch-specific stats
+    pub batches_processed: u64,
+    pub avg_batch_size: f64,
+    pub total_batch_processing_time: Duration,
 }
 
 impl JobExecutionStats {
@@ -47,6 +62,19 @@ impl JobExecutionStats {
             start_time: Some(Instant::now()),
             ..Default::default()
         }
+    }
+
+    /// Update statistics after batch processing
+    pub fn update_batch_stats(&mut self, batch_result: &BatchResult) {
+        self.batches_processed += 1;
+        self.records_processed += batch_result.records_processed as u64;
+        self.errors += batch_result.records_failed as u64;
+        self.last_record_time = Some(Instant::now());
+        self.total_batch_processing_time += batch_result.processing_time;
+        
+        // Update moving average of batch size
+        let total_records = self.batches_processed as f64;
+        self.avg_batch_size = ((self.avg_batch_size * (total_records - 1.0)) + batch_result.batch_size as f64) / total_records;
     }
 
     pub fn records_per_second(&self) -> f64 {
@@ -90,6 +118,7 @@ fn extract_kafka_config(
         topic,
         group_id: Some(group_id),
         properties: props.clone(),
+        batch_config: Default::default(),
     }
 }
 
@@ -110,6 +139,7 @@ fn extract_file_config(props: &HashMap<String, String>) -> SourceConfig {
         path,
         format,
         properties: props.clone(),
+        batch_config: Default::default(),
     }
 }
 
@@ -192,7 +222,7 @@ async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceResult
         .map_err(|e| format!("Failed to create File reader: {}", e))
 }
 
-/// Process records from a datasource
+/// Process records from a datasource (enhanced with batch processing)
 pub async fn process_datasource_records(
     mut reader: Box<dyn DataReader>,
     execution_engine: Arc<Mutex<StreamExecutionEngine>>,
@@ -200,31 +230,105 @@ pub async fn process_datasource_records(
     job_name: String,
     mut shutdown_receiver: mpsc::UnboundedReceiver<()>,
 ) -> JobExecutionStats {
+    // Use default batch configuration for now - can be made configurable later
+    let batch_config = BatchConfig::default();
+    process_datasource_records_with_batch_config(
+        reader,
+        execution_engine,
+        parsed_query,
+        job_name,
+        shutdown_receiver,
+        batch_config,
+    )
+    .await
+}
+
+/// Process records from a datasource with configurable batch processing
+pub async fn process_datasource_records_with_batch_config(
+    mut reader: Box<dyn DataReader>,
+    execution_engine: Arc<Mutex<StreamExecutionEngine>>,
+    parsed_query: StreamingQuery,
+    job_name: String,
+    mut shutdown_receiver: mpsc::UnboundedReceiver<()>,
+    batch_config: BatchConfig,
+) -> JobExecutionStats {
     let mut stats = JobExecutionStats::new();
 
-    loop {
-        // Check for shutdown signal
-        if shutdown_receiver.try_recv().is_ok() {
-            info!("Job '{}' received shutdown signal", job_name);
-            break;
-        }
-
-        // Process next record
-        match process_single_record(
-            &mut reader,
-            &execution_engine,
-            &parsed_query,
-            &job_name,
-            &mut stats,
-        )
-        .await
-        {
-            ProcessResult::Continue => continue,
-            ProcessResult::NoData => {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+    if batch_config.enable_batching {
+        // Batch processing mode - use datasource's native read_batch() method
+        loop {
+            // Check for shutdown signal
+            if shutdown_receiver.try_recv().is_ok() {
+                info!("Job '{}' received shutdown signal", job_name);
+                break;
             }
-            ProcessResult::Error => {
-                tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            let batch_start = Instant::now();
+            
+            // Use the datasource's native read_batch() method 
+            // The batch size is configured in the datasource during initialization
+            match reader.read_batch().await {
+                Ok(batch) if batch.is_empty() => {
+                    // No data available, wait briefly
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+                Ok(batch) => {
+                    // Process the batch using SQL engine
+                    let batch_result = process_batch(
+                        batch,
+                        &execution_engine,
+                        &parsed_query,
+                        &job_name,
+                        batch_start,
+                    ).await;
+                    
+                    stats.update_batch_stats(&batch_result);
+                    
+                    // Commit at batch boundary for proper transactional semantics
+                    if let Err(e) = reader.commit().await {
+                        warn!("Job '{}' failed to commit batch: {:?}", job_name, e);
+                        stats.errors += 1;
+                    }
+                    
+                    // Log progress periodically
+                    if stats.batches_processed % 10 == 0 {
+                        log_batch_progress(&job_name, &stats);
+                    }
+                }
+                Err(e) => {
+                    warn!("Job '{}' error reading batch: {:?}", job_name, e);
+                    stats.errors += 1;
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                }
+            }
+        }
+    } else {
+        // Single record processing mode (fallback)
+        loop {
+            // Check for shutdown signal
+            if shutdown_receiver.try_recv().is_ok() {
+                info!("Job '{}' received shutdown signal", job_name);
+                break;
+            }
+
+            // Process next record
+            match process_single_record(
+                &mut reader,
+                &execution_engine,
+                &parsed_query,
+                &job_name,
+                &mut stats,
+            )
+            .await
+            {
+                ProcessResult::Continue => continue,
+                ProcessResult::NoData => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                ProcessResult::Error => {
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                }
             }
         }
     }
@@ -239,6 +343,44 @@ enum ProcessResult {
     Continue,
     NoData,
     Error,
+}
+
+
+/// Process a batch of records through the execution engine
+async fn process_batch(
+    batch: Vec<StreamRecord>,
+    execution_engine: &Arc<Mutex<StreamExecutionEngine>>,
+    parsed_query: &StreamingQuery,
+    job_name: &str,
+    batch_start: Instant,
+) -> BatchResult {
+    let batch_size = batch.len();
+    let mut records_processed = 0;
+    let mut records_failed = 0;
+    
+    // Process each record in the batch
+    let mut engine = execution_engine.lock().await;
+    
+    for record in batch {
+        match engine.execute_with_record(parsed_query, record).await {
+            Ok(_) => records_processed += 1,
+            Err(e) => {
+                error!("Job '{}' failed to process record in batch: {:?}", job_name, e);
+                records_failed += 1;
+            }
+        }
+    }
+    
+    drop(engine);
+    
+    let processing_time = batch_start.elapsed();
+    
+    BatchResult {
+        records_processed,
+        records_failed,
+        processing_time,
+        batch_size,
+    }
 }
 
 /// Process a single record from the datasource
@@ -287,14 +429,50 @@ fn log_progress(job_name: &str, stats: &JobExecutionStats) {
     );
 }
 
+/// Log batch processing progress
+fn log_batch_progress(job_name: &str, stats: &JobExecutionStats) {
+    let rps = stats.records_per_second();
+    let avg_processing_time = if stats.batches_processed > 0 {
+        stats.total_batch_processing_time.as_millis() as f64 / stats.batches_processed as f64
+    } else {
+        0.0
+    };
+    
+    info!(
+        "Job '{}': processed {} batches ({} records, {:.2} records/sec, {:.1} avg batch size, {:.2}ms avg batch time)",
+        job_name, 
+        stats.batches_processed,
+        stats.records_processed, 
+        rps,
+        stats.avg_batch_size,
+        avg_processing_time
+    );
+}
+
 /// Log final execution statistics
 fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
     let elapsed = stats.elapsed().as_secs_f64();
     let rps = stats.records_per_second();
-    info!(
-        "Job '{}' completed: processed {} records in {:.2}s ({:.2} records/sec), {} errors",
-        job_name, stats.records_processed, elapsed, rps, stats.errors
-    );
+    
+    if stats.batches_processed > 0 {
+        let avg_processing_time = stats.total_batch_processing_time.as_millis() as f64 / stats.batches_processed as f64;
+        info!(
+            "Job '{}' completed: processed {} batches ({} records) in {:.2}s ({:.2} records/sec, {:.1} avg batch size, {:.2}ms avg batch time), {} errors",
+            job_name, 
+            stats.batches_processed,
+            stats.records_processed, 
+            elapsed, 
+            rps, 
+            stats.avg_batch_size,
+            avg_processing_time,
+            stats.errors
+        );
+    } else {
+        info!(
+            "Job '{}' completed: processed {} records in {:.2}s ({:.2} records/sec), {} errors",
+            job_name, stats.records_processed, elapsed, rps, stats.errors
+        );
+    }
 }
 
 #[cfg(test)]

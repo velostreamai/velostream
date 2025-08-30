@@ -69,6 +69,8 @@ pub enum DataSourceError {
     Unsupported(String),
     /// Source-specific error
     SourceSpecific(Box<dyn Error + Send + Sync>),
+    /// Sink-specific error
+    SinkSpecific(Box<dyn Error + Send + Sync>),
 }
 
 impl fmt::Display for DataSourceError {
@@ -80,6 +82,7 @@ impl fmt::Display for DataSourceError {
             DataSourceError::Io(msg) => write!(f, "IO error: {}", msg),
             DataSourceError::Unsupported(msg) => write!(f, "Unsupported operation: {}", msg),
             DataSourceError::SourceSpecific(err) => write!(f, "Source error: {}", err),
+            DataSourceError::SinkSpecific(err) => write!(f, "Sink error: {}", err),
         }
     }
 }
@@ -88,6 +91,7 @@ impl Error for DataSourceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             DataSourceError::SourceSpecific(err) => Some(err.as_ref()),
+            DataSourceError::SinkSpecific(err) => Some(err.as_ref()),
             _ => None,
         }
     }
