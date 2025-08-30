@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use ferrisstreams::ferris::{
     error::FerrisResult,
     kafka::{JsonSerializer, KafkaConsumer},
-    serialization::{InternalValue, JsonFormat},
+    serialization::{JsonFormat},
     sql::{
         execution::performance::PerformanceMonitor, FieldValue, SqlError, StreamExecutionEngine,
         StreamRecord, StreamingSqlParser,

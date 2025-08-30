@@ -77,8 +77,6 @@ pub use crate::ferris::sql::{FieldValue, SqlError};
 // Core types and traits
 mod error;
 mod traits;
-mod types;
-
 // Format implementations
 mod json;
 
@@ -96,7 +94,6 @@ pub mod helpers;
 pub use error::SerializationError;
 pub use factory::SerializationFormatFactory;
 pub use traits::SerializationFormat;
-pub use types::InternalValue;
 
 // Re-export format implementations
 pub use json::JsonFormat;
@@ -109,7 +106,7 @@ pub use protobuf::ProtobufFormat;
 
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
 pub use helpers::{
-    field_value_to_internal, field_value_to_json, internal_to_field_value, json_to_field_value,
+    field_value_to_json, json_to_field_value,
 };
 
 #[cfg(feature = "avro")]

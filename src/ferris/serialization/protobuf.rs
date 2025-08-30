@@ -1,9 +1,9 @@
 //! Protobuf serialization format implementation
 
 use super::helpers::{
-    field_value_to_internal, field_value_to_json, internal_to_field_value, json_to_field_value,
+    field_value_to_json, json_to_field_value
 };
-use super::{FieldValue, InternalValue, SerializationError, SerializationFormat};
+use super::{FieldValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;
 
 /// Protocol Buffers serialization implementation (feature-gated)
@@ -79,34 +79,6 @@ where
                 "Expected JSON object from protobuf data".to_string(),
             )),
         }
-    }
-
-    fn to_execution_format(
-        &self,
-        record: &HashMap<String, FieldValue>,
-    ) -> Result<HashMap<String, InternalValue>, SerializationError> {
-        let mut execution_map = HashMap::new();
-
-        for (key, field_value) in record {
-            let internal_value = field_value_to_internal(field_value)?;
-            execution_map.insert(key.clone(), internal_value);
-        }
-
-        Ok(execution_map)
-    }
-
-    fn from_execution_format(
-        &self,
-        data: &HashMap<String, InternalValue>,
-    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        let mut record = HashMap::new();
-
-        for (key, internal_value) in data {
-            let field_value = internal_to_field_value(internal_value)?;
-            record.insert(key.clone(), field_value);
-        }
-
-        Ok(record)
     }
 
     fn format_name(&self) -> &'static str {

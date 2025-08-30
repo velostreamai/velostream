@@ -5,7 +5,4 @@ pub mod field_value_comparator;
 /// - Reduce engine size and complexity
 /// - Improve separation of concerns  
 /// - Enable reuse across processors and components
-pub mod field_value_converter;
 pub mod time_extractor;
-
-pub use field_value_converter::FieldValueConverter;

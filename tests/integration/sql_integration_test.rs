@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::{
     types::{FieldValue, StreamRecord},
@@ -34,28 +34,7 @@ mod tests {
         ])
     }
 
-    // Helper function to convert InternalValue to FieldValue
-    fn internal_to_field_value(internal: &InternalValue) -> FieldValue {
-        match internal {
-            InternalValue::String(s) => FieldValue::String(s.clone()),
-            InternalValue::Number(n) => FieldValue::Float(*n),
-            InternalValue::Integer(i) => FieldValue::Integer(*i),
-            InternalValue::Boolean(b) => FieldValue::Boolean(*b),
-            InternalValue::Null => FieldValue::Null,
-            InternalValue::ScaledNumber(value, scale) => FieldValue::ScaledInteger(*value, *scale),
-            InternalValue::Array(arr) => {
-                let field_arr: Vec<FieldValue> = arr.iter().map(internal_to_field_value).collect();
-                FieldValue::Array(field_arr)
-            }
-            InternalValue::Object(obj) => {
-                let mut field_map = HashMap::new();
-                for (k, v) in obj {
-                    field_map.insert(k.clone(), internal_to_field_value(v));
-                }
-                FieldValue::Map(field_map)
-            }
-        }
-    }
+    // Helper function removed - InternalValue is no longer used
 
     fn create_order_record(
         order_id: i64,
@@ -444,7 +423,7 @@ mod tests {
 
         // Valid record
         let valid_record = create_order_record(1, 100, 299.99, Some("pending"));
-        // Convert InternalValue to serde_json::Value for validation
+        // Convert FieldValue to serde_json::Value for validation
         let valid_json_record: HashMap<String, serde_json::Value> = valid_record
             .fields
             .iter()

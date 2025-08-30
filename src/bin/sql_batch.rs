@@ -11,7 +11,7 @@
 use clap::Parser;
 use ferrisstreams::ferris::{
     error::FerrisResult,
-    serialization::{InternalValue, JsonFormat},
+    serialization::JsonFormat,
     sql::{
         ast::StreamingQuery,
         execution::types::{FieldValue, StreamRecord},

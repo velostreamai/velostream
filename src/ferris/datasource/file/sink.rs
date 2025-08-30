@@ -37,7 +37,7 @@ pub struct FileSink {
 }
 
 /// State for active file writers
-struct FileWriterState {
+pub struct FileWriterState {
     path: PathBuf,
     writer: File,
     bytes_written: u64,

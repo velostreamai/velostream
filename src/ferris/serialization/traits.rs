@@ -1,6 +1,6 @@
 //! Core serialization traits
 
-use super::{FieldValue, InternalValue, SerializationError};
+use super::{FieldValue, SerializationError};
 use std::collections::HashMap;
 
 /// Trait for pluggable serialization formats
@@ -25,18 +25,6 @@ pub trait SerializationFormat: Send + Sync {
     fn deserialize_record(
         &self,
         bytes: &[u8],
-    ) -> Result<HashMap<String, FieldValue>, SerializationError>;
-
-    /// Convert record to internal execution format
-    fn to_execution_format(
-        &self,
-        record: &HashMap<String, FieldValue>,
-    ) -> Result<HashMap<String, InternalValue>, SerializationError>;
-
-    /// Convert from internal execution format back to record
-    fn from_execution_format(
-        &self,
-        data: &HashMap<String, InternalValue>,
     ) -> Result<HashMap<String, FieldValue>, SerializationError>;
 
     /// Get the format name (for logging/debugging)

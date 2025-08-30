@@ -97,11 +97,9 @@ fn simulate_future_behavior() {
     println!("   ✅ Cross-system Avro compatibility");
 }
 
-#[cfg(not(any()))] // Disabled - would need full ferrisstreams compilation
 fn test_with_actual_ferrisstreams() {
     // This would be the actual test once schema parsing is fixed:
     
-    /*
     use ferrisstreams::ferris::serialization::{FieldValue, SerializationFormat, AvroFormat};
     
     let schema_json = r#"
@@ -136,5 +134,4 @@ fn test_with_actual_ferrisstreams() {
     }
     
     assert_eq!(record, deserialized);
-    */
 }
