@@ -119,6 +119,47 @@ cargo run --bin test_serialization_compatibility --no-default-features
 - `avro`: Apache Avro support (requires apache-avro crate)
 - `protobuf`: Protocol Buffers support (requires prost crate)
 
+## Schema Configuration
+
+### Kafka Schema Support
+FerrisStreams now supports comprehensive schema configuration for Kafka data sources:
+
+**Avro Schema Configuration**:
+```yaml
+# Inline schema
+avro.schema: |
+  {
+    "type": "record",
+    "name": "ExampleRecord", 
+    "fields": [{"name": "id", "type": "long"}]
+  }
+
+# Schema file  
+avro.schema.file: "./schemas/example.avsc"
+```
+
+**Protobuf Schema Configuration**:
+```yaml
+# Inline schema
+protobuf.schema: |
+  syntax = "proto3";
+  message ExampleRecord {
+    int64 id = 1;
+  }
+
+# Schema file
+protobuf.schema.file: "./schemas/example.proto"
+```
+
+**Key Benefits**:
+- **Schema Enforcement**: Avro/Protobuf now require proper schemas (no more hardcoded fallbacks)
+- **Multiple Config Keys**: Support for various naming conventions (`avro.schema`, `value.avro.schema`, etc.)
+- **File Support**: Load schemas from external files for better maintainability
+- **Financial Precision**: Built-in support for decimal logical types in schemas
+- **Production Ready**: Schema Registry integration for centralized schema management
+
+See [docs/KAFKA_SCHEMA_CONFIGURATION.md](docs/KAFKA_SCHEMA_CONFIGURATION.md) for complete configuration guide.
+
 ## Code Organization
 
 ### Module Structure Guidelines

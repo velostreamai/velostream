@@ -15,12 +15,18 @@ use std::time::Duration;
 
 use super::reader::SerializationFormat; // Reuse the same format enum
 
+// Import the codec implementations
+use crate::ferris::serialization::avro_codec::AvroCodec;
+use crate::ferris::serialization::protobuf_codec::ProtobufCodec;
+
 /// Unified Kafka DataWriter that handles all serialization formats
 pub struct KafkaDataWriter {
     producer: FutureProducer,
     topic: String,
     format: SerializationFormat,
     key_field: Option<String>, // Field name to use as message key
+    avro_codec: Option<AvroCodec>,
+    protobuf_codec: Option<ProtobufCodec>,
 }
 
 impl KafkaDataWriter {
@@ -30,6 +36,61 @@ impl KafkaDataWriter {
         topic: String,
         format: SerializationFormat,
         key_field: Option<String>, // Which field to use as Kafka message key
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Self::new_with_schemas(brokers, topic, format, key_field, None, None, None).await
+    }
+
+    /// Create a new Kafka data writer with optional Avro schema
+    pub async fn new_with_avro_schema(
+        brokers: &str,
+        topic: String,
+        format: SerializationFormat,
+        key_field: Option<String>,
+        avro_schema_json: Option<&str>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Self::new_with_schemas(
+            brokers,
+            topic,
+            format,
+            key_field,
+            avro_schema_json,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Create a new Kafka data writer with Protobuf schema
+    pub async fn new_with_protobuf_schema(
+        brokers: &str,
+        topic: String,
+        format: SerializationFormat,
+        key_field: Option<String>,
+        protobuf_schema: Option<&str>,
+        message_type: Option<&str>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Self::new_with_schemas(
+            brokers,
+            topic,
+            format,
+            key_field,
+            None,
+            protobuf_schema,
+            message_type,
+        )
+        .await
+    }
+
+    /// Create a new Kafka data writer with optional schema configurations
+    /// This is the unified method that handles all schema types
+    async fn new_with_schemas(
+        brokers: &str,
+        topic: String,
+        format: SerializationFormat,
+        key_field: Option<String>,
+        avro_schema_json: Option<&str>,
+        protobuf_schema: Option<&str>,
+        protobuf_message_type: Option<&str>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let mut config = ClientConfig::new();
         config
@@ -41,11 +102,50 @@ impl KafkaDataWriter {
 
         let producer: FutureProducer = config.create()?;
 
+        // Initialize codecs based on format
+        let avro_codec = if matches!(format, SerializationFormat::Avro) {
+            if let Some(schema_json) = avro_schema_json {
+                Some(AvroCodec::new(schema_json)?)
+            } else {
+                // Use a default schema for basic record structure
+                let default_schema = r#"{
+                    "type": "record",
+                    "name": "StreamRecord",
+                    "fields": [
+                        {"name": "data", "type": ["null", "string"], "default": null}
+                    ]
+                }"#;
+                Some(AvroCodec::new(default_schema)?)
+            }
+        } else {
+            None
+        };
+
+        let protobuf_codec = if matches!(format, SerializationFormat::Protobuf) {
+            if let Some(schema) = protobuf_schema {
+                // Use provided schema
+                let message_type = protobuf_message_type.unwrap_or("Record");
+                match ProtobufCodec::new(schema, message_type) {
+                    Ok(codec) => Some(codec),
+                    Err(e) => {
+                        return Err(Box::new(e) as Box<dyn Error + Send + Sync>);
+                    }
+                }
+            } else {
+                // Use the default schema for backward compatibility
+                Some(ProtobufCodec::new_with_default_schema())
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             producer,
             topic,
             format,
             key_field: key_field.or(Some("key".to_string())), // Default to "key" field
+            avro_codec,
+            protobuf_codec,
         })
     }
 
@@ -123,18 +223,30 @@ impl KafkaDataWriter {
                 Ok(json_str.into_bytes())
             }
             SerializationFormat::Avro => {
-                // For Avro, we would need proper schema-based serialization
-                // For now, serialize as JSON and encode as bytes (placeholder)
-                let json_obj = self.convert_to_json_object(record)?;
-                let json_str = serde_json::to_string(&json_obj)?;
-                Ok(json_str.into_bytes())
+                if let Some(codec) = &self.avro_codec {
+                    // Use proper Avro serialization
+                    codec
+                        .serialize(&record.fields)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+                } else {
+                    // Fallback to JSON if codec not available
+                    let json_obj = self.convert_to_json_object(record)?;
+                    let json_str = serde_json::to_string(&json_obj)?;
+                    Ok(json_str.into_bytes())
+                }
             }
             SerializationFormat::Protobuf => {
-                // For Protobuf, we would need proper .proto schema compilation
-                // For now, serialize as JSON and encode as bytes (placeholder)
-                let json_obj = self.convert_to_json_object(record)?;
-                let json_str = serde_json::to_string(&json_obj)?;
-                Ok(json_str.into_bytes())
+                if let Some(codec) = &self.protobuf_codec {
+                    // Use proper Protobuf serialization
+                    codec
+                        .serialize(&record.fields)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+                } else {
+                    // Fallback to JSON if codec not available
+                    let json_obj = self.convert_to_json_object(record)?;
+                    let json_str = serde_json::to_string(&json_obj)?;
+                    Ok(json_str.into_bytes())
+                }
             }
             SerializationFormat::Auto => {
                 // Default to JSON for Auto format
@@ -282,14 +394,39 @@ impl DataWriter for KafkaDataWriter {
 
     // Transaction support methods
     async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // Kafka transactions are configured at producer creation time
-        // For now, we don't support transactional producers in this implementation
-        Ok(false)
+        // Initialize transactions first if not already done
+        match self.producer.init_transactions(Duration::from_secs(5)) {
+            Ok(()) => {
+                // Now begin the transaction
+                match self.producer.begin_transaction() {
+                    Ok(()) => Ok(true),
+                    Err(e) => Err(Box::new(e) as Box<dyn Error + Send + Sync>),
+                }
+            }
+            Err(e) => Err(Box::new(e) as Box<dyn Error + Send + Sync>),
+        }
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // For non-transactional producers, commit is equivalent to flush
         self.flush().await
+    }
+
+    /// Commit the current transaction
+    ///
+    /// Note: This should only be called if begin_transaction() returned true
+    /// and the producer was created with transactional.id
+    /// For non-transactional producers, this will return an error
+    async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // self.producer.send_offsets_to_transaction(offsets, cgm, timeout)
+        self.producer
+            .commit_transaction(Duration::from_secs(60))
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+    }
+    async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.producer
+            .abort_transaction(Duration::from_secs(60))
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     async fn rollback(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -299,7 +436,6 @@ impl DataWriter for KafkaDataWriter {
     }
 
     fn supports_transactions(&self) -> bool {
-        // Could be made configurable in the future
-        false
+        true
     }
 }

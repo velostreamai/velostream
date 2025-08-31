@@ -96,7 +96,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query
         let parser = StreamingSqlParser::new();
@@ -130,7 +130,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse simple aggregation query (integration test - no windowing)
         let parser = StreamingSqlParser::new();
@@ -184,7 +184,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
         let parser = StreamingSqlParser::new();
 
         // Test orders query
@@ -228,7 +228,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse complex query with arithmetic and aliases
         let parser = StreamingSqlParser::new();
@@ -301,7 +301,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse simple aggregation query (integration test - no windowing)
         let parser = StreamingSqlParser::new();
@@ -338,7 +338,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse session window query
         let parser = StreamingSqlParser::new();
@@ -384,7 +384,7 @@ mod tests {
     async fn test_error_propagation_integration() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse valid query
         let parser = StreamingSqlParser::new();
@@ -492,7 +492,7 @@ mod tests {
 
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with multiple aggregations (integration test - no windowing)
         let parser = StreamingSqlParser::new();

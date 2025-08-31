@@ -11,6 +11,37 @@ kafka:
   # sasl_mechanism: "PLAIN"
   # sasl_username: "username"
   # sasl_password: "password"
+  
+  # Schema configuration for Avro/Protobuf formats
+  schema:
+    # Registry settings (for centralized schema management)
+    registry_url: "http://localhost:8081"
+    # registry_username: "username"
+    # registry_password: "password"
+    
+    # Example inline schemas (use registry_url for production)
+    # avro_schema: |
+    #   {
+    #     "type": "record",
+    #     "name": "ExampleRecord",
+    #     "fields": [
+    #       {"name": "id", "type": "long"},
+    #       {"name": "name", "type": "string"},
+    #       {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}}
+    #     ]
+    #   }
+    #
+    # protobuf_schema: |
+    #   syntax = "proto3";
+    #   message ExampleRecord {
+    #     int64 id = 1;
+    #     string name = 2;
+    #     string amount = 3;  // Use string for financial precision
+    #   }
+    
+    # Schema file paths (alternative to inline schemas)
+    # avro_schema_file: "./schemas/example.avsc"
+    # protobuf_schema_file: "./schemas/example.proto"
 
 # Server Settings
 server:

@@ -144,6 +144,20 @@ pub trait DataWriter: Send + Sync + 'static {
         Ok(false)
     }
 
+    /// Commit the current transaction (for sources that support exactly-once processing)
+    /// Should only be called if begin_transaction() returned true
+    async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Default implementation: no-op (fallback to regular commit)
+        self.commit().await
+    }
+
+    /// Abort/rollback the current transaction (for sources that support exactly-once processing)
+    /// Should only be called if begin_transaction() returned true
+    async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Default implementation: not supported
+        Err("Transaction abort not supported by this datasource".into())
+    }
+
     /// Commit the current transaction (for transactional sinks)
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;
 

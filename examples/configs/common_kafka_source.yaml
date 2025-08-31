@@ -19,6 +19,37 @@ datasource:
     key_format: string
     value_format: json
     
+    # Schema Registry settings (for Avro/Protobuf)
+    registry_url: "http://localhost:8081"
+    # registry_username: "schema_user"
+    # registry_password: "schema_pass"
+    
+    # Schema configuration examples (choose based on value_format)
+    # For Avro format:
+    # avro.schema: |
+    #   {
+    #     "type": "record",
+    #     "name": "CommonRecord", 
+    #     "fields": [
+    #       {"name": "id", "type": "string"},
+    #       {"name": "timestamp", "type": "long"},
+    #       {"name": "payload", "type": "string"}
+    #     ]
+    #   }
+    #
+    # For Protobuf format:  
+    # protobuf.schema: |
+    #   syntax = "proto3";
+    #   message CommonRecord {
+    #     string id = 1;
+    #     int64 timestamp = 2;
+    #     string payload = 3;
+    #   }
+    #
+    # Schema file alternatives:
+    # avro.schema.file: "./schemas/common_record.avsc"  
+    # protobuf.schema.file: "./schemas/common_record.proto"
+    
   # Default performance settings
   performance:
     compression_type: "gzip"

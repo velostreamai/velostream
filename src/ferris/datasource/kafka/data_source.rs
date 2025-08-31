@@ -183,15 +183,100 @@ impl KafkaDataSource {
             _ => SerializationFormat::Json, // Default fallback
         };
 
-        // Create unified reader with detected format
-        KafkaDataReader::new(
+        // Extract schema from config based on format
+        let schema = self.extract_schema_for_format(&format)?;
+
+        // Create unified reader with detected format and schema
+        KafkaDataReader::new_with_schema(
             &self.brokers,
             self.topic.clone(),
             group_id,
             format,
             batch_size,
+            schema.as_deref(), // Pass schema if available
         )
         .await
+    }
+
+    /// Extract schema from configuration based on serialization format
+    fn extract_schema_for_format(
+        &self,
+        format: &SerializationFormat,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+        match format {
+            SerializationFormat::Avro => {
+                // Look for Avro schema in various config keys (common patterns)
+                let schema = self
+                    .config
+                    .get("avro.schema")
+                    .or_else(|| self.config.get("value.avro.schema"))
+                    .or_else(|| self.config.get("schema.avro"))
+                    .or_else(|| self.config.get("avro_schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path
+                    if let Some(schema_file) = self
+                        .config
+                        .get("avro.schema.file")
+                        .or_else(|| self.config.get("schema.file"))
+                        .or_else(|| self.config.get("avro_schema_file"))
+                    {
+                        return self.load_schema_from_file(schema_file);
+                    }
+                }
+
+                Ok(schema)
+            }
+            SerializationFormat::Protobuf => {
+                // Look for Protobuf schema in various config keys
+                let schema = self
+                    .config
+                    .get("protobuf.schema")
+                    .or_else(|| self.config.get("value.protobuf.schema"))
+                    .or_else(|| self.config.get("schema.protobuf"))
+                    .or_else(|| self.config.get("protobuf_schema"))
+                    .or_else(|| self.config.get("proto.schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path
+                    if let Some(schema_file) = self
+                        .config
+                        .get("protobuf.schema.file")
+                        .or_else(|| self.config.get("proto.schema.file"))
+                        .or_else(|| self.config.get("schema.file"))
+                        .or_else(|| self.config.get("protobuf_schema_file"))
+                    {
+                        return self.load_schema_from_file(schema_file);
+                    }
+                }
+
+                Ok(schema)
+            }
+            SerializationFormat::Json | SerializationFormat::Auto => {
+                // JSON doesn't require schema, but allow optional schema for validation
+                let schema = self
+                    .config
+                    .get("json.schema")
+                    .or_else(|| self.config.get("schema.json"))
+                    .cloned();
+                Ok(schema)
+            }
+        }
+    }
+
+    /// Load schema content from a file path
+    fn load_schema_from_file(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+        use std::fs;
+
+        match fs::read_to_string(file_path) {
+            Ok(content) => Ok(Some(content)),
+            Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
+        }
     }
 }
 

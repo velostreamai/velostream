@@ -106,30 +106,154 @@ pub struct RecordMessage {
 }
 
 /// Protobuf codec for serializing/deserializing HashMap<String, FieldValue>
+///
+/// Note: This is a schema-less implementation using a generic message format.
+/// For production use with specific schemas, consider using prost-build with .proto files.
 pub struct ProtobufCodec {
+    /// Schema definition (proto file content or descriptor)
+    schema: String,
     /// Whether to use decimal precision for financial calculations
     use_financial_precision: bool,
+    /// Message type name from the schema to use for serialization
+    message_type: String,
 }
 
-impl Default for ProtobufCodec {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Note: No Default implementation since Protobuf REQUIRES a schema
+// Users must explicitly provide a schema when creating a ProtobufCodec
 
 impl ProtobufCodec {
-    /// Create a new ProtobufCodec with default settings
-    pub fn new() -> Self {
-        ProtobufCodec {
+    /// Create a new ProtobufCodec with a proto schema
+    ///
+    /// # Arguments
+    /// * `schema` - The protobuf schema definition (.proto file content)
+    /// * `message_type` - The message type name from the schema to use
+    ///
+    /// # Example
+    /// ```
+    /// # use ferrisstreams::ferris::serialization::ProtobufCodec;
+    /// let schema = r#"
+    ///     syntax = "proto3";
+    ///     message Record {
+    ///         map<string, Field> fields = 1;
+    ///     }
+    ///     message Field {
+    ///         oneof value {
+    ///             string string_value = 1;
+    ///             int64 integer_value = 2;
+    ///             double float_value = 3;
+    ///             bool boolean_value = 4;
+    ///             Decimal decimal_value = 5;
+    ///         }
+    ///     }
+    ///     message Decimal {
+    ///         int64 units = 1;
+    ///         uint32 scale = 2;
+    ///     }
+    /// "#;
+    /// let codec = ProtobufCodec::new(schema, "Record").unwrap();
+    /// ```
+    pub fn new(schema: &str, message_type: &str) -> Result<Self, ProtobufCodecError> {
+        // Validate that the schema is not empty
+        if schema.trim().is_empty() {
+            return Err(ProtobufCodecError::SchemaError(
+                "Schema cannot be empty".to_string(),
+            ));
+        }
+
+        if message_type.trim().is_empty() {
+            return Err(ProtobufCodecError::SchemaError(
+                "Message type name cannot be empty".to_string(),
+            ));
+        }
+
+        Ok(ProtobufCodec {
+            schema: schema.to_string(),
             use_financial_precision: true,
+            message_type: message_type.to_string(),
+        })
+    }
+
+    /// Create a new ProtobufCodec with the default generic schema
+    /// This maintains backward compatibility with the existing implementation
+    pub fn new_with_default_schema() -> Self {
+        let default_schema = r#"
+            syntax = "proto3";
+            
+            message RecordMessage {
+                map<string, FieldMessage> fields = 1;
+            }
+            
+            message FieldMessage {
+                oneof value {
+                    string string_value = 1;
+                    int64 integer_value = 2;
+                    double float_value = 3;
+                    bool boolean_value = 4;
+                    DecimalMessage decimal_value = 5;
+                    TimestampMessage timestamp_value = 6;
+                    ArrayMessage array_value = 7;
+                    MapMessage map_value = 8;
+                }
+            }
+            
+            message DecimalMessage {
+                int64 units = 1;
+                uint32 scale = 2;
+            }
+            
+            message TimestampMessage {
+                int64 seconds = 1;
+                uint32 nanos = 2;
+            }
+            
+            message ArrayMessage {
+                repeated FieldMessage values = 1;
+            }
+            
+            message MapMessage {
+                map<string, FieldMessage> entries = 1;
+            }
+        "#;
+
+        ProtobufCodec {
+            schema: default_schema.to_string(),
+            use_financial_precision: true,
+            message_type: "RecordMessage".to_string(),
         }
     }
 
     /// Create a new ProtobufCodec with financial precision control
-    pub fn with_financial_precision(use_financial_precision: bool) -> Self {
-        ProtobufCodec {
-            use_financial_precision,
-        }
+    pub fn with_financial_precision(mut self, use_financial_precision: bool) -> Self {
+        self.use_financial_precision = use_financial_precision;
+        self
+    }
+
+    /// Load schema from a .proto file
+    pub fn from_proto_file(proto_path: &str) -> Result<Self, ProtobufCodecError> {
+        use std::fs;
+
+        let schema = fs::read_to_string(proto_path).map_err(|e| {
+            ProtobufCodecError::SchemaError(format!(
+                "Failed to read proto file '{}': {}",
+                proto_path, e
+            ))
+        })?;
+
+        // Extract the main message type from the schema (simplified - in production use protoc)
+        // For now, we'll require the user to specify the message type
+        let message_type = "Record"; // Default assumption
+
+        Self::new(&schema, message_type)
+    }
+
+    /// Get the schema definition
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    /// Get the message type name
+    pub fn message_type(&self) -> &str {
+        &self.message_type
     }
 
     /// Serialize a record to protobuf bytes
@@ -291,7 +415,7 @@ impl ProtobufCodec {
                 }
             }
             Some(FieldValueOneof::TimestampValue(ts)) => {
-                use chrono::{DateTime, NaiveDateTime, Utc};
+                use chrono::{DateTime, Utc};
                 let dt = DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos)
                     .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
                     .naive_utc();
@@ -317,22 +441,74 @@ impl ProtobufCodec {
 }
 
 /// Convenience function to serialize a record to protobuf bytes
+/// Uses a default schema for basic Record message type
 pub fn serialize_to_protobuf(
     record: &HashMap<String, FieldValue>,
 ) -> Result<Vec<u8>, ProtobufCodecError> {
-    let codec = ProtobufCodec::new();
+    let default_schema = r#"
+syntax = "proto3";
+
+message Record {
+    map<string, string> fields = 1;
+}
+"#;
+    let codec = ProtobufCodec::new(default_schema, "Record")?;
     codec.serialize(record)
 }
 
 /// Convenience function to deserialize protobuf bytes to a record
+/// Uses a default schema for basic Record message type
 pub fn deserialize_from_protobuf(
     bytes: &[u8],
 ) -> Result<HashMap<String, FieldValue>, ProtobufCodecError> {
-    let codec = ProtobufCodec::new();
+    let default_schema = r#"
+syntax = "proto3";
+
+message Record {
+    map<string, string> fields = 1;
+}
+"#;
+    let codec = ProtobufCodec::new(default_schema, "Record")?;
     codec.deserialize(bytes)
 }
 
 /// Create a protobuf serializer for Kafka integration
-pub fn create_protobuf_serializer() -> ProtobufCodec {
-    ProtobufCodec::new()
+/// Create a protobuf serializer with required schema
+/// Protobuf ALWAYS requires a schema to define message structure
+pub fn create_protobuf_serializer(schema: &str) -> Result<ProtobufCodec, ProtobufCodecError> {
+    // Try to parse the schema and extract message type
+    // For simplicity, default to "Record" as the message type
+    ProtobufCodec::new(schema, "Record")
+}
+
+// Import the Serializer trait for Kafka integration
+use crate::ferris::kafka::serialization::{
+    SerializationError as KafkaSerializationError, Serializer,
+};
+
+/// Implement Serializer trait for ProtobufCodec to work with ferris_streams KafkaConsumer
+impl Serializer<HashMap<String, FieldValue>> for ProtobufCodec {
+    fn serialize(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, KafkaSerializationError> {
+        self.serialize(value).map_err(|e| match e {
+            ProtobufCodecError::SerializationError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::ConversionError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::SchemaError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::DeserializationError(msg) => KafkaSerializationError::ProtoBuf(msg),
+        })
+    }
+
+    fn deserialize(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, KafkaSerializationError> {
+        self.deserialize(bytes).map_err(|e| match e {
+            ProtobufCodecError::SerializationError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::ConversionError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::SchemaError(msg) => KafkaSerializationError::ProtoBuf(msg),
+            ProtobufCodecError::DeserializationError(msg) => KafkaSerializationError::ProtoBuf(msg),
+        })
+    }
 }

@@ -39,7 +39,7 @@ fn create_test_record_with_timestamps() -> StreamRecord {
 
 async fn execute_date_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;

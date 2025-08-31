@@ -6,8 +6,8 @@ use crate::ferris::kafka::{
     KafkaConsumer,
 };
 
-use crate::ferris::kafka::serialization::AvroSerializer;
-use crate::ferris::kafka::serialization::ProtoSerializer;
+// Removed unused imports - AvroSerializer and ProtoSerializer don't exist
+// Using AvroCodec and ProtobufCodec directly instead
 use crate::ferris::serialization::helpers::json_to_field_value;
 
 use crate::ferris::serialization::avro_codec::{create_avro_serializer, AvroCodec};
@@ -15,6 +15,7 @@ use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
 // Note: rdkafka imports no longer needed since we use ferris_streams KafkaConsumer
+use crate::ferris::serialization::{create_protobuf_serializer, ProtobufCodec};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
@@ -35,6 +36,7 @@ enum ConsumerWrapper {
     Json(KafkaConsumer<String, String, StringSerializer, JsonSerializer>),
     Bytes(KafkaConsumer<String, Vec<u8>, StringSerializer, BytesSerializer>),
     Avro(KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>),
+    Protobuf(KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, ProtobufCodec>),
 }
 
 /// Unified Kafka DataReader that handles all serialization formats  
@@ -46,7 +48,8 @@ pub struct KafkaDataReader {
 }
 
 impl KafkaDataReader {
-    /// Create a new Kafka data reader
+    /// Create a new Kafka data reader (deprecated - use new_with_config instead)
+    #[deprecated(note = "Use new_with_config which properly handles schema requirements")]
     pub async fn new(
         brokers: &str,
         topic: String,
@@ -54,17 +57,28 @@ impl KafkaDataReader {
         format: SerializationFormat,
         batch_size: Option<usize>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // For backwards compatibility, but warn about schema requirements
+        match format {
+            SerializationFormat::Avro | SerializationFormat::Protobuf => {
+                return Err(format!(
+                    "{:?} format requires schema - use new_with_schema() instead",
+                    format
+                )
+                .into());
+            }
+            _ => {}
+        }
         Self::new_with_schema(brokers, topic, group_id, format, batch_size, None).await
     }
 
-    /// Create a new Kafka data reader with optional Avro schema
+    /// Create a new Kafka data reader with optional schema (Avro or Protobuf)
     pub async fn new_with_schema(
         brokers: &str,
         topic: String,
         group_id: &str,
         format: SerializationFormat,
         batch_size: Option<usize>,
-        avro_schema_json: Option<&str>,
+        passed_schema_json: Option<&str>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let key_serializer = StringSerializer;
 
@@ -72,65 +86,49 @@ impl KafkaDataReader {
         let consumer = match &format {
             SerializationFormat::Json | SerializationFormat::Auto => {
                 let value_serializer = JsonSerializer;
-                let consumer =
-                    KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                // Subscribe to the topic
-                let topics = vec![topic.as_str()];
-                consumer
-                    .subscribe(&topics)
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
+                let consumer = Self::create_and_subscribe_consumer(
+                    brokers,
+                    group_id,
+                    &topic,
+                    key_serializer,
+                    value_serializer,
+                )?;
                 ConsumerWrapper::Json(consumer)
             }
             SerializationFormat::Avro => {
-                if let Some(schema_json) = avro_schema_json {
-                    // Create Avro deserializer with schema
+                if let Some(schema_json) = passed_schema_json {
                     let avro_serializer = create_avro_serializer(schema_json)
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                    let consumer =
-                        KafkaConsumer::new(brokers, group_id, key_serializer, avro_serializer)
-                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                    // Subscribe to the topic
-                    let topics = vec![topic.as_str()];
-                    consumer
-                        .subscribe(&topics)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
+                    let consumer = Self::create_and_subscribe_consumer(
+                        brokers,
+                        group_id,
+                        &topic,
+                        key_serializer,
+                        avro_serializer,
+                    )?;
                     ConsumerWrapper::Avro(consumer)
                 } else {
-                    // No schema provided, fall back to bytes
-                    let value_serializer = BytesSerializer;
-                    let consumer =
-                        KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
-                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                    // Subscribe to the topic
-                    let topics = vec![topic.as_str()];
-                    consumer
-                        .subscribe(&topics)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                    ConsumerWrapper::Bytes(consumer)
+                    return Err("Avro format requires a schema to be provided".into());
                 }
             }
             SerializationFormat::Protobuf => {
-                // For Avro and Protobuf, use raw bytes and parse manually
-                let value_serializer = BytesSerializer;
-                let consumer =
-                    KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
+                if let Some(schema) = passed_schema_json {
+                    let proto_serializer = create_protobuf_serializer(schema)
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                // Subscribe to the topic
-                let topics = vec![topic.as_str()];
-                consumer
-                    .subscribe(&topics)
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-                ConsumerWrapper::Bytes(consumer)
+                    let consumer = Self::create_and_subscribe_consumer(
+                        brokers,
+                        group_id,
+                        &topic,
+                        key_serializer,
+                        proto_serializer,
+                    )?;
+                    ConsumerWrapper::Protobuf(consumer)
+                } else {
+                    return Err(
+                        "Protobuf format REQUIRES a schema (.proto definition) to be provided"
+                            .into(),
+                    );
+                }
             }
         };
 
@@ -142,20 +140,74 @@ impl KafkaDataReader {
         })
     }
 
-    /// Parse Avro message from ferris_streams KafkaConsumer (already decoded)
-    fn parse_avro_message(
-        &self,
-        message: &crate::ferris::kafka::Message<String, HashMap<String, FieldValue>>,
-    ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
-        let mut fields = message.value().clone();
+    /// Helper to create consumer and subscribe to topic - eliminates duplication
+    fn create_and_subscribe_consumer<K, V, KS, VS>(
+        brokers: &str,
+        group_id: &str,
+        topic: &str,
+        key_serializer: KS,
+        value_serializer: VS,
+    ) -> Result<KafkaConsumer<K, V, KS, VS>, Box<dyn Error + Send + Sync>>
+    where
+        KS: crate::ferris::kafka::serialization::Serializer<K>,
+        VS: crate::ferris::kafka::serialization::Serializer<V>,
+    {
+        let consumer = KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
-        // Add key if present
-        if let Some(key) = message.key() {
+        let topics = vec![topic];
+        consumer
+            .subscribe(&topics)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+        Ok(consumer)
+    }
+
+    /// Convert message headers to HashMap - common logic for all message types
+    fn extract_headers<K, V>(
+        &self,
+        message: &crate::ferris::kafka::Message<K, V>,
+    ) -> HashMap<String, String> {
+        message
+            .headers()
+            .iter()
+            .filter_map(|(k, v_opt)| v_opt.as_ref().map(|v| (k.clone(), v.clone())))
+            .collect::<HashMap<String, String>>()
+    }
+
+    /// Convert message to StreamRecord - eliminates duplication across all consumer types
+    fn message_to_stream_record<K, V>(
+        &self,
+        fields: HashMap<String, FieldValue>,
+        message: &crate::ferris::kafka::Message<K, V>,
+    ) -> StreamRecord {
+        StreamRecord {
+            fields,
+            timestamp: message
+                .timestamp()
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            offset: message.offset(),
+            partition: message.partition(),
+            headers: self.extract_headers(message),
+        }
+    }
+
+    /// Add message key to fields map - common logic for all parsers
+    fn add_message_key(&self, fields: &mut HashMap<String, FieldValue>, key: Option<&String>) {
+        if let Some(key) = key {
             fields.insert("key".to_string(), FieldValue::String(key.clone()));
         } else {
             fields.insert("key".to_string(), FieldValue::Null);
         }
+    }
 
+    /// Parse message from ferris_streams KafkaConsumer (already decoded)
+    fn parse_fields(
+        &self,
+        message: &crate::ferris::kafka::Message<String, HashMap<String, FieldValue>>,
+    ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
+        let mut fields = message.value().clone();
+        self.add_message_key(&mut fields, message.key());
         Ok(fields)
     }
 
@@ -165,13 +217,7 @@ impl KafkaDataReader {
         message: &crate::ferris::kafka::Message<String, String>,
     ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
         let mut fields = HashMap::new();
-
-        // Add key if present
-        if let Some(key) = message.key() {
-            fields.insert("key".to_string(), FieldValue::String(key.clone()));
-        } else {
-            fields.insert("key".to_string(), FieldValue::Null);
-        }
+        self.add_message_key(&mut fields, message.key());
 
         // Parse the value as JSON string
         let json_str = message.value();
@@ -197,13 +243,7 @@ impl KafkaDataReader {
         message: &crate::ferris::kafka::Message<String, Vec<u8>>,
     ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
         let mut fields = HashMap::new();
-
-        // Add key if present
-        if let Some(key) = message.key() {
-            fields.insert("key".to_string(), FieldValue::String(key.clone()));
-        } else {
-            fields.insert("key".to_string(), FieldValue::Null);
-        }
+        self.add_message_key(&mut fields, message.key());
 
         let payload = message.value();
         match &self.format {
@@ -288,28 +328,18 @@ impl DataReader for KafkaDataReader {
                     ConsumerWrapper::Avro(consumer) => {
                         match consumer.poll(timeout).await {
                             Ok(message) => {
-                                // Convert ferris_streams Message with decoded Avro to StreamRecord
-                                let fields = self.parse_avro_message(&message)?;
-
-                                // Convert ferris_streams Headers to HashMap
-                                let header_map = message
-                                    .headers()
-                                    .iter()
-                                    .filter_map(|(k, v_opt)| {
-                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
-                                    })
-                                    .collect::<HashMap<String, String>>();
-
-                                let record = StreamRecord {
-                                    fields,
-                                    timestamp: message
-                                        .timestamp()
-                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-                                    offset: message.offset(),
-                                    partition: message.partition(),
-                                    headers: header_map,
-                                };
-
+                                let fields = self.parse_fields(&message)?;
+                                let record = self.message_to_stream_record(fields, &message);
+                                Ok(Some(record))
+                            }
+                            Err(_) => Ok(None), // Timeout or no message
+                        }
+                    }
+                    ConsumerWrapper::Protobuf(consumer) => {
+                        match consumer.poll(timeout).await {
+                            Ok(message) => {
+                                let fields = self.parse_fields(&message)?;
+                                let record = self.message_to_stream_record(fields, &message);
                                 Ok(Some(record))
                             }
                             Err(_) => Ok(None), // Timeout or no message
@@ -318,28 +348,8 @@ impl DataReader for KafkaDataReader {
                     ConsumerWrapper::Json(consumer) => {
                         match consumer.poll(timeout).await {
                             Ok(message) => {
-                                // Convert ferris_streams Message to StreamRecord
                                 let fields = self.parse_json_message(&message)?;
-
-                                // Convert ferris_streams Headers to HashMap
-                                let header_map = message
-                                    .headers()
-                                    .iter()
-                                    .filter_map(|(k, v_opt)| {
-                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
-                                    })
-                                    .collect::<HashMap<String, String>>();
-
-                                let record = StreamRecord {
-                                    fields,
-                                    timestamp: message
-                                        .timestamp()
-                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-                                    offset: message.offset(),
-                                    partition: message.partition(),
-                                    headers: header_map,
-                                };
-
+                                let record = self.message_to_stream_record(fields, &message);
                                 Ok(Some(record))
                             }
                             Err(_) => Ok(None), // Timeout or no message
@@ -348,28 +358,8 @@ impl DataReader for KafkaDataReader {
                     ConsumerWrapper::Bytes(consumer) => {
                         match consumer.poll(timeout).await {
                             Ok(message) => {
-                                // Convert ferris_streams Message with bytes to StreamRecord
                                 let fields = self.parse_bytes_message(&message)?;
-
-                                // Convert ferris_streams Headers to HashMap
-                                let header_map = message
-                                    .headers()
-                                    .iter()
-                                    .filter_map(|(k, v_opt)| {
-                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
-                                    })
-                                    .collect::<HashMap<String, String>>();
-
-                                let record = StreamRecord {
-                                    fields,
-                                    timestamp: message
-                                        .timestamp()
-                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-                                    offset: message.offset(),
-                                    partition: message.partition(),
-                                    headers: header_map,
-                                };
-
+                                let record = self.message_to_stream_record(fields, &message);
                                 Ok(Some(record))
                             }
                             Err(_) => Ok(None), // Timeout or no message
@@ -393,24 +383,15 @@ impl DataReader for KafkaDataReader {
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match &self.consumer {
-            ConsumerWrapper::Json(consumer) => {
-                consumer
-                    .commit()
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-            }
-            ConsumerWrapper::Bytes(consumer) => {
-                consumer
-                    .commit()
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-            }
-            ConsumerWrapper::Avro(consumer) => {
-                consumer
-                    .commit()
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-            }
-        }
-        Ok(())
+        // All consumer types have the same commit pattern - consolidate the logic
+        let commit_result = match &self.consumer {
+            ConsumerWrapper::Json(consumer) => consumer.commit(),
+            ConsumerWrapper::Bytes(consumer) => consumer.commit(),
+            ConsumerWrapper::Avro(consumer) => consumer.commit(),
+            ConsumerWrapper::Protobuf(consumer) => consumer.commit(),
+        };
+
+        commit_result.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {

@@ -319,7 +319,7 @@ async fn run_file_processing_pipeline(
         .map_err(|e| format!("Reader creation error: {}", e))?;
 
     loop {
-        match reader.read_batch(100).await {
+        match reader.read().await {
             Ok(batch) => {
                 if batch.is_empty() {
                     break;

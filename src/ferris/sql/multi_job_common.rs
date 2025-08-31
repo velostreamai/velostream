@@ -4,10 +4,7 @@
 //! and non-transactional multi-job processors.
 
 use crate::ferris::datasource::{DataReader, DataWriter};
-use crate::ferris::sql::{
-    execution::types::StreamRecord,
-    StreamExecutionEngine, StreamingQuery,
-};
+use crate::ferris::sql::{execution::types::StreamRecord, StreamExecutionEngine, StreamingQuery};
 use log::{error, info, warn};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -56,24 +53,26 @@ impl JobExecutionStats {
     pub fn update_from_batch(&mut self, result: &BatchProcessingResult) {
         self.records_processed += result.records_processed as u64;
         self.records_failed += result.records_failed as u64;
-        
+
         if result.records_failed > 0 {
             self.batches_failed += 1;
         } else {
             self.batches_processed += 1;
         }
-        
+
         self.last_record_time = Some(Instant::now());
         self.total_processing_time += result.processing_time;
-        
+
         // Update moving averages
         let total_batches = (self.batches_processed + self.batches_failed) as f64;
         if total_batches > 0.0 {
             self.avg_batch_size = ((self.avg_batch_size * (total_batches - 1.0))
-                + result.batch_size as f64) / total_batches;
-            
+                + result.batch_size as f64)
+                / total_batches;
+
             self.avg_processing_time_ms = ((self.avg_processing_time_ms * (total_batches - 1.0))
-                + result.processing_time.as_millis() as f64) / total_batches;
+                + result.processing_time.as_millis() as f64)
+                / total_batches;
         }
     }
 
@@ -171,7 +170,7 @@ pub async fn process_batch_common(
     job_name: &str,
 ) -> BatchProcessingResult {
     let result = process_batch_with_output(batch, engine, query, job_name).await;
-    
+
     // Convert to the original result type (without output records)
     BatchProcessingResult {
         records_processed: result.records_processed,
@@ -200,7 +199,7 @@ pub async fn process_batch_with_output(
     // Process each record individually to capture output and handle errors
     for (index, record) in batch.into_iter().enumerate() {
         let mut engine_lock = engine.lock().await;
-        
+
         // Try to execute the record and capture the result
         match engine_lock.execute_with_record(query, record.clone()).await {
             Ok(()) => {
@@ -249,7 +248,7 @@ fn is_recoverable_error(error: &crate::ferris::sql::SqlError) -> bool {
 pub fn log_job_progress(job_name: &str, stats: &JobExecutionStats) {
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
-    
+
     info!(
         "Job '{}': {} records processed ({} batches), {:.2} records/sec, {:.1}% success rate, {:.1}ms avg batch time",
         job_name,
@@ -266,7 +265,7 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
     let elapsed = stats.elapsed();
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
-    
+
     info!(
         "Job '{}' completed: {} records processed, {} failed ({:.1}% success) in {:.2}s ({:.2} records/sec)",
         job_name,
@@ -276,7 +275,7 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
         elapsed.as_secs_f64(),
         rps
     );
-    
+
     if stats.batches_processed > 0 {
         info!(
             "  Batch stats: {} successful, {} failed, {:.1} avg size, {:.2}ms avg time",
@@ -295,9 +294,15 @@ pub type DataSourceResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync
 pub fn check_transaction_support(reader: &dyn DataReader, job_name: &str) -> bool {
     let supports = reader.supports_transactions();
     if supports {
-        info!("Job '{}': Datasource supports transactional processing", job_name);
+        info!(
+            "Job '{}': Datasource supports transactional processing",
+            job_name
+        );
     } else {
-        info!("Job '{}': Datasource does not support transactions, using best-effort delivery", job_name);
+        info!(
+            "Job '{}': Datasource does not support transactions, using best-effort delivery",
+            job_name
+        );
     }
     supports
 }
@@ -308,7 +313,10 @@ pub fn check_writer_transaction_support(writer: &dyn DataWriter, job_name: &str)
     if supports {
         info!("Job '{}': Sink supports transactional writes", job_name);
     } else {
-        info!("Job '{}': Sink does not support transactions, using best-effort delivery", job_name);
+        info!(
+            "Job '{}': Sink does not support transactions, using best-effort delivery",
+            job_name
+        );
     }
     supports
 }
@@ -326,7 +334,7 @@ where
 {
     let mut attempts = 0;
     let mut current_backoff = backoff;
-    
+
     loop {
         match operation().await {
             Ok(result) => return Ok(result),

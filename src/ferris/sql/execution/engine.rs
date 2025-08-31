@@ -16,25 +16,25 @@ The primary interface for executing SQL queries against streaming data:
 ## Usage
 
 ```rust,no_run
-* # use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
-* # use ferrisstreams::ferris::serialization::JsonFormat;
-* # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-* # use std::sync::Arc;
-* # use tokio::sync::mpsc;
-* # use std::collections::HashMap;
-* # #[tokio::main]
-* # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-* let (output_sender, _receiver) = mpsc::unbounded_channel();
-* let mut engine = StreamExecutionEngine::new();
-*
-* // Parse a simple query and execute with a record
-* let parser = StreamingSqlParser::new();
-* let query = parser.parse("SELECT * FROM stream")?;
-* let record = StreamRecord::new(HashMap::new());
-* engine.execute_with_record(&query, record).await?;
-* # Ok(())
-* # }
-* ```
+# use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
+# use ferrisstreams::ferris::serialization::JsonFormat;
+# use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+# use std::sync::Arc;
+# use tokio::sync::mpsc;
+# use std::collections::HashMap;
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let (output_sender, _receiver) = mpsc::unbounded_channel();
+let mut engine = StreamExecutionEngine::new(output_sender);
+
+// Parse a simple query and execute with a record
+let parser = StreamingSqlParser::new();
+let query = parser.parse("SELECT * FROM stream")?;
+let record = StreamRecord::new(HashMap::new());
+engine.execute_with_record(&query, record).await?;
+# Ok(())
+# }
+```
 
 For a complete working example, see the detailed example in the Examples section below.
 
@@ -134,7 +134,6 @@ use super::internal::{
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
 use crate::ferris::datasource::{create_sink, create_source, DataReader, DataWriter};
-use crate::ferris::serialization::SerializationFormat;
 use crate::ferris::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::ferris::sql::error::SqlError;
 use std::collections::HashMap;

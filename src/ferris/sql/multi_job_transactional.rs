@@ -4,10 +4,7 @@
 //! It uses datasource and sink transaction capabilities to ensure atomicity.
 
 use crate::ferris::datasource::{DataReader, DataWriter};
-use crate::ferris::sql::{
-    multi_job_common::*,
-    StreamExecutionEngine, StreamingQuery,
-};
+use crate::ferris::sql::{multi_job_common::*, StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,10 +31,11 @@ impl TransactionalJobProcessor {
         mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
-        
+
         // Check transaction support for reader and writer
         let reader_supports_tx = check_transaction_support(reader.as_ref(), &job_name);
-        let writer_supports_tx = writer.as_ref()
+        let writer_supports_tx = writer
+            .as_ref()
             .map(|w| check_writer_transaction_support(w.as_ref(), &job_name))
             .unwrap_or(false);
 
@@ -54,27 +52,31 @@ impl TransactionalJobProcessor {
             }
 
             // Process one transactional batch
-            match self.process_transactional_batch(
-                reader.as_mut(),
-                writer.as_deref_mut(),
-                &engine,
-                &query,
-                &job_name,
-                reader_supports_tx,
-                writer_supports_tx,
-                &mut stats,
-            ).await {
+            match self
+                .process_transactional_batch(
+                    reader.as_mut(),
+                    writer.as_deref_mut(),
+                    &engine,
+                    &query,
+                    &job_name,
+                    reader_supports_tx,
+                    writer_supports_tx,
+                    &mut stats,
+                )
+                .await
+            {
                 Ok(()) => {
                     // Successful batch processing
-                    if self.config.log_progress && 
-                       stats.batches_processed % self.config.progress_interval == 0 {
+                    if self.config.log_progress
+                        && stats.batches_processed % self.config.progress_interval == 0
+                    {
                         log_job_progress(&job_name, &stats);
                     }
                 }
                 Err(e) => {
                     error!("Job '{}' batch processing failed: {:?}", job_name, e);
                     stats.batches_failed += 1;
-                    
+
                     // Apply retry backoff
                     tokio::time::sleep(self.config.retry_backoff).await;
                 }
@@ -136,14 +138,15 @@ impl TransactionalJobProcessor {
         let batch = reader.read().await?;
         if batch.is_empty() {
             // No data available - abort any active transactions
-            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name).await?;
+            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
+                .await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 
         // Step 3: Process batch through SQL engine and capture output
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
-        
+
         // Step 4: Handle results based on failure strategy
         let should_commit = match self.config.failure_strategy {
             FailureStrategy::FailBatch => batch_result.records_failed == 0,
@@ -160,13 +163,26 @@ impl TransactionalJobProcessor {
         // Step 5: Write processed data to sink if we have one
         if let Some(w) = writer.as_mut() {
             if should_commit && !batch_result.output_records.is_empty() {
-                debug!("Job '{}': Writing {} output records to sink", job_name, batch_result.output_records.len());
+                debug!(
+                    "Job '{}': Writing {} output records to sink",
+                    job_name,
+                    batch_result.output_records.len()
+                );
                 match w.write_batch(batch_result.output_records.clone()).await {
                     Ok(()) => {
-                        debug!("Job '{}': Successfully wrote {} records to sink", job_name, batch_result.output_records.len());
+                        debug!(
+                            "Job '{}': Successfully wrote {} records to sink",
+                            job_name,
+                            batch_result.output_records.len()
+                        );
                     }
                     Err(e) => {
-                        error!("Job '{}': Failed to write {} records to sink: {:?}", job_name, batch_result.output_records.len(), e);
+                        error!(
+                            "Job '{}': Failed to write {} records to sink: {:?}",
+                            job_name,
+                            batch_result.output_records.len(),
+                            e
+                        );
                         // This will cause transaction abort in step 6
                         return Err(format!("Sink write failed: {:?}", e).into());
                     }
@@ -176,8 +192,9 @@ impl TransactionalJobProcessor {
 
         // Step 6: Commit or abort transactions
         if should_commit {
-            self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name).await?;
-            
+            self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
+                .await?;
+
             // Convert to regular BatchProcessingResult for stats update
             let stats_result = BatchProcessingResult {
                 records_processed: batch_result.records_processed,
@@ -187,14 +204,22 @@ impl TransactionalJobProcessor {
                 error_details: batch_result.error_details,
             };
             stats.update_from_batch(&stats_result);
-            
-            if batch_result.records_failed > 0 && self.config.failure_strategy == FailureStrategy::LogAndContinue {
-                info!("Job '{}': Committed batch with {} failures (logged and continued)", 
-                      job_name, batch_result.records_failed);
+
+            if batch_result.records_failed > 0
+                && self.config.failure_strategy == FailureStrategy::LogAndContinue
+            {
+                info!(
+                    "Job '{}': Committed batch with {} failures (logged and continued)",
+                    job_name, batch_result.records_failed
+                );
             }
         } else {
-            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name).await?;
-            warn!("Job '{}': Aborted batch due to {} failures", job_name, batch_result.records_failed);
+            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
+                .await?;
+            warn!(
+                "Job '{}': Aborted batch due to {} failures",
+                job_name, batch_result.records_failed
+            );
             stats.batches_failed += 1;
         }
 
@@ -206,7 +231,7 @@ impl TransactionalJobProcessor {
     async fn commit_transactions(
         &self,
         reader: &mut dyn DataReader,
-        mut writer: Option<&mut dyn DataWriter>,
+        writer: Option<&mut dyn DataWriter>,
         reader_tx_active: bool,
         writer_tx_active: bool,
         job_name: &str,
@@ -215,18 +240,30 @@ impl TransactionalJobProcessor {
         // If this fails, we can still abort the reader transaction
         if let Some(w) = writer {
             if writer_tx_active {
-                match w.commit().await {
+                match w.commit_transaction().await {
                     Ok(()) => {
-                        debug!("Job '{}': Sink transaction committed successfully", job_name);
+                        debug!(
+                            "Job '{}': Sink transaction committed successfully",
+                            job_name
+                        );
                     }
                     Err(e) => {
-                        error!("Job '{}': Sink transaction commit failed: {:?}", job_name, e);
+                        error!(
+                            "Job '{}': Sink transaction commit failed: {:?}",
+                            job_name, e
+                        );
                         // Abort reader transaction since sink failed
                         if reader_tx_active {
                             if let Err(abort_err) = reader.abort_transaction().await {
-                                error!("Job '{}': Failed to abort reader after sink failure: {:?}", job_name, abort_err);
+                                error!(
+                                    "Job '{}': Failed to abort reader after sink failure: {:?}",
+                                    job_name, abort_err
+                                );
                             } else {
-                                debug!("Job '{}': Reader transaction aborted due to sink failure", job_name);
+                                debug!(
+                                    "Job '{}': Reader transaction aborted due to sink failure",
+                                    job_name
+                                );
                             }
                         }
                         return Err(format!("Sink transaction failed: {:?}", e).into());
@@ -236,7 +273,10 @@ impl TransactionalJobProcessor {
                 // Non-transactional sink - flush and hope for the best
                 match w.flush().await {
                     Ok(()) => {
-                        debug!("Job '{}': Sink flushed successfully (non-transactional)", job_name);
+                        debug!(
+                            "Job '{}': Sink flushed successfully (non-transactional)",
+                            job_name
+                        );
                     }
                     Err(e) => {
                         error!("Job '{}': Sink flush failed: {:?}", job_name, e);
@@ -257,10 +297,16 @@ impl TransactionalJobProcessor {
         if reader_tx_active {
             match reader.commit_transaction().await {
                 Ok(()) => {
-                    debug!("Job '{}': Source transaction committed after successful sink commit", job_name);
+                    debug!(
+                        "Job '{}': Source transaction committed after successful sink commit",
+                        job_name
+                    );
                 }
                 Err(e) => {
-                    error!("Job '{}': Source transaction commit failed after sink success: {:?}", job_name, e);
+                    error!(
+                        "Job '{}': Source transaction commit failed after sink success: {:?}",
+                        job_name, e
+                    );
                     // This is a critical failure - sink succeeded but we can't advance read position
                     // Data might be duplicated on retry, but it's better than data loss
                     return Err(format!("Source commit failed after sink success: {:?}", e).into());
@@ -270,10 +316,16 @@ impl TransactionalJobProcessor {
             // Non-transactional reader
             match reader.commit().await {
                 Ok(()) => {
-                    debug!("Job '{}': Source committed after successful sink (non-transactional)", job_name);
+                    debug!(
+                        "Job '{}': Source committed after successful sink (non-transactional)",
+                        job_name
+                    );
                 }
                 Err(e) => {
-                    error!("Job '{}': Source commit failed after sink success: {:?}", job_name, e);
+                    error!(
+                        "Job '{}': Source commit failed after sink success: {:?}",
+                        job_name, e
+                    );
                     return Err(format!("Source commit failed: {:?}", e).into());
                 }
             }
@@ -286,7 +338,7 @@ impl TransactionalJobProcessor {
     async fn abort_transactions(
         &self,
         reader: &mut dyn DataReader,
-        mut writer: Option<&mut dyn DataWriter>,
+        writer: Option<&mut dyn DataWriter>,
         reader_tx_active: bool,
         writer_tx_active: bool,
         job_name: &str,
@@ -294,9 +346,12 @@ impl TransactionalJobProcessor {
         // Abort writer transaction first
         if let Some(w) = writer {
             if writer_tx_active {
-                match w.rollback().await {
+                match w.abort_transaction().await {
                     Ok(()) => debug!("Job '{}': Writer transaction aborted", job_name),
-                    Err(e) => error!("Job '{}': Failed to abort writer transaction: {:?}", job_name, e),
+                    Err(e) => error!(
+                        "Job '{}': Failed to abort writer transaction: {:?}",
+                        job_name, e
+                    ),
                 }
             }
         }
@@ -305,7 +360,10 @@ impl TransactionalJobProcessor {
         if reader_tx_active {
             match reader.abort_transaction().await {
                 Ok(()) => debug!("Job '{}': Reader transaction aborted", job_name),
-                Err(e) => error!("Job '{}': Failed to abort reader transaction: {:?}", job_name, e),
+                Err(e) => error!(
+                    "Job '{}': Failed to abort reader transaction: {:?}",
+                    job_name, e
+                ),
             }
         }
 

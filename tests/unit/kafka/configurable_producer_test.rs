@@ -95,7 +95,10 @@ mod configurable_producer_tests {
         let mut sql_params = HashMap::new();
         sql_params.insert("key.serializer".to_string(), "bytes".to_string());
         sql_params.insert("value.serializer".to_string(), "string".to_string());
-        sql_params.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+        sql_params.insert(
+            "bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         sql_params.insert("acks".to_string(), "all".to_string());
         sql_params.insert("compression.type".to_string(), "snappy".to_string());
         sql_params.insert("batch.size".to_string(), "32768".to_string());
@@ -111,21 +114,42 @@ mod configurable_producer_tests {
 
         assert_eq!(builder.key_format, SerializationFormat::Bytes);
         assert_eq!(builder.value_format, SerializationFormat::String);
-        
+
         // Verify configuration is captured
         let config = builder.serialization_config.unwrap();
-        assert_eq!(config.custom_properties.get("bootstrap.servers"), Some(&"localhost:9092".to_string()));
-        assert_eq!(config.custom_properties.get("acks"), Some(&"all".to_string()));
-        assert_eq!(config.custom_properties.get("compression.type"), Some(&"snappy".to_string()));
-        assert_eq!(config.custom_properties.get("batch.size"), Some(&"32768".to_string()));
-        assert_eq!(config.custom_properties.get("linger.ms"), Some(&"10".to_string()));
-        assert_eq!(config.custom_properties.get("enable.idempotence"), Some(&"true".to_string()));
+        assert_eq!(
+            config.custom_properties.get("bootstrap.servers"),
+            Some(&"localhost:9092".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("acks"),
+            Some(&"all".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("compression.type"),
+            Some(&"snappy".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("batch.size"),
+            Some(&"32768".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("linger.ms"),
+            Some(&"10".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("enable.idempotence"),
+            Some(&"true".to_string())
+        );
     }
 
     #[test]
     fn test_configurable_producer_builder_from_sql_config_invalid() {
         let mut sql_params = HashMap::new();
-        sql_params.insert("value.serializer".to_string(), "unsupported_format".to_string());
+        sql_params.insert(
+            "value.serializer".to_string(),
+            "unsupported_format".to_string(),
+        );
 
         let result = ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
@@ -225,12 +249,10 @@ mod configurable_producer_tests {
     #[test]
     fn test_configurable_producer_builder_method_chaining() {
         // Test that all builder methods can be chained together
-        let builder = ConfigurableKafkaProducerBuilder::<String, OrderEvent>::new(
-            "localhost:9092",
-            "orders",
-        )
-        .with_key_format(SerializationFormat::String)
-        .with_value_format(SerializationFormat::Json);
+        let builder =
+            ConfigurableKafkaProducerBuilder::<String, OrderEvent>::new("localhost:9092", "orders")
+                .with_key_format(SerializationFormat::String)
+                .with_value_format(SerializationFormat::Json);
 
         // Further chaining should work
         let _final_builder = builder.with_key_format(SerializationFormat::Bytes);
@@ -244,18 +266,25 @@ mod configurable_producer_tests {
         let mut sql_params = HashMap::new();
         sql_params.insert("key.serializer".to_string(), "string".to_string());
         sql_params.insert("value.serializer".to_string(), "avro".to_string());
-        sql_params.insert("schema.registry.url".to_string(), "http://localhost:8081".to_string());
-        sql_params.insert("value.subject".to_string(), "customer-events-value".to_string());
+        sql_params.insert(
+            "schema.registry.url".to_string(),
+            "http://localhost:8081".to_string(),
+        );
+        sql_params.insert(
+            "value.subject".to_string(),
+            "customer-events-value".to_string(),
+        );
 
-        let builder = ConfigurableKafkaProducerBuilder::<String, serde_json::Value>::from_sql_config(
-            "localhost:9092",
-            "customer-events",
-            &sql_params,
-        )
-        .expect("Failed to create builder from SQL config");
+        let builder =
+            ConfigurableKafkaProducerBuilder::<String, serde_json::Value>::from_sql_config(
+                "localhost:9092",
+                "customer-events",
+                &sql_params,
+            )
+            .expect("Failed to create builder from SQL config");
 
         assert_eq!(builder.key_format, SerializationFormat::String);
-        
+
         if let SerializationFormat::Avro {
             schema_registry_url,
             subject,
@@ -271,7 +300,7 @@ mod configurable_producer_tests {
     #[test]
     fn test_configurable_producer_different_key_value_types() {
         // Test with different key-value type combinations
-        
+
         // String key, JSON value
         let _builder1 = ConfigurableKafkaProducerBuilder::<String, TestMessage>::new(
             "localhost:9092",
@@ -279,10 +308,8 @@ mod configurable_producer_tests {
         );
 
         // Integer key, String value
-        let _builder2 = ConfigurableKafkaProducerBuilder::<i64, String>::new(
-            "localhost:9092", 
-            "topic2",
-        );
+        let _builder2 =
+            ConfigurableKafkaProducerBuilder::<i64, String>::new("localhost:9092", "topic2");
 
         // Bytes key, JSON value
         let _builder3 = ConfigurableKafkaProducerBuilder::<Vec<u8>, OrderEvent>::new(
@@ -291,10 +318,11 @@ mod configurable_producer_tests {
         );
 
         // JSON key, JSON value
-        let _builder4 = ConfigurableKafkaProducerBuilder::<serde_json::Value, serde_json::Value>::new(
-            "localhost:9092",
-            "topic4",
-        );
+        let _builder4 =
+            ConfigurableKafkaProducerBuilder::<serde_json::Value, serde_json::Value>::new(
+                "localhost:9092",
+                "topic4",
+            );
     }
 
     #[test]
@@ -307,7 +335,10 @@ mod configurable_producer_tests {
         financial_params.insert("enable.idempotence".to_string(), "true".to_string());
         financial_params.insert("compression.type".to_string(), "lz4".to_string());
         financial_params.insert("retries".to_string(), "2147483647".to_string()); // Max retries
-        financial_params.insert("max.in.flight.requests.per.connection".to_string(), "5".to_string());
+        financial_params.insert(
+            "max.in.flight.requests.per.connection".to_string(),
+            "5".to_string(),
+        );
 
         #[derive(Serialize, Deserialize, Debug)]
         struct FinancialTransaction {
@@ -318,11 +349,13 @@ mod configurable_producer_tests {
             account_id: String,
         }
 
-        let _financial_builder = ConfigurableKafkaProducerBuilder::<String, FinancialTransaction>::from_sql_config(
-            "financial-kafka:9092",
-            "transactions",
-            &financial_params,
-        ).expect("Failed to create financial producer builder");
+        let _financial_builder =
+            ConfigurableKafkaProducerBuilder::<String, FinancialTransaction>::from_sql_config(
+                "financial-kafka:9092",
+                "transactions",
+                &financial_params,
+            )
+            .expect("Failed to create financial producer builder");
 
         // Scenario 2: High-throughput IoT data publishing
         let mut iot_params = HashMap::new();
@@ -341,11 +374,13 @@ mod configurable_producer_tests {
             location: String,
         }
 
-        let _iot_builder = ConfigurableKafkaProducerBuilder::<Vec<u8>, SensorData>::from_sql_config(
-            "iot-cluster:9092",
-            "sensor-data",
-            &iot_params,
-        ).expect("Failed to create IoT producer builder");
+        let _iot_builder =
+            ConfigurableKafkaProducerBuilder::<Vec<u8>, SensorData>::from_sql_config(
+                "iot-cluster:9092",
+                "sensor-data",
+                &iot_params,
+            )
+            .expect("Failed to create IoT producer builder");
 
         // Scenario 3: Low-latency event publishing
         let mut low_latency_params = HashMap::new();
@@ -355,24 +390,26 @@ mod configurable_producer_tests {
         low_latency_params.insert("batch.size".to_string(), "1".to_string()); // No batching
         low_latency_params.insert("linger.ms".to_string(), "0".to_string()); // Immediate send
 
-        let _low_latency_builder = ConfigurableKafkaProducerBuilder::<String, String>::from_sql_config(
-            "low-latency-cluster:9092",
-            "events",
-            &low_latency_params,
-        ).expect("Failed to create low-latency producer builder");
+        let _low_latency_builder =
+            ConfigurableKafkaProducerBuilder::<String, String>::from_sql_config(
+                "low-latency-cluster:9092",
+                "events",
+                &low_latency_params,
+            )
+            .expect("Failed to create low-latency producer builder");
     }
 
-    #[test] 
+    #[test]
     fn test_configurable_producer_builder_error_handling() {
         // Test various error conditions
 
         // Invalid serialization format
         let mut invalid_params = HashMap::new();
         invalid_params.insert("key.serializer".to_string(), "yaml".to_string());
-        
+
         let result = ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
-            "test-topic", 
+            "test-topic",
             &invalid_params,
         );
         assert!(result.is_err());
@@ -383,13 +420,13 @@ mod configurable_producer_tests {
             let mut avro_params = HashMap::new();
             avro_params.insert("value.serializer".to_string(), "avro".to_string());
             // Missing schema.registry.url and value.subject
-            
+
             let result = ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
                 "localhost:9092",
                 "test-topic",
                 &avro_params,
             );
-            
+
             if let Ok(builder) = result {
                 // Configuration parsing might succeed, but validation should fail
                 let config = builder.serialization_config.unwrap();
@@ -415,7 +452,7 @@ mod configurable_producer_tests {
     #[test]
     fn test_configurable_producer_performance_presets_simulation() {
         // Test configurations that would be used with different performance presets
-        
+
         // High Throughput preset equivalent
         let mut high_throughput_params = HashMap::new();
         high_throughput_params.insert("key.serializer".to_string(), "string".to_string());
@@ -425,11 +462,13 @@ mod configurable_producer_tests {
         high_throughput_params.insert("compression.type".to_string(), "lz4".to_string());
         high_throughput_params.insert("acks".to_string(), "1".to_string());
 
-        let _high_throughput_builder = ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
-            "localhost:9092",
-            "high-throughput-topic",
-            &high_throughput_params,
-        ).expect("Failed to create high throughput builder");
+        let _high_throughput_builder =
+            ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
+                "localhost:9092",
+                "high-throughput-topic",
+                &high_throughput_params,
+            )
+            .expect("Failed to create high throughput builder");
 
         // Low Latency preset equivalent
         let mut low_latency_params = HashMap::new();
@@ -439,11 +478,13 @@ mod configurable_producer_tests {
         low_latency_params.insert("linger.ms".to_string(), "0".to_string());
         low_latency_params.insert("acks".to_string(), "1".to_string());
 
-        let _low_latency_builder = ConfigurableKafkaProducerBuilder::<Vec<u8>, Vec<u8>>::from_sql_config(
-            "localhost:9092",
-            "low-latency-topic",
-            &low_latency_params,
-        ).expect("Failed to create low latency builder");
+        let _low_latency_builder =
+            ConfigurableKafkaProducerBuilder::<Vec<u8>, Vec<u8>>::from_sql_config(
+                "localhost:9092",
+                "low-latency-topic",
+                &low_latency_params,
+            )
+            .expect("Failed to create low latency builder");
 
         // Max Durability preset equivalent
         let mut max_durability_params = HashMap::new();
@@ -452,13 +493,18 @@ mod configurable_producer_tests {
         max_durability_params.insert("acks".to_string(), "all".to_string());
         max_durability_params.insert("enable.idempotence".to_string(), "true".to_string());
         max_durability_params.insert("retries".to_string(), "2147483647".to_string());
-        max_durability_params.insert("max.in.flight.requests.per.connection".to_string(), "5".to_string());
+        max_durability_params.insert(
+            "max.in.flight.requests.per.connection".to_string(),
+            "5".to_string(),
+        );
 
-        let _max_durability_builder = ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
-            "localhost:9092",
-            "durable-topic",
-            &max_durability_params,
-        ).expect("Failed to create max durability builder");
+        let _max_durability_builder =
+            ConfigurableKafkaProducerBuilder::<String, TestMessage>::from_sql_config(
+                "localhost:9092",
+                "durable-topic",
+                &max_durability_params,
+            )
+            .expect("Failed to create max durability builder");
     }
 
     #[test]
@@ -467,32 +513,42 @@ mod configurable_producer_tests {
 
         // JSON
         let _json_builder = ConfigurableKafkaProducerBuilder::<String, TestMessage>::new(
-            "localhost:9092", "json-topic"
-        ).with_value_format(SerializationFormat::Json);
+            "localhost:9092",
+            "json-topic",
+        )
+        .with_value_format(SerializationFormat::Json);
 
         // String
         let _string_builder = ConfigurableKafkaProducerBuilder::<String, String>::new(
-            "localhost:9092", "string-topic"
-        ).with_value_format(SerializationFormat::String);
+            "localhost:9092",
+            "string-topic",
+        )
+        .with_value_format(SerializationFormat::String);
 
         // Bytes
         let _bytes_builder = ConfigurableKafkaProducerBuilder::<Vec<u8>, Vec<u8>>::new(
-            "localhost:9092", "bytes-topic"
-        ).with_value_format(SerializationFormat::Bytes);
+            "localhost:9092",
+            "bytes-topic",
+        )
+        .with_value_format(SerializationFormat::Bytes);
 
         // Feature-gated formats
         #[cfg(feature = "avro")]
         {
             let _avro_builder = ConfigurableKafkaProducerBuilder::<String, TestMessage>::new(
-                "localhost:9092", "avro-topic"
-            ).with_avro_value_serialization("http://localhost:8081", "test-subject");
+                "localhost:9092",
+                "avro-topic",
+            )
+            .with_avro_value_serialization("http://localhost:8081", "test-subject");
         }
 
         #[cfg(feature = "protobuf")]
         {
             let _protobuf_builder = ConfigurableKafkaProducerBuilder::<String, TestMessage>::new(
-                "localhost:9092", "protobuf-topic"
-            ).with_protobuf_value_serialization("com.example.TestMessage");
+                "localhost:9092",
+                "protobuf-topic",
+            )
+            .with_protobuf_value_serialization("com.example.TestMessage");
         }
     }
 }

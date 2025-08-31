@@ -101,7 +101,7 @@ impl SqlExecutor {
     /// Execute SQL query and return results
     pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<String> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         let parser = StreamingSqlParser::new();
         let query = parser.parse(sql).expect("Failed to parse SQL");

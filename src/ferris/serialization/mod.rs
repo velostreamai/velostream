@@ -13,7 +13,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use ferrisstreams::ferris::serialization::{JsonFormat, FieldValue};
+//! use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat, FieldValue};
 //! use std::collections::HashMap;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {

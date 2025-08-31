@@ -4,10 +4,7 @@
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
 use crate::ferris::datasource::{DataReader, DataWriter};
-use crate::ferris::sql::{
-    multi_job_common::*,
-    StreamExecutionEngine, StreamingQuery,
-};
+use crate::ferris::sql::{multi_job_common::*, StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +31,7 @@ impl SimpleJobProcessor {
         mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
-        
+
         info!(
             "Job '{}' starting simple (non-transactional) processing",
             job_name
@@ -42,10 +39,11 @@ impl SimpleJobProcessor {
 
         // Check if datasources have transaction capabilities (for logging only)
         let reader_has_tx = reader.supports_transactions();
-        let writer_has_tx = writer.as_ref()
+        let writer_has_tx = writer
+            .as_ref()
             .map(|w| w.supports_transactions())
             .unwrap_or(false);
-            
+
         if reader_has_tx || writer_has_tx {
             info!(
                 "Job '{}': Note - datasources support transactions but running in simple mode (reader_tx: {}, writer_tx: {})",
@@ -61,25 +59,29 @@ impl SimpleJobProcessor {
             }
 
             // Process one simple batch
-            match self.process_simple_batch(
-                reader.as_mut(),
-                writer.as_deref_mut(),
-                &engine,
-                &query,
-                &job_name,
-                &mut stats,
-            ).await {
+            match self
+                .process_simple_batch(
+                    reader.as_mut(),
+                    writer.as_deref_mut(),
+                    &engine,
+                    &query,
+                    &job_name,
+                    &mut stats,
+                )
+                .await
+            {
                 Ok(()) => {
                     // Successful batch processing
-                    if self.config.log_progress && 
-                       stats.batches_processed % self.config.progress_interval == 0 {
+                    if self.config.log_progress
+                        && stats.batches_processed % self.config.progress_interval == 0
+                    {
                         log_job_progress(&job_name, &stats);
                     }
                 }
                 Err(e) => {
                     error!("Job '{}' batch processing failed: {:?}", job_name, e);
                     stats.batches_failed += 1;
-                    
+
                     // Apply retry backoff
                     tokio::time::sleep(self.config.retry_backoff).await;
                 }
@@ -110,7 +112,7 @@ impl SimpleJobProcessor {
 
         // Step 2: Process batch through SQL engine and capture output
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
-        
+
         // Step 3: Handle results based on failure strategy
         let should_commit = match self.config.failure_strategy {
             FailureStrategy::FailBatch => batch_result.records_failed == 0,
@@ -149,11 +151,19 @@ impl SimpleJobProcessor {
         // Step 4: Write processed data to sink if we have one
         if let Some(w) = writer.as_mut() {
             if should_commit && !batch_result.output_records.is_empty() {
-                debug!("Job '{}': Writing {} output records to sink", job_name, batch_result.output_records.len());
+                debug!(
+                    "Job '{}': Writing {} output records to sink",
+                    job_name,
+                    batch_result.output_records.len()
+                );
                 // In simple mode, we don't abort source commit if sink fails - just log error
                 match w.write_batch(batch_result.output_records.clone()).await {
                     Ok(()) => {
-                        debug!("Job '{}': Successfully wrote {} records to sink", job_name, batch_result.output_records.len());
+                        debug!(
+                            "Job '{}': Successfully wrote {} records to sink",
+                            job_name,
+                            batch_result.output_records.len()
+                        );
                     }
                     Err(e) => {
                         error!("Job '{}': Failed to write {} records to sink (continuing anyway): {:?}", 
@@ -167,7 +177,7 @@ impl SimpleJobProcessor {
         // Step 5: Commit with simple semantics (no rollback if sink fails)
         if should_commit {
             self.commit_simple(reader, writer, job_name).await?;
-            
+
             // Convert to regular BatchProcessingResult for stats update
             let stats_result = BatchProcessingResult {
                 records_processed: batch_result.records_processed,
@@ -177,13 +187,19 @@ impl SimpleJobProcessor {
                 error_details: batch_result.error_details,
             };
             stats.update_from_batch(&stats_result);
-            
+
             if batch_result.records_failed > 0 {
-                debug!("Job '{}': Committed batch with {} failures", job_name, batch_result.records_failed);
+                debug!(
+                    "Job '{}': Committed batch with {} failures",
+                    job_name, batch_result.records_failed
+                );
             }
         } else {
             // FailBatch strategy - don't commit, just log
-            warn!("Job '{}': Skipping commit due to {} batch failures", job_name, batch_result.records_failed);
+            warn!(
+                "Job '{}': Skipping commit due to {} batch failures",
+                job_name, batch_result.records_failed
+            );
             stats.batches_failed += 1;
         }
 
@@ -195,7 +211,7 @@ impl SimpleJobProcessor {
     async fn commit_simple(
         &self,
         reader: &mut dyn DataReader,
-        mut writer: Option<&mut dyn DataWriter>,
+        writer: Option<&mut dyn DataWriter>,
         job_name: &str,
     ) -> DataSourceResult<()> {
         // Step 1: Flush writer/sink (best effort)
@@ -207,7 +223,10 @@ impl SimpleJobProcessor {
                 Err(e) => {
                     // In simple mode, we log sink failures but still commit source
                     // This prioritizes not losing read position over guaranteed delivery
-                    error!("Job '{}': Sink flush failed (continuing anyway): {:?}", job_name, e);
+                    error!(
+                        "Job '{}': Sink flush failed (continuing anyway): {:?}",
+                        job_name, e
+                    );
                 }
             }
         }
@@ -232,9 +251,9 @@ pub fn create_simple_processor() -> SimpleJobProcessor {
     SimpleJobProcessor::new(JobProcessingConfig {
         use_transactions: false,
         failure_strategy: FailureStrategy::LogAndContinue, // Prioritize throughput
-        max_batch_size: 1000, // Larger batches for throughput
-        batch_timeout: Duration::from_millis(100), // Shorter timeout for lower latency
-        max_retries: 1, // Minimal retries for speed
+        max_batch_size: 1000,                              // Larger batches for throughput
+        batch_timeout: Duration::from_millis(100),         // Shorter timeout for lower latency
+        max_retries: 1,                                    // Minimal retries for speed
         retry_backoff: Duration::from_millis(100),
         progress_interval: 100, // Less frequent logging
         ..Default::default()
@@ -246,7 +265,7 @@ pub fn create_conservative_simple_processor() -> SimpleJobProcessor {
     SimpleJobProcessor::new(JobProcessingConfig {
         use_transactions: false,
         failure_strategy: FailureStrategy::FailBatch, // More conservative
-        max_batch_size: 100, // Smaller batches to isolate failures
+        max_batch_size: 100,                          // Smaller batches to isolate failures
         batch_timeout: Duration::from_millis(1000),
         max_retries: 3,
         retry_backoff: Duration::from_millis(1000),
@@ -260,12 +279,12 @@ pub fn create_low_latency_processor() -> SimpleJobProcessor {
     SimpleJobProcessor::new(JobProcessingConfig {
         use_transactions: false,
         failure_strategy: FailureStrategy::LogAndContinue,
-        max_batch_size: 10, // Very small batches
+        max_batch_size: 10,                       // Very small batches
         batch_timeout: Duration::from_millis(10), // Very short timeout
-        max_retries: 0, // No retries for minimum latency
+        max_retries: 0,                           // No retries for minimum latency
         retry_backoff: Duration::from_millis(1),
         progress_interval: 1000, // Infrequent logging to avoid overhead
-        log_progress: false, // Disable progress logging for maximum speed
+        log_progress: false,     // Disable progress logging for maximum speed
         ..Default::default()
     })
 }

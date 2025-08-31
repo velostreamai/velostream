@@ -9,8 +9,8 @@ pub mod error;
 pub mod execution;
 pub mod multi_job;
 pub mod multi_job_common;
-pub mod multi_job_transactional;
 pub mod multi_job_simple;
+pub mod multi_job_transactional;
 pub mod parser;
 pub mod query_analyzer;
 

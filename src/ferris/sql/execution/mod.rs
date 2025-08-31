@@ -24,8 +24,7 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let (output_sender, _receiver) = mpsc::unbounded_channel();
-//! let serialization_format = Arc::new(JsonFormat);
-//! let mut engine = StreamExecutionEngine::new(output_sender, serialization_format);
+//! let mut engine = StreamExecutionEngine::new(output_sender);
 //!
 //! // Parse a simple query and execute with a record
 //! let parser = StreamingSqlParser::new();

@@ -1,8 +1,6 @@
-use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[cfg(test)]
@@ -71,7 +69,7 @@ mod tests {
     async fn test_limit_execution_basic() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with LIMIT 2
         let parser = StreamingSqlParser::new();
@@ -116,7 +114,7 @@ mod tests {
     async fn test_limit_with_where_clause() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with WHERE and LIMIT
         let parser = StreamingSqlParser::new();
@@ -186,7 +184,7 @@ mod tests {
     async fn test_limit_zero() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with LIMIT 0
         let parser = StreamingSqlParser::new();
@@ -217,7 +215,7 @@ mod tests {
     async fn test_limit_with_csas() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CSAS query with LIMIT
         let parser = StreamingSqlParser::new();
@@ -271,7 +269,7 @@ mod tests {
     async fn test_limit_with_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with system columns and LIMIT
         let parser = StreamingSqlParser::new();
@@ -323,7 +321,7 @@ mod tests {
     async fn test_limit_with_headers() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();

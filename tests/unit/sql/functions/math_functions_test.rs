@@ -38,7 +38,7 @@ fn create_test_record() -> StreamRecord {
 #[tokio::test]
 async fn test_abs_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (column_name, expected_result)
@@ -131,7 +131,7 @@ async fn test_abs_function() {
 #[allow(clippy::approx_constant)]
 async fn test_round_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test ROUND without precision
     let query = StreamingQuery::Select {
@@ -212,7 +212,7 @@ async fn test_round_function() {
 #[tokio::test]
 async fn test_ceil_floor_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         ("CEIL", 3.2, 4),
@@ -263,7 +263,7 @@ async fn test_ceil_floor_functions() {
 #[tokio::test]
 async fn test_mod_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (dividend, divisor, expected)
@@ -352,7 +352,7 @@ async fn test_mod_function() {
 #[tokio::test]
 async fn test_power_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (base, exponent, expected)
@@ -429,7 +429,7 @@ async fn test_power_function() {
 #[tokio::test]
 async fn test_sqrt_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (input, expected)
@@ -510,7 +510,7 @@ async fn test_sqrt_function() {
 #[tokio::test]
 async fn test_math_function_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let error_cases = vec![
         // (function_name, args, expected_error_message_contains)
@@ -563,7 +563,7 @@ async fn test_math_function_error_cases() {
 #[tokio::test]
 async fn test_math_function_null_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["ABS", "ROUND", "CEIL", "FLOOR", "SQRT"];
 

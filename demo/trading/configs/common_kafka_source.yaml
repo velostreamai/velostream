@@ -20,6 +20,34 @@ datasource:
     value_format: avro
     schema_registry_url: "http://schema-registry:8081"
     
+    # Schema configuration for value serialization
+    value.serializer: "avro"
+    
+    # Schema Registry authentication (if needed)
+    # registry_username: "trading_user"
+    # registry_password: "trading_pass"
+    
+    # Alternative schema configurations:
+    # For inline Avro schema:
+    # avro.schema: |
+    #   {
+    #     "type": "record",
+    #     "name": "TradingRecord",
+    #     "fields": [
+    #       {"name": "symbol", "type": "string"},
+    #       {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+    #       {"name": "volume", "type": "long"},
+    #       {"name": "timestamp", "type": "long"}
+    #     ]
+    #   }
+    #
+    # For schema files:
+    # avro.schema.file: "./schemas/trading_common.avsc"
+    #
+    # For Protobuf (if switching formats):
+    # value_format: protobuf 
+    # protobuf.schema.file: "./schemas/trading_common.proto"
+    
   # Default performance settings
   performance:
     compression_type: "lz4"

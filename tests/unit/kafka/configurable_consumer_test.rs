@@ -95,7 +95,10 @@ mod configurable_consumer_tests {
         let mut sql_params = HashMap::new();
         sql_params.insert("key.serializer".to_string(), "bytes".to_string());
         sql_params.insert("value.serializer".to_string(), "string".to_string());
-        sql_params.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+        sql_params.insert(
+            "bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         sql_params.insert("auto.offset.reset".to_string(), "earliest".to_string());
         sql_params.insert("enable.auto.commit".to_string(), "false".to_string());
 
@@ -108,12 +111,21 @@ mod configurable_consumer_tests {
 
         assert_eq!(builder.key_format, SerializationFormat::Bytes);
         assert_eq!(builder.value_format, SerializationFormat::String);
-        
+
         // Verify configuration is captured
         let config = builder.serialization_config.unwrap();
-        assert_eq!(config.custom_properties.get("bootstrap.servers"), Some(&"localhost:9092".to_string()));
-        assert_eq!(config.custom_properties.get("auto.offset.reset"), Some(&"earliest".to_string()));
-        assert_eq!(config.custom_properties.get("enable.auto.commit"), Some(&"false".to_string()));
+        assert_eq!(
+            config.custom_properties.get("bootstrap.servers"),
+            Some(&"localhost:9092".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("auto.offset.reset"),
+            Some(&"earliest".to_string())
+        );
+        assert_eq!(
+            config.custom_properties.get("enable.auto.commit"),
+            Some(&"false".to_string())
+        );
     }
 
     #[test]
@@ -238,18 +250,25 @@ mod configurable_consumer_tests {
         let mut sql_params = HashMap::new();
         sql_params.insert("key.serializer".to_string(), "string".to_string());
         sql_params.insert("value.serializer".to_string(), "avro".to_string());
-        sql_params.insert("schema.registry.url".to_string(), "http://localhost:8081".to_string());
-        sql_params.insert("value.subject".to_string(), "customer-events-value".to_string());
+        sql_params.insert(
+            "schema.registry.url".to_string(),
+            "http://localhost:8081".to_string(),
+        );
+        sql_params.insert(
+            "value.subject".to_string(),
+            "customer-events-value".to_string(),
+        );
 
-        let builder = ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::from_sql_config(
-            "localhost:9092",
-            "customer-events-group",
-            &sql_params,
-        )
-        .expect("Failed to create builder from SQL config");
+        let builder =
+            ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::from_sql_config(
+                "localhost:9092",
+                "customer-events-group",
+                &sql_params,
+            )
+            .expect("Failed to create builder from SQL config");
 
         assert_eq!(builder.key_format, SerializationFormat::String);
-        
+
         if let SerializationFormat::Avro {
             schema_registry_url,
             subject,
@@ -265,7 +284,7 @@ mod configurable_consumer_tests {
     #[test]
     fn test_configurable_consumer_different_key_value_types() {
         // Test with different key-value type combinations
-        
+
         // String key, JSON value
         let _builder1 = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
@@ -273,10 +292,8 @@ mod configurable_consumer_tests {
         );
 
         // Integer key, String value
-        let _builder2 = ConfigurableKafkaConsumerBuilder::<i64, String>::new(
-            "localhost:9092", 
-            "group2",
-        );
+        let _builder2 =
+            ConfigurableKafkaConsumerBuilder::<i64, String>::new("localhost:9092", "group2");
 
         // Bytes key, JSON value
         let _builder3 = ConfigurableKafkaConsumerBuilder::<Vec<u8>, OrderEvent>::new(
@@ -285,10 +302,11 @@ mod configurable_consumer_tests {
         );
 
         // JSON key, JSON value
-        let _builder4 = ConfigurableKafkaConsumerBuilder::<serde_json::Value, serde_json::Value>::new(
-            "localhost:9092",
-            "group4",
-        );
+        let _builder4 =
+            ConfigurableKafkaConsumerBuilder::<serde_json::Value, serde_json::Value>::new(
+                "localhost:9092",
+                "group4",
+            );
     }
 
     #[test]
@@ -309,11 +327,13 @@ mod configurable_consumer_tests {
             timestamp: i64,
         }
 
-        let _financial_builder = ConfigurableKafkaConsumerBuilder::<String, Transaction>::from_sql_config(
-            "financial-kafka:9092",
-            "transaction-processor-group",
-            &financial_params,
-        ).expect("Failed to create financial consumer builder");
+        let _financial_builder =
+            ConfigurableKafkaConsumerBuilder::<String, Transaction>::from_sql_config(
+                "financial-kafka:9092",
+                "transaction-processor-group",
+                &financial_params,
+            )
+            .expect("Failed to create financial consumer builder");
 
         // Scenario 2: IoT sensor data processing
         let mut iot_params = HashMap::new();
@@ -330,11 +350,13 @@ mod configurable_consumer_tests {
             timestamp: i64,
         }
 
-        let _iot_builder = ConfigurableKafkaConsumerBuilder::<Vec<u8>, SensorReading>::from_sql_config(
-            "iot-cluster:9092",
-            "sensor-data-group",
-            &iot_params,
-        ).expect("Failed to create IoT consumer builder");
+        let _iot_builder =
+            ConfigurableKafkaConsumerBuilder::<Vec<u8>, SensorReading>::from_sql_config(
+                "iot-cluster:9092",
+                "sensor-data-group",
+                &iot_params,
+            )
+            .expect("Failed to create IoT consumer builder");
 
         // Scenario 3: Log aggregation
         let mut log_params = HashMap::new();
@@ -347,20 +369,21 @@ mod configurable_consumer_tests {
             "log-cluster:9092",
             "log-aggregation-group",
             &log_params,
-        ).expect("Failed to create log consumer builder");
+        )
+        .expect("Failed to create log consumer builder");
     }
 
-    #[test] 
+    #[test]
     fn test_configurable_consumer_builder_error_handling() {
         // Test various error conditions
 
         // Invalid serialization format
         let mut invalid_params = HashMap::new();
         invalid_params.insert("key.serializer".to_string(), "xml".to_string());
-        
+
         let result = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
-            "test-group", 
+            "test-group",
             &invalid_params,
         );
         assert!(result.is_err());
@@ -371,13 +394,13 @@ mod configurable_consumer_tests {
             let mut avro_params = HashMap::new();
             avro_params.insert("value.serializer".to_string(), "avro".to_string());
             // Missing schema.registry.url and value.subject
-            
+
             let result = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
                 "localhost:9092",
                 "test-group",
                 &avro_params,
             );
-            
+
             if let Ok(builder) = result {
                 // Configuration parsing might succeed, but validation should fail
                 let config = builder.serialization_config.unwrap();
