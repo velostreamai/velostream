@@ -22,7 +22,6 @@ pub enum SerializationFormat {
     Json,
 
     /// Apache Avro with Schema Registry integration
-    #[cfg(feature = "avro")]
     Avro {
         /// Schema Registry URL (e.g., "http://localhost:8081")
         schema_registry_url: String,
@@ -31,7 +30,6 @@ pub enum SerializationFormat {
     },
 
     /// Protocol Buffers for high-performance binary serialization
-    #[cfg(feature = "protobuf")]
     Protobuf {
         /// Fully qualified message type name
         message_type: String,
@@ -48,9 +46,7 @@ impl fmt::Display for SerializationFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SerializationFormat::Json => write!(f, "json"),
-            #[cfg(feature = "avro")]
             SerializationFormat::Avro { .. } => write!(f, "avro"),
-            #[cfg(feature = "protobuf")]
             SerializationFormat::Protobuf { .. } => write!(f, "protobuf"),
             SerializationFormat::Bytes => write!(f, "bytes"),
             SerializationFormat::String => write!(f, "string"),
@@ -64,12 +60,10 @@ impl std::str::FromStr for SerializationFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "json" => Ok(SerializationFormat::Json),
-            #[cfg(feature = "avro")]
             "avro" => Ok(SerializationFormat::Avro {
                 schema_registry_url: String::new(), // Will be populated later
                 subject: String::new(),
             }),
-            #[cfg(feature = "protobuf")]
             "protobuf" | "proto" => Ok(SerializationFormat::Protobuf {
                 message_type: String::new(), // Will be populated later
             }),
@@ -125,7 +119,6 @@ impl SerializationConfig {
             let mut format: SerializationFormat = key_serializer.parse()?;
 
             // Configure Avro-specific parameters
-            #[cfg(feature = "avro")]
             if let SerializationFormat::Avro {
                 schema_registry_url,
                 subject,
@@ -150,7 +143,6 @@ impl SerializationConfig {
             let mut format: SerializationFormat = value_serializer.parse()?;
 
             // Configure Avro-specific parameters
-            #[cfg(feature = "avro")]
             if let SerializationFormat::Avro {
                 schema_registry_url,
                 subject,
@@ -197,7 +189,6 @@ impl SerializationConfig {
     /// Validate the serialization configuration
     pub fn validate(&self) -> Result<(), SerializationError> {
         // Validate Avro configuration
-        #[cfg(feature = "avro")]
         {
             if matches!(self.key_format, Some(SerializationFormat::Avro { .. })) {
                 if self.schema_registry_url.is_none() {
@@ -251,7 +242,6 @@ impl SerializationFactory {
         match format {
             SerializationFormat::Json => Ok(Box::new(JsonSerializer)),
 
-            #[cfg(feature = "avro")]
             SerializationFormat::Avro {
                 schema_registry_url,
                 subject,
@@ -264,7 +254,6 @@ impl SerializationFactory {
                 ))
             }
 
-            #[cfg(feature = "protobuf")]
             SerializationFormat::Protobuf { message_type } => {
                 // For now, return an error - we'll implement proper Protobuf support
                 // in a later step
@@ -303,7 +292,6 @@ impl SerializationFactory {
         match format {
             SerializationFormat::Json => Ok(()),
 
-            #[cfg(feature = "avro")]
             SerializationFormat::Avro {
                 schema_registry_url,
                 subject,
@@ -321,7 +309,6 @@ impl SerializationFactory {
                 Ok(())
             }
 
-            #[cfg(feature = "protobuf")]
             SerializationFormat::Protobuf { message_type } => {
                 if message_type.is_empty() {
                     return Err(SerializationError::Schema(

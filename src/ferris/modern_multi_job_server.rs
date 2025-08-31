@@ -3,12 +3,13 @@
 //! This is the modern implementation that uses pluggable datasources
 //! instead of hardcoded Kafka-only processing.
 
-use crate::ferris::sql::{
-    execution::performance::PerformanceMonitor,
-    execution_format_factory::ExecutionFormatFactory,
-    multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
-    query_analyzer::QueryAnalyzer,
-    SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
+use crate::ferris::{
+    sql::{
+        execution::performance::PerformanceMonitor,
+        multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
+        query_analyzer::QueryAnalyzer,
+        SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
+    },
 };
 use log::{error, info, warn};
 use std::collections::HashMap;
@@ -235,9 +236,6 @@ impl MultiJobSqlServer {
         let analyzer = QueryAnalyzer::new(self.base_group_id.clone());
         let analysis = analyzer.analyze(&parsed_query)?;
 
-        // Create appropriate execution format based on query analysis
-        let execution_format = ExecutionFormatFactory::create_format(&analysis)?;
-
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
         *counter += 1;
@@ -249,7 +247,7 @@ impl MultiJobSqlServer {
 
         // Create execution engine for this job with query-driven format
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-        let mut execution_engine = StreamExecutionEngine::new(output_sender, execution_format);
+        let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {

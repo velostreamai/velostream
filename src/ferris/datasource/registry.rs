@@ -2,7 +2,7 @@
 //!
 //! This module provides a registry system for managing different data source implementations.
 //! It allows for dynamic registration and creation of data sources and sinks based on URI schemes.
-//! 
+//!
 //! This is the generic registry that works with any data processing system.
 
 use crate::ferris::datasource::{
@@ -42,13 +42,13 @@ impl DataSourceRegistry {
     /// Create a registry with default implementations
     pub fn with_defaults() -> Self {
         let registry = Self::new();
-        
+
         // TODO: Register default implementations when available
         // registry.register_source("kafka", |config| { ... });
         // registry.register_source("file", |config| { ... });
         // registry.register_sink("kafka", |config| { ... });
         // registry.register_sink("file", |config| { ... });
-        
+
         registry
     }
 

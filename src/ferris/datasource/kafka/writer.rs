@@ -64,7 +64,8 @@ impl KafkaDataWriter {
                     if fractional_part == 0 {
                         Some(integer_part.to_string())
                     } else {
-                        let frac_str = format!("{:0width$}", fractional_part, width = *scale as usize);
+                        let frac_str =
+                            format!("{:0width$}", fractional_part, width = *scale as usize);
                         let frac_trimmed = frac_str.trim_end_matches('0');
                         if frac_trimmed.is_empty() {
                             Some(integer_part.to_string())
@@ -83,12 +84,15 @@ impl KafkaDataWriter {
     }
 
     /// Convert StreamRecord to appropriate payload format
-    fn serialize_payload(&self, record: &StreamRecord) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    fn serialize_payload(
+        &self,
+        record: &StreamRecord,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         match self.format {
             SerializationFormat::Json => {
                 // Convert all fields to JSON object
                 let mut json_obj = serde_json::Map::new();
-                
+
                 for (field_name, field_value) in &record.fields {
                     // Skip the key field if it's used as message key
                     if let Some(key_field) = &self.key_field {
@@ -96,16 +100,25 @@ impl KafkaDataWriter {
                             continue;
                         }
                     }
-                    
+
                     let json_value = self.field_value_to_json(field_value)?;
                     json_obj.insert(field_name.clone(), json_value);
                 }
-                
+
                 // Add metadata fields
-                json_obj.insert("_timestamp".to_string(), Value::Number(serde_json::Number::from(record.timestamp)));
-                json_obj.insert("_offset".to_string(), Value::Number(serde_json::Number::from(record.offset)));
-                json_obj.insert("_partition".to_string(), Value::Number(serde_json::Number::from(record.partition)));
-                
+                json_obj.insert(
+                    "_timestamp".to_string(),
+                    Value::Number(serde_json::Number::from(record.timestamp)),
+                );
+                json_obj.insert(
+                    "_offset".to_string(),
+                    Value::Number(serde_json::Number::from(record.offset)),
+                );
+                json_obj.insert(
+                    "_partition".to_string(),
+                    Value::Number(serde_json::Number::from(record.partition)),
+                );
+
                 let json_str = serde_json::to_string(&Value::Object(json_obj))?;
                 Ok(json_str.into_bytes())
             }
@@ -116,7 +129,6 @@ impl KafkaDataWriter {
                 let json_str = serde_json::to_string(&json_obj)?;
                 Ok(json_str.into_bytes())
             }
-
             SerializationFormat::Protobuf => {
                 // For Protobuf, we would need proper .proto schema compilation
                 // For now, serialize as JSON and encode as bytes (placeholder)
@@ -134,14 +146,20 @@ impl KafkaDataWriter {
     }
 
     /// Convert FieldValue to JSON Value using the standard serialization helper
-    fn field_value_to_json(&self, field_value: &FieldValue) -> Result<Value, Box<dyn Error + Send + Sync>> {
+    fn field_value_to_json(
+        &self,
+        field_value: &FieldValue,
+    ) -> Result<Value, Box<dyn Error + Send + Sync>> {
         field_value_to_json(field_value).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     /// Helper to convert entire record to JSON object
-    fn convert_to_json_object(&self, record: &StreamRecord) -> Result<Value, Box<dyn Error + Send + Sync>> {
+    fn convert_to_json_object(
+        &self,
+        record: &StreamRecord,
+    ) -> Result<Value, Box<dyn Error + Send + Sync>> {
         let mut json_obj = serde_json::Map::new();
-        
+
         for (field_name, field_value) in &record.fields {
             // Skip the key field if it's used as message key
             if let Some(key_field) = &self.key_field {
@@ -149,16 +167,25 @@ impl KafkaDataWriter {
                     continue;
                 }
             }
-            
+
             let json_value = self.field_value_to_json(field_value)?;
             json_obj.insert(field_name.clone(), json_value);
         }
-        
+
         // Add metadata fields
-        json_obj.insert("_timestamp".to_string(), Value::Number(serde_json::Number::from(record.timestamp)));
-        json_obj.insert("_offset".to_string(), Value::Number(serde_json::Number::from(record.offset)));
-        json_obj.insert("_partition".to_string(), Value::Number(serde_json::Number::from(record.partition)));
-        
+        json_obj.insert(
+            "_timestamp".to_string(),
+            Value::Number(serde_json::Number::from(record.timestamp)),
+        );
+        json_obj.insert(
+            "_offset".to_string(),
+            Value::Number(serde_json::Number::from(record.offset)),
+        );
+        json_obj.insert(
+            "_partition".to_string(),
+            Value::Number(serde_json::Number::from(record.partition)),
+        );
+
         Ok(Value::Object(json_obj))
     }
 
@@ -176,39 +203,45 @@ impl DataWriter for KafkaDataWriter {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Extract key for partitioning
         let key = self.extract_key(&record);
-        
+
         // Serialize payload based on format
         let payload = self.serialize_payload(&record)?;
-        
+
         // Convert headers
         let headers = self.convert_headers(&record.headers);
-        
+
         // Build Kafka record
-        let mut kafka_record = FutureRecord::to(&self.topic)
-            .payload(&payload);
-            
+        let mut kafka_record = FutureRecord::to(&self.topic).payload(&payload);
+
         if let Some(key_str) = &key {
             kafka_record = kafka_record.key(key_str);
         }
-        
+
         // Add headers
         for (header_key, header_value) in headers {
             kafka_record = kafka_record.headers(rdkafka::message::OwnedHeaders::new().insert(
                 rdkafka::message::Header {
                     key: &header_key,
                     value: Some(&header_value),
-                }
+                },
             ));
         }
-        
+
         // Send to Kafka
-        match self.producer.send(kafka_record, Duration::from_secs(5)).await {
+        match self
+            .producer
+            .send(kafka_record, Duration::from_secs(5))
+            .await
+        {
             Ok(_) => Ok(()),
             Err((kafka_error, _)) => Err(Box::new(kafka_error)),
         }
     }
 
-    async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn write_batch(
+        &mut self,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Process each record individually to avoid lifetime issues
         for record in records {
             self.write(record).await?;
@@ -216,18 +249,25 @@ impl DataWriter for KafkaDataWriter {
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Kafka doesn't have native update semantics - treat as write
         self.write(record).await
     }
 
     async fn delete(&mut self, key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Send tombstone record (null payload) for deletion
-        let kafka_record: FutureRecord<'_, _, ()> = FutureRecord::to(&self.topic)
-            .key(key);
-            // No payload = tombstone
-        
-        match self.producer.send(kafka_record, Duration::from_secs(5)).await {
+        let kafka_record: FutureRecord<'_, _, ()> = FutureRecord::to(&self.topic).key(key);
+        // No payload = tombstone
+
+        match self
+            .producer
+            .send(kafka_record, Duration::from_secs(5))
+            .await
+        {
             Ok(_) => Ok(()),
             Err((kafka_error, _)) => Err(Box::new(kafka_error)),
         }
@@ -235,7 +275,9 @@ impl DataWriter for KafkaDataWriter {
 
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Flush pending messages to Kafka
-        self.producer.flush(Duration::from_secs(5)).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        self.producer
+            .flush(Duration::from_secs(5))
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     // Transaction support methods

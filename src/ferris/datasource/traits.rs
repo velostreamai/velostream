@@ -70,15 +70,11 @@ pub trait DataSink: Send + Sync + 'static {
 /// Reader trait for consuming data from any source
 #[async_trait]
 pub trait DataReader: Send + Sync + 'static {
-    /// Read a single record from the source
-    /// Returns None when no more data is available (for batch sources)
-    /// May block waiting for data (for streaming sources)
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>>;
-
-    /// Read multiple records in a batch (more efficient for some sources)
+    /// Read records from the source
+    /// Returns a vector of records (size determined by batch configuration during initialization)
     /// Returns empty vector when no more data is available
-    /// Batch size is determined by the batch configuration provided during initialization
-    async fn read_batch(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
+    /// For single-record sources, batch_size=1; for batched sources, uses configured size
+    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
 
     /// Commit the current reading position (for sources that support it)
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>>;

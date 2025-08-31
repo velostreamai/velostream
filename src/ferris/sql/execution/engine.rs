@@ -16,26 +16,25 @@ The primary interface for executing SQL queries against streaming data:
 ## Usage
 
 ```rust,no_run
-# use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
-# use ferrisstreams::ferris::serialization::JsonFormat;
-# use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-# use std::sync::Arc;
-# use tokio::sync::mpsc;
-# use std::collections::HashMap;
-# #[tokio::main]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let (output_sender, _receiver) = mpsc::unbounded_channel();
-let serialization_format = Arc::new(JsonFormat);
-let mut engine = StreamExecutionEngine::new(output_sender, serialization_format);
-
-// Parse a simple query and execute with a record
-let parser = StreamingSqlParser::new();
-let query = parser.parse("SELECT * FROM stream")?;
-let record = StreamRecord::new(HashMap::new());
-engine.execute_with_record(&query, record).await?;
-# Ok(())
-# }
-```
+* # use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
+* # use ferrisstreams::ferris::serialization::JsonFormat;
+* # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+* # use std::sync::Arc;
+* # use tokio::sync::mpsc;
+* # use std::collections::HashMap;
+* # #[tokio::main]
+* # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+* let (output_sender, _receiver) = mpsc::unbounded_channel();
+* let mut engine = StreamExecutionEngine::new();
+*
+* // Parse a simple query and execute with a record
+* let parser = StreamingSqlParser::new();
+* let query = parser.parse("SELECT * FROM stream")?;
+* let record = StreamRecord::new(HashMap::new());
+* engine.execute_with_record(&query, record).await?;
+* # Ok(())
+* # }
+* ```
 
 For a complete working example, see the detailed example in the Examples section below.
 
@@ -97,8 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create parser and execution engine
     let parser = StreamingSqlParser::new();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Execute a simple SELECT query
     let query = parser.parse("SELECT customer_id, amount * 1.1 AS amount_with_tax FROM orders WHERE amount > 100")?;
@@ -153,7 +151,6 @@ pub struct StreamExecutionEngine {
     message_sender: mpsc::Sender<ExecutionMessage>,
     message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
     output_sender: mpsc::UnboundedSender<StreamRecord>,
-    _serialization_format: Arc<dyn SerializationFormat>,
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
@@ -167,17 +164,13 @@ pub struct StreamExecutionEngine {
 // =============================================================================
 
 impl StreamExecutionEngine {
-    pub fn new(
-        output_sender: mpsc::UnboundedSender<StreamRecord>,
-        _serialization_format: Arc<dyn SerializationFormat>,
-    ) -> Self {
+    pub fn new(output_sender: mpsc::UnboundedSender<StreamRecord>) -> Self {
         let (message_sender, receiver) = mpsc::channel(1000);
         Self {
             active_queries: HashMap::new(),
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
-            _serialization_format,
             record_count: 0,
             group_states: HashMap::new(),
             performance_monitor: None,
@@ -959,21 +952,28 @@ impl StreamExecutionEngine {
             context.set_active_reader(source_name)?;
 
             // Process all records from this source
-            while let Some(record) = context.read().await? {
-                // Apply query processing
-                let result = QueryProcessor::process_query(query, &record, &mut context)?;
-
-                // Write result to all sinks if present
-                if let Some(output_record) = result.record {
-                    for sink_idx in 0..sink_uris.len() {
-                        let sink_name = format!("sink_{}", sink_idx);
-                        context.write_to(&sink_name, output_record.clone()).await?;
-                    }
+            loop {
+                let batch = context.read().await?;
+                if batch.is_empty() {
+                    break;
                 }
 
-                // Update record count
-                if result.should_count {
-                    self.record_count += 1;
+                for record in batch {
+                    // Apply query processing
+                    let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+                    // Write result to all sinks if present
+                    if let Some(output_record) = result.record {
+                        for sink_idx in 0..sink_uris.len() {
+                            let sink_name = format!("sink_{}", sink_idx);
+                            context.write_to(&sink_name, output_record.clone()).await?;
+                        }
+                    }
+
+                    // Update record count
+                    if result.should_count {
+                        self.record_count += 1;
+                    }
                 }
             }
 
@@ -1018,25 +1018,33 @@ impl StreamExecutionEngine {
         let query_id = self.generate_query_id(query);
 
         // Process all records from source
-        while let Some(record) = reader.read().await.map_err(|e| SqlError::ExecutionError {
-            message: format!("Failed to read from source: {}", e),
-            query: None,
-        })? {
-            let mut context = self.create_processor_context(&query_id);
-            context.group_by_states = self.group_states.clone();
+        loop {
+            let batch = reader.read().await.map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to read from source: {}", e),
+                query: None,
+            })?;
 
-            let result = QueryProcessor::process_query(query, &record, &mut context)?;
-
-            if let Some(output_record) = result.record {
-                results.push(output_record);
+            if batch.is_empty() {
+                break;
             }
 
-            // Sync state
-            self.group_states = std::mem::take(&mut context.group_by_states);
-            self.save_window_states_from_context(&context);
+            for record in batch {
+                let mut context = self.create_processor_context(&query_id);
+                context.group_by_states = self.group_states.clone();
 
-            if result.should_count {
-                self.record_count += 1;
+                let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+                if let Some(output_record) = result.record {
+                    results.push(output_record);
+                }
+
+                // Sync state
+                self.group_states = std::mem::take(&mut context.group_by_states);
+                self.save_window_states_from_context(&context);
+
+                if result.should_count {
+                    self.record_count += 1;
+                }
             }
         }
 
@@ -1063,32 +1071,35 @@ impl StreamExecutionEngine {
         // Stream processing loop
         loop {
             match reader.read().await {
-                Ok(Some(record)) => {
-                    let mut context = self.create_processor_context(&query_id);
-                    context.group_by_states = self.group_states.clone();
-
-                    let result = QueryProcessor::process_query(query, &record, &mut context)?;
-
-                    if let Some(output_record) = result.record {
-                        writer.write(output_record).await.map_err(|e| {
-                            SqlError::ExecutionError {
-                                message: format!("Failed to write output: {}", e),
-                                query: None,
-                            }
-                        })?;
+                Ok(batch) => {
+                    if batch.is_empty() {
+                        // No more data available
+                        break;
                     }
 
-                    // Sync state
-                    self.group_states = std::mem::take(&mut context.group_by_states);
-                    self.save_window_states_from_context(&context);
+                    for record in batch {
+                        let mut context = self.create_processor_context(&query_id);
+                        context.group_by_states = self.group_states.clone();
 
-                    if result.should_count {
-                        self.record_count += 1;
+                        let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+                        if let Some(output_record) = result.record {
+                            writer.write(output_record).await.map_err(|e| {
+                                SqlError::ExecutionError {
+                                    message: format!("Failed to write output: {}", e),
+                                    query: None,
+                                }
+                            })?;
+                        }
+
+                        // Sync state
+                        self.group_states = std::mem::take(&mut context.group_by_states);
+                        self.save_window_states_from_context(&context);
+
+                        if result.should_count {
+                            self.record_count += 1;
+                        }
                     }
-                }
-                Ok(None) => {
-                    // No more data available
-                    break;
                 }
                 Err(e) => {
                     return Err(SqlError::ExecutionError {

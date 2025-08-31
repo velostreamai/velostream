@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use super::error::KafkaDataSourceError;
 use super::reader::{KafkaDataReader, SerializationFormat};
 
-
 /// Kafka DataSource implementation
 pub struct KafkaDataSource {
     brokers: String,
@@ -19,15 +18,46 @@ pub struct KafkaDataSource {
 }
 
 impl KafkaDataSource {
+    /// Create a Kafka data source from properties
+    pub fn from_properties(
+        props: &HashMap<String, String>,
+        default_topic: &str,
+        job_name: &str,
+    ) -> Self {
+        let brokers = props
+            .get("brokers")
+            .cloned()
+            .unwrap_or_else(|| "localhost:9092".to_string());
+        let topic = props
+            .get("topic")
+            .cloned()
+            .unwrap_or_else(|| default_topic.to_string());
+        let group_id = props
+            .get("group_id")
+            .cloned()
+            .unwrap_or_else(|| format!("ferris-sql-{}", job_name));
+
+        Self {
+            brokers,
+            topic,
+            group_id: Some(group_id),
+            config: props.clone(),
+        }
+    }
+    
     /// Apply BatchConfig settings to Kafka consumer properties
-    fn apply_batch_config_to_kafka_properties(&self, kafka_config: &mut std::collections::HashMap<String, String>, batch_config: &crate::ferris::datasource::BatchConfig) {
+    fn apply_batch_config_to_kafka_properties(
+        &self,
+        kafka_config: &mut std::collections::HashMap<String, String>,
+        batch_config: &crate::ferris::datasource::BatchConfig,
+    ) {
         use crate::ferris::datasource::BatchStrategy;
-        
+
         // Only apply batch settings if batching is enabled
         if !batch_config.enable_batching {
             return;
         }
-        
+
         // Map our BatchConfig to Kafka consumer properties
         match &batch_config.strategy {
             BatchStrategy::FixedSize(size) => {
@@ -37,32 +67,58 @@ impl KafkaDataSource {
             }
             BatchStrategy::TimeWindow(duration) => {
                 // fetch.max.wait.ms - max time to wait for fetch.min.bytes
-                kafka_config.insert("fetch.max.wait.ms".to_string(), duration.as_millis().to_string());
+                kafka_config.insert(
+                    "fetch.max.wait.ms".to_string(),
+                    duration.as_millis().to_string(),
+                );
                 // Conservative max.poll.records for time-based batching
-                kafka_config.insert("max.poll.records".to_string(), (batch_config.max_batch_size / 2).to_string());
+                kafka_config.insert(
+                    "max.poll.records".to_string(),
+                    (batch_config.max_batch_size / 2).to_string(),
+                );
             }
-            BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
+            BatchStrategy::AdaptiveSize {
+                min_size,
+                max_size,
+                target_latency,
+            } => {
                 // Use min_size as conservative starting point
                 kafka_config.insert("max.poll.records".to_string(), min_size.to_string());
-                kafka_config.insert("fetch.max.wait.ms".to_string(), target_latency.as_millis().to_string());
+                kafka_config.insert(
+                    "fetch.max.wait.ms".to_string(),
+                    target_latency.as_millis().to_string(),
+                );
                 // Set fetch.min.bytes to encourage batching
-                kafka_config.insert("fetch.min.bytes".to_string(), "10240".to_string()); // 10KB
+                kafka_config.insert("fetch.min.bytes".to_string(), "10240".to_string());
+                // 10KB
             }
             BatchStrategy::MemoryBased(target_bytes) => {
                 // fetch.min.bytes - minimum data to fetch in a request
                 kafka_config.insert("fetch.min.bytes".to_string(), target_bytes.to_string());
                 // Conservative timeout and max records
-                kafka_config.insert("fetch.max.wait.ms".to_string(), batch_config.batch_timeout.as_millis().to_string());
-                kafka_config.insert("max.poll.records".to_string(), (batch_config.max_batch_size / 4).to_string());
+                kafka_config.insert(
+                    "fetch.max.wait.ms".to_string(),
+                    batch_config.batch_timeout.as_millis().to_string(),
+                );
+                kafka_config.insert(
+                    "max.poll.records".to_string(),
+                    (batch_config.max_batch_size / 4).to_string(),
+                );
             }
         }
-        
+
         // Always set session.timeout.ms and heartbeat.interval.ms for reliable batching
-        kafka_config.entry("session.timeout.ms".to_string()).or_insert("30000".to_string());
-        kafka_config.entry("heartbeat.interval.ms".to_string()).or_insert("3000".to_string());
-        
+        kafka_config
+            .entry("session.timeout.ms".to_string())
+            .or_insert("30000".to_string());
+        kafka_config
+            .entry("heartbeat.interval.ms".to_string())
+            .or_insert("3000".to_string());
+
         // Optimize for throughput when batching is enabled
-        kafka_config.entry("fetch.max.bytes".to_string()).or_insert("52428800".to_string()); // 50MB
+        kafka_config
+            .entry("fetch.max.bytes".to_string())
+            .or_insert("52428800".to_string()); // 50MB
     }
     /// Create a new Kafka data source
     pub fn new(brokers: String, topic: String) -> Self {
@@ -86,6 +142,23 @@ impl KafkaDataSource {
         self
     }
 
+    /// Generate SourceConfig from current state
+    pub fn to_source_config(&self) -> SourceConfig {
+        SourceConfig::Kafka {
+            brokers: self.brokers.clone(),
+            topic: self.topic.clone(),
+            group_id: self.group_id.clone(),
+            properties: self.config.clone(),
+            batch_config: Default::default(),
+        }
+    }
+    
+    /// Self-initialize with current configuration
+    pub async fn self_initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let config = self.to_source_config();
+        self.initialize(config).await
+    }
+    
     /// Create a consumer based on the serialization format in config
     async fn create_unified_reader(
         &self,
@@ -102,9 +175,7 @@ impl KafkaDataSource {
         // Map config value to SerializationFormat enum
         let format = match value_format {
             "json" => SerializationFormat::Json,
-            #[cfg(feature = "avro")]
             "avro" => SerializationFormat::Avro,
-            #[cfg(feature = "protobuf")]
             "protobuf" | "proto" => SerializationFormat::Protobuf,
             "auto" => SerializationFormat::Auto,
             _ => SerializationFormat::Json, // Default fallback
@@ -117,9 +188,12 @@ impl KafkaDataSource {
             group_id,
             format,
             batch_size,
-        ).await
+        )
+        .await
     }
 }
+
+
 
 #[async_trait]
 impl DataSource for KafkaDataSource {
@@ -139,13 +213,13 @@ impl DataSource for KafkaDataSource {
                 self.brokers = brokers;
                 self.topic = topic;
                 self.group_id = group_id;
-                
+
                 // Start with provided properties
                 let mut kafka_config = properties;
-                
+
                 // Add batch configuration to Kafka consumer properties
                 self.apply_batch_config_to_kafka_properties(&mut kafka_config, &batch_config);
-                
+
                 self.config = kafka_config;
                 Ok(())
             }
@@ -179,7 +253,8 @@ impl DataSource for KafkaDataSource {
         })?;
 
         // Extract batch size from config if available
-        let batch_size = self.config
+        let batch_size = self
+            .config
             .get("max.poll.records")
             .and_then(|s| s.parse::<usize>().ok());
 

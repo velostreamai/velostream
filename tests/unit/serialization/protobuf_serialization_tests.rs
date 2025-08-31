@@ -8,7 +8,7 @@ Tests for Protocol Buffers serialization format implementation.
 mod protobuf_tests {
     use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{
-        ProtobufFormat, SerializationFormat, SerializationFormatFactory,
+        ProtobufFormat, SerializationFormat,
     };
     use ferrisstreams::ferris::sql::execution::types::StreamRecord;
     use ferrisstreams::ferris::sql::FieldValue;
@@ -114,14 +114,13 @@ mod protobuf_tests {
     }
 
     #[tokio::test]
-    async fn test_protobuf_factory_creation() {
-        let format_proto = SerializationFormatFactory::create_format("protobuf")
-            .expect("Should create Protobuf format via factory");
+    async fn test_protobuf_direct_creation() {
+        let format_proto = ProtobufFormat::<()>::new();
         assert_eq!(format_proto.format_name(), "Protobuf");
 
-        let format_proto_alias = SerializationFormatFactory::create_format("proto")
-            .expect("Should create Protobuf format via factory with 'proto' alias");
-        assert_eq!(format_proto_alias.format_name(), "Protobuf");
+        // Test that direct creation works the same way
+        let format_proto_direct = ProtobufFormat::<()>::new();
+        assert_eq!(format_proto_direct.format_name(), "Protobuf");
     }
 
     #[tokio::test]
@@ -175,7 +174,7 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_type_specific_creation() {
         // Test creating protobuf format with specific type
-        let format = SerializationFormatFactory::create_protobuf_format::<()>();
+        let format = ProtobufFormat::<()>::new();
         assert_eq!(format.format_name(), "Protobuf");
     }
 

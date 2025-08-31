@@ -39,9 +39,7 @@ pub use serialization::{
 pub use serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat};
 
 // Feature-gated exports
-#[cfg(feature = "avro")]
 pub use serialization::AvroSerializer;
-#[cfg(feature = "protobuf")]
 pub use serialization::ProtoSerializer;
 pub use utils::convert_kafka_log_level;
 

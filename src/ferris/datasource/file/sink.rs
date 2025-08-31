@@ -375,7 +375,10 @@ impl FileWriter {
     }
 
     /// Convert FieldValue to JSON-serializable value using the standard serialization helper
-    fn field_value_to_json_value(&self, field_value: &FieldValue) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    fn field_value_to_json_value(
+        &self,
+        field_value: &FieldValue,
+    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
         field_value_to_json(field_value).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 

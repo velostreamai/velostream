@@ -4,8 +4,8 @@
 //! and writing to another (e.g., Kafka -> ClickHouse)
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
 use ferrisstreams::ferris::datasource::types::SourceOffset;
+use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
 use ferrisstreams::ferris::sql::execution::processors::ProcessorContext;
 use ferrisstreams::ferris::sql::execution::FieldValue;
 use ferrisstreams::ferris::sql::execution::StreamRecord;

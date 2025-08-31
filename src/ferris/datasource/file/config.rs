@@ -1,6 +1,6 @@
 //! File Data Source Configuration
 
-use crate::ferris::datasource::config::SourceConfig;
+use crate::ferris::datasource::config::{BatchConfig, SourceConfig};
 use serde::{Deserialize, Serialize};
 
 /// Supported file formats for file data sources
@@ -89,6 +89,9 @@ pub struct FileSourceConfig {
 
     /// File extension filter for directory scanning
     pub extension_filter: Option<String>,
+
+    /// Batch configuration for reading records
+    pub batch_config: Option<BatchConfig>,
 }
 
 impl Default for FileSourceConfig {
@@ -107,6 +110,7 @@ impl Default for FileSourceConfig {
             buffer_size: 8192,
             recursive: false,
             extension_filter: None,
+            batch_config: None,
         }
     }
 }

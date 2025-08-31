@@ -38,10 +38,10 @@ impl Default for BatchStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchConfig {
     pub strategy: BatchStrategy,
-    pub max_batch_size: usize,       // Hard limit to prevent memory issues
+    pub max_batch_size: usize, // Hard limit to prevent memory issues
     #[serde(with = "duration_serde")]
-    pub batch_timeout: Duration,     // Maximum time to wait for batch to fill
-    pub enable_batching: bool,       // Allow disabling batching per job
+    pub batch_timeout: Duration, // Maximum time to wait for batch to fill
+    pub enable_batching: bool, // Allow disabling batching per job
 }
 
 impl Default for BatchConfig {
@@ -415,9 +415,21 @@ impl ConnectionString {
                     Some("json") => FileFormat::Json,
                     Some("jsonl") | Some("jsonlines") => FileFormat::JsonLines,
                     Some("csv") => FileFormat::Csv {
-                        header: self.params.get("header").map(|h| h.parse().unwrap_or(true)).unwrap_or(true),
-                        delimiter: self.params.get("delimiter").and_then(|d| d.chars().next()).unwrap_or(','),
-                        quote: self.params.get("quote").and_then(|q| q.chars().next()).unwrap_or('"'),
+                        header: self
+                            .params
+                            .get("header")
+                            .map(|h| h.parse().unwrap_or(true))
+                            .unwrap_or(true),
+                        delimiter: self
+                            .params
+                            .get("delimiter")
+                            .and_then(|d| d.chars().next())
+                            .unwrap_or(','),
+                        quote: self
+                            .params
+                            .get("quote")
+                            .and_then(|q| q.chars().next())
+                            .unwrap_or('"'),
                     },
                     Some("parquet") => FileFormat::Parquet,
                     Some("avro") => FileFormat::Avro,
@@ -556,9 +568,21 @@ impl ConnectionString {
                     Some("json") => FileFormat::Json,
                     Some("jsonl") | Some("jsonlines") => FileFormat::JsonLines,
                     Some("csv") => FileFormat::Csv {
-                        header: self.params.get("header").map(|h| h.parse().unwrap_or(true)).unwrap_or(true),
-                        delimiter: self.params.get("delimiter").and_then(|d| d.chars().next()).unwrap_or(','),
-                        quote: self.params.get("quote").and_then(|q| q.chars().next()).unwrap_or('"'),
+                        header: self
+                            .params
+                            .get("header")
+                            .map(|h| h.parse().unwrap_or(true))
+                            .unwrap_or(true),
+                        delimiter: self
+                            .params
+                            .get("delimiter")
+                            .and_then(|d| d.chars().next())
+                            .unwrap_or(','),
+                        quote: self
+                            .params
+                            .get("quote")
+                            .and_then(|q| q.chars().next())
+                            .unwrap_or('"'),
                     },
                     Some("parquet") => FileFormat::Parquet,
                     Some("avro") => FileFormat::Avro,

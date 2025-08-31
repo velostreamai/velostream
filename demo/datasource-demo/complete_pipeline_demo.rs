@@ -263,55 +263,69 @@ async fn run_file_to_kafka_pipeline(
     println!("  ✅ File → Kafka pipeline ready");
 
     // Process records from file to Kafka
-    while let Ok(Some(record)) = reader.read().await {
-        metrics.records_read.fetch_add(1, Ordering::Relaxed);
-
-        // Process the record (convert and enrich)
-        match process_transaction_record(&record) {
-            Ok(processed_record) => {
-                // Convert StreamRecord to JSON Value for Kafka
-                let json_value = stream_record_to_json_value(&processed_record);
-
-                // Extract amount for metrics
-                if let Some(FieldValue::ScaledInteger(amount_cents, _)) =
-                    processed_record.fields.get("amount_cents")
-                {
-                    metrics
-                        .total_amount_processed
-                        .fetch_add(*amount_cents as u64, Ordering::Relaxed);
-                }
-
-                // Send to Kafka
-                let key = processed_record
-                    .fields
-                    .get("transaction_id")
-                    .and_then(|v| match v {
-                        FieldValue::String(s) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_else(|| "unknown".to_string());
-
-                match producer
-                    .send(Some(&key), &json_value, Headers::new(), None)
-                    .await
-                {
-                    Ok(_) => {
-                        metrics.records_processed.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Err(e) => {
-                        metrics.processing_errors.fetch_add(1, Ordering::Relaxed);
-                        eprintln!("  ⚠️  Kafka send error: {:?}", e);
-                    }
-                }
-            }
+    loop {
+        let batch = match reader.read().await {
+            Ok(batch) => batch,
             Err(e) => {
-                metrics.processing_errors.fetch_add(1, Ordering::Relaxed);
-                eprintln!("  ⚠️  Processing error: {:?}", e);
+                eprintln!("  ⚠️  Read error: {:?}", e);
+                break;
             }
+        };
+
+        if batch.is_empty() {
+            break;
         }
 
-        // Add small delay to simulate real-time processing
-        sleep(Duration::from_millis(50)).await;
+        for record in batch {
+            metrics.records_read.fetch_add(1, Ordering::Relaxed);
+
+            // Process the record (convert and enrich)
+            match process_transaction_record(&record) {
+                Ok(processed_record) => {
+                    // Convert StreamRecord to JSON Value for Kafka
+                    let json_value = stream_record_to_json_value(&processed_record);
+
+                    // Extract amount for metrics
+                    if let Some(FieldValue::ScaledInteger(amount_cents, _)) =
+                        processed_record.fields.get("amount_cents")
+                    {
+                        metrics
+                            .total_amount_processed
+                            .fetch_add(*amount_cents as u64, Ordering::Relaxed);
+                    }
+
+                    // Send to Kafka
+                    let key = processed_record
+                        .fields
+                        .get("transaction_id")
+                        .and_then(|v| match v {
+                            FieldValue::String(s) => Some(s.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    match producer
+                        .send(Some(&key), &json_value, Headers::new(), None)
+                        .await
+                    {
+                        Ok(_) => {
+                            metrics.records_processed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            metrics.processing_errors.fetch_add(1, Ordering::Relaxed);
+                            eprintln!("  ⚠️  Kafka send error: {:?}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    metrics.processing_errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("  ⚠️  Processing error: {:?}", e);
+                }
+            }
+
+            // Add small delay to simulate real-time processing
+            sleep(Duration::from_millis(50)).await;
+        }
     }
 
     Ok(())

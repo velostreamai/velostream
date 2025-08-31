@@ -1,15 +1,20 @@
 //! Unified Kafka data reader implementation
 
 use crate::ferris::datasource::{DataReader, SourceOffset};
+use crate::ferris::kafka::{
+    serialization::{BytesSerializer, JsonSerializer, StringSerializer},
+    KafkaConsumer,
+};
+
+use crate::ferris::kafka::serialization::AvroSerializer;
+use crate::ferris::kafka::serialization::ProtoSerializer;
 use crate::ferris::serialization::helpers::json_to_field_value;
+
+use crate::ferris::serialization::avro_codec::{create_avro_serializer, AvroCodec};
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
-use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
-    message::{Headers, Message},
-    ClientConfig, TopicPartitionList,
-};
+// Note: rdkafka imports no longer needed since we use ferris_streams KafkaConsumer
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
@@ -19,17 +24,22 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq)]
 pub enum SerializationFormat {
     Json,
-    #[cfg(feature = "avro")]
     Avro,
-    #[cfg(feature = "protobuf")]
     Protobuf,
     /// Auto-detect format from message headers or content
     Auto,
 }
 
-/// Unified Kafka DataReader that handles all serialization formats
+/// Consumer wrapper that handles different serialization formats
+enum ConsumerWrapper {
+    Json(KafkaConsumer<String, String, StringSerializer, JsonSerializer>),
+    Bytes(KafkaConsumer<String, Vec<u8>, StringSerializer, BytesSerializer>),
+    Avro(KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>),
+}
+
+/// Unified Kafka DataReader that handles all serialization formats  
 pub struct KafkaDataReader {
-    consumer: StreamConsumer,
+    consumer: ConsumerWrapper,
     topic: String,
     format: SerializationFormat,
     batch_size: usize,
@@ -44,21 +54,85 @@ impl KafkaDataReader {
         format: SerializationFormat,
         batch_size: Option<usize>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", brokers)
-            .set("group.id", group_id)
-            .set("enable.partition.eof", "false")
-            .set("session.timeout.ms", "6000")
-            .set("enable.auto.commit", "false")
-            // Set batch size via max.poll.records
-            .set("max.poll.records", batch_size.unwrap_or(100).to_string());
+        Self::new_with_schema(brokers, topic, group_id, format, batch_size, None).await
+    }
 
-        let consumer: StreamConsumer = config.create()?;
-        
-        // Subscribe to the topic
-        let topics = vec![topic.as_str()];
-        consumer.subscribe(&topics)?;
+    /// Create a new Kafka data reader with optional Avro schema
+    pub async fn new_with_schema(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        format: SerializationFormat,
+        batch_size: Option<usize>,
+        avro_schema_json: Option<&str>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let key_serializer = StringSerializer;
+
+        // Create consumer based on serialization format
+        let consumer = match &format {
+            SerializationFormat::Json | SerializationFormat::Auto => {
+                let value_serializer = JsonSerializer;
+                let consumer =
+                    KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                // Subscribe to the topic
+                let topics = vec![topic.as_str()];
+                consumer
+                    .subscribe(&topics)
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                ConsumerWrapper::Json(consumer)
+            }
+            SerializationFormat::Avro => {
+                if let Some(schema_json) = avro_schema_json {
+                    // Create Avro deserializer with schema
+                    let avro_serializer = create_avro_serializer(schema_json)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                    let consumer =
+                        KafkaConsumer::new(brokers, group_id, key_serializer, avro_serializer)
+                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                    // Subscribe to the topic
+                    let topics = vec![topic.as_str()];
+                    consumer
+                        .subscribe(&topics)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                    ConsumerWrapper::Avro(consumer)
+                } else {
+                    // No schema provided, fall back to bytes
+                    let value_serializer = BytesSerializer;
+                    let consumer =
+                        KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
+                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                    // Subscribe to the topic
+                    let topics = vec![topic.as_str()];
+                    consumer
+                        .subscribe(&topics)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                    ConsumerWrapper::Bytes(consumer)
+                }
+            }
+            SerializationFormat::Protobuf => {
+                // For Avro and Protobuf, use raw bytes and parse manually
+                let value_serializer = BytesSerializer;
+                let consumer =
+                    KafkaConsumer::new(brokers, group_id, key_serializer, value_serializer)
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                // Subscribe to the topic
+                let topics = vec![topic.as_str()];
+                consumer
+                    .subscribe(&topics)
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+                ConsumerWrapper::Bytes(consumer)
+            }
+        };
 
         Ok(Self {
             consumer,
@@ -68,77 +142,108 @@ impl KafkaDataReader {
         })
     }
 
-
-    /// Parse message payload based on format
-    fn parse_message_payload(
+    /// Parse Avro message from ferris_streams KafkaConsumer (already decoded)
+    fn parse_avro_message(
         &self,
-        message: &rdkafka::message::BorrowedMessage,
-        format: &SerializationFormat,
+        message: &crate::ferris::kafka::Message<String, HashMap<String, FieldValue>>,
+    ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
+        let mut fields = message.value().clone();
+
+        // Add key if present
+        if let Some(key) = message.key() {
+            fields.insert("key".to_string(), FieldValue::String(key.clone()));
+        } else {
+            fields.insert("key".to_string(), FieldValue::Null);
+        }
+
+        Ok(fields)
+    }
+
+    /// Parse JSON message from ferris_streams KafkaConsumer
+    fn parse_json_message(
+        &self,
+        message: &crate::ferris::kafka::Message<String, String>,
     ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
         let mut fields = HashMap::new();
 
         // Add key if present
         if let Some(key) = message.key() {
-            fields.insert("key".to_string(), FieldValue::String(String::from_utf8_lossy(key).to_string()));
+            fields.insert("key".to_string(), FieldValue::String(key.clone()));
         } else {
             fields.insert("key".to_string(), FieldValue::Null);
         }
 
-        // Parse payload based on format
-        if let Some(payload) = message.payload() {
-            match format {
-                SerializationFormat::Json => {
-                    // Parse as JSON
+        // Parse the value as JSON string
+        let json_str = message.value();
+        match serde_json::from_str::<Value>(json_str) {
+            Ok(json_value) => {
+                self.json_value_to_fields(&json_value, &mut fields)?;
+            }
+            Err(_) => {
+                // If JSON parsing fails, store as string
+                fields.insert(
+                    "value".to_string(),
+                    FieldValue::String(json_str.to_string()),
+                );
+            }
+        }
+
+        Ok(fields)
+    }
+
+    /// Parse bytes message from ferris_streams KafkaConsumer  
+    fn parse_bytes_message(
+        &self,
+        message: &crate::ferris::kafka::Message<String, Vec<u8>>,
+    ) -> Result<HashMap<String, FieldValue>, Box<dyn Error + Send + Sync>> {
+        let mut fields = HashMap::new();
+
+        // Add key if present
+        if let Some(key) = message.key() {
+            fields.insert("key".to_string(), FieldValue::String(key.clone()));
+        } else {
+            fields.insert("key".to_string(), FieldValue::Null);
+        }
+
+        let payload = message.value();
+        match &self.format {
+            SerializationFormat::Avro => {
+                // No schema available, store as base64 encoded string with metadata
+                use base64::Engine;
+                let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
+                fields.insert("value".to_string(), FieldValue::String(value_str));
+                fields.insert("_raw_avro".to_string(), FieldValue::Boolean(true));
+            }
+            SerializationFormat::Protobuf => {
+                // Store protobuf as base64 encoded string
+                use base64::Engine;
+                let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
+                fields.insert("value".to_string(), FieldValue::String(value_str));
+                fields.insert("_raw_protobuf".to_string(), FieldValue::Boolean(true));
+            }
+            _ => {
+                // For other formats, try to detect or store as base64
+                if payload.starts_with(b"{") || payload.starts_with(b"[") {
+                    // Try to parse as JSON
                     let json_str = String::from_utf8_lossy(payload);
                     match serde_json::from_str::<Value>(&json_str) {
                         Ok(json_value) => {
                             self.json_value_to_fields(&json_value, &mut fields)?;
                         }
                         Err(_) => {
-                            // If JSON parsing fails, store as string
-                            fields.insert("value".to_string(), FieldValue::String(json_str.to_string()));
+                            fields.insert(
+                                "value".to_string(),
+                                FieldValue::String(json_str.to_string()),
+                            );
                         }
                     }
-                }
-                SerializationFormat::Avro => {
-                    // For Avro, we would need the schema to deserialize properly
-                    // For now, store as base64 encoded string with metadata
+                } else {
+                    // Store as base64 encoded string
                     use base64::Engine;
                     let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
                     fields.insert("value".to_string(), FieldValue::String(value_str));
-                    fields.insert("_raw_avro".to_string(), FieldValue::Boolean(true));
-                }
-                SerializationFormat::Protobuf => {
-                    // Store protobuf as base64 encoded string
-                    use base64::Engine;
-                    let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
-                    fields.insert("value".to_string(), FieldValue::String(value_str));
-                    fields.insert("_raw_protobuf".to_string(), FieldValue::Boolean(true));
-                }
-                SerializationFormat::Auto => {
-                    // Try to detect from payload content for Auto format
-                    if payload.starts_with(b"{") || payload.starts_with(b"[") {
-                        // Parse as JSON
-                        let json_str = String::from_utf8_lossy(payload);
-                        match serde_json::from_str::<Value>(&json_str) {
-                            Ok(json_value) => {
-                                self.json_value_to_fields(&json_value, &mut fields)?;
-                            }
-                            Err(_) => {
-                                // If JSON parsing fails, store as string
-                                fields.insert("value".to_string(), FieldValue::String(json_str.to_string()));
-                            }
-                        }
-                    } else {
-                        // For binary data, store as base64 encoded string
-                        use base64::Engine;
-                        let value_str = base64::engine::general_purpose::STANDARD.encode(payload);
-                        fields.insert("value".to_string(), FieldValue::String(value_str));
-                    }
                 }
             }
-        } else {
-            fields.insert("value".to_string(), FieldValue::Null);
         }
 
         Ok(fields)
@@ -174,44 +279,107 @@ impl KafkaDataReader {
 impl DataReader for KafkaDataReader {
     async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(self.batch_size);
-        
-        for _ in 0..self.batch_size {
-            match tokio::time::timeout(Duration::from_millis(1000), self.consumer.recv()).await {
-                Ok(Ok(message)) => {
-                    // Parse payload using configured format
-                    let fields = self.parse_message_payload(&message, &self.format)?;
 
-                    // Convert headers
-                    let mut header_map = HashMap::new();
-                    if let Some(headers) = message.headers() {
-                        for i in 0..headers.count() {
-                            let header = headers.get(i);
-                            let key = header.key;
-                            if let Some(value) = header.value {
-                                if let Ok(value_str) = std::str::from_utf8(value) {
-                                    header_map.insert(key.to_string(), value_str.to_string());
-                                }
+        for _ in 0..self.batch_size {
+            let timeout = Duration::from_millis(1000);
+
+            let result: Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> =
+                match &self.consumer {
+                    ConsumerWrapper::Avro(consumer) => {
+                        match consumer.poll(timeout).await {
+                            Ok(message) => {
+                                // Convert ferris_streams Message with decoded Avro to StreamRecord
+                                let fields = self.parse_avro_message(&message)?;
+
+                                // Convert ferris_streams Headers to HashMap
+                                let header_map = message
+                                    .headers()
+                                    .iter()
+                                    .filter_map(|(k, v_opt)| {
+                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
+                                    })
+                                    .collect::<HashMap<String, String>>();
+
+                                let record = StreamRecord {
+                                    fields,
+                                    timestamp: message
+                                        .timestamp()
+                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                                    offset: message.offset(),
+                                    partition: message.partition(),
+                                    headers: header_map,
+                                };
+
+                                Ok(Some(record))
                             }
+                            Err(_) => Ok(None), // Timeout or no message
                         }
                     }
+                    ConsumerWrapper::Json(consumer) => {
+                        match consumer.poll(timeout).await {
+                            Ok(message) => {
+                                // Convert ferris_streams Message to StreamRecord
+                                let fields = self.parse_json_message(&message)?;
 
-                    let record = StreamRecord {
-                        fields,
-                        timestamp: message
-                            .timestamp()
-                            .to_millis()
-                            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-                        offset: message.offset(),
-                        partition: message.partition(),
-                        headers: header_map,
-                    };
+                                // Convert ferris_streams Headers to HashMap
+                                let header_map = message
+                                    .headers()
+                                    .iter()
+                                    .filter_map(|(k, v_opt)| {
+                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
+                                    })
+                                    .collect::<HashMap<String, String>>();
 
-                    records.push(record);
-                }
-                Ok(Err(e)) => {
-                    return Err(Box::new(e));
-                }
-                Err(_) => {
+                                let record = StreamRecord {
+                                    fields,
+                                    timestamp: message
+                                        .timestamp()
+                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                                    offset: message.offset(),
+                                    partition: message.partition(),
+                                    headers: header_map,
+                                };
+
+                                Ok(Some(record))
+                            }
+                            Err(_) => Ok(None), // Timeout or no message
+                        }
+                    }
+                    ConsumerWrapper::Bytes(consumer) => {
+                        match consumer.poll(timeout).await {
+                            Ok(message) => {
+                                // Convert ferris_streams Message with bytes to StreamRecord
+                                let fields = self.parse_bytes_message(&message)?;
+
+                                // Convert ferris_streams Headers to HashMap
+                                let header_map = message
+                                    .headers()
+                                    .iter()
+                                    .filter_map(|(k, v_opt)| {
+                                        v_opt.as_ref().map(|v| (k.clone(), v.clone()))
+                                    })
+                                    .collect::<HashMap<String, String>>();
+
+                                let record = StreamRecord {
+                                    fields,
+                                    timestamp: message
+                                        .timestamp()
+                                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                                    offset: message.offset(),
+                                    partition: message.partition(),
+                                    headers: header_map,
+                                };
+
+                                Ok(Some(record))
+                            }
+                            Err(_) => Ok(None), // Timeout or no message
+                        }
+                    }
+                };
+
+            match result? {
+                Some(record) => records.push(record),
+                None => {
                     // Timeout - break if we have some records, otherwise continue
                     if !records.is_empty() {
                         break;
@@ -225,17 +393,36 @@ impl DataReader for KafkaDataReader {
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.consumer.commit_consumer_state(rdkafka::consumer::CommitMode::Async)?;
+        match &self.consumer {
+            ConsumerWrapper::Json(consumer) => {
+                consumer
+                    .commit()
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+            }
+            ConsumerWrapper::Bytes(consumer) => {
+                consumer
+                    .commit()
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+            }
+            ConsumerWrapper::Avro(consumer) => {
+                consumer
+                    .commit()
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+            }
+        }
         Ok(())
     }
 
     async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn Error + Send + Sync>> {
         match offset {
-            SourceOffset::Kafka { partition, offset } => {
-                let mut tpl = TopicPartitionList::new();
-                tpl.add_partition_offset(&self.topic, partition, rdkafka::Offset::Offset(offset))?;
-                self.consumer.assign(&tpl)?;
-                Ok(())
+            SourceOffset::Kafka {
+                partition: _,
+                offset: _,
+            } => {
+                // Note: ferris_streams KafkaConsumer doesn't directly expose seek functionality
+                // This would need to be implemented by accessing the underlying rdkafka consumer
+                // For now, return an error indicating this is not yet implemented
+                Err("Seek operation not yet implemented for ferris_streams KafkaConsumer".into())
             }
             _ => Err("Invalid offset type for Kafka source".into()),
         }

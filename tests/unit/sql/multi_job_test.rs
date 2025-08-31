@@ -235,3 +235,35 @@ fn test_default_values_extraction() {
     assert_eq!(config.default_topic, "my-default-topic");
     assert_eq!(config.job_name, "default-test");
 }
+
+// Additional extracted unit tests from multi_job.rs
+
+#[test]
+fn test_job_execution_stats() {
+    let mut stats = JobExecutionStats::new();
+    assert_eq!(stats.records_processed, 0);
+    assert_eq!(stats.errors, 0);
+    assert!(stats.start_time.is_some());
+
+    stats.records_processed = 1000;
+    // Sleep briefly to ensure elapsed time > 0
+    std::thread::sleep(Duration::from_millis(10));
+
+    let rps = stats.records_per_second();
+    assert!(rps > 0.0);
+
+    let elapsed = stats.elapsed();
+    assert!(elapsed.as_millis() > 0);
+}
+
+#[test]
+fn test_job_execution_stats_no_start_time() {
+    let stats = JobExecutionStats {
+        records_processed: 100,
+        start_time: None,
+        ..Default::default()
+    };
+
+    assert_eq!(stats.records_per_second(), 0.0);
+    assert_eq!(stats.elapsed(), Duration::from_secs(0));
+}

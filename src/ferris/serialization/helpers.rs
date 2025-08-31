@@ -139,7 +139,6 @@ pub fn field_value_to_json(
 
 // Avro conversion helpers (feature-gated)
 
-#[cfg(feature = "avro")]
 /// Convert Avro value to FieldValue
 pub fn avro_value_to_field_value(
     avro_value: &apache_avro::types::Value,
@@ -227,7 +226,6 @@ pub fn avro_value_to_field_value(
     }
 }
 
-#[cfg(feature = "avro")]
 /// Convert FieldValue to Avro value
 pub fn field_value_to_avro(
     field_value: &FieldValue,
@@ -290,7 +288,6 @@ pub fn field_value_to_avro(
     }
 }
 
-#[cfg(feature = "avro")]
 /// Convert ScaledInteger to Avro decimal logical type
 /// For Apache Avro 0.20.0+ with standard decimal logical type support
 pub fn scaled_integer_to_avro_decimal_bytes(
@@ -313,7 +310,6 @@ pub fn scaled_integer_to_avro_decimal_bytes(
     Ok(avro_value)
 }
 
-#[cfg(feature = "avro")]
 /// Convert ScaledInteger to Avro bytes (for custom properties approach)
 /// For cross-system compatibility (Flink, etc.), when using custom decimalPrecision/decimalScale
 pub fn scaled_integer_to_avro_bytes_custom(
@@ -338,7 +334,6 @@ pub fn scaled_integer_to_avro_bytes_custom(
     Ok(avro_value)
 }
 
-#[cfg(feature = "avro")]
 /// Schema-aware FieldValue to Avro conversion for decimal logical types
 /// Use this when you have schema information indicating decimal logical type
 pub fn field_value_to_avro_with_schema(
@@ -357,7 +352,6 @@ pub fn field_value_to_avro_with_schema(
     }
 }
 
-#[cfg(feature = "avro")]
 /// Enhanced schema-aware FieldValue to Avro conversion that distinguishes between standard and custom decimal types
 /// Use this when you have full decimal schema information
 pub fn field_value_to_avro_with_decimal_schema(
@@ -382,7 +376,6 @@ pub fn field_value_to_avro_with_decimal_schema(
     }
 }
 
-#[cfg(feature = "avro")]
 /// Schema-aware Avro to FieldValue conversion that respects decimal logical types
 /// This function takes schema information to properly decode decimal fields
 pub fn avro_value_to_field_value_with_schema(
@@ -429,7 +422,6 @@ pub fn avro_value_to_field_value_with_schema(
     }
 }
 
-#[cfg(feature = "avro")]
 /// Decimal schema information extracted from Avro schema
 #[derive(Debug, Clone)]
 pub struct DecimalSchemaInfo {
@@ -483,7 +475,6 @@ fn encode_big_endian_signed(value: i64) -> Vec<u8> {
 
 // Protobuf conversion helpers (feature-gated)
 
-#[cfg(feature = "protobuf")]
 /// Convert protobuf bytes to FieldValue (placeholder implementation)
 pub fn protobuf_bytes_to_field_value(_bytes: &[u8]) -> Result<FieldValue, SerializationError> {
     // This is a placeholder - real implementation would depend on the specific protobuf schema
@@ -572,7 +563,6 @@ fn try_decode_avro_decimal_bytes(bytes: &[u8]) -> Option<FieldValue> {
     }
 }
 
-#[cfg(feature = "avro")]
 /// Schema-aware Avro decimal decoding that reads precision/scale from the schema
 /// This is the CORRECT way to handle Avro decimal logical types
 pub fn decode_avro_decimal_bytes_with_schema(

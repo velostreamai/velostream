@@ -36,6 +36,105 @@ impl FileDataSource {
             watcher: None,
         }
     }
+    
+    /// Create a file data source from properties
+    pub fn from_properties(props: &std::collections::HashMap<String, String>) -> Self {
+        let mut datasource = Self::new();
+        
+        // Extract path and format from properties
+        let path = props
+            .get("path")
+            .cloned()
+            .unwrap_or_else(|| "./demo_data/sample.csv".to_string());
+        let format_str = props
+            .get("format")
+            .cloned()
+            .unwrap_or_else(|| "csv".to_string());
+        
+        // Parse format
+        let format = Self::parse_file_format(&format_str);
+        
+        // Create config
+        let config = FileSourceConfig {
+            path,
+            format,
+            watch_for_changes: props
+                .get("watch")
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(false),
+            polling_interval_ms: props
+                .get("polling_interval")
+                .and_then(|v| v.parse::<u64>().ok()),
+            csv_delimiter: props
+                .get("delimiter")
+                .and_then(|v| v.chars().next())
+                .unwrap_or(','),
+            csv_has_header: props
+                .get("header")
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(true),
+            ..Default::default()
+        };
+        
+        datasource.config = Some(config);
+        datasource
+    }
+    
+    /// Parse file format string into FileFormat enum
+    fn parse_file_format(format_str: &str) -> FileFormat {
+        match format_str.to_lowercase().as_str() {
+            "json" => FileFormat::Json,
+            "jsonlines" | "json_lines" => FileFormat::JsonLines,
+            "csv_no_header" => FileFormat::CsvNoHeader,
+            _ => FileFormat::Csv, // Default to CSV with header
+        }
+    }
+    
+    /// Generate SourceConfig from current state
+    pub fn to_source_config(&self) -> SourceConfig {
+        if let Some(config) = &self.config {
+            // Convert file-specific FileFormat to generic FileFormat
+            let generic_format = match config.format {
+                FileFormat::Csv => crate::ferris::datasource::config::FileFormat::Csv {
+                    header: config.csv_has_header,
+                    delimiter: config.csv_delimiter,
+                    quote: config.csv_quote,
+                },
+                FileFormat::CsvNoHeader => crate::ferris::datasource::config::FileFormat::Csv {
+                    header: false,
+                    delimiter: config.csv_delimiter,
+                    quote: config.csv_quote,
+                },
+                FileFormat::JsonLines => crate::ferris::datasource::config::FileFormat::Json,
+                FileFormat::Json => crate::ferris::datasource::config::FileFormat::Json,
+            };
+            
+            SourceConfig::File {
+                path: config.path.clone(),
+                format: generic_format,
+                properties: std::collections::HashMap::new(),
+                batch_config: crate::ferris::datasource::BatchConfig::default(),
+            }
+        } else {
+            // Return default if not configured
+            SourceConfig::File {
+                path: "./demo_data/sample.csv".to_string(),
+                format: crate::ferris::datasource::config::FileFormat::Csv {
+                    header: true,
+                    delimiter: ',',
+                    quote: '"',
+                },
+                properties: std::collections::HashMap::new(),
+                batch_config: crate::ferris::datasource::BatchConfig::default(),
+            }
+        }
+    }
+    
+    /// Self-initialize with current configuration
+    pub async fn self_initialize(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let config = self.to_source_config();
+        self.initialize(config).await
+    }
 
     /// Get the current configuration
     pub fn config(&self) -> Option<&FileSourceConfig> {

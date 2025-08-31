@@ -80,8 +80,8 @@ async fn execute_sql_file(
 
     // Create execution engine
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
-    let serialization_format = Arc::new(JsonFormat);
-    let mut execution_engine = StreamExecutionEngine::new(output_sender, serialization_format);
+    let _serialization_format = Arc::new(JsonFormat);
+    let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
     // Parse SQL statements
     let parser = StreamingSqlParser::new();

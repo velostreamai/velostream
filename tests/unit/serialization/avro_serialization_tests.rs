@@ -9,7 +9,7 @@ and schema evolution scenarios.
 mod avro_tests {
     use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{
-        AvroFormat, SerializationFormat, SerializationFormatFactory,
+        AvroFormat, SerializationFormat,
     };
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
@@ -189,15 +189,15 @@ mod avro_tests {
     }
 
     #[tokio::test]
-    async fn test_avro_factory_creation() {
-        let format = SerializationFormatFactory::create_format("avro")
-            .expect("Should create Avro format via factory");
+    async fn test_avro_direct_creation() {
+        let format = AvroFormat::default_format()
+            .expect("Should create Avro format directly");
 
         assert_eq!(format.format_name(), "Avro");
 
         // Test with custom schema
         let schema = create_basic_avro_schema();
-        let custom_format = SerializationFormatFactory::create_avro_format(schema)
+        let custom_format = AvroFormat::new(schema)
             .expect("Should create custom Avro format");
 
         assert_eq!(custom_format.format_name(), "Avro");
@@ -417,6 +417,82 @@ mod avro_tests {
         // Also test execution format round trip
         test_execution_format_round_trip(&format, &record)
             .expect("Comprehensive execution format round trip should succeed");
+    }
+
+    // Tests extracted from avro_codec.rs
+    
+    #[tokio::test]
+    async fn test_avro_codec_basic() {
+        use ferrisstreams::ferris::serialization::avro_codec::AvroCodec;
+        
+        let schema_json = r#"
+        {
+            "type": "record",
+            "name": "TestRecord",
+            "fields": [
+                {"name": "id", "type": "long"},
+                {"name": "name", "type": "string"},
+                {"name": "active", "type": "boolean"},
+                {"name": "score", "type": "double"},
+                {"name": "optional_field", "type": ["null", "string"], "default": null}
+            ]
+        }
+        "#;
+
+        let mut record = HashMap::new();
+        record.insert("id".to_string(), FieldValue::Integer(123));
+        record.insert("name".to_string(), FieldValue::String("test".to_string()));
+        record.insert("active".to_string(), FieldValue::Boolean(true));
+        record.insert("score".to_string(), FieldValue::Float(95.5));
+        record.insert("optional_field".to_string(), FieldValue::Null);
+
+        let codec = AvroCodec::new(schema_json).unwrap();
+
+        // Test serialization
+        let bytes = codec.serialize(&record).unwrap();
+        assert!(!bytes.is_empty());
+
+        // Test deserialization
+        let deserialized = codec.deserialize(&bytes).unwrap();
+
+        assert_eq!(deserialized.get("id"), Some(&FieldValue::Integer(123)));
+        assert_eq!(
+            deserialized.get("name"),
+            Some(&FieldValue::String("test".to_string()))
+        );
+        assert_eq!(deserialized.get("active"), Some(&FieldValue::Boolean(true)));
+        assert_eq!(deserialized.get("score"), Some(&FieldValue::Float(95.5)));
+        assert_eq!(deserialized.get("optional_field"), Some(&FieldValue::Null));
+    }
+
+    #[tokio::test]
+    async fn test_avro_convenience_functions() {
+        use ferrisstreams::ferris::serialization::{serialize_to_avro, deserialize_from_avro};
+        
+        let schema_json = r#"
+        {
+            "type": "record",
+            "name": "SimpleRecord",
+            "fields": [
+                {"name": "message", "type": "string"}
+            ]
+        }
+        "#;
+
+        let mut record = HashMap::new();
+        record.insert(
+            "message".to_string(),
+            FieldValue::String("hello world".to_string()),
+        );
+
+        // Test convenience functions
+        let bytes = serialize_to_avro(&record, schema_json).unwrap();
+        let deserialized = deserialize_from_avro(&bytes, schema_json).unwrap();
+
+        assert_eq!(
+            deserialized.get("message"),
+            Some(&FieldValue::String("hello world".to_string()))
+        );
     }
 }
 

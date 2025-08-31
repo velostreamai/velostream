@@ -227,7 +227,7 @@ impl ProcessorContext {
     }
 
     /// Read from a specific data source
-    pub async fn read_from(&mut self, source_name: &str) -> Result<Option<StreamRecord>, SqlError> {
+    pub async fn read_from(&mut self, source_name: &str) -> Result<Vec<StreamRecord>, SqlError> {
         let reader =
             self.data_readers
                 .get_mut(source_name)
@@ -266,7 +266,7 @@ impl ProcessorContext {
     }
 
     /// Read from the active data source
-    pub async fn read(&mut self) -> Result<Option<StreamRecord>, SqlError> {
+    pub async fn read(&mut self) -> Result<Vec<StreamRecord>, SqlError> {
         let source_name = self
             .active_reader
             .clone()
@@ -321,29 +321,6 @@ impl ProcessorContext {
     /// Get all available data sink names
     pub fn list_sinks(&self) -> Vec<String> {
         self.data_writers.keys().cloned().collect()
-    }
-
-    /// Read a batch of records from a specific source
-    pub async fn read_batch_from(
-        &mut self,
-        source_name: &str,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, SqlError> {
-        let reader =
-            self.data_readers
-                .get_mut(source_name)
-                .ok_or_else(|| SqlError::ExecutionError {
-                    message: format!("Data source '{}' not found in context", source_name),
-                    query: None,
-                })?;
-
-        reader
-            .read_batch(max_size)
-            .await
-            .map_err(|e| SqlError::ExecutionError {
-                message: format!("Failed to read batch from source '{}': {}", source_name, e),
-                query: None,
-            })
     }
 
     /// Write a batch of records to a specific sink

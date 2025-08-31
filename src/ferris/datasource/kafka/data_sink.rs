@@ -40,9 +40,7 @@ impl KafkaDataSink {
         // Map config value to SerializationFormat enum
         let format = match value_format {
             "json" => SerializationFormat::Json,
-            #[cfg(feature = "avro")]
             "avro" => SerializationFormat::Avro,
-            #[cfg(feature = "protobuf")]
             "protobuf" | "proto" => SerializationFormat::Protobuf,
             "auto" => SerializationFormat::Auto,
             _ => SerializationFormat::Json, // Default fallback

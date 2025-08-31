@@ -7,7 +7,6 @@ pub mod config;
 pub mod context;
 pub mod error;
 pub mod execution;
-pub mod execution_format_factory;
 pub mod multi_job;
 pub mod parser;
 pub mod query_analyzer;

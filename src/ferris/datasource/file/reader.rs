@@ -401,18 +401,31 @@ impl FileReader {
 
 #[async_trait]
 impl DataReader for FileReader {
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        loop {
+    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        // Use configured batch size from the source config
+        let batch_size = self
+            .config
+            .batch_config
+            .as_ref()
+            .and_then(|bc| match &bc.strategy {
+                crate::ferris::datasource::config::BatchStrategy::FixedSize(size) => Some(*size),
+                _ => None,
+            })
+            .unwrap_or(100); // Default batch size for files
+
+        let mut records = Vec::with_capacity(batch_size);
+
+        for _ in 0..batch_size {
             // Check if we've reached the maximum number of records
             if let Some(max) = self.config.max_records {
                 if self.records_read >= max {
-                    return Ok(None);
+                    break;
                 }
             }
 
-            // If finished and not watching, return None
+            // If finished and not watching, break
             if self.finished && !self.config.watch_for_changes {
-                return Ok(None);
+                break;
             }
 
             // Try to read a record based on format
@@ -430,7 +443,9 @@ impl DataReader for FileReader {
             };
 
             match result {
-                Ok(Some(record)) => return Ok(Some(record)),
+                Ok(Some(record)) => {
+                    records.push(record);
+                }
                 Ok(None) => {
                     // No more data, check if we should wait for new data
                     if self.config.watch_for_changes && !self.finished {
@@ -439,23 +454,9 @@ impl DataReader for FileReader {
                             continue;
                         }
                     }
-                    return Ok(None);
+                    break;
                 }
                 Err(e) => return Err(e),
-            }
-        }
-    }
-
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut records = Vec::with_capacity(max_size);
-
-        for _ in 0..max_size {
-            match self.read().await? {
-                Some(record) => records.push(record),
-                None => break,
             }
         }
 

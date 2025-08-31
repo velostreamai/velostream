@@ -5,12 +5,10 @@
 //! - Maximum performance with direct binary serialization
 //! - Cross-system compatibility using industry-standard Decimal format
 
-#[cfg(feature = "protobuf")]
 pub mod financial {
     // Include the generated protobuf code
     include!(concat!(env!("OUT_DIR"), "/ferris.serialization.rs"));
 }
 
-#[cfg(feature = "protobuf")]
 #[allow(unused_imports)]
 pub use financial::*;

@@ -45,7 +45,6 @@ use std::{collections::HashMap, marker::PhantomData};
 ///
 /// ## Avro Serialization with Schema Registry (requires "avro" feature)
 /// ```rust,no_run
-/// # #[cfg(feature = "avro")]
 /// # {
 /// use ferrisstreams::ferris::kafka::{ConfigurableKafkaConsumerBuilder, SerializationFormat};
 ///
@@ -162,7 +161,6 @@ where
     }
 
     /// Configure Avro serialization for keys with Schema Registry
-    #[cfg(feature = "avro")]
     pub fn with_avro_key_serialization(mut self, schema_registry_url: &str, subject: &str) -> Self {
         self.key_format = SerializationFormat::Avro {
             schema_registry_url: schema_registry_url.to_string(),
@@ -172,7 +170,6 @@ where
     }
 
     /// Configure Avro serialization for values with Schema Registry
-    #[cfg(feature = "avro")]
     pub fn with_avro_value_serialization(
         mut self,
         schema_registry_url: &str,
@@ -186,7 +183,6 @@ where
     }
 
     /// Configure Protobuf serialization for keys
-    #[cfg(feature = "protobuf")]
     pub fn with_protobuf_key_serialization(mut self, message_type: &str) -> Self {
         self.key_format = SerializationFormat::Protobuf {
             message_type: message_type.to_string(),
@@ -195,7 +191,6 @@ where
     }
 
     /// Configure Protobuf serialization for values
-    #[cfg(feature = "protobuf")]
     pub fn with_protobuf_value_serialization(mut self, message_type: &str) -> Self {
         self.value_format = SerializationFormat::Protobuf {
             message_type: message_type.to_string(),
@@ -458,7 +453,6 @@ mod tests {
         assert_eq!(builder.value_format, SerializationFormat::Json);
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_avro_configuration() {
         let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
