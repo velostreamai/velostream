@@ -44,7 +44,7 @@ impl KafkaDataSource {
             config: props.clone(),
         }
     }
-    
+
     /// Apply BatchConfig settings to Kafka consumer properties
     fn apply_batch_config_to_kafka_properties(
         &self,
@@ -152,13 +152,15 @@ impl KafkaDataSource {
             batch_config: Default::default(),
         }
     }
-    
+
     /// Self-initialize with current configuration
-    pub async fn self_initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn self_initialize(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = self.to_source_config();
         self.initialize(config).await
     }
-    
+
     /// Create a consumer based on the serialization format in config
     async fn create_unified_reader(
         &self,
@@ -192,8 +194,6 @@ impl KafkaDataSource {
         .await
     }
 }
-
-
 
 #[async_trait]
 impl DataSource for KafkaDataSource {

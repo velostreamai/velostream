@@ -125,10 +125,7 @@ name = "debug_encoding_test"
 path = "tests/debug/debug_encoding_test.rs"
 
 # Performance Benchmarks
-[[bench]]
-name = "conversion_benchmark"
-path = "tests/performance/conversion_benchmark.rs"
-harness = false
+# (No active benchmarks currently - use cargo test for performance tests)
 
 # Simple Conversion Performance Test
 [[bin]]

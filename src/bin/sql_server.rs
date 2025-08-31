@@ -111,8 +111,8 @@ impl SqlJobManager {
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
 
         // Create serialization format (JSON by default)
-        let serialization_format = Arc::new(JsonFormat);
-        let mut execution_engine = StreamExecutionEngine::new(output_sender, serialization_format);
+        let _serialization_format = Arc::new(JsonFormat);
+        let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // Set up performance monitoring if enabled
         let performance_monitor = if enable_monitoring {
@@ -261,10 +261,9 @@ async fn execute_sql_query(
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
 
     // Create serialization format (JSON by default)
-    let serialization_format = Arc::new(JsonFormat);
+    let _serialization_format = Arc::new(JsonFormat);
     let execution_engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(
         output_sender,
-        serialization_format,
     )));
 
     // Create Kafka consumer

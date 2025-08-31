@@ -119,7 +119,7 @@ impl AvroCodec {
                 // Convert ScaledInteger to decimal string representation by default
                 let scale_factor = 10_i64.pow(*scale as u32);
                 let decimal_value = *value as f64 / scale_factor as f64;
-                
+
                 // For now, convert to string representation (schema-compatible)
                 // TODO: Make this schema-aware to return Float/Double when appropriate
                 let integer_part = value / scale_factor;
@@ -194,7 +194,8 @@ impl AvroCodec {
             AvroValue::Record(fields) => {
                 let mut record = HashMap::new();
                 for (key, value) in fields {
-                    let field_value = self.avro_value_to_field_value_with_context(value, Some(key))?;
+                    let field_value =
+                        self.avro_value_to_field_value_with_context(value, Some(key))?;
                     record.insert(key.clone(), field_value);
                 }
                 Ok(record)
@@ -225,7 +226,7 @@ impl AvroCodec {
                     }
                 }
                 Ok(FieldValue::Float(*f as f64))
-            },
+            }
             AvroValue::Double(d) => {
                 // Check if this field should be treated as a decimal logical type
                 if let Some(name) = field_name {
@@ -235,7 +236,7 @@ impl AvroCodec {
                     }
                 }
                 Ok(FieldValue::Float(*d))
-            },
+            }
             AvroValue::String(s) => Ok(FieldValue::String(s.clone())),
             AvroValue::Bytes(bytes) => {
                 // Check if this is a decimal logical type encoded as bytes
@@ -251,7 +252,7 @@ impl AvroCodec {
                         }
                     }
                 }
-                
+
                 // Otherwise, try to decode as ScaledInteger if it looks like decimal bytes
                 if bytes.len() == 8 {
                     let value = i64::from_be_bytes(bytes.as_slice().try_into().unwrap());
@@ -288,7 +289,8 @@ impl AvroCodec {
                 // Nested record - convert to structured Map
                 let mut nested_map = HashMap::new();
                 for (key, value) in fields {
-                    let field_value = self.avro_value_to_field_value_with_context(value, Some(key))?;
+                    let field_value =
+                        self.avro_value_to_field_value_with_context(value, Some(key))?;
                     nested_map.insert(key.clone(), field_value);
                 }
                 Ok(FieldValue::Map(nested_map))
@@ -307,7 +309,7 @@ impl AvroCodec {
                         }
                     }
                 }
-                
+
                 // Convert fixed bytes to base64 string
                 use base64::Engine;
                 let b64_str = base64::engine::general_purpose::STANDARD.encode(bytes);
@@ -337,7 +339,7 @@ impl AvroCodec {
                 for field in fields {
                     if let (Some(name), Some(field_type)) = (
                         field.get("name").and_then(|n| n.as_str()),
-                        field.get("type")
+                        field.get("type"),
                     ) {
                         if name == field_name {
                             return self.extract_decimal_scale_from_type(field_type);
@@ -348,7 +350,7 @@ impl AvroCodec {
         }
         None
     }
-    
+
     /// Extract decimal scale from an Avro type definition
     fn extract_decimal_scale_from_type(&self, type_def: &serde_json::Value) -> Option<u8> {
         // Handle union types (e.g., ["null", {"type": "bytes", "logicalType": "decimal"}])
@@ -359,19 +361,19 @@ impl AvroCodec {
                 }
             }
         }
-        
+
         // Handle direct type objects
         if let Some(type_obj) = type_def.as_object() {
             if let (Some(logical_type), Some(scale)) = (
                 type_obj.get("logicalType").and_then(|lt| lt.as_str()),
-                type_obj.get("scale").and_then(|s| s.as_u64())
+                type_obj.get("scale").and_then(|s| s.as_u64()),
             ) {
                 if logical_type == "decimal" && scale <= 255 {
                     return Some(scale as u8);
                 }
             }
         }
-        
+
         None
     }
 }
@@ -422,4 +424,3 @@ pub fn deserialize_from_avro(
     let codec = AvroCodec::new(schema_json)?;
     codec.deserialize(bytes)
 }
-

@@ -8,9 +8,7 @@ and schema evolution scenarios.
 #[cfg(feature = "avro")]
 mod avro_tests {
     use super::super::common_test_data::*;
-    use ferrisstreams::ferris::serialization::{
-        AvroFormat, SerializationFormat,
-    };
+    use ferrisstreams::ferris::serialization::{AvroFormat, SerializationFormat};
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
 
@@ -190,15 +188,13 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_direct_creation() {
-        let format = AvroFormat::default_format()
-            .expect("Should create Avro format directly");
+        let format = AvroFormat::default_format().expect("Should create Avro format directly");
 
         assert_eq!(format.format_name(), "Avro");
 
         // Test with custom schema
         let schema = create_basic_avro_schema();
-        let custom_format = AvroFormat::new(schema)
-            .expect("Should create custom Avro format");
+        let custom_format = AvroFormat::new(schema).expect("Should create custom Avro format");
 
         assert_eq!(custom_format.format_name(), "Avro");
     }
@@ -420,11 +416,11 @@ mod avro_tests {
     }
 
     // Tests extracted from avro_codec.rs
-    
+
     #[tokio::test]
     async fn test_avro_codec_basic() {
         use ferrisstreams::ferris::serialization::avro_codec::AvroCodec;
-        
+
         let schema_json = r#"
         {
             "type": "record",
@@ -467,8 +463,8 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_convenience_functions() {
-        use ferrisstreams::ferris::serialization::{serialize_to_avro, deserialize_from_avro};
-        
+        use ferrisstreams::ferris::serialization::{deserialize_from_avro, serialize_to_avro};
+
         let schema_json = r#"
         {
             "type": "record",

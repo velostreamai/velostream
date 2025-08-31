@@ -87,6 +87,8 @@ pub mod avro_codec;
 
 mod protobuf;
 
+pub mod protobuf_codec;
+
 // Utilities
 pub mod helpers;
 
@@ -104,6 +106,11 @@ pub use avro_codec::{
 };
 
 pub use protobuf::ProtobufFormat;
+
+pub use protobuf_codec::{
+    create_protobuf_serializer, deserialize_from_protobuf, serialize_to_protobuf, DecimalMessage,
+    FieldMessage, ProtobufCodec, ProtobufCodecError, RecordMessage,
+};
 
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
 pub use helpers::{field_value_to_json, json_to_field_value};

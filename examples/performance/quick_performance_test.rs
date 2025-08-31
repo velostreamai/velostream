@@ -3,8 +3,8 @@
 //! Simplified performance test to quickly validate there's no major regression
 //! in the pluggable data source abstraction layer.
 
+use ferrisstreams::ferris::datasource::create_source;
 use ferrisstreams::ferris::sql::config::ConnectionString;
-use ferrisstreams::ferris::sql::datasource::create_source;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

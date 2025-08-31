@@ -7,9 +7,7 @@ Tests for Protocol Buffers serialization format implementation.
 #[cfg(feature = "protobuf")]
 mod protobuf_tests {
     use super::super::common_test_data::*;
-    use ferrisstreams::ferris::serialization::{
-        ProtobufFormat, SerializationFormat,
-    };
+    use ferrisstreams::ferris::serialization::{ProtobufFormat, SerializationFormat};
     use ferrisstreams::ferris::sql::execution::types::StreamRecord;
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;

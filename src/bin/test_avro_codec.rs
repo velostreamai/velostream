@@ -68,7 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passed += 1;
         }
         Err(e) => {
-            println!("❌ Float/Double to ScaledInteger conversion test failed: {}", e);
+            println!(
+                "❌ Float/Double to ScaledInteger conversion test failed: {}",
+                e
+            );
             failed += 1;
         }
     }
@@ -178,7 +181,10 @@ async fn test_all_field_types() -> Result<(), Box<dyn std::error::Error>> {
     record.insert("null_field".to_string(), FieldValue::Null);
     record.insert("bool_field".to_string(), FieldValue::Boolean(true));
     record.insert("int_field".to_string(), FieldValue::Integer(42));
-    record.insert("float_field".to_string(), FieldValue::ScaledInteger(314159, 5));
+    record.insert(
+        "float_field".to_string(),
+        FieldValue::ScaledInteger(314159, 5),
+    );
     record.insert(
         "string_field".to_string(),
         FieldValue::String("Hello, Avro!".to_string()),
@@ -329,9 +335,9 @@ async fn test_null_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn test_float_to_scaled_integer_conversion() -> Result<(), Box<dyn std::error::Error>> {
     use apache_avro::types::Value as AvroValue;
-    use apache_avro::{Schema, Writer, Reader};
+    use apache_avro::{Reader, Schema, Writer};
     use std::io::Cursor;
-    
+
     // Test schema with float and double fields
     let schema_json = r#"
     {
@@ -347,12 +353,13 @@ async fn test_float_to_scaled_integer_conversion() -> Result<(), Box<dyn std::er
     // Create Avro data directly with Float/Double values (simulating external Avro data)
     let schema = Schema::parse_str(schema_json)?;
     let mut writer = Writer::new(&schema, Vec::new());
-    
+
     // Create Avro record with actual Float/Double values
-    let mut avro_record = apache_avro::types::Record::new(&schema).ok_or("Failed to create record")?;
+    let mut avro_record =
+        apache_avro::types::Record::new(&schema).ok_or("Failed to create record")?;
     avro_record.put("price_float", AvroValue::Float(1.2345_f32));
     avro_record.put("quantity_double", AvroValue::Double(5.6780_f64));
-    
+
     writer.append(avro_record)?;
     let encoded = writer.into_inner()?;
 
@@ -362,49 +369,67 @@ async fn test_float_to_scaled_integer_conversion() -> Result<(), Box<dyn std::er
 
     // Verify that Float/Double values were converted to ScaledInteger
     println!("   🔍 Deserialized record: {:?}", deserialized);
-    
+
     // Check price_float conversion
     match deserialized.get("price_float") {
         Some(FieldValue::ScaledInteger(value, scale)) => {
-            println!("   💰 Float converted to ScaledInteger: {} with scale {}", value, scale);
+            println!(
+                "   💰 Float converted to ScaledInteger: {} with scale {}",
+                value, scale
+            );
             // With scale=4, 1.2345 should be approximately 12345
             let expected_range = 12340..12350;
             if !expected_range.contains(value) && *scale == 4 {
-                return Err(format!("Price value {} outside expected range {:?} for scale {}", value, expected_range, scale).into());
+                return Err(format!(
+                    "Price value {} outside expected range {:?} for scale {}",
+                    value, expected_range, scale
+                )
+                .into());
             }
-        },
+        }
         other => {
             println!("   💰 Float converted to: {:?}", other);
             // For now, accept any conversion as long as it's not FieldValue::Float
             match other {
                 Some(FieldValue::Float(_)) => {
-                    return Err("Float should have been converted to ScaledInteger, not Float".into());
-                },
-                _ => {}, // Accept other conversions for now
+                    return Err(
+                        "Float should have been converted to ScaledInteger, not Float".into(),
+                    );
+                }
+                _ => {} // Accept other conversions for now
             }
-        },
+        }
     }
 
-    // Check quantity_double conversion  
+    // Check quantity_double conversion
     match deserialized.get("quantity_double") {
         Some(FieldValue::ScaledInteger(value, scale)) => {
-            println!("   📦 Double converted to ScaledInteger: {} with scale {}", value, scale);
+            println!(
+                "   📦 Double converted to ScaledInteger: {} with scale {}",
+                value, scale
+            );
             // With scale=4, 5.6780 should be approximately 56780
             let expected_range = 56770..56790;
             if !expected_range.contains(value) && *scale == 4 {
-                return Err(format!("Quantity value {} outside expected range {:?} for scale {}", value, expected_range, scale).into());
+                return Err(format!(
+                    "Quantity value {} outside expected range {:?} for scale {}",
+                    value, expected_range, scale
+                )
+                .into());
             }
-        },
+        }
         other => {
             println!("   📦 Double converted to: {:?}", other);
             // For now, accept any conversion as long as it's not FieldValue::Float
             match other {
                 Some(FieldValue::Float(_)) => {
-                    return Err("Double should have been converted to ScaledInteger, not Float".into());
-                },
-                _ => {}, // Accept other conversions for now
+                    return Err(
+                        "Double should have been converted to ScaledInteger, not Float".into(),
+                    );
+                }
+                _ => {} // Accept other conversions for now
             }
-        },
+        }
     }
 
     println!("   ✅ Float and Double values successfully converted to ScaledInteger for financial precision");

@@ -13,5 +13,3 @@ pub mod avro_scaled_integer_test;
 
 #[cfg(feature = "protobuf")]
 pub mod protobuf_serialization_tests;
-
-pub mod serialization_factory_tests;

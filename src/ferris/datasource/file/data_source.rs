@@ -36,11 +36,11 @@ impl FileDataSource {
             watcher: None,
         }
     }
-    
+
     /// Create a file data source from properties
     pub fn from_properties(props: &std::collections::HashMap<String, String>) -> Self {
         let mut datasource = Self::new();
-        
+
         // Extract path and format from properties
         let path = props
             .get("path")
@@ -50,10 +50,10 @@ impl FileDataSource {
             .get("format")
             .cloned()
             .unwrap_or_else(|| "csv".to_string());
-        
+
         // Parse format
         let format = Self::parse_file_format(&format_str);
-        
+
         // Create config
         let config = FileSourceConfig {
             path,
@@ -75,11 +75,11 @@ impl FileDataSource {
                 .unwrap_or(true),
             ..Default::default()
         };
-        
+
         datasource.config = Some(config);
         datasource
     }
-    
+
     /// Parse file format string into FileFormat enum
     fn parse_file_format(format_str: &str) -> FileFormat {
         match format_str.to_lowercase().as_str() {
@@ -89,7 +89,7 @@ impl FileDataSource {
             _ => FileFormat::Csv, // Default to CSV with header
         }
     }
-    
+
     /// Generate SourceConfig from current state
     pub fn to_source_config(&self) -> SourceConfig {
         if let Some(config) = &self.config {
@@ -108,7 +108,7 @@ impl FileDataSource {
                 FileFormat::JsonLines => crate::ferris::datasource::config::FileFormat::Json,
                 FileFormat::Json => crate::ferris::datasource::config::FileFormat::Json,
             };
-            
+
             SourceConfig::File {
                 path: config.path.clone(),
                 format: generic_format,
@@ -129,7 +129,7 @@ impl FileDataSource {
             }
         }
     }
-    
+
     /// Self-initialize with current configuration
     pub async fn self_initialize(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let config = self.to_source_config();

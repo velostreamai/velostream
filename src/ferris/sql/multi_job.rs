@@ -4,10 +4,7 @@
 //! with support for different datasources and execution monitoring.
 
 use crate::ferris::datasource::{
-    config::BatchConfig,
-    file::FileDataSource,
-    kafka::KafkaDataSource,
-    DataReader, DataSource,
+    config::BatchConfig, file::FileDataSource, kafka::KafkaDataSource, DataReader, DataSource,
 };
 // InternalValue no longer needed - using FieldValue directly
 // use crate::ferris::serialization::InternalValue;
@@ -95,8 +92,6 @@ impl JobExecutionStats {
     }
 }
 
-
-
 /// Create a datasource reader based on configuration
 pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceResult {
     let requirement = &config.requirement;
@@ -126,7 +121,7 @@ async fn create_kafka_reader(
 ) -> DataSourceResult {
     // Let KafkaDataSource handle its own configuration extraction
     let mut datasource = KafkaDataSource::from_properties(props, default_topic, job_name);
-    
+
     // Self-initialize with the extracted configuration
     datasource
         .self_initialize()
@@ -143,7 +138,7 @@ async fn create_kafka_reader(
 async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceResult {
     // Let FileDataSource handle its own configuration extraction
     let mut datasource = FileDataSource::from_properties(props);
-    
+
     // Self-initialize with the extracted configuration
     datasource
         .self_initialize()
@@ -464,9 +459,9 @@ fn log_batch_progress(job_name: &str, stats: &JobExecutionStats) {
 
     info!(
         "Job '{}': processed {} batches ({} records, {:.2} records/sec, {:.1} avg batch size, {:.2}ms avg batch time)",
-        job_name, 
+        job_name,
         stats.batches_processed,
-        stats.records_processed, 
+        stats.records_processed,
         rps,
         stats.avg_batch_size,
         avg_processing_time
@@ -483,11 +478,11 @@ fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
             stats.total_batch_processing_time.as_millis() as f64 / stats.batches_processed as f64;
         info!(
             "Job '{}' completed: processed {} batches ({} records) in {:.2}s ({:.2} records/sec, {:.1} avg batch size, {:.2}ms avg batch time), {} errors",
-            job_name, 
+            job_name,
             stats.batches_processed,
-            stats.records_processed, 
-            elapsed, 
-            rps, 
+            stats.records_processed,
+            elapsed,
+            rps,
             stats.avg_batch_size,
             avg_processing_time,
             stats.errors
@@ -499,4 +494,3 @@ fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
         );
     }
 }
-

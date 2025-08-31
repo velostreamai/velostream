@@ -3,13 +3,11 @@
 //! This is the modern implementation that uses pluggable datasources
 //! instead of hardcoded Kafka-only processing.
 
-use crate::ferris::{
-    sql::{
-        execution::performance::PerformanceMonitor,
-        multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
-        query_analyzer::QueryAnalyzer,
-        SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
-    },
+use crate::ferris::sql::{
+    execution::performance::PerformanceMonitor,
+    multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
+    query_analyzer::QueryAnalyzer,
+    SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{error, info, warn};
 use std::collections::HashMap;

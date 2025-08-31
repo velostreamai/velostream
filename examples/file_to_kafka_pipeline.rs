@@ -11,7 +11,7 @@
 //! ```
 
 use clap::Parser;
-use ferrisstreams::ferris::sql::datasource::{create_sink, create_source};
+use ferrisstreams::ferris::datasource::{create_sink, create_source};
 use std::error::Error;
 
 #[derive(Parser, Debug)]
