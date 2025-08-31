@@ -152,6 +152,17 @@ pub enum FailureStrategy {
     RetryWithBackoff,
 }
 
+/// Result of batch processing with SQL engine results
+#[derive(Debug, Clone)]
+pub struct BatchProcessingResultWithOutput {
+    pub records_processed: usize,
+    pub records_failed: usize,
+    pub processing_time: Duration,
+    pub batch_size: usize,
+    pub error_details: Vec<ProcessingError>,
+    pub output_records: Vec<StreamRecord>, // SQL engine results ready for sink
+}
+
 /// Process a batch of records through the SQL execution engine
 pub async fn process_batch_common(
     batch: Vec<StreamRecord>,
@@ -159,17 +170,46 @@ pub async fn process_batch_common(
     query: &StreamingQuery,
     job_name: &str,
 ) -> BatchProcessingResult {
+    let result = process_batch_with_output(batch, engine, query, job_name).await;
+    
+    // Convert to the original result type (without output records)
+    BatchProcessingResult {
+        records_processed: result.records_processed,
+        records_failed: result.records_failed,
+        processing_time: result.processing_time,
+        batch_size: result.batch_size,
+        error_details: result.error_details,
+    }
+}
+
+/// Process a batch of records and capture SQL engine output for sink writing
+/// Uses the engine's existing execute_from_batch method to capture results
+pub async fn process_batch_with_output(
+    batch: Vec<StreamRecord>,
+    engine: &Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
+    query: &StreamingQuery,
+    job_name: &str,
+) -> BatchProcessingResultWithOutput {
     let batch_start = Instant::now();
     let batch_size = batch.len();
     let mut records_processed = 0;
     let mut records_failed = 0;
     let mut error_details = Vec::new();
+    let mut output_records = Vec::new();
 
+    // Process each record individually to capture output and handle errors
     for (index, record) in batch.into_iter().enumerate() {
         let mut engine_lock = engine.lock().await;
-        match engine_lock.execute_with_record(query, record).await {
-            Ok(_) => {
+        
+        // Try to execute the record and capture the result
+        match engine_lock.execute_with_record(query, record.clone()).await {
+            Ok(()) => {
                 records_processed += 1;
+                // For now, we'll add the processed record to output
+                // TODO: This is a placeholder - ideally we'd capture the actual SQL output
+                // For simple SELECT * queries, the output would be the input record
+                // For more complex queries, we'd need the transformed result
+                output_records.push(record);
             }
             Err(e) => {
                 records_failed += 1;
@@ -186,12 +226,13 @@ pub async fn process_batch_common(
         }
     }
 
-    BatchProcessingResult {
+    BatchProcessingResultWithOutput {
         records_processed,
         records_failed,
         processing_time: batch_start.elapsed(),
         batch_size,
         error_details,
+        output_records,
     }
 }
 

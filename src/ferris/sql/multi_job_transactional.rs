@@ -141,8 +141,8 @@ impl TransactionalJobProcessor {
             return Ok(());
         }
 
-        // Step 3: Process batch through SQL engine
-        let batch_result = process_batch_common(batch, engine, query, job_name).await;
+        // Step 3: Process batch through SQL engine and capture output
+        let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
         
         // Step 4: Handle results based on failure strategy
         let should_commit = match self.config.failure_strategy {
@@ -158,18 +158,35 @@ impl TransactionalJobProcessor {
         };
 
         // Step 5: Write processed data to sink if we have one
-        if let Some(_w) = writer.as_mut() {
-            if should_commit {
-                // TODO: Write processed results to sink
-                // This would require getting the results from the SQL engine
-                debug!("Job '{}': Would write {} processed records to sink", job_name, batch_result.records_processed);
+        if let Some(w) = writer.as_mut() {
+            if should_commit && !batch_result.output_records.is_empty() {
+                debug!("Job '{}': Writing {} output records to sink", job_name, batch_result.output_records.len());
+                match w.write_batch(batch_result.output_records.clone()).await {
+                    Ok(()) => {
+                        debug!("Job '{}': Successfully wrote {} records to sink", job_name, batch_result.output_records.len());
+                    }
+                    Err(e) => {
+                        error!("Job '{}': Failed to write {} records to sink: {:?}", job_name, batch_result.output_records.len(), e);
+                        // This will cause transaction abort in step 6
+                        return Err(format!("Sink write failed: {:?}", e).into());
+                    }
+                }
             }
         }
 
         // Step 6: Commit or abort transactions
         if should_commit {
             self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name).await?;
-            stats.update_from_batch(&batch_result);
+            
+            // Convert to regular BatchProcessingResult for stats update
+            let stats_result = BatchProcessingResult {
+                records_processed: batch_result.records_processed,
+                records_failed: batch_result.records_failed,
+                processing_time: batch_result.processing_time,
+                batch_size: batch_result.batch_size,
+                error_details: batch_result.error_details,
+            };
+            stats.update_from_batch(&stats_result);
             
             if batch_result.records_failed > 0 && self.config.failure_strategy == FailureStrategy::LogAndContinue {
                 info!("Job '{}': Committed batch with {} failures (logged and continued)", 

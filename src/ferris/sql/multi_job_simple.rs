@@ -108,8 +108,8 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
-        // Step 2: Process batch through SQL engine
-        let batch_result = process_batch_common(batch, engine, query, job_name).await;
+        // Step 2: Process batch through SQL engine and capture output
+        let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
         
         // Step 3: Handle results based on failure strategy
         let should_commit = match self.config.failure_strategy {
@@ -147,18 +147,36 @@ impl SimpleJobProcessor {
         };
 
         // Step 4: Write processed data to sink if we have one
-        if let Some(_w) = writer.as_mut() {
-            if should_commit {
-                // TODO: Write processed results to sink
-                // This would require getting the results from the SQL engine
-                debug!("Job '{}': Would write {} processed records to sink", job_name, batch_result.records_processed);
+        if let Some(w) = writer.as_mut() {
+            if should_commit && !batch_result.output_records.is_empty() {
+                debug!("Job '{}': Writing {} output records to sink", job_name, batch_result.output_records.len());
+                // In simple mode, we don't abort source commit if sink fails - just log error
+                match w.write_batch(batch_result.output_records.clone()).await {
+                    Ok(()) => {
+                        debug!("Job '{}': Successfully wrote {} records to sink", job_name, batch_result.output_records.len());
+                    }
+                    Err(e) => {
+                        error!("Job '{}': Failed to write {} records to sink (continuing anyway): {:?}", 
+                               job_name, batch_result.output_records.len(), e);
+                        // In simple mode, we continue processing even if sink fails
+                    }
+                }
             }
         }
 
         // Step 5: Commit with simple semantics (no rollback if sink fails)
         if should_commit {
             self.commit_simple(reader, writer, job_name).await?;
-            stats.update_from_batch(&batch_result);
+            
+            // Convert to regular BatchProcessingResult for stats update
+            let stats_result = BatchProcessingResult {
+                records_processed: batch_result.records_processed,
+                records_failed: batch_result.records_failed,
+                processing_time: batch_result.processing_time,
+                batch_size: batch_result.batch_size,
+                error_details: batch_result.error_details,
+            };
+            stats.update_from_batch(&stats_result);
             
             if batch_result.records_failed > 0 {
                 debug!("Job '{}': Committed batch with {} failures", job_name, batch_result.records_failed);
