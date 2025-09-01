@@ -136,44 +136,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n⚠️  Some values were not preserved in round-trip.");
     }
 
-    // Test financial precision mode control
+    // Test financial precision mode (now always enabled)
     println!("\n--- Financial Precision Mode Test ---");
-    let precision_codec = ProtobufCodec::new_with_default_schema().with_financial_precision(true);
-    let no_precision_codec =
-        ProtobufCodec::new_with_default_schema().with_financial_precision(false);
+    println!("Financial precision is now always enabled in protobuf codec.");
+    let codec = ProtobufCodec::new_with_default_schema();
 
-    let precision_bytes = precision_codec.serialize(&record)?;
-    let no_precision_bytes = no_precision_codec.serialize(&record)?;
+    let bytes = codec.serialize(&record)?;
+    println!("Serialized with financial precision: {} bytes", bytes.len());
 
-    println!("With financial precision: {} bytes", precision_bytes.len());
-    println!(
-        "Without financial precision: {} bytes",
-        no_precision_bytes.len()
-    );
-
-    // Test deserialization with different precision modes
-    let precision_restored = precision_codec.deserialize(&precision_bytes)?;
-    let no_precision_restored = no_precision_codec.deserialize(&no_precision_bytes)?;
-
-    if let (Some(precision_price), Some(no_precision_price)) = (
-        precision_restored.get("price"),
-        no_precision_restored.get("price"),
-    ) {
-        println!(
-            "Financial precision mode: {} ({})",
-            precision_price.to_display_string(),
-            precision_price.type_name()
-        );
-        println!(
-            "No precision mode: {} ({})",
-            no_precision_price.to_display_string(),
-            no_precision_price.type_name()
-        );
+    // Verify financial precision works
+    let restored = codec.deserialize(&bytes)?;
+    if let (Some(original), Some(restored_val)) = (record.get("price"), restored.get("price")) {
+        match (original, restored_val) {
+            (
+                FieldValue::ScaledInteger(o_val, o_scale),
+                FieldValue::ScaledInteger(r_val, r_scale),
+            ) => {
+                if o_val == r_val && o_scale == r_scale {
+                    println!(
+                        "✅ Financial precision preserved: {} with scale {}",
+                        o_val, o_scale
+                    );
+                } else {
+                    println!(
+                        "❌ Financial precision error: ({}, {}) != ({}, {})",
+                        o_val, o_scale, r_val, r_scale
+                    );
+                }
+            }
+            _ => println!("❌ Financial precision type conversion error"),
+        }
     }
 
     println!("\n✅ Protobuf codec is working correctly!");
     println!("✅ Industry-standard DecimalMessage format implemented!");
-    println!("✅ Configurable financial precision support!");
+    println!("✅ Financial precision is always enabled!");
 
     Ok(())
 }

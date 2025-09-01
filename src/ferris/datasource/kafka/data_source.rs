@@ -174,13 +174,10 @@ impl KafkaDataSource {
             .map(|s| s.as_str())
             .unwrap_or("json");
 
-        // Map config value to SerializationFormat enum
-        let format = match value_format {
-            "json" => SerializationFormat::Json,
-            "avro" => SerializationFormat::Avro,
-            "protobuf" | "proto" => SerializationFormat::Protobuf,
-            "auto" => SerializationFormat::Auto,
-            _ => SerializationFormat::Json, // Default fallback
+        // Parse format using FromStr with proper error handling
+        let format = {
+            use std::str::FromStr;
+            SerializationFormat::from_str(value_format).unwrap_or(SerializationFormat::Json)
         };
 
         // Extract schema from config based on format
@@ -204,7 +201,7 @@ impl KafkaDataSource {
         format: &SerializationFormat,
     ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
         match format {
-            SerializationFormat::Avro => {
+            SerializationFormat::Avro { .. } => {
                 // Look for Avro schema in various config keys (common patterns)
                 let schema = self
                     .config
@@ -228,7 +225,7 @@ impl KafkaDataSource {
 
                 Ok(schema)
             }
-            SerializationFormat::Protobuf => {
+            SerializationFormat::Protobuf { .. } => {
                 // Look for Protobuf schema in various config keys
                 let schema = self
                     .config
@@ -254,7 +251,9 @@ impl KafkaDataSource {
 
                 Ok(schema)
             }
-            SerializationFormat::Json | SerializationFormat::Auto => {
+            SerializationFormat::Json
+            | SerializationFormat::Bytes
+            | SerializationFormat::String => {
                 // JSON doesn't require schema, but allow optional schema for validation
                 let schema = self
                     .config

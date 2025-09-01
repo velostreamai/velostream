@@ -14,7 +14,7 @@ FerrisStreams is a high-performance streaming SQL engine written in Rust that pr
 - **Windowing**: Tumbling, sliding, and session windows with emit modes
 
 ### Serialization (`src/ferris/serialization/`)
-- **Pluggable Formats**: JSON (always available), Avro (feature-gated), Protobuf (feature-gated)
+- **Pluggable Formats**: JSON, Avro, and Protobuf (all always available)
 - **Type Conversion**: Bidirectional conversion between FieldValue and InternalValue
 - **Financial Precision**: ScaledInteger support for exact financial arithmetic
 
@@ -48,28 +48,25 @@ Financial calculation patterns (price × quantity):
 ### Testing
 ```bash
 # Run all tests
-cargo test --no-default-features
+cargo test
 
 # Run specific test module
-cargo test unit::sql::execution::types --no-default-features -- --nocapture
+cargo test unit::sql::execution::types -- --nocapture
 
 # Run financial precision benchmarks
 cargo test financial_precision_benchmark -- --nocapture
 
 # Test specific SQL functionality
-cargo test windowing_test --no-default-features -- --nocapture
+cargo test windowing_test -- --nocapture
 ```
 
 ### Building
 ```bash
-# Build with default features (JSON, Protobuf, Avro)
+# Build the project (all serialization formats included)
 cargo build
 
-# Build with only JSON support
-cargo build --no-default-features --features json
-
 # Build specific binaries
-cargo build --bin ferris-sql-multi --no-default-features
+cargo build --bin ferris-sql-multi
 ```
 
 ### Code Formatting
@@ -84,8 +81,7 @@ cargo fmt --all -- --check
 cargo fmt --all -- --check
 
 # Run complete pre-commit verification to ensure CI passes
-cargo fmt --all -- --check && cargo check --no-default-features
-```
+cargo fmt --all -- --check && cargo check ```
 
 ### Git Workflow
 ```bash
@@ -108,16 +104,10 @@ git push origin branch-name
 ### Performance Testing
 ```bash
 # Run financial precision tests
-cargo run --bin test_financial_precision --no-default-features
-
+cargo run --bin test_financial_precision 
 # Test serialization compatibility
-cargo run --bin test_serialization_compatibility --no-default-features
-```
+cargo run --bin test_serialization_compatibility ```
 
-### Feature Flags
-- `json`: JSON serialization (always enabled)
-- `avro`: Apache Avro support (requires apache-avro crate)
-- `protobuf`: Protocol Buffers support (requires prost crate)
 
 ## Schema Configuration
 
@@ -241,10 +231,9 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 3. Add tests in `tests/unit/sql/execution/aggregation/`
 
 ### Adding New Serialization Support
-1. Add feature flag in `Cargo.toml`
-2. Implement conversion functions in `src/ferris/serialization/mod.rs`
-3. Handle ScaledInteger → compatible format mapping
-4. Add comprehensive tests in `tests/unit/serialization/`
+1. Implement conversion functions in `src/ferris/serialization/mod.rs`
+2. Handle ScaledInteger → compatible format mapping
+3. Add comprehensive tests in `tests/unit/serialization/`
 
 ### Adding New Configuration Features
 1. Update appropriate module in `src/ferris/sql/config/`
@@ -343,14 +332,12 @@ RUST_BACKTRACE=1 cargo test test_name --no-default-features -- --nocapture
 cargo test financial_precision_benchmark::performance_benchmarks -- --nocapture
 
 # Check for missing pattern matches
-cargo check --no-default-features
-
+cargo check 
 # CRITICAL: Fix formatting issues (GitHub Actions requirement)
 cargo fmt --all
 
 # MANDATORY: Verify formatting and compilation before commit/push
-cargo fmt --all -- --check && cargo check --no-default-features
-
+cargo fmt --all -- --check && cargo check 
 # Run this exact sequence before every commit to avoid CI failures
 ```
 

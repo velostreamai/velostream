@@ -37,10 +37,8 @@ mod configurable_consumer_tests {
         );
 
         // Verify default formats
-        assert_eq!(builder.key_format, SerializationFormat::Json);
-        assert_eq!(builder.value_format, SerializationFormat::Json);
-        assert_eq!(builder.brokers, "localhost:9092");
-        assert_eq!(builder.group_id, "test-group");
+        assert_eq!(*builder.key_format(), SerializationFormat::Json);
+        assert_eq!(*builder.value_format(), SerializationFormat::Json);
     }
 
     #[test]

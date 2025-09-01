@@ -3,9 +3,9 @@
 //! This codec provides direct protobuf serialization for FieldValue types, including
 //! financial precision support through ScaledInteger types and proper decimal handling.
 
+use crate::ferris::kafka::serialization::Serializer;
 use crate::ferris::serialization::SerializationError;
 use crate::ferris::sql::execution::types::FieldValue;
-use crate::Serializer;
 use prost::Message;
 use std::collections::HashMap;
 

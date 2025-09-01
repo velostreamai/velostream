@@ -256,9 +256,12 @@ mod kafka_data_writer_tests {
         // Test that all serialization formats are handled
         let formats = vec![
             SerializationFormat::Json,
-            SerializationFormat::Avro,
-            SerializationFormat::Protobuf,
-            SerializationFormat::Auto,
+            SerializationFormat::Avro { 
+                schema_registry_url: "http://localhost:8081".to_string(), 
+                subject: "test".to_string() 
+            },
+            SerializationFormat::Protobuf { message_type: "TestMessage".to_string() },
+            SerializationFormat::Bytes,
         ];
 
         for format in formats {
@@ -266,19 +269,23 @@ mod kafka_data_writer_tests {
             match format {
                 SerializationFormat::Json => {
                     // Should use serde_json serialization
-                    assert_eq!(format!("{:?}", format), "Json");
+                    assert_eq!(format.to_string(), "json");
                 }
-                SerializationFormat::Avro => {
+                SerializationFormat::Avro { .. } => {
                     // Should use AvroCodec if available, fallback to JSON
-                    assert_eq!(format!("{:?}", format), "Avro");
+                    assert_eq!(format.to_string(), "avro");
                 }
-                SerializationFormat::Protobuf => {
+                SerializationFormat::Protobuf { .. } => {
                     // Should use ProtobufCodec if available, fallback to JSON
-                    assert_eq!(format!("{:?}", format), "Protobuf");
+                    assert_eq!(format.to_string(), "protobuf");
                 }
-                SerializationFormat::Auto => {
-                    // Should default to JSON
-                    assert_eq!(format!("{:?}", format), "Auto");
+                SerializationFormat::Bytes => {
+                    // Should handle raw bytes
+                    assert_eq!(format.to_string(), "bytes");
+                }
+                SerializationFormat::String => {
+                    // Should handle string format
+                    assert_eq!(format.to_string(), "string");
                 }
             }
         }

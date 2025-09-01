@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use super::reader::SerializationFormat; // Reuse the same format enum
+use crate::ferris::kafka::serialization_format::SerializationFormat;
 
 // Import the codec implementations via type aliases
 use crate::ferris::serialization::avro_codec::AvroCodec;
@@ -95,11 +95,11 @@ impl KafkaDataWriter {
 
         // Initialize codec based on format using optimized single codec creation
         let (avro_codec, protobuf_codec) = match &format {
-            SerializationFormat::Avro => {
+            SerializationFormat::Avro { .. } => {
                 let codec = Self::create_avro_codec_with_defaults(schema)?;
                 (Some(codec), None)
             }
-            SerializationFormat::Protobuf => {
+            SerializationFormat::Protobuf { .. } => {
                 let codec = Self::create_protobuf_codec_with_defaults(schema)?;
                 (None, Some(codec))
             }
@@ -122,11 +122,11 @@ impl KafkaDataWriter {
         schema: Option<&str>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match format {
-            SerializationFormat::Avro => {
+            SerializationFormat::Avro { .. } => {
                 // Avro can work with a default schema if none provided
                 Ok(())
             }
-            SerializationFormat::Protobuf => {
+            SerializationFormat::Protobuf { .. } => {
                 if schema.is_none() {
                     // Protobuf can use default schema for backward compatibility
                     // but log a warning
@@ -134,7 +134,9 @@ impl KafkaDataWriter {
                 }
                 Ok(())
             }
-            SerializationFormat::Json | SerializationFormat::Auto => {
+            SerializationFormat::Json
+            | SerializationFormat::Bytes
+            | SerializationFormat::String => {
                 // JSON doesn't require schemas
                 Ok(())
             }
@@ -172,7 +174,7 @@ impl KafkaDataWriter {
         properties: &HashMap<String, String>,
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         match format {
-            SerializationFormat::Avro => {
+            SerializationFormat::Avro { .. } => {
                 // Look for Avro schema in various config keys
                 let schema = properties
                     .get("avro.schema")
@@ -193,7 +195,7 @@ impl KafkaDataWriter {
                 }
                 Ok(schema)
             }
-            SerializationFormat::Protobuf => {
+            SerializationFormat::Protobuf { .. } => {
                 // Look for Protobuf schema in various config keys
                 let schema = properties
                     .get("protobuf.schema")
@@ -216,7 +218,9 @@ impl KafkaDataWriter {
                 }
                 Ok(schema)
             }
-            SerializationFormat::Json | SerializationFormat::Auto => {
+            SerializationFormat::Json
+            | SerializationFormat::Bytes
+            | SerializationFormat::String => {
                 // JSON doesn't require schema, but allow optional validation schema
                 let schema = properties
                     .get("json.schema")
@@ -241,11 +245,10 @@ impl KafkaDataWriter {
     /// Parse serialization format string
     fn parse_serialization_format(format_str: &str) -> SerializationFormat {
         match format_str.to_lowercase().as_str() {
-            "json" => SerializationFormat::Json,
-            "avro" => SerializationFormat::Avro,
-            "protobuf" | "proto" => SerializationFormat::Protobuf,
-            "auto" => SerializationFormat::Auto,
-            _ => SerializationFormat::Json, // Default fallback
+            _ => {
+                use std::str::FromStr;
+                SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::Json)
+            }
         }
     }
 
@@ -304,9 +307,9 @@ impl KafkaDataWriter {
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         match self.format {
             SerializationFormat::Json => self.serialize_json(record),
-            SerializationFormat::Avro => self.serialize_avro(record),
-            SerializationFormat::Protobuf => self.serialize_protobuf(record),
-            SerializationFormat::Auto => self.serialize_json(record), // Default to JSON
+            SerializationFormat::Avro { .. } => self.serialize_avro(record),
+            SerializationFormat::Protobuf { .. } => self.serialize_protobuf(record),
+            SerializationFormat::Bytes | SerializationFormat::String => self.serialize_json(record), // Default to JSON
         }
     }
 

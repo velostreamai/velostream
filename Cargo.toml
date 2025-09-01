@@ -50,11 +50,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.12.0"
 futures = "0.3"
 
-[features]
-default = ["json", "protobuf", "avro"]
-json = []
-avro = []
-protobuf = []
 
 # Performance examples - organized in subfolder
 [[example]]

@@ -650,8 +650,7 @@ async fn test_having_clause_execution() {
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(
-        tx,
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+        tx
     );
     let parser = StreamingSqlParser::new();
 
@@ -700,8 +699,7 @@ async fn test_having_clause_execution() {
 async fn test_datediff_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(
-        tx,
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+        tx
     );
     let parser = StreamingSqlParser::new();
 
@@ -732,8 +730,7 @@ async fn test_datediff_error_cases() {
 async fn test_position_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(
-        tx,
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
+        tx
     );
     let parser = StreamingSqlParser::new();
 
