@@ -28,7 +28,7 @@ fn create_test_record_for_join() -> StreamRecord {
 async fn execute_join_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
@@ -282,7 +282,7 @@ fn create_test_record_with_join_fields() -> StreamRecord {
 async fn test_join_execution_logic() {
     // Test that the JOIN execution logic actually works with the parser
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, std::sync::Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // This should parse successfully and execute the JOIN logic

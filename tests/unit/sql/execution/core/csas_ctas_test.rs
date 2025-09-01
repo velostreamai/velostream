@@ -244,7 +244,7 @@ mod tests {
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CSAS query
         let parser = StreamingSqlParser::new();
@@ -279,7 +279,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CTAS query
         let parser = StreamingSqlParser::new();
@@ -717,7 +717,7 @@ mod tests {
         // Setup execution engine
         let serialization_format = std::sync::Arc::new(JsonFormat);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CREATE STREAM INTO query
         let parser = StreamingSqlParser::new();
@@ -749,7 +749,7 @@ mod tests {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CREATE TABLE INTO query
         let parser = StreamingSqlParser::new();

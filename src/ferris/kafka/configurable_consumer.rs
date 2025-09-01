@@ -338,17 +338,23 @@ where
         match &self.key_format {
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to K
-                serde_json::from_value(json_key.clone())
-                    .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
+                serde_json::from_value(json_key.clone()).map_err(|e| {
+                    ConsumerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })
             }
             SerializationFormat::String => {
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_key {
-                    serde_json::from_str(&format!("\"{}\"", s))
-                        .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
+                    serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
+                        ConsumerError::SerializationError(SerializationError::SerializationFailed(
+                            e.to_string(),
+                        ))
+                    })
                 } else {
                     Err(ConsumerError::SerializationError(
-                        SerializationError::Schema(
+                        SerializationError::SchemaError(
                             "Expected string value for string serialization format".to_string(),
                         ),
                     ))
@@ -357,7 +363,7 @@ where
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
                 Err(ConsumerError::SerializationError(
-                    SerializationError::FeatureNotEnabled(format!(
+                    SerializationError::UnsupportedType(format!(
                         "Key format '{}' not yet fully implemented in Phase 2 Step 1",
                         self.key_format
                     )),
@@ -371,17 +377,23 @@ where
         match &self.value_format {
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to V
-                serde_json::from_value(json_value.clone())
-                    .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
+                serde_json::from_value(json_value.clone()).map_err(|e| {
+                    ConsumerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })
             }
             SerializationFormat::String => {
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_value {
-                    serde_json::from_str(&format!("\"{}\"", s))
-                        .map_err(|e| ConsumerError::SerializationError(SerializationError::Json(e)))
+                    serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
+                        ConsumerError::SerializationError(SerializationError::SerializationFailed(
+                            e.to_string(),
+                        ))
+                    })
                 } else {
                     Err(ConsumerError::SerializationError(
-                        SerializationError::Schema(
+                        SerializationError::SchemaError(
                             "Expected string value for string serialization format".to_string(),
                         ),
                     ))
@@ -390,7 +402,7 @@ where
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
                 Err(ConsumerError::SerializationError(
-                    SerializationError::FeatureNotEnabled(format!(
+                    SerializationError::UnsupportedType(format!(
                         "Value format '{}' not yet fully implemented in Phase 2 Step 1",
                         self.value_format
                     )),

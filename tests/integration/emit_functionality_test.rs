@@ -84,7 +84,7 @@ async fn main() {
     println!("\n3️⃣ Testing EMIT CHANGES execution behavior...");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // This query should use windowed aggregation (due to WINDOW clause)
     // But EMIT CHANGES should override it to continuous emission

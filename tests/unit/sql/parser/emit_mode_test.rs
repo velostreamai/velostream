@@ -141,7 +141,7 @@ fn test_emit_final_parsing_without_window() {
         let parser = StreamingSqlParser::new();
         let (tx, _rx) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-        let mut engine = StreamExecutionEngine::new(tx, format);
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with EMIT FINAL but no WINDOW clause - should parse fine
         let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id EMIT FINAL";

@@ -24,7 +24,8 @@
 //! async fn process_data(source: Box<dyn DataSource>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let mut reader = source.create_reader().await?;
 //!     
-//!     while let Some(record) = reader.read().await? {
+//!     let records = reader.read().await?;
+//!     for record in records {
 //!         // Process record independent of source type
 //!         println!("Processing: {:?}", record);
 //!     }

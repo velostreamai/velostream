@@ -43,7 +43,7 @@ fn create_test_record() -> StreamRecord {
 #[tokio::test]
 async fn test_stddev_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["STDDEV", "STDDEV_SAMP"]; // Test both aliases
 
@@ -90,7 +90,7 @@ async fn test_stddev_functions() {
 #[tokio::test]
 async fn test_stddev_pop_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -132,7 +132,7 @@ async fn test_stddev_pop_function() {
 #[tokio::test]
 async fn test_variance_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["VARIANCE", "VAR_SAMP"]; // Test both aliases
 
@@ -179,7 +179,7 @@ async fn test_variance_functions() {
 #[tokio::test]
 async fn test_var_pop_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -221,7 +221,7 @@ async fn test_var_pop_function() {
 #[tokio::test]
 async fn test_median_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (column_name, expected_type, expected_value)
@@ -290,7 +290,7 @@ async fn test_median_function() {
 #[tokio::test]
 async fn test_statistical_function_null_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec![
         "STDDEV",
@@ -338,7 +338,7 @@ async fn test_statistical_function_null_handling() {
 #[tokio::test]
 async fn test_statistical_function_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let error_cases = vec![
         // (function_name, args, expected_error_message_contains)
@@ -391,7 +391,7 @@ async fn test_statistical_function_error_cases() {
 #[tokio::test]
 async fn test_statistical_functions_with_non_numeric_types() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec![
         "STDDEV",
@@ -456,7 +456,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
 #[tokio::test]
 async fn test_statistical_functions_with_literal_values() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test with literal values instead of columns
     let test_cases = vec![
@@ -525,7 +525,7 @@ async fn test_statistical_functions_with_literal_values() {
 #[tokio::test]
 async fn test_multiple_statistical_functions_in_single_query() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test using multiple statistical functions in one query
     let query = StreamingQuery::Select {

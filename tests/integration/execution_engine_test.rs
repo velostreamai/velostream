@@ -51,7 +51,7 @@ async fn execute_sql_query(
     let serialization_format = Arc::new(JsonFormat);
 
     // Create execution engine
-    let mut engine = StreamExecutionEngine::new(output_sender, serialization_format);
+    let mut engine = StreamExecutionEngine::new(output_sender);
 
     // Parse SQL query
     let parser = StreamingSqlParser::new();
@@ -368,7 +368,7 @@ async fn test_streaming_behavior() {
 
     // Create engine
     let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(output_sender, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(output_sender);
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).unwrap();
 

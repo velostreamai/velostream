@@ -28,7 +28,8 @@
 //!     source.initialize(config.into()).await?;
 //!     let mut reader = source.create_reader().await?;
 //!
-//!     while let Some(record) = reader.read().await? {
+//!     let records = reader.read().await?;
+//!     for record in records {
 //!         println!("Record: {:?}", record);
 //!     }
 //!     Ok(())
@@ -55,7 +56,8 @@
 //!     let mut reader = source.create_reader().await?;
 //!
 //!     // This will continuously watch for new files and data
-//!     while let Some(record) = reader.read().await? {
+//!     let records = reader.read().await?;
+//!     for record in records {
 //!         println!("New record: {:?}", record);
 //!     }
 //!     Ok(())

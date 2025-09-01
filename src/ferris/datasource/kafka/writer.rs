@@ -1,7 +1,9 @@
 //! Unified Kafka data writer implementation
 
 use crate::ferris::datasource::DataWriter;
-use crate::ferris::serialization::helpers::{field_value_to_json, create_avro_codec, create_protobuf_codec};
+use crate::ferris::serialization::helpers::{
+    create_avro_codec, create_protobuf_codec, field_value_to_json,
+};
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use rdkafka::{
@@ -140,7 +142,9 @@ impl KafkaDataWriter {
     }
 
     /// Create Avro codec with schema and defaults for writer (wrapper around helper)
-    fn create_avro_codec_with_defaults(schema: Option<&str>) -> Result<AvroCodec, Box<dyn Error + Send + Sync>> {
+    fn create_avro_codec_with_defaults(
+        schema: Option<&str>,
+    ) -> Result<AvroCodec, Box<dyn Error + Send + Sync>> {
         if let Some(schema_json) = schema {
             create_avro_codec(Some(schema_json))
         } else {
@@ -258,7 +262,6 @@ impl KafkaDataWriter {
             ]
         }"#
     }
-
 
     /// Extract message key from StreamRecord fields
     fn extract_key(&self, record: &StreamRecord) -> Option<String> {

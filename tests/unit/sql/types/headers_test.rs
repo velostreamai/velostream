@@ -33,7 +33,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -84,7 +84,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers (missing 'missing-key')
         let mut headers = HashMap::new();
@@ -128,7 +128,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -178,7 +178,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -225,7 +225,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -285,7 +285,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -343,7 +343,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let mut headers = HashMap::new();
@@ -417,7 +417,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let _engine = StreamExecutionEngine::new(tx, serialization_format);
+        let _engine = StreamExecutionEngine::new(tx);
 
         // Create test headers
         let _headers: HashMap<String, String> = HashMap::new();
@@ -436,7 +436,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Create test headers with different cases
         let mut headers = HashMap::new();
@@ -485,7 +485,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // No headers
         let headers: HashMap<String, String> = HashMap::new();

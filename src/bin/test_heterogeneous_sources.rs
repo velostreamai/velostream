@@ -263,7 +263,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if records.is_empty() {
             break; // No more data
         }
-        
+
         for record in records {
             // Transform record for analytics (example transformation)
             let mut analytics_record = record.clone();
@@ -294,7 +294,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     context.set_active_writer("s3_data_lake")?;
 
     // Read batch and write to S3
-    let batch = context.read_batch_from("kafka_events_2", 10).await?;
+    let batch = context.read_from("kafka_events_2").await?;
     if !batch.is_empty() {
         context.write_batch_to("s3_data_lake", batch).await?;
         context.commit_sink("s3_data_lake").await?;
@@ -312,7 +312,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if records.is_empty() {
             break; // No more data
         }
-        
+
         for record in records {
             // Write to both sinks
             context

@@ -1,8 +1,8 @@
 //! JSON codec for HashMap<String, FieldValue> serialization/deserialization
 
 use crate::ferris::kafka::serialization::Serializer;
-use crate::ferris::serialization::SerializationError;
 use crate::ferris::serialization::helpers::json_to_field_value;
+use crate::ferris::serialization::SerializationError;
 use crate::ferris::sql::execution::types::FieldValue;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -34,24 +34,23 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
 
         let json_value = Value::Object(json_obj);
         serde_json::to_vec(&json_value)
-            .map_err(|e| {
-                SerializationError::SchemaError(format!("Failed to handle json: {}", e        ))
-                }
-            )
+            .map_err(|e| SerializationError::SchemaError(format!("Failed to handle json: {}", e)))
     }
 
     /// Deserialize JSON bytes to HashMap<String, FieldValue>
     fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
         // Store the original JSON string as JSON_PAYLOAD field
-        let json_payload = String::from_utf8(bytes.to_vec())
-            .map_err(|e| SerializationError::DeserializationFailed(format!("Invalid UTF-8 in JSON: {}", e)))?;
-        
+        let json_payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
+            SerializationError::DeserializationFailed(format!("Invalid UTF-8 in JSON: {}", e))
+        })?;
+
         // Parse JSON bytes to serde_json::Value
-        let json_value: Value = serde_json::from_slice(bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(format!("From Slice failed: {}", e)))?;
+        let json_value: Value = serde_json::from_slice(bytes).map_err(|e| {
+            SerializationError::DeserializationFailed(format!("From Slice failed: {}", e))
+        })?;
 
         let mut fields = HashMap::new();
-        
+
         // Always add the original JSON string as JSON_PAYLOAD
         fields.insert("JSON_PAYLOAD".to_string(), FieldValue::String(json_payload));
 
@@ -59,9 +58,11 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
             Value::Object(obj) => {
                 // If it's a JSON object, add each field
                 for (key, value) in obj {
-                    let field_value = json_to_field_value(&value)
-                        .map_err(|e| {
-                            SerializationError::DeserializationFailed(format!("Field conversion failed: {}", e))
+                    let field_value = json_to_field_value(&value).map_err(|e| {
+                        SerializationError::DeserializationFailed(format!(
+                            "Field conversion failed: {}",
+                            e
+                        ))
                     })?;
                     fields.insert(key, field_value);
                 }
@@ -69,7 +70,10 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
             _ => {
                 // If it's not an object, store as single "value" field
                 let field_value = json_to_field_value(&json_value).map_err(|e| {
-                    SerializationError::DeserializationFailed(format!("Value conversion failed: {}", e))
+                    SerializationError::DeserializationFailed(format!(
+                        "Value conversion failed: {}",
+                        e
+                    ))
                 })?;
                 fields.insert("value".to_string(), field_value);
             }
@@ -154,14 +158,20 @@ impl Default for JsonCodec {
 
 /// Implementation of UnifiedCodec for runtime abstraction
 impl crate::ferris::serialization::traits::UnifiedCodec for JsonCodec {
-    fn serialize_record(&self, value: &HashMap<String, FieldValue>) -> Result<Vec<u8>, SerializationError> {
+    fn serialize_record(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, SerializationError> {
         self.serialize(value)
     }
-    
-    fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
+
+    fn deserialize_record(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         self.deserialize(bytes)
     }
-    
+
     fn format_name(&self) -> &'static str {
         "JSON"
     }

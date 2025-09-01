@@ -139,7 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test financial precision mode control
     println!("\n--- Financial Precision Mode Test ---");
     let precision_codec = ProtobufCodec::new_with_default_schema().with_financial_precision(true);
-    let no_precision_codec = ProtobufCodec::new_with_default_schema().with_financial_precision(false);
+    let no_precision_codec =
+        ProtobufCodec::new_with_default_schema().with_financial_precision(false);
 
     let precision_bytes = precision_codec.serialize(&record)?;
     let no_precision_bytes = no_precision_codec.serialize(&record)?;

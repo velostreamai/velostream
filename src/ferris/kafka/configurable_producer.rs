@@ -335,13 +335,19 @@ where
         match &self.key_format {
             SerializationFormat::Json => {
                 // Direct conversion from K to JSON Value
-                serde_json::to_value(key)
-                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))
+                serde_json::to_value(key).map_err(|e| {
+                    ProducerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
-                let json_str = serde_json::to_string(key)
-                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))?;
+                let json_str = serde_json::to_string(key).map_err(|e| {
+                    ProducerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })?;
                 Ok(serde_json::Value::String(
                     json_str.trim_matches('"').to_string(),
                 ))
@@ -349,7 +355,7 @@ where
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
                 Err(ProducerError::SerializationError(
-                    SerializationError::FeatureNotEnabled(format!(
+                    SerializationError::UnsupportedType(format!(
                         "Key format '{}' not yet fully implemented in Phase 2 Step 1",
                         self.key_format
                     )),
@@ -363,13 +369,19 @@ where
         match &self.value_format {
             SerializationFormat::Json => {
                 // Direct conversion from V to JSON Value
-                serde_json::to_value(value)
-                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))
+                serde_json::to_value(value).map_err(|e| {
+                    ProducerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
-                let json_str = serde_json::to_string(value)
-                    .map_err(|e| ProducerError::SerializationError(SerializationError::Json(e)))?;
+                let json_str = serde_json::to_string(value).map_err(|e| {
+                    ProducerError::SerializationError(SerializationError::SerializationFailed(
+                        e.to_string(),
+                    ))
+                })?;
                 Ok(serde_json::Value::String(
                     json_str.trim_matches('"').to_string(),
                 ))
@@ -377,7 +389,7 @@ where
             _ => {
                 // For other formats, we'll implement proper conversion in later phases
                 Err(ProducerError::SerializationError(
-                    SerializationError::FeatureNotEnabled(format!(
+                    SerializationError::UnsupportedType(format!(
                         "Value format '{}' not yet fully implemented in Phase 2 Step 1",
                         self.value_format
                     )),

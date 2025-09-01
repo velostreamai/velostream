@@ -98,16 +98,12 @@ pub mod helpers;
 pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
-
 // Re-export format implementations
 pub use json::JsonFormat;
 
 pub use avro::AvroFormat;
 
-pub use avro_codec::{
-    create_avro_serializer, deserialize_from_avro, serialize_to_avro, AvroCodec
-    ,
-};
+pub use avro_codec::{create_avro_serializer, deserialize_from_avro, serialize_to_avro, AvroCodec};
 
 pub use protobuf::ProtobufFormat;
 
@@ -120,11 +116,53 @@ pub use json_codec::JsonCodec;
 
 pub use traits::UnifiedCodec;
 
+// Serialization codec enum for Kafka integration
+use crate::ferris::kafka::serialization::Serializer;
+use std::collections::HashMap;
+
+/// Unified serialization codec enum that implements Serializer trait
+/// This allows KafkaConsumer to work with any of our supported formats
+pub enum SerializationCodec {
+    Json(JsonCodec),
+    Avro(AvroCodec),
+    Protobuf(ProtobufCodec),
+}
+
+impl Serializer<HashMap<String, FieldValue>> for SerializationCodec {
+    fn serialize(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, SerializationError> {
+        match self {
+            Self::Json(codec) => codec.serialize(value),
+            Self::Avro(codec) => codec.serialize(value),
+            Self::Protobuf(codec) => codec.serialize(value),
+        }
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        match self {
+            Self::Json(codec) => codec.deserialize(bytes),
+            Self::Avro(codec) => codec.deserialize(bytes),
+            Self::Protobuf(codec) => codec.deserialize(bytes),
+        }
+    }
+}
+
+impl SerializationCodec {
+    /// Get the format name for debugging/logging
+    pub fn format_name(&self) -> &'static str {
+        match self {
+            Self::Json(_) => "JSON",
+            Self::Avro(_) => "Avro",
+            Self::Protobuf(_) => "Protobuf",
+        }
+    }
+}
+
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
 pub use helpers::{field_value_to_json, json_to_field_value};
 
 pub use helpers::{avro_value_to_field_value, field_value_to_avro};
 
 pub use helpers::protobuf_bytes_to_field_value;
-
-

@@ -161,7 +161,7 @@ mod codec_integration_tests {
 
     #[test]
     fn test_protobuf_codec_comprehensive_round_trip() {
-        let codec = ProtobufCodec::new();
+        let codec = ProtobufCodec::new_with_default_schema();
         let original_record = create_comprehensive_record();
 
         // Test serialization
@@ -265,7 +265,7 @@ mod codec_integration_tests {
         }
 
         // Test Protobuf codec with same record
-        let protobuf_codec = ProtobufCodec::new();
+        let protobuf_codec = ProtobufCodec::new_with_default_schema();
         match protobuf_codec.serialize(&trading_record) {
             Ok(protobuf_bytes) => {
                 assert!(!protobuf_bytes.is_empty());
@@ -315,7 +315,7 @@ mod codec_integration_tests {
             }
 
             // Test Protobuf codec
-            let protobuf_codec = ProtobufCodec::new();
+            let protobuf_codec = ProtobufCodec::new_with_default_schema();
             let mut record = HashMap::new();
             record.insert("test_field".to_string(), field_value.clone());
 
@@ -379,7 +379,7 @@ mod codec_integration_tests {
         }
 
         // Test deserialization with invalid bytes
-        let protobuf_codec = ProtobufCodec::new();
+        let protobuf_codec = ProtobufCodec::new_with_default_schema();
         let invalid_bytes = vec![0xFF, 0xFE, 0xFD]; // Random invalid bytes
 
         match protobuf_codec.deserialize(&invalid_bytes) {
@@ -408,7 +408,7 @@ mod codec_integration_tests {
         }
 
         // Test Protobuf with null values
-        let protobuf_codec = ProtobufCodec::new();
+        let protobuf_codec = ProtobufCodec::new_with_default_schema();
         match protobuf_codec.serialize(&empty_record) {
             Ok(bytes) => {
                 assert!(!bytes.is_empty());
@@ -447,7 +447,7 @@ mod codec_integration_tests {
     fn test_performance_considerations() {
         // Test that serialization doesn't take unreasonably long for typical data
         let trading_record = create_trading_record();
-        let protobuf_codec = ProtobufCodec::new();
+        let protobuf_codec = ProtobufCodec::new_with_default_schema();
 
         let start_time = std::time::Instant::now();
 

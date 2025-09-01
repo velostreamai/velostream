@@ -1,4 +1,4 @@
-use crate::ferris::kafka::serialization::SerializationError;
+use crate::ferris::serialization::SerializationError;
 use rdkafka::error::KafkaError;
 
 /// Unified error type for Kafka producer and consumer operations

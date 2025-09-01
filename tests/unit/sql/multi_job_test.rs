@@ -161,7 +161,7 @@ async fn test_process_datasource_with_shutdown() {
     // Create execution engine
     let (output_sender, mut _output_receiver) = mpsc::unbounded_channel();
     let format = Arc::new(JsonFormat);
-    let engine = StreamExecutionEngine::new(output_sender, format);
+    let engine = StreamExecutionEngine::new(output_sender);
     let engine = Arc::new(Mutex::new(engine));
     
     // Parse a simple query

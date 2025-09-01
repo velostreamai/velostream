@@ -58,7 +58,7 @@ async fn execute_query(
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format =
         std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;

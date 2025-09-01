@@ -3,14 +3,11 @@
 //! This codec provides direct protobuf serialization for FieldValue types, including
 //! financial precision support through ScaledInteger types and proper decimal handling.
 
-use crate::Serializer;
-use crate::ferris::sql::execution::types::FieldValue;
 use crate::ferris::serialization::SerializationError;
-use crate::ferris::serialization::traits;
+use crate::ferris::sql::execution::types::FieldValue;
+use crate::Serializer;
 use prost::Message;
 use std::collections::HashMap;
-
-
 
 /// Financial decimal message for precise monetary calculations
 /// This follows the industry-standard approach for decimal representation in protobuf
@@ -127,7 +124,7 @@ impl ProtobufCodec {
     /// "#;
     /// let codec = ProtobufCodec::new(schema, "Record").unwrap();
     /// ```
-    pub fn new(schema: &str, message_type: &str) -> Result<Self,  SerializationError> {
+    pub fn new(schema: &str, message_type: &str) -> Result<Self, SerializationError> {
         // Validate that the schema is not empty
         if schema.trim().is_empty() {
             return Err(SerializationError::SchemaError(
@@ -196,7 +193,7 @@ impl ProtobufCodec {
     }
 
     /// Load schema from a .proto file
-    pub fn from_proto_file(proto_path: &str) -> Result<Self,  SerializationError> {
+    pub fn from_proto_file(proto_path: &str) -> Result<Self, SerializationError> {
         use std::fs;
 
         let schema = fs::read_to_string(proto_path).map_err(|e| {
@@ -227,7 +224,7 @@ impl ProtobufCodec {
     pub fn serialize(
         &self,
         record: &HashMap<String, FieldValue>,
-    ) -> Result<Vec<u8>,  SerializationError> {
+    ) -> Result<Vec<u8>, SerializationError> {
         let mut proto_fields = HashMap::new();
 
         for (key, field_value) in record {
@@ -241,7 +238,7 @@ impl ProtobufCodec {
 
         let mut buf = Vec::new();
         prost::Message::encode(&record_msg, &mut buf)
-            .map_err(|e|  SerializationError::SerializationFailed(e.to_string()))?;
+            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))?;
 
         Ok(buf)
     }
@@ -250,9 +247,9 @@ impl ProtobufCodec {
     pub fn deserialize(
         &self,
         bytes: &[u8],
-    ) -> Result<HashMap<String, FieldValue>,  SerializationError> {
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         let record_msg = RecordMessage::decode(bytes)
-            .map_err(|e|  SerializationError::DeserializationFailed(e.to_string()))?;
+            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
 
         let mut record = HashMap::new();
         for (key, proto_field) in record_msg.fields {
@@ -267,7 +264,7 @@ impl ProtobufCodec {
     fn field_value_to_proto(
         &self,
         field_value: &FieldValue,
-    ) -> Result<FieldMessage,  SerializationError> {
+    ) -> Result<FieldMessage, SerializationError> {
         let proto_value = match field_value {
             FieldValue::String(s) => FieldValueOneof::StringValue(s.clone()),
             FieldValue::Integer(i) => FieldValueOneof::IntegerValue(*i),
@@ -356,7 +353,7 @@ impl ProtobufCodec {
     fn proto_to_field_value(
         &self,
         proto_field: &FieldMessage,
-    ) -> Result<FieldValue,  SerializationError> {
+    ) -> Result<FieldValue, SerializationError> {
         match &proto_field.value {
             Some(FieldValueOneof::StringValue(s)) => {
                 if s.is_empty() {
@@ -368,12 +365,10 @@ impl ProtobufCodec {
             Some(FieldValueOneof::IntegerValue(i)) => Ok(FieldValue::Integer(*i)),
             Some(FieldValueOneof::FloatValue(f)) => Ok(FieldValue::Float(*f)),
             Some(FieldValueOneof::BooleanValue(b)) => Ok(FieldValue::Boolean(*b)),
-            Some(FieldValueOneof::DecimalValue(decimal)) => {
-                    Ok(FieldValue::ScaledInteger(
-                        decimal.units,
-                        decimal.scale as u8,
-                    ))
-            }
+            Some(FieldValueOneof::DecimalValue(decimal)) => Ok(FieldValue::ScaledInteger(
+                decimal.units,
+                decimal.scale as u8,
+            )),
             Some(FieldValueOneof::TimestampValue(ts)) => {
                 use chrono::{DateTime, Utc};
                 let dt = DateTime::<Utc>::from_timestamp(ts.seconds, ts.nanos)
@@ -404,7 +399,7 @@ impl ProtobufCodec {
 /// Uses a default schema for basic Record message type
 pub fn serialize_to_protobuf(
     record: &HashMap<String, FieldValue>,
-) -> Result<Vec<u8>,  SerializationError> {
+) -> Result<Vec<u8>, SerializationError> {
     let default_schema = r#"
 syntax = "proto3";
 
@@ -420,7 +415,7 @@ message Record {
 /// Uses a default schema for basic Record message type
 pub fn deserialize_from_protobuf(
     bytes: &[u8],
-) -> Result<HashMap<String, FieldValue>,  SerializationError> {
+) -> Result<HashMap<String, FieldValue>, SerializationError> {
     let default_schema = r#"
 syntax = "proto3";
 
@@ -435,7 +430,7 @@ message Record {
 /// Create a protobuf serializer for Kafka integration
 /// Create a protobuf serializer with required schema
 /// Protobuf ALWAYS requires a schema to define message structure
-pub fn create_protobuf_serializer(schema: &str) -> Result<ProtobufCodec,  SerializationError> {
+pub fn create_protobuf_serializer(schema: &str) -> Result<ProtobufCodec, SerializationError> {
     // Try to parse the schema and extract message type
     // For simplicity, default to "Record" as the message type
     ProtobufCodec::new(schema, "Record")
@@ -450,24 +445,29 @@ impl Serializer<HashMap<String, FieldValue>> for ProtobufCodec {
         self.serialize(value)
     }
 
-    fn deserialize(
-        &self,
-        bytes: &[u8],
-    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
+    fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
         self.deserialize(bytes)
     }
 }
 
 /// Implementation of UnifiedCodec for runtime abstraction
 impl crate::ferris::serialization::traits::UnifiedCodec for ProtobufCodec {
-    fn serialize_record(&self, value: &HashMap<String, FieldValue>) -> Result<Vec<u8>, SerializationError> {
-        self.serialize(value).map_err(|e| SerializationError::SerializationFailed(format!("{}", e)))
+    fn serialize_record(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, SerializationError> {
+        self.serialize(value)
+            .map_err(|e| SerializationError::SerializationFailed(format!("{}", e)))
     }
-    
-    fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        self.deserialize(bytes).map_err(|e| SerializationError::DeserializationFailed(format!("{}", e)))
+
+    fn deserialize_record(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        self.deserialize(bytes)
+            .map_err(|e| SerializationError::DeserializationFailed(format!("{}", e)))
     }
-    
+
     fn format_name(&self) -> &'static str {
         "Protobuf"
     }

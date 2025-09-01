@@ -664,9 +664,16 @@ fn decode_big_endian_signed(bytes: &[u8]) -> Option<i64> {
 // Codec creation helpers
 
 /// Create Avro codec with schema (optimized single codec creation)
-pub fn create_avro_codec(schema: Option<&str>) -> Result<crate::ferris::serialization::avro_codec::AvroCodec, Box<dyn std::error::Error + Send + Sync>> {
+pub fn create_avro_codec(
+    schema: Option<&str>,
+) -> Result<
+    crate::ferris::serialization::avro_codec::AvroCodec,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     if let Some(schema_json) = schema {
-        Ok(crate::ferris::serialization::avro_codec::AvroCodec::new(schema_json)?)
+        Ok(crate::ferris::serialization::avro_codec::AvroCodec::new(
+            schema_json,
+        )?)
     } else {
         Err("Avro format requires a schema to be provided".into())
     }
@@ -678,9 +685,12 @@ pub fn create_protobuf_codec(
 ) -> Result<crate::ferris::serialization::ProtobufCodec, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(proto_schema) = schema {
         // Extract message type from schema or use default
-        let message_type = extract_message_type_from_schema(proto_schema)
-            .unwrap_or("Record".to_string());
-        Ok(crate::ferris::serialization::ProtobufCodec::new(proto_schema, &message_type)?)
+        let message_type =
+            extract_message_type_from_schema(proto_schema).unwrap_or("Record".to_string());
+        Ok(crate::ferris::serialization::ProtobufCodec::new(
+            proto_schema,
+            &message_type,
+        )?)
     } else {
         Err("Protobuf format REQUIRES a schema (.proto definition) to be provided".into())
     }

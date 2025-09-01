@@ -2,7 +2,6 @@
 
 use super::{FieldValue, SerializationError};
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 
 /// Trait for pluggable serialization formats
 ///
@@ -32,16 +31,20 @@ pub trait SerializationFormat: Send + Sync {
     fn format_name(&self) -> &'static str;
 }
 
-
-
 /// Unified codec trait for all serialization formats
 /// Enables runtime abstraction over different codec types
 pub trait UnifiedCodec: Send + Sync {
     /// Serialize HashMap<String, FieldValue> to bytes
-    fn serialize_record(&self, value: &HashMap<String, FieldValue>) -> Result<Vec<u8>, SerializationError>;
+    fn serialize_record(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, SerializationError>;
 
     /// Deserialize bytes to HashMap<String, FieldValue>
-    fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError>;
+    fn deserialize_record(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, SerializationError>;
 
     /// Get the format name for debugging/logging
     fn format_name(&self) -> &'static str;

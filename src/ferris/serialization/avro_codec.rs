@@ -1,17 +1,11 @@
 //! Avro codec for HashMap<String, FieldValue> serialization/deserialization
 
 use crate::ferris::kafka::serialization::Serializer;
+use crate::ferris::serialization;
+use crate::ferris::serialization::SerializationError;
 use crate::ferris::sql::execution::types::FieldValue;
 use apache_avro::{types::Value as AvroValue, Reader, Schema as AvroSchema, Writer};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
-use crate::ferris::serialization;
-use crate::ferris::serialization::traits;
-use crate::ferris::serialization::SerializationError;
-
-
-
 
 /// Avro codec for serializing/deserializing HashMap<String, FieldValue> using a schema
 pub struct AvroCodec {
@@ -52,14 +46,17 @@ impl AvroCodec {
     }
 
     /// Deserialize Avro bytes to HashMap<String, FieldValue>
-    pub fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
+    pub fn deserialize(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         let mut reader = Reader::with_schema(&self.schema, bytes)
             .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
 
         // Read the first record
         if let Some(record_result) = reader.next() {
-            let avro_value =
-                record_result.map_err(|e|  SerializationError::DeserializationFailed(e.to_string()))?;
+            let avro_value = record_result
+                .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
 
             self.avro_value_to_record(&avro_value)
         } else {
@@ -90,7 +87,10 @@ impl AvroCodec {
     }
 
     /// Convert FieldValue to Avro Value
-    fn field_value_to_avro(&self, field_value: &FieldValue) -> Result<AvroValue, SerializationError> {
+    fn field_value_to_avro(
+        &self,
+        field_value: &FieldValue,
+    ) -> Result<AvroValue, SerializationError> {
         match field_value {
             FieldValue::Null => Ok(AvroValue::Null),
             FieldValue::Boolean(b) => Ok(AvroValue::Boolean(*b)),
@@ -100,7 +100,7 @@ impl AvroCodec {
             FieldValue::ScaledInteger(value, scale) => {
                 // Convert ScaledInteger to decimal string representation by default
                 let scale_factor = 10_i64.pow(*scale as u32);
-                let decimal_value = *value as f64 / scale_factor as f64;
+                let _decimal_value = *value as f64 / scale_factor as f64;
 
                 // For now, convert to string representation (schema-compatible)
                 // TODO: Make this schema-aware to return Float/Double when appropriate
@@ -399,14 +399,20 @@ pub fn deserialize_from_avro(
 
 /// Implementation of UnifiedCodec for runtime abstraction
 impl serialization::traits::UnifiedCodec for AvroCodec {
-    fn serialize_record(&self, value: &HashMap<String, FieldValue>) -> Result<Vec<u8>, SerializationError> {
+    fn serialize_record(
+        &self,
+        value: &HashMap<String, FieldValue>,
+    ) -> Result<Vec<u8>, SerializationError> {
         self.serialize(value)
     }
-    
-    fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
+
+    fn deserialize_record(
+        &self,
+        bytes: &[u8],
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         self.deserialize(bytes)
     }
-    
+
     fn format_name(&self) -> &'static str {
         "Avro"
     }

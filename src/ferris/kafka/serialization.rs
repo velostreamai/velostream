@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use prost::Message;
 
 use apache_avro::{
-    from_avro_datum, to_avro_datum, types::Value as AvroValue, Error as AvroError,
-    Schema as AvroSchema,
+    from_avro_datum, to_avro_datum, types::Value as AvroValue, Schema as AvroSchema,
 };
 
 use std::io::Cursor;
+
+// Use the unified serialization error from the main serialization module
+pub use crate::ferris::serialization::SerializationError;
 
 /// Trait for objects that can be serialized to bytes for Kafka messages
 pub trait KafkaSerialize {
@@ -24,10 +26,10 @@ pub trait KafkaDeserialize<T> {
 /// Trait for serializers that can convert between objects and bytes
 pub trait Serializer<T> {
     /// Serialize an object to bytes
-    fn serialize(&self, value: &T) -> Result<Vec<u8>,  crate::ferris::serialization::SerializationError>;
+    fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
 
     /// Deserialize bytes to an object
-    fn deserialize(&self, bytes: &[u8]) -> Result<T,  crate::ferris::serialization::SerializationError>;
+    fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
 }
 
 /// Modern async serialization trait using Rust 2024 edition features
@@ -78,36 +80,18 @@ pub trait AsyncSerializer<T: Send + Sync> {
     }
 }
 
-/// Enumeration of possible serialization errors
-#[derive(Debug, thiserror::Error)]
-pub enum SerializationError {
-    #[error("JSON serialization error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Protocol Buffers error: {0}")]
-    ProtoBuf(String),
-
-    #[error("Avro serialization error: {0}")]
-    Avro(#[from] AvroError),
-
-    #[error("Schema error: {0}")]
-    Schema(String),
-
-    #[error("Feature not enabled: {0}")]
-    FeatureNotEnabled(String),
-}
-
 // JSON Serialization Helpers
 //==========================
 
 /// Serialize a struct to JSON bytes
 pub fn to_json<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
-    Ok(serde_json::to_vec(value)?)
+    serde_json::to_vec(value).map_err(|e| SerializationError::SerializationFailed(e.to_string()))
 }
 
 /// Deserialize JSON bytes to a struct
 pub fn from_json<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, SerializationError> {
-    Ok(serde_json::from_slice(bytes)?)
+    serde_json::from_slice(bytes)
+        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
 }
 
 // Implementation for any type that implements Serialize
@@ -172,13 +156,15 @@ where
 
 /// Serialize a value to Avro bytes using a schema
 pub fn to_avro(value: &AvroValue, schema: &AvroSchema) -> Result<Vec<u8>, SerializationError> {
-    Ok(to_avro_datum(schema, value.clone())?)
+    to_avro_datum(schema, value.clone())
+        .map_err(|e| SerializationError::SerializationFailed(e.to_string()))
 }
 
 /// Deserialize Avro bytes to a value using a schema
 pub fn from_avro(bytes: &[u8], schema: &AvroSchema) -> Result<AvroValue, SerializationError> {
     let mut cursor = Cursor::new(bytes);
-    Ok(from_avro_datum(schema, &mut cursor, None)?)
+    from_avro_datum(schema, &mut cursor, None)
+        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
 }
 
 /// Avro serializer implementation
@@ -210,7 +196,7 @@ pub fn to_proto<T: Message>(message: &T) -> Result<Vec<u8>, SerializationError> 
     let mut buf = Vec::new();
     match message.encode(&mut buf) {
         Ok(_) => Ok(buf),
-        Err(e) => Err(SerializationError::ProtoBuf(e.to_string())),
+        Err(e) => Err(SerializationError::SerializationFailed(e.to_string())),
     }
 }
 
@@ -218,7 +204,7 @@ pub fn to_proto<T: Message>(message: &T) -> Result<Vec<u8>, SerializationError> 
 pub fn from_proto<T: Message + Default>(bytes: &[u8]) -> Result<T, SerializationError> {
     match T::decode(bytes) {
         Ok(message) => Ok(message),
-        Err(e) => Err(SerializationError::ProtoBuf(e.to_string())),
+        Err(e) => Err(SerializationError::DeserializationFailed(e.to_string())),
     }
 }
 
@@ -276,6 +262,6 @@ impl Serializer<String> for StringSerializer {
 
     fn deserialize(&self, bytes: &[u8]) -> Result<String, SerializationError> {
         String::from_utf8(bytes.to_vec())
-            .map_err(|e| SerializationError::Schema(format!("Invalid UTF-8: {}", e)))
+            .map_err(|e| SerializationError::SchemaError(format!("Invalid UTF-8: {}", e)))
     }
 }

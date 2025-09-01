@@ -69,7 +69,7 @@ impl std::str::FromStr for SerializationFormat {
             }),
             "bytes" | "raw" => Ok(SerializationFormat::Bytes),
             "string" | "text" => Ok(SerializationFormat::String),
-            _ => Err(SerializationError::Schema(format!(
+            _ => Err(SerializationError::SchemaError(format!(
                 "Unsupported serialization format: '{}'. Supported formats: json, avro, protobuf, bytes, string",
                 s
             ))),
@@ -192,12 +192,12 @@ impl SerializationConfig {
         {
             if matches!(self.key_format, Some(SerializationFormat::Avro { .. })) {
                 if self.schema_registry_url.is_none() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Schema Registry URL required for Avro key serialization".to_string(),
                     ));
                 }
                 if self.key_subject.is_none() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Key subject required for Avro key serialization".to_string(),
                     ));
                 }
@@ -205,12 +205,12 @@ impl SerializationConfig {
 
             if matches!(self.value_format, Some(SerializationFormat::Avro { .. })) {
                 if self.schema_registry_url.is_none() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Schema Registry URL required for Avro value serialization".to_string(),
                     ));
                 }
                 if self.value_subject.is_none() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Value subject required for Avro value serialization".to_string(),
                     ));
                 }
@@ -248,7 +248,7 @@ impl SerializationFactory {
             } => {
                 // For now, return an error - we'll implement proper Avro support
                 // with Schema Registry integration in the next step
-                Err(SerializationError::FeatureNotEnabled(
+                Err(SerializationError::UnsupportedType(
                     format!("Avro serialization with Schema Registry not yet implemented. URL: {}, Subject: {}", 
                            schema_registry_url, subject)
                 ))
@@ -257,7 +257,7 @@ impl SerializationFactory {
             SerializationFormat::Protobuf { message_type } => {
                 // For now, return an error - we'll implement proper Protobuf support
                 // in a later step
-                Err(SerializationError::FeatureNotEnabled(format!(
+                Err(SerializationError::UnsupportedType(format!(
                     "Protobuf serialization not yet implemented. Message type: {}",
                     message_type
                 )))
@@ -265,14 +265,14 @@ impl SerializationFactory {
 
             SerializationFormat::Bytes => {
                 // Bytes serialization only works with Vec<u8>
-                Err(SerializationError::Schema(
+                Err(SerializationError::SchemaError(
                     "Bytes serialization only supported for Vec<u8> type".to_string(),
                 ))
             }
 
             SerializationFormat::String => {
                 // String serialization only works with String type
-                Err(SerializationError::Schema(
+                Err(SerializationError::SchemaError(
                     "String serialization only supported for String type".to_string(),
                 ))
             }
@@ -297,12 +297,12 @@ impl SerializationFactory {
                 subject,
             } => {
                 if schema_registry_url.is_empty() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Schema Registry URL cannot be empty for Avro serialization".to_string(),
                     ));
                 }
                 if subject.is_empty() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Subject cannot be empty for Avro serialization".to_string(),
                     ));
                 }
@@ -311,7 +311,7 @@ impl SerializationFactory {
 
             SerializationFormat::Protobuf { message_type } => {
                 if message_type.is_empty() {
-                    return Err(SerializationError::Schema(
+                    return Err(SerializationError::SchemaError(
                         "Message type cannot be empty for Protobuf serialization".to_string(),
                     ));
                 }

@@ -46,7 +46,7 @@ fn create_test_record(
 #[tokio::test]
 async fn test_engine_creation() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let _engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let _engine = StreamExecutionEngine::new(tx);
 
     // Basic creation test - engine should start without errors
     assert!(true); // Engine created successfully
@@ -55,7 +55,7 @@ async fn test_engine_creation() {
 #[tokio::test]
 async fn test_execute_simple_select() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -83,7 +83,7 @@ async fn test_execute_simple_select() {
 #[tokio::test]
 async fn test_execute_specific_columns() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -122,7 +122,7 @@ async fn test_execute_specific_columns() {
 #[tokio::test]
 async fn test_execute_with_literals() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -165,7 +165,7 @@ async fn test_execute_with_literals() {
 #[tokio::test]
 async fn test_missing_column_returns_null() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -199,7 +199,7 @@ async fn test_missing_column_returns_null() {
 #[tokio::test]
 async fn test_multiple_records_processing() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -235,7 +235,7 @@ async fn test_multiple_records_processing() {
 #[tokio::test]
 async fn test_null_value_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {

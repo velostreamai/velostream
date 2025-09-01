@@ -27,6 +27,7 @@
 //!         topic: "orders".to_string(),
 //!         group_id: Some("processor".to_string()),
 //!         properties: HashMap::new(),
+//!         batch_config: Default::default(),
 //!     };
 //!     source.initialize(source_config).await?;
 //!     let mut reader = source.create_reader().await?;

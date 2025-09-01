@@ -77,7 +77,7 @@ mod tests {
     async fn test_system_column_execution() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with system columns
         let parser = StreamingSqlParser::new();
@@ -127,7 +127,7 @@ mod tests {
     async fn test_system_column_with_aliases() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with aliased system columns
         let parser = StreamingSqlParser::new();
@@ -162,7 +162,7 @@ mod tests {
     async fn test_system_column_in_where_clause() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query with system column in WHERE clause
         let parser = StreamingSqlParser::new();
@@ -194,7 +194,7 @@ mod tests {
     async fn test_mixed_regular_and_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse query mixing regular and system columns
         let parser = StreamingSqlParser::new();
@@ -237,7 +237,7 @@ mod tests {
     async fn test_wildcard_does_not_include_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse wildcard query
         let parser = StreamingSqlParser::new();
@@ -272,7 +272,7 @@ mod tests {
     async fn test_system_columns_case_insensitive() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Test both lowercase and uppercase system column names
         let queries = vec![
@@ -318,7 +318,7 @@ mod tests {
     async fn test_csas_with_system_columns() {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CSAS query with system columns
         let parser = StreamingSqlParser::new();

@@ -68,7 +68,7 @@ fn create_test_record_with_timestamp(
 #[tokio::test]
 async fn test_windowed_execution_tumbling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -172,7 +172,7 @@ async fn test_windowed_execution_tumbling() {
 #[tokio::test]
 async fn test_sliding_window_execution() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -228,7 +228,7 @@ async fn test_sliding_window_execution() {
 #[tokio::test]
 async fn test_session_window_execution() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -292,7 +292,7 @@ async fn test_session_window_execution() {
 #[tokio::test]
 async fn test_aggregation_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![

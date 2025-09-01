@@ -44,7 +44,7 @@ fn create_test_record(
 #[tokio::test]
 async fn test_arithmetic_expressions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -82,7 +82,7 @@ async fn test_arithmetic_expressions() {
 #[tokio::test]
 async fn test_boolean_expressions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -119,7 +119,7 @@ async fn test_boolean_expressions() {
 #[tokio::test]
 async fn test_complex_expression_evaluation() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Complex expression: (amount * 1.1) + 10
     let query = StreamingQuery::Select {
