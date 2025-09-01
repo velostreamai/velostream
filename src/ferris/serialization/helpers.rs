@@ -660,3 +660,46 @@ fn decode_big_endian_signed(bytes: &[u8]) -> Option<i64> {
 
     Some(result)
 }
+
+// Codec creation helpers
+
+/// Create Avro codec with schema (optimized single codec creation)
+pub fn create_avro_codec(schema: Option<&str>) -> Result<crate::ferris::serialization::avro_codec::AvroCodec, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(schema_json) = schema {
+        Ok(crate::ferris::serialization::avro_codec::AvroCodec::new(schema_json)?)
+    } else {
+        Err("Avro format requires a schema to be provided".into())
+    }
+}
+
+/// Create Protobuf codec with schema (optimized single codec creation)
+pub fn create_protobuf_codec(
+    schema: Option<&str>,
+) -> Result<crate::ferris::serialization::ProtobufCodec, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(proto_schema) = schema {
+        // Extract message type from schema or use default
+        let message_type = extract_message_type_from_schema(proto_schema)
+            .unwrap_or("Record".to_string());
+        Ok(crate::ferris::serialization::ProtobufCodec::new(proto_schema, &message_type)?)
+    } else {
+        Err("Protobuf format REQUIRES a schema (.proto definition) to be provided".into())
+    }
+}
+
+/// Extract message type from Protobuf schema (matches KafkaDataWriter pattern)
+pub fn extract_message_type_from_schema(schema: &str) -> Option<String> {
+    // Simple pattern matching to find "message MessageName" without regex dependency
+    for line in schema.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("message ") {
+            if let Some(message_name) = trimmed
+                .strip_prefix("message ")
+                .and_then(|s| s.split_whitespace().next())
+                .and_then(|s| s.strip_suffix(" {").or(Some(s)))
+            {
+                return Some(message_name.to_string());
+            }
+        }
+    }
+    None
+}

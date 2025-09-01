@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use super::error::KafkaDataSourceError;
-use super::reader::SerializationFormat;
 use super::writer::KafkaDataWriter;
 
 /// Kafka DataSink implementation
@@ -31,26 +30,17 @@ impl KafkaDataSink {
         &self,
     ) -> Result<KafkaDataWriter, Box<dyn std::error::Error + Send + Sync>> {
         // Get serialization format from config (default to JSON if not specified)
-        let value_format = self
+        let _value_format = self
             .config
             .get("value.serializer")
             .map(|s| s.as_str())
             .unwrap_or("json");
 
         // Map config value to SerializationFormat enum
-        let format = match value_format {
-            "json" => SerializationFormat::Json,
-            "avro" => SerializationFormat::Avro,
-            "protobuf" | "proto" => SerializationFormat::Protobuf,
-            "auto" => SerializationFormat::Auto,
-            _ => SerializationFormat::Json, // Default fallback
-        };
+        // Format is now handled by KafkaDataWriter::from_properties
 
-        // Get key field for message partitioning
-        let key_field = self.config.get("key.field").cloned();
-
-        // Create unified writer
-        KafkaDataWriter::new(&self.brokers, self.topic.clone(), format, key_field).await
+        // Create writer with properties-based configuration
+        KafkaDataWriter::from_properties(&self.brokers, self.topic.clone(), &self.config).await
     }
 
     /// Add a configuration parameter

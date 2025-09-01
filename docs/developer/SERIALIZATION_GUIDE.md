@@ -34,7 +34,7 @@ let sum = price1.add(&price2)?;  // Result: exactly 20.03
 ## Supported Formats
 
 ### JSON (Always Available)
-JSON is the default serialization format with **financial precision support**.
+JSON is the default serialization format with **financial precision support** and **automatic payload preservation**.
 
 **Features:**
 - Human-readable format with **exact decimal strings**
@@ -43,6 +43,8 @@ JSON is the default serialization format with **financial precision support**.
 - **Cross-system compatibility** - other systems can read financial values
 - Good for development and debugging
 - **Perfect round-trip precision** for financial data
+- **🆕 JSON_PAYLOAD preservation** - automatically stores original JSON string
+- **Unified codec architecture** - runtime-swappable with Avro/Protobuf
 
 **Financial Data Example:**
 ```rust
@@ -73,6 +75,131 @@ let deserialized = format.deserialize_record(&serialized)?;
   "total": "15025.67"     // Calculated with perfect precision
 }
 ```
+
+## 🆕 JSON_PAYLOAD Processing
+
+**New Feature**: FerrisStreams automatically preserves the original JSON payload for debugging, auditing, and reprocessing purposes.
+
+### What is JSON_PAYLOAD?
+
+When consuming JSON messages from Kafka, FerrisStreams automatically adds a special field called `JSON_PAYLOAD` that contains the exact original JSON string received from the message broker. This provides:
+
+- **Complete audit trail** - know exactly what was received
+- **Debugging capabilities** - compare original vs parsed data
+- **Reprocessing support** - re-parse with different logic if needed
+- **Compliance requirements** - some regulations require original payload preservation
+
+### How JSON_PAYLOAD Works
+
+**Input JSON Message:**
+```json
+{"symbol": "AAPL", "price": 150.25, "quantity": 100}
+```
+
+**Resulting StreamRecord Fields:**
+```rust
+HashMap {
+    "JSON_PAYLOAD": FieldValue::String("{\"symbol\": \"AAPL\", \"price\": 150.25, \"quantity\": 100}"),
+    "symbol": FieldValue::String("AAPL"),
+    "price": FieldValue::Float(150.25),
+    "quantity": FieldValue::Integer(100)
+}
+```
+
+### Usage in SQL Queries
+
+You can access the original JSON payload in your streaming SQL queries:
+
+```sql
+-- Access original payload for debugging
+SELECT JSON_PAYLOAD, symbol, price, quantity 
+FROM trades_stream;
+
+-- Use for data quality checks
+SELECT symbol, price,
+       CASE 
+         WHEN JSON_PAYLOAD LIKE '%error%' THEN 'malformed'
+         ELSE 'valid'
+       END as data_quality
+FROM trades_stream;
+
+-- Re-parse complex nested JSON if needed
+SELECT symbol, 
+       EXTRACT_JSON_FIELD(JSON_PAYLOAD, '$.metadata.source') as source,
+       price
+FROM trades_stream;
+```
+
+### Automatic Behavior
+
+JSON_PAYLOAD processing is:
+- ✅ **Always enabled** - no configuration needed
+- ✅ **Zero performance overhead** - single string copy during deserialization  
+- ✅ **UTF-8 validated** - ensures payload is valid text
+- ✅ **Memory efficient** - shares string data when possible
+- ✅ **Thread safe** - immutable after creation
+
+### Use Cases
+
+**1. Debugging Data Issues**
+```rust
+// Compare original vs parsed when debugging
+let original_json = record.get("JSON_PAYLOAD").unwrap();
+let parsed_price = record.get("price").unwrap();
+println!("Original: {}, Parsed: {:?}", original_json, parsed_price);
+```
+
+**2. Data Quality Monitoring**
+```sql
+-- Find malformed messages
+SELECT COUNT(*) 
+FROM trades_stream 
+WHERE JSON_PAYLOAD NOT LIKE '{"symbol"%' 
+  AND JSON_PAYLOAD IS NOT NULL;
+```
+
+**3. Schema Evolution Handling**
+```rust
+// Handle both old and new formats
+if record.contains_key("new_field") {
+    // Process new format
+} else {
+    // Re-parse JSON_PAYLOAD with legacy parser
+    let original = record.get("JSON_PAYLOAD").unwrap();
+    let legacy_fields = legacy_json_parser(original)?;
+    // Use legacy fields
+}
+```
+
+**4. Compliance & Auditing**
+```sql
+-- Store original payloads for compliance
+CREATE STREAM audit_log AS 
+SELECT symbol, price, JSON_PAYLOAD, CURRENT_TIMESTAMP as received_at
+FROM trades_stream
+EMIT CHANGES;
+```
+
+### Performance Considerations
+
+JSON_PAYLOAD adds minimal overhead:
+- **Memory**: One additional string field per record (~100-1000 bytes typical)
+- **CPU**: Single UTF-8 validation + string copy during deserialization  
+- **Storage**: Original JSON stored as-is (no re-encoding)
+
+For high-throughput scenarios where storage is critical, JSON_PAYLOAD can be filtered out in SQL:
+```sql
+-- Exclude JSON_PAYLOAD from output stream
+SELECT symbol, price, quantity  -- JSON_PAYLOAD automatically excluded
+FROM trades_stream;
+```
+
+### Unified Architecture Integration
+
+JSON_PAYLOAD is part of FerrisStreams' **Unified Codec Architecture**, which means:
+- Works consistently across JSON, Avro, and Protobuf formats
+- Available regardless of which codec is selected at runtime
+- Maintains same field name and behavior across all serialization formats
 
 ### Avro (Feature: `avro`)
 Apache Avro with **financial precision support** using decimal string fields.

@@ -235,3 +235,146 @@ For debugging, enable detailed logging:
 logging:
   level: "debug"
 ```
+
+## Data Sink Schema Configuration
+
+When writing data TO Kafka topics, the same schema configuration patterns apply to ensure proper serialization.
+
+### Sink Configuration Examples
+
+#### JSON Sink (No Schema Required)
+```yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "processed_data"
+    
+    # JSON serialization
+    value.serializer: "json"
+    key.field: "id"  # Use 'id' field as message key
+```
+
+#### Avro Sink with Schema
+```yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "financial_results"
+    
+    # Avro serialization
+    value.serializer: "avro"
+    avro.schema: |
+      {
+        "type": "record",
+        "name": "FinancialResult",
+        "fields": [
+          {"name": "symbol", "type": "string"},
+          {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+          {"name": "volume", "type": "long"},
+          {"name": "calculated_at", "type": "long"}
+        ]
+      }
+    key.field: "symbol"
+```
+
+#### Protobuf Sink with Schema
+```yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "analytics_output"
+    
+    # Protobuf serialization
+    value.serializer: "protobuf"
+    protobuf.schema: |
+      syntax = "proto3";
+      message AnalyticsResult {
+        string metric_name = 1;
+        double value = 2;
+        int64 timestamp = 3;
+        map<string, string> tags = 4;
+      }
+    key.field: "metric_name"
+```
+
+### Sink Schema File Configuration
+
+#### Avro Schema File
+```yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "user_profiles"
+    value.serializer: "avro"
+    avro.schema.file: "./schemas/user_profile.avsc"
+```
+
+#### Protobuf Schema File
+```yaml
+datasink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "events"
+    value.serializer: "protobuf"
+    protobuf.schema.file: "./schemas/event.proto"
+```
+
+### Complete Source-to-Sink Pipeline
+
+```yaml
+# Complete configuration showing source with Avro, processing, and sink with Protobuf
+source:
+  type: kafka
+  consumer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "raw_transactions"
+    group_id: "processor_group"
+    value.serializer: "avro"
+    avro.schema.file: "./schemas/transaction.avsc"
+
+sink:
+  type: kafka
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    topic: "processed_analytics"
+    value.serializer: "protobuf"
+    protobuf.schema: |
+      syntax = "proto3";
+      message ProcessedAnalytics {
+        string transaction_id = 1;
+        string account_id = 2;
+        DecimalValue amount = 3;
+        int64 processed_at = 4;
+      }
+      message DecimalValue {
+        int64 units = 1;
+        uint32 scale = 2;
+      }
+    key.field: "transaction_id"
+```
+
+## Schema Configuration Keys Reference
+
+### Source (Consumer) Keys
+- `value.serializer` - Format: "json", "avro", "protobuf", "auto"
+- `avro.schema` - Inline Avro schema (JSON)
+- `avro.schema.file` - Path to .avsc file
+- `protobuf.schema` - Inline Protobuf schema (.proto content)
+- `protobuf.schema.file` - Path to .proto file
+- `json.schema` - Optional JSON validation schema
+
+### Sink (Producer) Keys
+- `value.serializer` - Format: "json", "avro", "protobuf"
+- `key.field` - Field name to use as Kafka message key
+- `message.key.field` - Alternative key field specification
+- Schema keys same as source (avro.schema, protobuf.schema, etc.)
+
+### Schema Registry Keys (Both Source & Sink)
+- `schema_registry.url` - Schema registry URL
+- `schema_registry.auth_username` - Registry authentication
+- `schema_registry.auth_password` - Registry password

@@ -1147,3 +1147,117 @@ impl SerializationFormat {
 **Last Updated**: August 31, 2025  
 **Status**: ✅ **PROJECT COMPLETE** - Production-ready streaming SQL engine with pluggable serialization and validated configuration system
 **Achievement**: Industry-leading performance with exact financial precision + comprehensive YAML configuration validation
+
+---
+
+## 🔧 **NEW TASK**: Nested Field Value Lookup Implementation (September 1, 2025)
+
+### **Context**: JsonCodec Enhancement for Complex Field Access
+
+**Current Gap**: JsonCodec deserializes to flat HashMap<String, FieldValue>, but real JSON data often contains nested structures and arrays that need field access syntax.
+
+**Requirements**:
+- [ ] **Nested Field Access Syntax**: Implement field lookup like `user.address.street` or `data[0].value`
+- [ ] **Array Index Support**: Handle array access patterns like `items[2]` or `tags[*]` (all elements)
+- [ ] **JsonCodec Integration**: Extend JsonCodec to support hierarchical field structures
+- [ ] **SQL Integration**: Enable SQL queries to access nested fields in WHERE, SELECT clauses
+- [ ] **Performance Consideration**: Efficient lookup without excessive cloning/allocation
+
+### **Design Considerations**:
+
+1. **Field Path Syntax Options**:
+   ```rust
+   // Option A: Dot notation (JSON-Path style)
+   "user.address.street"
+   "items[0].price" 
+   "metadata.tags[*]"
+   
+   // Option B: Bracket notation (JavaScript style)  
+   "user['address']['street']"
+   "items[0]['price']"
+   
+   // Option C: Mixed notation (most flexible)
+   "user.address.street"
+   "user['complex key'].value"
+   "items[0].tags[*]"
+   ```
+
+2. **FieldValue Extension Options**:
+   ```rust
+   // Option A: New FieldValue variants
+   enum FieldValue {
+       // ... existing variants
+       Object(HashMap<String, FieldValue>),     // Nested objects
+       Array(Vec<FieldValue>),                  // Arrays
+   }
+   
+   // Option B: Flattened paths in HashMap
+   HashMap<String, FieldValue> {
+       "user.name" => String("John"),
+       "user.address.street" => String("Main St"),
+       "items[0].price" => Float(29.99),
+   }
+   
+   // Option C: Hybrid approach with lazy evaluation
+   enum FieldValue {
+       // ... existing variants  
+       NestedPath { path: String, source: Box<FieldValue> }
+   }
+   ```
+
+3. **SQL Query Examples**:
+   ```sql
+   -- Nested field access in SELECT
+   SELECT user.name, user.address.city, items[0].price
+   FROM kafka_events 
+   WHERE user.address.country = 'US'
+   
+   -- Array operations
+   SELECT product_id, tags[*] as all_tags
+   FROM product_catalog
+   WHERE 'electronics' IN tags[*]
+   
+   -- Aggregation with nested fields  
+   SELECT user.address.country, COUNT(*)
+   FROM user_events
+   GROUP BY user.address.country
+   ```
+
+### **Implementation Tasks**:
+
+1. **[ ] FieldValue Enhancement**:
+   - Add Object and Array variants to FieldValue enum
+   - Update all pattern matching across codebase
+   - Implement conversion functions for nested structures
+
+2. **[ ] Field Path Parser**:
+   - Implement path parsing: `"user.address.street"` → `["user", "address", "street"]`
+   - Handle array indices: `"items[0]"` → `["items", ArrayIndex(0)]`
+   - Support wildcard access: `"tags[*]"` → `["tags", ArrayWildcard]`
+
+3. **[ ] JsonCodec Update**:
+   - Modify JsonCodec to preserve nested structures instead of flattening
+   - Implement field lookup method: `lookup_field(path: &str) -> Option<&FieldValue>`
+   - Maintain backward compatibility with flat field access
+
+4. **[ ] SQL Parser Integration**:
+   - Update SQL parser to recognize nested field syntax
+   - Extend WHERE clause evaluation to handle nested fields
+   - Update SELECT field resolution for nested access
+
+5. **[ ] Performance Optimization**:
+   - Lazy evaluation for nested field access
+   - Efficient path caching for repeated lookups
+   - Memory-efficient representation of nested structures
+
+### **Syntax Decision Needed**:
+
+**Recommendation**: **Mixed notation (Option C)** for maximum flexibility:
+- Dot notation for simple cases: `user.name`
+- Bracket notation for complex keys: `user['complex-key']`
+- Array indices: `items[0]`, `tags[*]`
+- Supports both JSON-Path and JavaScript-like syntax
+
+**Priority**: Medium - Enhances JsonCodec usability for real-world JSON data structures
+
+---

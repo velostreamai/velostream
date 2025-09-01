@@ -89,6 +89,8 @@ mod protobuf;
 
 pub mod protobuf_codec;
 
+pub mod json_codec;
+
 // Utilities
 pub mod helpers;
 
@@ -96,21 +98,27 @@ pub mod helpers;
 pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
+
 // Re-export format implementations
 pub use json::JsonFormat;
 
 pub use avro::AvroFormat;
 
 pub use avro_codec::{
-    create_avro_serializer, deserialize_from_avro, serialize_to_avro, AvroCodec, AvroCodecError,
+    create_avro_serializer, deserialize_from_avro, serialize_to_avro, AvroCodec
+    ,
 };
 
 pub use protobuf::ProtobufFormat;
 
 pub use protobuf_codec::{
     create_protobuf_serializer, deserialize_from_protobuf, serialize_to_protobuf, DecimalMessage,
-    FieldMessage, ProtobufCodec, ProtobufCodecError, RecordMessage,
+    FieldMessage, ProtobufCodec, RecordMessage,
 };
+
+pub use json_codec::JsonCodec;
+
+pub use traits::UnifiedCodec;
 
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
 pub use helpers::{field_value_to_json, json_to_field_value};
@@ -118,3 +126,5 @@ pub use helpers::{field_value_to_json, json_to_field_value};
 pub use helpers::{avro_value_to_field_value, field_value_to_avro};
 
 pub use helpers::protobuf_bytes_to_field_value;
+
+

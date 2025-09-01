@@ -43,6 +43,53 @@ kafka:
     # avro_schema_file: "./schemas/example.avsc"
     # protobuf_schema_file: "./schemas/example.proto"
 
+  # Producer settings for data sinks (writing TO Kafka)
+  producer:
+    # Kafka broker configuration
+    bootstrap_servers: "localhost:9092"
+    
+    # Producer performance settings
+    acks: "all"  # Wait for all replicas to acknowledge
+    retries: 3
+    batch_size: 16384
+    linger_ms: 5
+    buffer_memory: 33554432
+    compression_type: "lz4"
+    
+    # Serialization format for outbound messages
+    value.serializer: "json"  # json, avro, protobuf
+    
+    # Key field configuration
+    key.field: "id"  # Which field from record to use as message key
+    
+    # Schema configurations for different formats
+    # JSON (no schema required)
+    
+    # Avro schema for output messages
+    # avro.schema: |
+    #   {
+    #     "type": "record",
+    #     "name": "OutputRecord",
+    #     "fields": [
+    #       {"name": "id", "type": "string"},
+    #       {"name": "result", "type": "double"},
+    #       {"name": "processed_at", "type": "long"}
+    #     ]
+    #   }
+    
+    # Protobuf schema for output messages  
+    # protobuf.schema: |
+    #   syntax = "proto3";
+    #   message OutputRecord {
+    #     string id = 1;
+    #     double result = 2;
+    #     int64 processed_at = 3;
+    #   }
+    
+    # Schema file paths for sinks
+    # avro.schema.file: "./schemas/output.avsc"
+    # protobuf.schema.file: "./schemas/output.proto"
+
 # Server Settings
 server:
   port: 8080

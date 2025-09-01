@@ -9,6 +9,7 @@ pub enum SerializationError {
     DeserializationFailed(String),
     FormatConversionFailed(String),
     UnsupportedType(String),
+    SchemaError(String),
 }
 
 impl std::fmt::Display for SerializationError {
@@ -24,6 +25,9 @@ impl std::fmt::Display for SerializationError {
                 write!(f, "Format conversion failed: {}", msg)
             }
             SerializationError::UnsupportedType(msg) => write!(f, "Unsupported type: {}", msg),
+            SerializationError::SchemaError(msg) => {
+                write!(f, "Format conversion failed: {}", msg)
+            }
         }
     }
 }

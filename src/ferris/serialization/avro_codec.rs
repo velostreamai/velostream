@@ -1,35 +1,17 @@
 //! Avro codec for HashMap<String, FieldValue> serialization/deserialization
 
-use crate::ferris::kafka::serialization::{SerializationError, Serializer};
+use crate::ferris::kafka::serialization::Serializer;
 use crate::ferris::sql::execution::types::FieldValue;
 use apache_avro::{types::Value as AvroValue, Reader, Schema as AvroSchema, Writer};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use crate::ferris::serialization;
+use crate::ferris::serialization::traits;
+use crate::ferris::serialization::SerializationError;
 
-/// Error types for Avro codec operations
-#[derive(Debug)]
-pub enum AvroCodecError {
-    SchemaParsingError(String),
-    SerializationError(String),
-    DeserializationError(String),
-    ConversionError(String),
-}
 
-impl fmt::Display for AvroCodecError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AvroCodecError::SchemaParsingError(msg) => write!(f, "Schema parsing error: {}", msg),
-            AvroCodecError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
-            AvroCodecError::DeserializationError(msg) => {
-                write!(f, "Deserialization error: {}", msg)
-            }
-            AvroCodecError::ConversionError(msg) => write!(f, "Conversion error: {}", msg),
-        }
-    }
-}
 
-impl Error for AvroCodecError {}
 
 /// Avro codec for serializing/deserializing HashMap<String, FieldValue> using a schema
 pub struct AvroCodec {
@@ -38,9 +20,9 @@ pub struct AvroCodec {
 
 impl AvroCodec {
     /// Create a new AvroCodec with the given schema JSON
-    pub fn new(schema_json: &str) -> Result<Self, AvroCodecError> {
+    pub fn new(schema_json: &str) -> Result<Self, SerializationError> {
         let schema = AvroSchema::parse_str(schema_json)
-            .map_err(|e| AvroCodecError::SchemaParsingError(e.to_string()))?;
+            .map_err(|e| SerializationError::SchemaError(e.to_string()))?;
 
         Ok(AvroCodec { schema })
     }
@@ -54,7 +36,7 @@ impl AvroCodec {
     pub fn serialize(
         &self,
         record: &HashMap<String, FieldValue>,
-    ) -> Result<Vec<u8>, AvroCodecError> {
+    ) -> Result<Vec<u8>, SerializationError> {
         // Convert HashMap to Avro Value
         let avro_value = self.record_to_avro_value(record)?;
 
@@ -62,26 +44,26 @@ impl AvroCodec {
         let mut writer = Writer::new(&self.schema, Vec::new());
         writer
             .append(avro_value)
-            .map_err(|e| AvroCodecError::SerializationError(e.to_string()))?;
+            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))?;
 
         writer
             .into_inner()
-            .map_err(|e| AvroCodecError::SerializationError(e.to_string()))
+            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))
     }
 
     /// Deserialize Avro bytes to HashMap<String, FieldValue>
-    pub fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, AvroCodecError> {
+    pub fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
         let mut reader = Reader::with_schema(&self.schema, bytes)
-            .map_err(|e| AvroCodecError::DeserializationError(e.to_string()))?;
+            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
 
         // Read the first record
         if let Some(record_result) = reader.next() {
             let avro_value =
-                record_result.map_err(|e| AvroCodecError::DeserializationError(e.to_string()))?;
+                record_result.map_err(|e|  SerializationError::DeserializationFailed(e.to_string()))?;
 
             self.avro_value_to_record(&avro_value)
         } else {
-            Err(AvroCodecError::DeserializationError(
+            Err(SerializationError::DeserializationFailed(
                 "No records found in Avro data".to_string(),
             ))
         }
@@ -96,7 +78,7 @@ impl AvroCodec {
     fn record_to_avro_value(
         &self,
         record: &HashMap<String, FieldValue>,
-    ) -> Result<AvroValue, AvroCodecError> {
+    ) -> Result<AvroValue, SerializationError> {
         let mut avro_fields = Vec::new();
 
         for (key, field_value) in record {
@@ -108,7 +90,7 @@ impl AvroCodec {
     }
 
     /// Convert FieldValue to Avro Value
-    fn field_value_to_avro(&self, field_value: &FieldValue) -> Result<AvroValue, AvroCodecError> {
+    fn field_value_to_avro(&self, field_value: &FieldValue) -> Result<AvroValue, SerializationError> {
         match field_value {
             FieldValue::Null => Ok(AvroValue::Null),
             FieldValue::Boolean(b) => Ok(AvroValue::Boolean(*b)),
@@ -189,7 +171,7 @@ impl AvroCodec {
     fn avro_value_to_record(
         &self,
         avro_value: &AvroValue,
-    ) -> Result<HashMap<String, FieldValue>, AvroCodecError> {
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         match avro_value {
             AvroValue::Record(fields) => {
                 let mut record = HashMap::new();
@@ -200,7 +182,7 @@ impl AvroCodec {
                 }
                 Ok(record)
             }
-            _ => Err(AvroCodecError::ConversionError(
+            _ => Err(SerializationError::SchemaError(
                 "Expected Avro record, got other type".to_string(),
             )),
         }
@@ -211,7 +193,7 @@ impl AvroCodec {
         &self,
         avro_value: &AvroValue,
         field_name: Option<&str>,
-    ) -> Result<FieldValue, AvroCodecError> {
+    ) -> Result<FieldValue, SerializationError> {
         match avro_value {
             AvroValue::Null => Ok(FieldValue::Null),
             AvroValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
@@ -315,7 +297,7 @@ impl AvroCodec {
                 let b64_str = base64::engine::general_purpose::STANDARD.encode(bytes);
                 Ok(FieldValue::String(b64_str))
             }
-            _ => Err(AvroCodecError::ConversionError(format!(
+            _ => Err(SerializationError::SchemaError(format!(
                 "Unsupported Avro value type: {:?}",
                 avro_value
             ))),
@@ -326,7 +308,7 @@ impl AvroCodec {
     fn avro_value_to_field_value(
         &self,
         avro_value: &AvroValue,
-    ) -> Result<FieldValue, AvroCodecError> {
+    ) -> Result<FieldValue, SerializationError> {
         self.avro_value_to_field_value_with_context(avro_value, None)
     }
 
@@ -384,26 +366,16 @@ impl Serializer<HashMap<String, FieldValue>> for AvroCodec {
         &self,
         value: &HashMap<String, FieldValue>,
     ) -> Result<Vec<u8>, SerializationError> {
-        self.serialize(value).map_err(|e| match e {
-            AvroCodecError::SerializationError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::ConversionError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::SchemaParsingError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::DeserializationError(msg) => SerializationError::ProtoBuf(msg),
-        })
+        self.serialize(value)
     }
 
     fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        self.deserialize(bytes).map_err(|e| match e {
-            AvroCodecError::SerializationError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::ConversionError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::SchemaParsingError(msg) => SerializationError::ProtoBuf(msg),
-            AvroCodecError::DeserializationError(msg) => SerializationError::ProtoBuf(msg),
-        })
+        self.deserialize(bytes)
     }
 }
 
 /// Create an Avro serializer that can be used with KafkaConsumer
-pub fn create_avro_serializer(schema_json: &str) -> Result<AvroCodec, AvroCodecError> {
+pub fn create_avro_serializer(schema_json: &str) -> Result<AvroCodec, SerializationError> {
     AvroCodec::new(schema_json)
 }
 
@@ -411,7 +383,7 @@ pub fn create_avro_serializer(schema_json: &str) -> Result<AvroCodec, AvroCodecE
 pub fn serialize_to_avro(
     record: &HashMap<String, FieldValue>,
     schema_json: &str,
-) -> Result<Vec<u8>, AvroCodecError> {
+) -> Result<Vec<u8>, SerializationError> {
     let codec = AvroCodec::new(schema_json)?;
     codec.serialize(record)
 }
@@ -420,7 +392,22 @@ pub fn serialize_to_avro(
 pub fn deserialize_from_avro(
     bytes: &[u8],
     schema_json: &str,
-) -> Result<HashMap<String, FieldValue>, AvroCodecError> {
+) -> Result<HashMap<String, FieldValue>, SerializationError> {
     let codec = AvroCodec::new(schema_json)?;
     codec.deserialize(bytes)
+}
+
+/// Implementation of UnifiedCodec for runtime abstraction
+impl serialization::traits::UnifiedCodec for AvroCodec {
+    fn serialize_record(&self, value: &HashMap<String, FieldValue>) -> Result<Vec<u8>, SerializationError> {
+        self.serialize(value)
+    }
+    
+    fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        self.deserialize(bytes)
+    }
+    
+    fn format_name(&self) -> &'static str {
+        "Avro"
+    }
 }

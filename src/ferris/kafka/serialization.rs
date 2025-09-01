@@ -24,10 +24,10 @@ pub trait KafkaDeserialize<T> {
 /// Trait for serializers that can convert between objects and bytes
 pub trait Serializer<T> {
     /// Serialize an object to bytes
-    fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
+    fn serialize(&self, value: &T) -> Result<Vec<u8>,  crate::ferris::serialization::SerializationError>;
 
     /// Deserialize bytes to an object
-    fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
+    fn deserialize(&self, bytes: &[u8]) -> Result<T,  crate::ferris::serialization::SerializationError>;
 }
 
 /// Modern async serialization trait using Rust 2024 edition features

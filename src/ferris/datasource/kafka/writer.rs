@@ -1,7 +1,7 @@
 //! Unified Kafka data writer implementation
 
 use crate::ferris::datasource::DataWriter;
-use crate::ferris::serialization::helpers::field_value_to_json;
+use crate::ferris::serialization::helpers::{field_value_to_json, create_avro_codec, create_protobuf_codec};
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use rdkafka::{
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use super::reader::SerializationFormat; // Reuse the same format enum
 
-// Import the codec implementations
+// Import the codec implementations via type aliases
 use crate::ferris::serialization::avro_codec::AvroCodec;
 use crate::ferris::serialization::protobuf_codec::ProtobufCodec;
 
@@ -30,68 +30,57 @@ pub struct KafkaDataWriter {
 }
 
 impl KafkaDataWriter {
-    /// Create a new Kafka data writer
-    pub async fn new(
-        brokers: &str,
-        topic: String,
-        format: SerializationFormat,
-        key_field: Option<String>, // Which field to use as Kafka message key
-    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_schemas(brokers, topic, format, key_field, None, None, None).await
-    }
-
-    /// Create a new Kafka data writer with optional Avro schema
-    pub async fn new_with_avro_schema(
+    /// Create a new Kafka data writer with schema configuration
+    /// This is the unified method that handles all format requirements
+    pub async fn new_with_config(
         brokers: &str,
         topic: String,
         format: SerializationFormat,
         key_field: Option<String>,
-        avro_schema_json: Option<&str>,
+        schema: Option<&str>, // Unified schema parameter
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_schemas(
-            brokers,
-            topic,
-            format,
-            key_field,
-            avro_schema_json,
-            None,
-            None,
-        )
-        .await
+        Self::create_with_schema_validation(brokers, topic, format, key_field, schema).await
     }
 
-    /// Create a new Kafka data writer with Protobuf schema
-    pub async fn new_with_protobuf_schema(
+    /// Create from HashMap properties (similar to KafkaDataReader pattern)
+    pub async fn from_properties(
+        brokers: &str,
+        topic: String,
+        properties: &HashMap<String, String>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Extract format from properties
+        let format_str = properties
+            .get("value.serializer")
+            .or_else(|| properties.get("serializer.format"))
+            .or_else(|| properties.get("format"))
+            .map(|s| s.as_str())
+            .unwrap_or("json");
+
+        let format = Self::parse_serialization_format(format_str);
+
+        // Extract key field configuration
+        let key_field = properties
+            .get("key.field")
+            .or_else(|| properties.get("message.key.field"))
+            .cloned();
+
+        // Extract schema based on format
+        let schema = Self::extract_schema_from_properties(&format, properties)?;
+
+        Self::create_with_schema_validation(brokers, topic, format, key_field, schema.as_deref())
+            .await
+    }
+
+    /// Internal method with schema validation (consolidated from multiple constructors)
+    async fn create_with_schema_validation(
         brokers: &str,
         topic: String,
         format: SerializationFormat,
         key_field: Option<String>,
-        protobuf_schema: Option<&str>,
-        message_type: Option<&str>,
+        schema: Option<&str>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_schemas(
-            brokers,
-            topic,
-            format,
-            key_field,
-            None,
-            protobuf_schema,
-            message_type,
-        )
-        .await
-    }
-
-    /// Create a new Kafka data writer with optional schema configurations
-    /// This is the unified method that handles all schema types
-    async fn new_with_schemas(
-        brokers: &str,
-        topic: String,
-        format: SerializationFormat,
-        key_field: Option<String>,
-        avro_schema_json: Option<&str>,
-        protobuf_schema: Option<&str>,
-        protobuf_message_type: Option<&str>,
-    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Validate schema requirements based on format
+        Self::validate_schema_requirements(&format, schema)?;
         let mut config = ClientConfig::new();
         config
             .set("bootstrap.servers", brokers)
@@ -102,41 +91,17 @@ impl KafkaDataWriter {
 
         let producer: FutureProducer = config.create()?;
 
-        // Initialize codecs based on format
-        let avro_codec = if matches!(format, SerializationFormat::Avro) {
-            if let Some(schema_json) = avro_schema_json {
-                Some(AvroCodec::new(schema_json)?)
-            } else {
-                // Use a default schema for basic record structure
-                let default_schema = r#"{
-                    "type": "record",
-                    "name": "StreamRecord",
-                    "fields": [
-                        {"name": "data", "type": ["null", "string"], "default": null}
-                    ]
-                }"#;
-                Some(AvroCodec::new(default_schema)?)
+        // Initialize codec based on format using optimized single codec creation
+        let (avro_codec, protobuf_codec) = match &format {
+            SerializationFormat::Avro => {
+                let codec = Self::create_avro_codec_with_defaults(schema)?;
+                (Some(codec), None)
             }
-        } else {
-            None
-        };
-
-        let protobuf_codec = if matches!(format, SerializationFormat::Protobuf) {
-            if let Some(schema) = protobuf_schema {
-                // Use provided schema
-                let message_type = protobuf_message_type.unwrap_or("Record");
-                match ProtobufCodec::new(schema, message_type) {
-                    Ok(codec) => Some(codec),
-                    Err(e) => {
-                        return Err(Box::new(e) as Box<dyn Error + Send + Sync>);
-                    }
-                }
-            } else {
-                // Use the default schema for backward compatibility
-                Some(ProtobufCodec::new_with_default_schema())
+            SerializationFormat::Protobuf => {
+                let codec = Self::create_protobuf_codec_with_defaults(schema)?;
+                (None, Some(codec))
             }
-        } else {
-            None
+            _ => (None, None),
         };
 
         Ok(Self {
@@ -148,6 +113,152 @@ impl KafkaDataWriter {
             protobuf_codec,
         })
     }
+
+    /// Validate that required schemas are provided for formats that need them
+    fn validate_schema_requirements(
+        format: &SerializationFormat,
+        schema: Option<&str>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match format {
+            SerializationFormat::Avro => {
+                // Avro can work with a default schema if none provided
+                Ok(())
+            }
+            SerializationFormat::Protobuf => {
+                if schema.is_none() {
+                    // Protobuf can use default schema for backward compatibility
+                    // but log a warning
+                    log::warn!("No Protobuf schema provided, using default generic schema");
+                }
+                Ok(())
+            }
+            SerializationFormat::Json | SerializationFormat::Auto => {
+                // JSON doesn't require schemas
+                Ok(())
+            }
+        }
+    }
+
+    /// Create Avro codec with schema and defaults for writer (wrapper around helper)
+    fn create_avro_codec_with_defaults(schema: Option<&str>) -> Result<AvroCodec, Box<dyn Error + Send + Sync>> {
+        if let Some(schema_json) = schema {
+            create_avro_codec(Some(schema_json))
+        } else {
+            // Use a generic schema for StreamRecord (writer-specific behavior)
+            let default_schema = Self::get_default_avro_schema();
+            create_avro_codec(Some(default_schema))
+        }
+    }
+
+    /// Create Protobuf codec with schema and defaults for writer (wrapper around helper)
+    fn create_protobuf_codec_with_defaults(
+        schema: Option<&str>,
+    ) -> Result<ProtobufCodec, Box<dyn Error + Send + Sync>> {
+        if let Some(proto_schema) = schema {
+            create_protobuf_codec(Some(proto_schema))
+        } else {
+            // Use default schema for backward compatibility (writer-specific behavior)
+            Ok(ProtobufCodec::new_with_default_schema())
+        }
+    }
+
+    /// Extract schema from properties based on serialization format
+    fn extract_schema_from_properties(
+        format: &SerializationFormat,
+        properties: &HashMap<String, String>,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        match format {
+            SerializationFormat::Avro => {
+                // Look for Avro schema in various config keys
+                let schema = properties
+                    .get("avro.schema")
+                    .or_else(|| properties.get("value.avro.schema"))
+                    .or_else(|| properties.get("schema.avro"))
+                    .or_else(|| properties.get("avro_schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path
+                    if let Some(schema_file) = properties
+                        .get("avro.schema.file")
+                        .or_else(|| properties.get("schema.file"))
+                        .or_else(|| properties.get("avro_schema_file"))
+                    {
+                        return Self::load_schema_from_file(schema_file);
+                    }
+                }
+                Ok(schema)
+            }
+            SerializationFormat::Protobuf => {
+                // Look for Protobuf schema in various config keys
+                let schema = properties
+                    .get("protobuf.schema")
+                    .or_else(|| properties.get("value.protobuf.schema"))
+                    .or_else(|| properties.get("schema.protobuf"))
+                    .or_else(|| properties.get("protobuf_schema"))
+                    .or_else(|| properties.get("proto.schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path
+                    if let Some(schema_file) = properties
+                        .get("protobuf.schema.file")
+                        .or_else(|| properties.get("proto.schema.file"))
+                        .or_else(|| properties.get("schema.file"))
+                        .or_else(|| properties.get("protobuf_schema_file"))
+                    {
+                        return Self::load_schema_from_file(schema_file);
+                    }
+                }
+                Ok(schema)
+            }
+            SerializationFormat::Json | SerializationFormat::Auto => {
+                // JSON doesn't require schema, but allow optional validation schema
+                let schema = properties
+                    .get("json.schema")
+                    .or_else(|| properties.get("schema.json"))
+                    .cloned();
+                Ok(schema)
+            }
+        }
+    }
+
+    /// Load schema content from file path
+    fn load_schema_from_file(
+        file_path: &str,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        use std::fs;
+        match fs::read_to_string(file_path) {
+            Ok(content) => Ok(Some(content)),
+            Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
+        }
+    }
+
+    /// Parse serialization format string
+    fn parse_serialization_format(format_str: &str) -> SerializationFormat {
+        match format_str.to_lowercase().as_str() {
+            "json" => SerializationFormat::Json,
+            "avro" => SerializationFormat::Avro,
+            "protobuf" | "proto" => SerializationFormat::Protobuf,
+            "auto" => SerializationFormat::Auto,
+            _ => SerializationFormat::Json, // Default fallback
+        }
+    }
+
+    /// Get default Avro schema for generic StreamRecord
+    fn get_default_avro_schema() -> &'static str {
+        r#"{
+            "type": "record",
+            "name": "StreamRecord",
+            "fields": [
+                {"name": "timestamp", "type": "long"},
+                {"name": "offset", "type": "long"},
+                {"name": "partition", "type": "int"},
+                {"name": "data", "type": ["null", "string"], "default": null}
+            ]
+        }"#
+    }
+
 
     /// Extract message key from StreamRecord fields
     fn extract_key(&self, record: &StreamRecord) -> Option<String> {
@@ -183,108 +294,103 @@ impl KafkaDataWriter {
         }
     }
 
-    /// Convert StreamRecord to appropriate payload format
+    /// Convert StreamRecord to appropriate payload format (consolidated serialization logic)
     fn serialize_payload(
         &self,
         record: &StreamRecord,
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         match self.format {
-            SerializationFormat::Json => {
-                // Convert all fields to JSON object
-                let mut json_obj = serde_json::Map::new();
-
-                for (field_name, field_value) in &record.fields {
-                    // Skip the key field if it's used as message key
-                    if let Some(key_field) = &self.key_field {
-                        if field_name == key_field {
-                            continue;
-                        }
-                    }
-
-                    let json_value = self.field_value_to_json(field_value)?;
-                    json_obj.insert(field_name.clone(), json_value);
-                }
-
-                // Add metadata fields
-                json_obj.insert(
-                    "_timestamp".to_string(),
-                    Value::Number(serde_json::Number::from(record.timestamp)),
-                );
-                json_obj.insert(
-                    "_offset".to_string(),
-                    Value::Number(serde_json::Number::from(record.offset)),
-                );
-                json_obj.insert(
-                    "_partition".to_string(),
-                    Value::Number(serde_json::Number::from(record.partition)),
-                );
-
-                let json_str = serde_json::to_string(&Value::Object(json_obj))?;
-                Ok(json_str.into_bytes())
-            }
-            SerializationFormat::Avro => {
-                if let Some(codec) = &self.avro_codec {
-                    // Use proper Avro serialization
-                    codec
-                        .serialize(&record.fields)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-                } else {
-                    // Fallback to JSON if codec not available
-                    let json_obj = self.convert_to_json_object(record)?;
-                    let json_str = serde_json::to_string(&json_obj)?;
-                    Ok(json_str.into_bytes())
-                }
-            }
-            SerializationFormat::Protobuf => {
-                if let Some(codec) = &self.protobuf_codec {
-                    // Use proper Protobuf serialization
-                    codec
-                        .serialize(&record.fields)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-                } else {
-                    // Fallback to JSON if codec not available
-                    let json_obj = self.convert_to_json_object(record)?;
-                    let json_str = serde_json::to_string(&json_obj)?;
-                    Ok(json_str.into_bytes())
-                }
-            }
-            SerializationFormat::Auto => {
-                // Default to JSON for Auto format
-                let json_obj = self.convert_to_json_object(record)?;
-                let json_str = serde_json::to_string(&json_obj)?;
-                Ok(json_str.into_bytes())
-            }
+            SerializationFormat::Json => self.serialize_json(record),
+            SerializationFormat::Avro => self.serialize_avro(record),
+            SerializationFormat::Protobuf => self.serialize_protobuf(record),
+            SerializationFormat::Auto => self.serialize_json(record), // Default to JSON
         }
     }
 
-    /// Convert FieldValue to JSON Value using the standard serialization helper
-    fn field_value_to_json(
-        &self,
-        field_value: &FieldValue,
-    ) -> Result<Value, Box<dyn Error + Send + Sync>> {
-        field_value_to_json(field_value).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
-    }
-
-    /// Helper to convert entire record to JSON object
-    fn convert_to_json_object(
+    /// Serialize to JSON format
+    fn serialize_json(
         &self,
         record: &StreamRecord,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+        let json_obj = self.build_json_payload(record, true)?; // Include metadata for JSON
+        let json_str = serde_json::to_string(&json_obj)?;
+        Ok(json_str.into_bytes())
+    }
+
+    /// Serialize to Avro format
+    fn serialize_avro(
+        &self,
+        record: &StreamRecord,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+        if let Some(codec) = &self.avro_codec {
+            // Use proper Avro serialization with just the fields (no metadata)
+            codec
+                .serialize(&record.fields)
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        } else {
+            // Fallback to JSON if codec not available
+            self.serialize_json(record)
+        }
+    }
+
+    /// Serialize to Protobuf format
+    fn serialize_protobuf(
+        &self,
+        record: &StreamRecord,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+        if let Some(codec) = &self.protobuf_codec {
+            // Use proper Protobuf serialization with just the fields (no metadata)
+            codec
+                .serialize(&record.fields)
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        } else {
+            // Fallback to JSON if codec not available
+            self.serialize_json(record)
+        }
+    }
+
+    /// Build JSON payload with optional metadata (consolidated JSON conversion)
+    fn build_json_payload(
+        &self,
+        record: &StreamRecord,
+        include_metadata: bool,
     ) -> Result<Value, Box<dyn Error + Send + Sync>> {
         let mut json_obj = serde_json::Map::new();
 
+        // Convert all fields to JSON, excluding key field if used as message key
         for (field_name, field_value) in &record.fields {
-            // Skip the key field if it's used as message key
-            if let Some(key_field) = &self.key_field {
-                if field_name == key_field {
-                    continue;
-                }
+            if self.should_exclude_field_from_payload(field_name) {
+                continue;
             }
 
-            let json_value = self.field_value_to_json(field_value)?;
+            let json_value = field_value_to_json(field_value)
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
             json_obj.insert(field_name.clone(), json_value);
         }
 
-        // Add metadata fields
+        // Add metadata fields for JSON format only
+        if include_metadata {
+            self.add_metadata_to_json(&mut json_obj, record);
+        }
+
+        Ok(Value::Object(json_obj))
+    }
+
+    /// Check if field should be excluded from payload (e.g., key field used as message key)
+    fn should_exclude_field_from_payload(&self, field_name: &str) -> bool {
+        if let Some(key_field) = &self.key_field {
+            field_name == key_field
+        } else {
+            false
+        }
+    }
+
+    /// Add metadata fields to JSON object
+    fn add_metadata_to_json(
+        &self,
+        json_obj: &mut serde_json::Map<String, Value>,
+        record: &StreamRecord,
+    ) {
         json_obj.insert(
             "_timestamp".to_string(),
             Value::Number(serde_json::Number::from(record.timestamp)),
@@ -297,8 +403,6 @@ impl KafkaDataWriter {
             "_partition".to_string(),
             Value::Number(serde_json::Number::from(record.partition)),
         );
-
-        Ok(Value::Object(json_obj))
     }
 
     /// Convert headers from StreamRecord to Kafka headers
