@@ -1,11 +1,10 @@
-//! Performance test for StreamRecord → InternalValue conversion
+//! Performance test for StreamRecord → FieldValue conversion
 //! This addresses the performance analysis item in TODO_WIP.md
 
 use ferrisstreams::ferris::sql::execution::{
     types::{FieldValue, StreamRecord},
     utils::FieldValueConverter,
 };
-use ferrisstreams::ferris::serialization::InternalValue;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -35,7 +34,7 @@ fn create_test_record(field_count: usize) -> StreamRecord {
 
 #[test]
 fn test_conversion_performance_baseline() {
-    println!("\n=== StreamRecord → InternalValue Conversion Performance Analysis ===");
+    println!("\n=== StreamRecord → FieldValue Conversion Performance Analysis ===");
     
     // Test different field counts to understand scaling
     for field_count in [10, 50, 100, 200].iter() {
@@ -159,7 +158,7 @@ fn test_conversion_correctness() {
                        "Float field '{}' converted incorrectly", key);
             }
             FieldValue::ScaledInteger(_, _) => {
-                assert!(matches!(internal_value, InternalValue::ScaledNumber(_, _)), 
+                assert!(matches!(internal_value, FieldValue::ScaledInteger(_, _)), 
                        "ScaledInteger field '{}' converted incorrectly", key);
             }
             _ => {} // Other types not tested in this benchmark

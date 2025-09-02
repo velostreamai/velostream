@@ -1,8 +1,8 @@
 //! Final performance test to verify the complete StreamExecutionEngine optimization
 //! This measures the cumulative benefit of all our optimizations:
-//! 1. Eliminated double FieldValue → InternalValue → FieldValue conversions
+//! 1. Eliminated unnecessary type conversions in the execution pipeline
 //! 2. Direct StreamRecord usage in execute_with_record
-//! 3. StreamRecord direct output (no conversion to StreamRecord)
+//! 3. StreamRecord direct output (no conversion needed)
 
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;

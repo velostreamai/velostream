@@ -362,11 +362,11 @@ pub trait SerializationFormat: Send + Sync {
     /// Deserialize bytes from Kafka into a record
     fn deserialize_record(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError>;
     
-    /// Convert record to internal execution format
-    fn to_execution_format(&self, record: &HashMap<String, FieldValue>) -> Result<HashMap<String, InternalValue>, SerializationError>;
+    /// Convert record for SQL execution engine (now handled internally)
+    /// This method is deprecated as FieldValue is used directly in execution
     
-    /// Convert from internal execution format back to record
-    fn from_execution_format(&self, data: &HashMap<String, InternalValue>) -> Result<HashMap<String, FieldValue>, SerializationError>;
+    /// Get format-specific metadata if needed
+    fn get_metadata(&self) -> Option<HashMap<String, String>>;
     
     /// Get the format name
     fn format_name(&self) -> &'static str;

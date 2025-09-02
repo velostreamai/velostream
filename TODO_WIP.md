@@ -631,8 +631,8 @@ This document tracks current work-in-progress items and technical debt that need
    - **Result**: 15 Avro tests passing (was 13 with 2 ignored)
 also run doctrest
    - 
-4. **✅ Completed InternalValue → StreamRecord Migration**
-   - **Root Cause**: Tests still using obsolete InternalValue patterns after StreamExecutionEngine optimization
+4. **✅ Completed FieldValue → StreamRecord Migration**
+   - **Root Cause**: Tests still using obsolete FieldValue patterns after StreamExecutionEngine optimization
    - **Solution**: Updated all serialization tests to use modern StreamRecord patterns:
      ```rust
      // Old pattern:

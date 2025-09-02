@@ -11,7 +11,7 @@ FerrisStreams Implementation:
 Usage:
 - Same underlying library - ferris_streams IS using apache-avro under the hood
 - Added abstraction layer for consistency across serialization formats
-- Integrated with SQL execution engine via FieldValue ↔ InternalValue conversions
+- Integrated with SQL execution engine via direct FieldValue usage
 
 **Key Architectural Differences**
 
@@ -36,7 +36,7 @@ let encoded = writer.into_inner()?;
 2. Data Model
 
 FerrisStreams:
-- Custom FieldValue enum that maps to SQL types
+- Primary FieldValue enum for SQL types and serialization
 - Automatic conversion to/from apache_avro::types::Value
 - Unified type system across JSON/Avro/Protobuf
 
@@ -71,7 +71,7 @@ let record = format.deserialize_record(data)?;
 }
 ```
 ✅ SQL Engine Integration:
-- Automatic conversion to SQL execution format
+- Direct FieldValue usage throughout the engine
 - Type coercion between formats
 - Unified error handling
 

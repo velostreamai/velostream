@@ -56,11 +56,12 @@ let proto = SerializationFormatFactory::create_protobuf_format::<MyMessage>();
 
 ## 📊 Data Types
 
-### FieldValue (External Format)
+### FieldValue (SQL Engine Format)
 ```rust
 FieldValue::String("text")
 FieldValue::Integer(123)
 FieldValue::Float(3.14)
+FieldValue::ScaledInteger(12345, 2)  // For financial precision (123.45)
 FieldValue::Boolean(true)
 FieldValue::Null
 FieldValue::Array(vec![...])
@@ -68,16 +69,11 @@ FieldValue::Map(HashMap::new())
 FieldValue::Struct(HashMap::new())
 ```
 
-### InternalValue (SQL Engine Format)
-```rust
-InternalValue::String("text")
-InternalValue::Integer(123)
-InternalValue::Number(3.14)
-InternalValue::Boolean(true)
-InternalValue::Null
-InternalValue::Array(vec![...])
-InternalValue::Object(HashMap::new())
-```
+### Type System Architecture
+- **FieldValue**: Primary type system for SQL execution and serialization
+- **Direct Integration**: FieldValue used throughout the engine for consistency
+- **Financial Precision**: ScaledInteger provides exact arithmetic for financial data
+- **Cross-Format**: Same types work with JSON, Avro, and Protobuf serialization
 
 ## 🔄 Core Operations
 
@@ -91,14 +87,15 @@ let bytes: Vec<u8> = format.serialize_record(&record)?;
 let record: HashMap<String, FieldValue> = format.deserialize_record(&bytes)?;
 ```
 
-### Convert to Execution Format
+### Get Format Metadata
 ```rust
-let internal: HashMap<String, InternalValue> = format.to_execution_format(&record)?;
+let metadata: Option<HashMap<String, String>> = format.get_metadata();
 ```
 
-### Convert from Execution Format
+### Direct SQL Engine Usage
 ```rust
-let record: HashMap<String, FieldValue> = format.from_execution_format(&internal)?;
+// FieldValue is used directly in SQL execution - no conversion needed
+engine.execute(&query, record).await?;
 ```
 
 ## 📈 Performance Tips
@@ -164,8 +161,8 @@ let record = format.deserialize_record(message.value())?;
 
 ### SQL Engine Integration
 ```rust
-let internal = format.to_execution_format(&record)?;
-engine.execute(&query, internal).await?;
+// Direct integration with FieldValue
+engine.execute(&query, record).await?;
 ```
 
 ### Format Selection
@@ -185,10 +182,10 @@ let serialized = format.serialize_record(&original)?;
 let deserialized = format.deserialize_record(&serialized)?;
 assert_eq!(original, deserialized);
 
-// Test execution format conversion
-let internal = format.to_execution_format(&record)?;
-let restored = format.from_execution_format(&internal)?;
-assert_eq!(record, restored);
+// Test format metadata if available
+if let Some(metadata) = format.get_metadata() {
+    println!("Format metadata: {:?}", metadata);
+}
 ```
 
 ## 📝 Example Schemas

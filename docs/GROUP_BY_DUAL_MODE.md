@@ -112,7 +112,7 @@ pub enum StreamingQuery {
 ```rust
 impl StreamExecutionEngine {
     /// Process a record with the specified aggregation mode
-    pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, InternalValue>) -> Result<(), SqlError>
+    pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, FieldValue>) -> Result<(), SqlError>
     
     /// Manually flush accumulated GROUP BY results (windowed mode)
     pub fn flush_group_by_results(&mut self, query: &StreamingQuery) -> Result<(), SqlError>

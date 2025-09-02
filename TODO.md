@@ -26,7 +26,7 @@ This document tracks the progress and remaining work for the GROUP BY implementa
    - Fixed test compatibility issues where tests expected final results but got intermediate emissions
 
 4. **Debug missing aggregation fields issue** ✅
-   - Fixed type mismatch between `InternalValue::Integer` and `InternalValue::Number` in tests
+   - Fixed type mismatch between `FieldValue::Integer` and `FieldValue::Float` in tests
    - Ensured all aggregate fields (COUNT, AVG, MIN, MAX) appear correctly in results
 
 5. **Fix boolean grouping issue** ✅

@@ -110,7 +110,7 @@ fn test_large_payload_serialization_performance() {
 
 #[test]
 fn test_field_value_memory_footprint() {
-    // Test that InternalValue variants don't have excessive memory overhead
+    // Test that FieldValue variants don't have excessive memory overhead
     let values = vec![
         FieldValue::Null,
         FieldValue::Boolean(true),
