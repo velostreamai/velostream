@@ -34,19 +34,19 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
 
         let json_value = Value::Object(json_obj);
         serde_json::to_vec(&json_value)
-            .map_err(|e| SerializationError::SchemaError(format!("Failed to handle json: {}", e)))
+            .map_err(|e| SerializationError::json_error("Failed to serialize JSON", e))
     }
 
     /// Deserialize JSON bytes to HashMap<String, FieldValue>
     fn deserialize(&self, bytes: &[u8]) -> Result<HashMap<String, FieldValue>, SerializationError> {
         // Store the original JSON string as JSON_PAYLOAD field
         let json_payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            SerializationError::DeserializationFailed(format!("Invalid UTF-8 in JSON: {}", e))
+            SerializationError::encoding_error("Invalid UTF-8 in JSON data", e)
         })?;
 
         // Parse JSON bytes to serde_json::Value
         let json_value: Value = serde_json::from_slice(bytes).map_err(|e| {
-            SerializationError::DeserializationFailed(format!("From Slice failed: {}", e))
+            SerializationError::json_error("Failed to parse JSON from bytes", e)
         })?;
 
         let mut fields = HashMap::new();

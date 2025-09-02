@@ -16,7 +16,7 @@ impl AvroCodec {
     /// Create a new AvroCodec with the given schema JSON
     pub fn new(schema_json: &str) -> Result<Self, SerializationError> {
         let schema = AvroSchema::parse_str(schema_json)
-            .map_err(|e| SerializationError::SchemaError(e.to_string()))?;
+            .map_err(|e| SerializationError::avro_error("Failed to parse Avro schema", e))?;
 
         Ok(AvroCodec { schema })
     }
@@ -38,11 +38,11 @@ impl AvroCodec {
         let mut writer = Writer::new(&self.schema, Vec::new());
         writer
             .append(avro_value)
-            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))?;
+            .map_err(|e| SerializationError::avro_error("Failed to append Avro data to writer", e))?;
 
         writer
             .into_inner()
-            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))
+            .map_err(|e| SerializationError::avro_error("Failed to extract serialized Avro bytes", e))
     }
 
     /// Deserialize Avro bytes to HashMap<String, FieldValue>
@@ -51,12 +51,12 @@ impl AvroCodec {
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         let mut reader = Reader::with_schema(&self.schema, bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+            .map_err(|e| SerializationError::avro_error("Failed to create Avro reader", e))?;
 
         // Read the first record
         if let Some(record_result) = reader.next() {
             let avro_value = record_result
-                .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+                .map_err(|e| SerializationError::avro_error("Failed to read Avro record", e))?;
 
             self.avro_value_to_record(&avro_value)
         } else {
