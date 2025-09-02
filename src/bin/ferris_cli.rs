@@ -151,7 +151,7 @@ impl FerrisStreamsMonitor {
         statuses.push(self.check_kafka_status().await);
 
         // Check SQL Server (local or remote)
-        statuses.push(self.check_sql_server_status().await);
+        statuses.push(self.check_multi_job_server_status().await);
 
         // Check SQL Jobs (local or remote)
         statuses.push(self.check_sql_jobs_status().await);
@@ -282,7 +282,7 @@ impl FerrisStreamsMonitor {
         }
     }
 
-    async fn check_sql_server_status(&self) -> ComponentStatus {
+    async fn check_multi_job_server_status(&self) -> ComponentStatus {
         if self.remote {
             // Try HTTP health check for remote server
             let health_url = format!("http://{}:{}/health", self.sql_host, self.sql_port);

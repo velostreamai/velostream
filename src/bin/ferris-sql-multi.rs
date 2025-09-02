@@ -95,7 +95,7 @@ async fn start_multi_job_server(
             metrics_port
         );
 
-        // Start metrics server (reuse the same one from sql_server.rs)
+        // Start metrics server
         let server_clone = server.clone();
         tokio::spawn(async move {
             start_metrics_server_multi(server_clone, metrics_port)

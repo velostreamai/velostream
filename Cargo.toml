@@ -84,11 +84,6 @@ path = "examples/performance/datasource_performance_test.rs"
 name = "quick_performance_test"
 path = "examples/performance/quick_performance_test.rs"
 
-# SQL Server Binary
-[[bin]]
-name = "ferris-sql"
-path = "src/bin/sql_server.rs"
-
 # Multi-Job SQL Server Binary
 [[bin]]
 name = "ferris-sql-multi"

@@ -59,7 +59,7 @@ else
 fi
 
 # Check if in correct directory
-if [[ ! -f "$DEMO_DIR/../../../Cargo.toml" ]]; then
+if [[ ! -f "$DEMO_DIR/../../Cargo.toml" ]]; then
     print_error "Please run this script from the demo/datasource-demo directory"
     exit 1
 fi
@@ -76,16 +76,16 @@ print_status "Created demo directories"
 echo -e "\n${BLUE}🔨 Building FerrisStreams${NC}"
 echo "=========================="
 
-cd "$DEMO_DIR/../../.."
+cd "$DEMO_DIR/../.."
 
 echo "Building core binaries..."
-cargo build --bin file_processing_demo --no-default-features --quiet
-cargo build --bin ferris-sql --no-default-features --quiet  
-cargo build --bin ferris-sql-multi --no-default-features --quiet
+RUSTFLAGS="-A dead_code" cargo build --bin file_processing_demo --no-default-features --quiet
+RUSTFLAGS="-A dead_code" cargo build --bin ferris-sql --no-default-features --quiet  
+RUSTFLAGS="-A dead_code" cargo build --bin ferris-sql-multi --no-default-features --quiet
 
 if [[ "$SKIP_KAFKA" != "true" ]]; then
     echo "Building with Kafka support..."
-    cargo build --bin complete_pipeline_demo --features json --quiet
+    RUSTFLAGS="-A dead_code" cargo build --bin complete_pipeline_demo --quiet
 fi
 
 print_status "FerrisStreams built successfully"
@@ -156,7 +156,7 @@ while true; do
     esac
 done
 
-cd "$DEMO_DIR/../../.."  # Back to project root
+cd "$DEMO_DIR/../.."  # Back to project root
 
 # Execute chosen demo
 case $choice in
@@ -169,7 +169,7 @@ case $choice in
         echo "• Writing to compressed JSON files with FileSink"
         echo "• Real-time file watching and rotation"
         echo ""
-        cargo run --bin file_processing_demo --no-default-features
+        RUSTFLAGS="-A dead_code" cargo run --bin file_processing_demo --no-default-features
         ;;
         
     2)
@@ -185,7 +185,7 @@ case $choice in
         echo "After server starts, run the SQL commands in enhanced_sql_demo.sql"
         echo "Or use: ferris-sql --file ./demo/datasource-demo/enhanced_sql_demo.sql"
         echo ""
-        cargo run --bin ferris-sql --no-default-features
+        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql --no-default-features -- server
         ;;
         
     3)
@@ -202,24 +202,23 @@ case $choice in
         echo "• High-throughput streaming with backpressure"
         echo "• Production-ready error handling"
         echo ""
-        cargo run --bin complete_pipeline_demo --features json
-        ;;
+        RUSTFLAGS="-A dead_code" cargo run --bin complete_pipeline_demo         ;;
         
     4)
         echo -e "\n${BLUE}🎪 Running All Demos${NC}"
         echo "=================="
         
         echo -e "\n${YELLOW}Demo 1: File Processing${NC}"
-        timeout 30s cargo run --bin file_processing_demo --no-default-features || true
+        timeout 30s RUSTFLAGS="-A dead_code" cargo run --bin file_processing_demo --no-default-features || true
         
         if [[ "$SKIP_KAFKA" != "true" ]]; then
             echo -e "\n${YELLOW}Demo 2: Complete Pipeline${NC}"  
-            timeout 30s cargo run --bin complete_pipeline_demo --features json || true
+            timeout 30s RUSTFLAGS="-A dead_code" cargo run --bin complete_pipeline_demo || true
         fi
         
         echo -e "\n${YELLOW}Demo 3: SQL Interface${NC}"
         echo "SQL server will start for interactive use..."
-        cargo run --bin ferris-sql --no-default-features
+        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql --no-default-features -- server
         ;;
 esac
 
