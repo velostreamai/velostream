@@ -10,6 +10,8 @@ pub enum SerializationError {
     FormatConversionFailed(String),
     UnsupportedType(String),
     SchemaError(String),
+    // New variant for preserving JSON error source chain
+    JsonSerializationFailed(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl std::fmt::Display for SerializationError {
@@ -27,15 +29,24 @@ impl std::fmt::Display for SerializationError {
             SerializationError::UnsupportedType(msg) => {
                 write!(f, "Unsupported type: {}", msg)
             },
-            // The corrected line is here
             SerializationError::SchemaError(msg) => {
                 write!(f, "Schema error: {}", msg)
+            },
+            SerializationError::JsonSerializationFailed(err) => {
+                write!(f, "JSON serialization error: {}", err)
             }
         }
     }
 }
 
-impl std::error::Error for SerializationError {}
+impl std::error::Error for SerializationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SerializationError::JsonSerializationFailed(err) => Some(err.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 /// Convert SerializationError to SqlError
 impl From<SerializationError> for SqlError {
