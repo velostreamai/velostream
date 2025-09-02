@@ -26,7 +26,10 @@ fn create_comprehensive_record() -> HashMap<String, FieldValue> {
         FieldValue::String("test_value".to_string()),
     );
     record.insert("integer_field".to_string(), FieldValue::Integer(42));
-    record.insert("float_field".to_string(), FieldValue::Float(3.14159));
+    record.insert(
+        "float_field".to_string(),
+        FieldValue::Float(std::f64::consts::PI),
+    );
     record.insert("boolean_field".to_string(), FieldValue::Boolean(true));
     record.insert("null_field".to_string(), FieldValue::Null);
 

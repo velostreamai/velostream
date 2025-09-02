@@ -2,9 +2,9 @@
 
 use ferrisstreams::ferris::sql::{
     execution::StreamExecutionEngine,
-    multi_job::{
+    multi_job_common::{
         create_datasource_reader, process_datasource_records, DataSourceConfig,
-        JobExecutionStats,
+        JobExecutionStats, JobProcessingConfig,
     },
     query_analyzer::{DataSourceRequirement, DataSourceType},
     StreamingSqlParser,
@@ -124,7 +124,6 @@ async fn test_job_execution_stats_rps() {
 async fn test_process_datasource_with_shutdown() {
     use ferrisstreams::ferris::datasource::DataReader;
     use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-    use ferrisstreams::ferris::serialization::JsonFormat;
     use std::collections::HashMap;
     
     // Create a mock reader that produces test records
@@ -134,33 +133,59 @@ async fn test_process_datasource_with_shutdown() {
     
     #[async_trait::async_trait]
     impl DataReader for MockReader {
-        async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
             if self.count > 0 {
-                self.count -= 1;
-                let mut fields = HashMap::new();
-                fields.insert("id".to_string(), FieldValue::Integer(self.count as i64));
-                fields.insert("value".to_string(), FieldValue::String("test".to_string()));
+                let mut records = Vec::new();
+                let record_count = std::cmp::min(self.count, 5); // Batch size
                 
-                Ok(Some(StreamRecord {
-                    fields,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    offset: 0,
-                    partition: 0,
-                    headers: HashMap::new(),
-                }))
+                for _ in 0..record_count {
+                    self.count -= 1;
+                    let mut fields = HashMap::new();
+                    fields.insert("id".to_string(), FieldValue::Integer(self.count as i64));
+                    fields.insert("value".to_string(), FieldValue::String("test".to_string()));
+                    
+                    records.push(StreamRecord {
+                        fields,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        offset: 0,
+                        partition: 0,
+                        headers: HashMap::new(),
+                    });
+                }
+                
+                Ok(records)
             } else {
-                Ok(None)
+                Ok(Vec::new()) // Empty batch when no more data
             }
         }
         
         async fn close(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
+        
+        async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        
+        fn supports_transactions(&self) -> bool {
+            false
+        }
+        
+        async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(false)
+        }
+        
+        async fn commit_transaction(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        
+        async fn abort_transaction(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
     }
     
     // Create execution engine
-    let (output_sender, mut _output_receiver) = mpsc::unbounded_channel();
-    let format = Arc::new(JsonFormat);
+    let (output_sender, _output_receiver) = mpsc::unbounded_channel();
     let engine = StreamExecutionEngine::new(output_sender);
     let engine = Arc::new(Mutex::new(engine));
     
@@ -169,19 +194,24 @@ async fn test_process_datasource_with_shutdown() {
     let query = parser.parse("SELECT id, value FROM test").unwrap();
     
     // Create shutdown channel
-    let (_shutdown_sender, shutdown_receiver) = mpsc::unbounded_channel();
+    let (_shutdown_sender, shutdown_receiver) = mpsc::channel(1);
     
     // Create mock reader
     let reader = Box::new(MockReader { count: 5 });
     
+    // Create default config
+    let config = JobProcessingConfig::default();
+    
     // Process records with immediate shutdown
     let stats = process_datasource_records(
         reader,
+        None, // No writer
         engine,
         query,
         "test-job".to_string(),
         shutdown_receiver,
-    ).await;
+        config,
+    ).await.unwrap();
     
     // Verify stats
     assert_eq!(stats.records_processed, 5);

@@ -3,11 +3,19 @@
 //! This module contains shared functionality used by both transactional
 //! and non-transactional multi-job processors.
 
-use crate::ferris::datasource::{DataReader, DataWriter};
-use crate::ferris::sql::{execution::types::StreamRecord, StreamExecutionEngine, StreamingQuery};
+use crate::ferris::datasource::{
+    file::FileDataSource, kafka::KafkaDataSource, DataReader, DataSource, DataWriter,
+};
+use crate::ferris::sql::{
+    execution::types::StreamRecord,
+    query_analyzer::{DataSourceRequirement, DataSourceType},
+    StreamExecutionEngine, StreamingQuery,
+};
 use log::{error, info, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, Mutex};
 
 /// Result of batch processing
 #[derive(Debug, Clone)]
@@ -288,6 +296,17 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
 /// Result type for datasource operations
 pub type DataSourceResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Configuration for creating a datasource
+#[derive(Debug, Clone)]
+pub struct DataSourceConfig {
+    pub requirement: DataSourceRequirement,
+    pub default_topic: String,
+    pub job_name: String,
+}
+
+/// Result of datasource creation
+pub type DataSourceCreationResult = Result<Box<dyn DataReader>, String>;
+
 /// Helper to check if a reader supports transactions
 pub fn check_transaction_support(reader: &dyn DataReader, job_name: &str) -> bool {
     let supports = reader.supports_transactions();
@@ -353,5 +372,106 @@ where
                 return Err(e);
             }
         }
+    }
+}
+
+/// Create a datasource reader based on configuration
+pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCreationResult {
+    let requirement = &config.requirement;
+
+    match requirement.source_type {
+        DataSourceType::Kafka => {
+            create_kafka_reader(
+                &requirement.properties,
+                &config.default_topic,
+                &config.job_name,
+            )
+            .await
+        }
+        DataSourceType::File => create_file_reader(&requirement.properties).await,
+        _ => Err(format!(
+            "Unsupported datasource type '{:?}'",
+            requirement.source_type
+        )),
+    }
+}
+
+/// Create a Kafka datasource reader
+async fn create_kafka_reader(
+    props: &HashMap<String, String>,
+    default_topic: &str,
+    job_name: &str,
+) -> DataSourceCreationResult {
+    // Let KafkaDataSource handle its own configuration extraction
+    let mut datasource = KafkaDataSource::from_properties(props, default_topic, job_name);
+
+    // Self-initialize with the extracted configuration
+    datasource
+        .self_initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize Kafka datasource: {}", e))?;
+
+    datasource
+        .create_reader()
+        .await
+        .map_err(|e| format!("Failed to create Kafka reader: {}", e))
+}
+
+/// Create a file datasource reader
+async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceCreationResult {
+    // Let FileDataSource handle its own configuration extraction
+    let mut datasource = FileDataSource::from_properties(props);
+
+    // Self-initialize with the extracted configuration
+    datasource
+        .self_initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize File datasource: {}", e))?;
+
+    datasource
+        .create_reader()
+        .await
+        .map_err(|e| format!("Failed to create File reader: {}", e))
+}
+
+/// Process records from a datasource using the modern multi-job processors
+/// This is the recommended entry point that automatically chooses between
+/// simple and transactional processing based on datasource capabilities
+pub async fn process_datasource_records(
+    reader: Box<dyn DataReader>,
+    writer: Option<Box<dyn DataWriter>>,
+    execution_engine: Arc<Mutex<StreamExecutionEngine>>,
+    parsed_query: StreamingQuery,
+    job_name: String,
+    shutdown_receiver: mpsc::Receiver<()>,
+    config: JobProcessingConfig,
+) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+    // Choose processor based on configuration and datasource capabilities
+    if config.use_transactions && reader.supports_transactions() {
+        use crate::ferris::sql::multi_job_transactional::TransactionalJobProcessor;
+        let processor = TransactionalJobProcessor::new(config);
+        processor
+            .process_job(
+                reader,
+                writer,
+                execution_engine,
+                parsed_query,
+                job_name,
+                shutdown_receiver,
+            )
+            .await
+    } else {
+        use crate::ferris::sql::multi_job_simple::SimpleJobProcessor;
+        let processor = SimpleJobProcessor::new(config);
+        processor
+            .process_job(
+                reader,
+                writer,
+                execution_engine,
+                parsed_query,
+                job_name,
+                shutdown_receiver,
+            )
+            .await
     }
 }

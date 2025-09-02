@@ -5,7 +5,9 @@
 
 use crate::ferris::sql::{
     execution::performance::PerformanceMonitor,
-    multi_job::{create_datasource_reader, process_datasource_records, DataSourceConfig},
+    multi_job_common::{
+        create_datasource_reader, process_datasource_records, DataSourceConfig, JobProcessingConfig,
+    },
     query_analyzer::QueryAnalyzer,
     SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
@@ -34,7 +36,7 @@ pub struct RunningJob {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub execution_handle: JoinHandle<()>,
-    pub shutdown_sender: mpsc::UnboundedSender<()>,
+    pub shutdown_sender: mpsc::Sender<()>,
     pub metrics: JobMetrics,
 }
 
@@ -241,7 +243,7 @@ impl MultiJobSqlServer {
         drop(counter);
 
         // Create shutdown channel
-        let (shutdown_sender, shutdown_receiver) = mpsc::unbounded_channel();
+        let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
 
         // Create execution engine for this job with query-driven format
         let (output_sender, _output_receiver) = mpsc::unbounded_channel();
@@ -274,15 +276,26 @@ impl MultiJobSqlServer {
                     Ok(reader) => {
                         info!("Job '{}' successfully created datasource reader", job_name);
                         let job_name_clone = job_name.clone();
-                        let stats = process_datasource_records(
+                        // Use default configuration for simple processing
+                        let config = JobProcessingConfig::default();
+                        match process_datasource_records(
                             reader,
+                            None, // No sink writer for basic server
                             execution_engine,
                             parsed_query,
                             job_name_clone,
                             shutdown_receiver,
+                            config,
                         )
-                        .await;
-                        info!("Job '{}' final stats: {:?}", job_name, stats);
+                        .await
+                        {
+                            Ok(stats) => {
+                                info!("Job '{}' completed successfully: {:?}", job_name, stats);
+                            }
+                            Err(e) => {
+                                error!("Job '{}' processing failed: {:?}", job_name, e);
+                            }
+                        }
                     }
                     Err(e) => {
                         error!(
@@ -332,7 +345,7 @@ impl MultiJobSqlServer {
             info!("Stopping job '{}'", name);
 
             // Send shutdown signal
-            if let Err(e) = job.shutdown_sender.send(()) {
+            if let Err(e) = job.shutdown_sender.try_send(()) {
                 warn!("Failed to send shutdown signal to job '{}': {:?}", name, e);
             }
 
@@ -353,7 +366,7 @@ impl MultiJobSqlServer {
         let mut jobs = self.jobs.write().await;
         if let Some(job) = jobs.get_mut(name) {
             // Send shutdown signal to pause consumption
-            if let Err(e) = job.shutdown_sender.send(()) {
+            if let Err(e) = job.shutdown_sender.try_send(()) {
                 warn!("Failed to send pause signal to job '{}': {:?}", name, e);
             }
 

@@ -192,7 +192,7 @@ fn generate_sample_transactions_csv() -> String {
 
         // Generate realistic amounts based on category
         let amount = match category {
-            "grocery" => 25.0 + (i as f64 * 3.14) % 150.0,
+            "grocery" => 25.0 + (i as f64 * std::f64::consts::PI) % 150.0,
             "gas" => 30.0 + (i as f64 * 2.71) % 80.0,
             "restaurant" => 12.0 + (i as f64 * 1.41) % 120.0,
             "shopping" => 50.0 + (i as f64 * 7.89) % 500.0,
