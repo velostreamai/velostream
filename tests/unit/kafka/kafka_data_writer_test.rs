@@ -256,11 +256,13 @@ mod kafka_data_writer_tests {
         // Test that all serialization formats are handled
         let formats = vec![
             SerializationFormat::Json,
-            SerializationFormat::Avro { 
-                schema_registry_url: "http://localhost:8081".to_string(), 
-                subject: "test".to_string() 
+            SerializationFormat::Avro {
+                schema_registry_url: "http://localhost:8081".to_string(),
+                subject: "test".to_string(),
             },
-            SerializationFormat::Protobuf { message_type: "TestMessage".to_string() },
+            SerializationFormat::Protobuf {
+                message_type: "TestMessage".to_string(),
+            },
             SerializationFormat::Bytes,
         ];
 

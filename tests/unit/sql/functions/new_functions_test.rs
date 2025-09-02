@@ -649,9 +649,7 @@ async fn test_having_clause_execution() {
     // pipeline supports them at the record level
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(
-        tx
-    );
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // Test simple HAVING clause (would work with aggregated data in a real scenario)
@@ -698,9 +696,7 @@ async fn test_having_clause_execution() {
 #[tokio::test]
 async fn test_datediff_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(
-        tx
-    );
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // Test with wrong number of arguments
@@ -729,9 +725,7 @@ async fn test_datediff_error_cases() {
 #[tokio::test]
 async fn test_position_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(
-        tx
-    );
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // Test with wrong number of arguments (too few)

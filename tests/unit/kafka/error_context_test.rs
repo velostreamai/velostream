@@ -92,7 +92,10 @@ fn test_comprehensive_error_source_chain_preservation() {
             println!("✅ Layer 1: KafkaClientError found in chain");
 
             // Traverse deeper into the error chain
-            assert!(ser_err.source().is_some(), "SerializationError should have a source, but it returned None");
+            assert!(
+                ser_err.source().is_some(),
+                "SerializationError should have a source, but it returned None"
+            );
 
             let serialization_source = ser_err.source().unwrap();
             if let Some(_json_err) = serialization_source.downcast_ref::<serde_json::Error>() {
