@@ -127,14 +127,16 @@ impl ProtobufCodec {
     pub fn new(schema: &str, message_type: &str) -> Result<Self, SerializationError> {
         // Validate that the schema is not empty
         if schema.trim().is_empty() {
-            return Err(SerializationError::SchemaError(
-                "Schema cannot be empty".to_string(),
+            return Err(SerializationError::schema_validation_error(
+                "Schema cannot be empty",
+                None::<std::io::Error>,
             ));
         }
 
         if message_type.trim().is_empty() {
-            return Err(SerializationError::SchemaError(
-                "Message type name cannot be empty".to_string(),
+            return Err(SerializationError::schema_validation_error(
+                "Message type name cannot be empty",
+                None::<std::io::Error>,
             ));
         }
 
@@ -197,10 +199,10 @@ impl ProtobufCodec {
         use std::fs;
 
         let schema = fs::read_to_string(proto_path).map_err(|e| {
-            SerializationError::SchemaError(format!(
-                "Failed to read proto file '{}': {}",
-                proto_path, e
-            ))
+            SerializationError::schema_validation_error(
+                format!("Failed to read proto file '{}'", proto_path),
+                Some(e),
+            )
         })?;
 
         // Extract the main message type from the schema (simplified - in production use protoc)
@@ -237,8 +239,9 @@ impl ProtobufCodec {
         };
 
         let mut buf = Vec::new();
-        prost::Message::encode(&record_msg, &mut buf)
-            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))?;
+        prost::Message::encode(&record_msg, &mut buf).map_err(|e| {
+            SerializationError::protobuf_error("Failed to encode protobuf message", e)
+        })?;
 
         Ok(buf)
     }
@@ -248,8 +251,9 @@ impl ProtobufCodec {
         &self,
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        let record_msg = RecordMessage::decode(bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+        let record_msg = RecordMessage::decode(bytes).map_err(|e| {
+            SerializationError::protobuf_error("Failed to decode protobuf message", e)
+        })?;
 
         let mut record = HashMap::new();
         for (key, proto_field) in record_msg.fields {
@@ -457,7 +461,7 @@ impl crate::ferris::serialization::traits::UnifiedCodec for ProtobufCodec {
         value: &HashMap<String, FieldValue>,
     ) -> Result<Vec<u8>, SerializationError> {
         self.serialize(value)
-            .map_err(|e| SerializationError::SerializationFailed(format!("{}", e)))
+            .map_err(|e| SerializationError::protobuf_error("Failed to serialize record", e))
     }
 
     fn deserialize_record(
@@ -465,7 +469,7 @@ impl crate::ferris::serialization::traits::UnifiedCodec for ProtobufCodec {
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         self.deserialize(bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(format!("{}", e)))
+            .map_err(|e| SerializationError::protobuf_error("Failed to deserialize record", e))
     }
 
     fn format_name(&self) -> &'static str {

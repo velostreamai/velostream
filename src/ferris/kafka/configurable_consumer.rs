@@ -339,8 +339,9 @@ where
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to K
                 serde_json::from_value(json_key.clone()).map_err(|e| {
-                    ConsumerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ConsumerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert JSON value to key type",
+                        e,
                     ))
                 })
             }
@@ -348,8 +349,9 @@ where
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_key {
                     serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
-                        ConsumerError::SerializationError(SerializationError::SerializationFailed(
-                            e.to_string(),
+                        ConsumerError::SerializationError(SerializationError::json_error(
+                            "Failed to deserialize string key",
+                            e,
                         ))
                     })
                 } else {
@@ -378,8 +380,9 @@ where
             SerializationFormat::Json => {
                 // Direct conversion from JSON Value to V
                 serde_json::from_value(json_value.clone()).map_err(|e| {
-                    ConsumerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ConsumerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert JSON value to value type",
+                        e,
                     ))
                 })
             }
@@ -387,8 +390,9 @@ where
                 // For string format, we expect a JSON string value
                 if let serde_json::Value::String(s) = json_value {
                     serde_json::from_str(&format!("\"{}\"", s)).map_err(|e| {
-                        ConsumerError::SerializationError(SerializationError::SerializationFailed(
-                            e.to_string(),
+                        ConsumerError::SerializationError(SerializationError::json_error(
+                            "Failed to deserialize string value",
+                            e,
                         ))
                     })
                 } else {

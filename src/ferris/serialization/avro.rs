@@ -19,7 +19,7 @@ impl AvroFormat {
     /// Create new Avro format with schema
     pub fn new(schema_json: &str) -> Result<Self, SerializationError> {
         let schema = apache_avro::Schema::parse_str(schema_json).map_err(|e| {
-            SerializationError::FormatConversionFailed(format!("Invalid Avro schema: {}", e))
+            SerializationError::schema_validation_error("Invalid Avro schema", Some(e))
         })?;
 
         let decimal_fields = extract_decimal_fields(&schema)?;
@@ -39,10 +39,10 @@ impl AvroFormat {
         reader_schema_json: &str,
     ) -> Result<Self, SerializationError> {
         let writer_schema = apache_avro::Schema::parse_str(writer_schema_json).map_err(|e| {
-            SerializationError::FormatConversionFailed(format!("Invalid writer schema: {}", e))
+            SerializationError::schema_validation_error("Invalid writer schema", Some(e))
         })?;
         let reader_schema = apache_avro::Schema::parse_str(reader_schema_json).map_err(|e| {
-            SerializationError::FormatConversionFailed(format!("Invalid reader schema: {}", e))
+            SerializationError::schema_validation_error("Invalid reader schema", Some(e))
         })?;
 
         // Extract decimal fields from reader schema (used for deserialization)
@@ -88,16 +88,13 @@ impl SerializationFormat for AvroFormat {
 
         // Create writer and encode
         let mut writer = Writer::new(&self.writer_schema, Vec::new());
-        writer.append(avro_value).map_err(|e| {
-            SerializationError::SerializationFailed(format!("Avro serialization failed: {}", e))
-        })?;
+        writer
+            .append(avro_value)
+            .map_err(|e| SerializationError::avro_error("Avro serialization failed", e))?;
 
-        writer.into_inner().map_err(|e| {
-            SerializationError::SerializationFailed(format!(
-                "Avro writer finalization failed: {}",
-                e
-            ))
-        })
+        writer
+            .into_inner()
+            .map_err(|e| SerializationError::avro_error("Avro writer finalization failed", e))
     }
 
     fn deserialize_record(
@@ -106,24 +103,20 @@ impl SerializationFormat for AvroFormat {
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         use apache_avro::Reader;
 
-        let mut reader = Reader::with_schema(&self.reader_schema, bytes).map_err(|e| {
-            SerializationError::DeserializationFailed(format!("Avro reader creation failed: {}", e))
-        })?;
+        let mut reader = Reader::with_schema(&self.reader_schema, bytes)
+            .map_err(|e| SerializationError::avro_error("Avro reader creation failed", e))?;
 
         // Read first record (assuming single record per message)
         if let Some(record_result) = reader.next() {
-            let avro_value = record_result.map_err(|e| {
-                SerializationError::DeserializationFailed(format!(
-                    "Avro deserialization failed: {}",
-                    e
-                ))
-            })?;
+            let avro_value = record_result
+                .map_err(|e| SerializationError::avro_error("Avro deserialization failed", e))?;
 
             return avro_value_to_record_with_schema(&avro_value, &self.decimal_fields);
         }
 
-        Err(SerializationError::DeserializationFailed(
-            "No records found in Avro data".to_string(),
+        Err(SerializationError::schema_validation_error(
+            "No records found in Avro data",
+            None::<std::io::Error>,
         ))
     }
 
@@ -211,8 +204,9 @@ fn avro_value_to_record(
             }
             Ok(record)
         }
-        _ => Err(SerializationError::DeserializationFailed(
-            "Expected Avro record".to_string(),
+        _ => Err(SerializationError::schema_validation_error(
+            "Expected Avro record",
+            None::<std::io::Error>,
         )),
     }
 }
@@ -232,8 +226,9 @@ fn avro_value_to_record_with_schema(
             }
             Ok(record)
         }
-        _ => Err(SerializationError::DeserializationFailed(
-            "Expected Avro record".to_string(),
+        _ => Err(SerializationError::schema_validation_error(
+            "Expected Avro record",
+            None::<std::io::Error>,
         )),
     }
 }

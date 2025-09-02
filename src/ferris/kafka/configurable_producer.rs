@@ -336,16 +336,18 @@ where
             SerializationFormat::Json => {
                 // Direct conversion from K to JSON Value
                 serde_json::to_value(key).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ProducerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert key to JSON value",
+                        e,
                     ))
                 })
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
                 let json_str = serde_json::to_string(key).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ProducerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert key to JSON string",
+                        e,
                     ))
                 })?;
                 Ok(serde_json::Value::String(
@@ -370,16 +372,18 @@ where
             SerializationFormat::Json => {
                 // Direct conversion from V to JSON Value
                 serde_json::to_value(value).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ProducerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert value to JSON value",
+                        e,
                     ))
                 })
             }
             SerializationFormat::String => {
                 // For string format, serialize as JSON string
                 let json_str = serde_json::to_string(value).map_err(|e| {
-                    ProducerError::SerializationError(SerializationError::SerializationFailed(
-                        e.to_string(),
+                    ProducerError::SerializationError(SerializationError::json_error(
+                        "Failed to convert value to JSON string",
+                        e,
                     ))
                 })?;
                 Ok(serde_json::Value::String(

@@ -72,7 +72,12 @@ pub fn field_value_to_json(
         FieldValue::Float(f) => serde_json::Number::from_f64(*f)
             .map(serde_json::Value::Number)
             .ok_or_else(|| {
-                SerializationError::FormatConversionFailed(format!("Invalid float: {}", f))
+                SerializationError::type_conversion_error(
+                    format!("Invalid float: {}", f),
+                    "String",
+                    "Float",
+                    None::<std::io::Error>,
+                )
             }),
         FieldValue::Boolean(b) => Ok(serde_json::Value::Bool(*b)),
         FieldValue::Null => Ok(serde_json::Value::Null),
@@ -219,10 +224,12 @@ pub fn avro_value_to_field_value(
             Ok(FieldValue::Struct(field_map))
         }
         Value::Union(_, boxed_value) => avro_value_to_field_value(boxed_value),
-        _ => Err(SerializationError::UnsupportedType(format!(
-            "Unsupported Avro type: {:?}",
-            avro_value
-        ))),
+        _ => Err(SerializationError::type_conversion_error(
+            format!("Unsupported Avro type: {:?}", avro_value),
+            "AvroValue",
+            "FieldValue",
+            None::<std::io::Error>,
+        )),
     }
 }
 
@@ -405,10 +412,12 @@ pub fn avro_value_to_field_value_with_schema(
             // Extract bytes from Apache Avro Decimal
             // In Apache Avro 0.20.0, use TryFrom<Decimal> for Vec<u8>
             let bytes: Vec<u8> = decimal.clone().try_into().map_err(|e| {
-                SerializationError::DeserializationFailed(format!(
-                    "Failed to extract bytes from Decimal: {:?}",
-                    e
-                ))
+                SerializationError::type_conversion_error(
+                    "Failed to extract bytes from Decimal".to_string(),
+                    "Decimal",
+                    "bytes",
+                    Some(e),
+                )
             })?;
             eprintln!("DEBUG: Extracted {} bytes from Decimal", bytes.len());
 
@@ -478,8 +487,11 @@ fn encode_big_endian_signed(value: i64) -> Vec<u8> {
 /// Convert protobuf bytes to FieldValue (placeholder implementation)
 pub fn protobuf_bytes_to_field_value(_bytes: &[u8]) -> Result<FieldValue, SerializationError> {
     // This is a placeholder - real implementation would depend on the specific protobuf schema
-    Err(SerializationError::UnsupportedType(
+    Err(SerializationError::type_conversion_error(
         "Generic protobuf conversion not implemented".to_string(),
+        "ProtobufBytes",
+        "FieldValue",
+        None::<std::io::Error>,
     ))
 }
 
@@ -571,40 +583,54 @@ pub fn decode_avro_decimal_bytes_with_schema(
     scale: u32,
 ) -> Result<FieldValue, SerializationError> {
     if bytes.is_empty() {
-        return Err(SerializationError::DeserializationFailed(
+        return Err(SerializationError::type_conversion_error(
             "Empty bytes for decimal value".to_string(),
+            "bytes",
+            "ScaledInteger",
+            None::<std::io::Error>,
         ));
     }
 
     // Validate precision/scale parameters
     if scale > precision {
-        return Err(SerializationError::UnsupportedType(format!(
-            "Scale {} cannot be greater than precision {}",
-            scale, precision
-        )));
+        return Err(SerializationError::schema_validation_error(
+            format!(
+                "Scale {} cannot be greater than precision {}",
+                scale, precision
+            ),
+            None::<std::io::Error>,
+        ));
     }
 
     if scale > 255 {
-        return Err(SerializationError::UnsupportedType(format!(
-            "Scale {} exceeds maximum u8 value",
-            scale
-        )));
+        return Err(SerializationError::type_conversion_error(
+            format!("Scale {} exceeds maximum u8 value", scale),
+            "u32",
+            "u8",
+            None::<std::io::Error>,
+        ));
     }
 
     // Decode big-endian two's complement bytes to signed integer
     let unscaled_value = decode_big_endian_signed_extended(bytes).ok_or_else(|| {
-        SerializationError::DeserializationFailed(
+        SerializationError::type_conversion_error(
             "Failed to decode decimal bytes as signed integer".to_string(),
+            "bytes",
+            "i64",
+            None::<std::io::Error>,
         )
     })?;
 
     // Validate the decoded value fits within precision
     let max_unscaled_value = 10_i128.pow(precision) - 1;
     if (unscaled_value as i128).abs() > max_unscaled_value {
-        return Err(SerializationError::UnsupportedType(format!(
-            "Decimal value exceeds precision {}: {}",
-            precision, unscaled_value
-        )));
+        return Err(SerializationError::schema_validation_error(
+            format!(
+                "Decimal value exceeds precision {}: {}",
+                precision, unscaled_value
+            ),
+            None::<std::io::Error>,
+        ));
     }
 
     // Convert to ScaledInteger with the correct scale from schema

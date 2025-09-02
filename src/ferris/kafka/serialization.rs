@@ -85,13 +85,14 @@ pub trait AsyncSerializer<T: Send + Sync> {
 
 /// Serialize a struct to JSON bytes
 pub fn to_json<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
-    serde_json::to_vec(value).map_err(|e| SerializationError::SerializationFailed(e.to_string()))
+    serde_json::to_vec(value)
+        .map_err(|e| SerializationError::json_error("Failed to serialize to JSON bytes", e))
 }
 
 /// Deserialize JSON bytes to a struct
 pub fn from_json<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, SerializationError> {
     serde_json::from_slice(bytes)
-        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
+        .map_err(|e| SerializationError::json_error("Failed to deserialize from JSON bytes", e))
 }
 
 // Implementation for any type that implements Serialize
@@ -157,14 +158,14 @@ where
 /// Serialize a value to Avro bytes using a schema
 pub fn to_avro(value: &AvroValue, schema: &AvroSchema) -> Result<Vec<u8>, SerializationError> {
     to_avro_datum(schema, value.clone())
-        .map_err(|e| SerializationError::SerializationFailed(e.to_string()))
+        .map_err(|e| SerializationError::avro_error("Failed to serialize to Avro bytes", e))
 }
 
 /// Deserialize Avro bytes to a value using a schema
 pub fn from_avro(bytes: &[u8], schema: &AvroSchema) -> Result<AvroValue, SerializationError> {
     let mut cursor = Cursor::new(bytes);
     from_avro_datum(schema, &mut cursor, None)
-        .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))
+        .map_err(|e| SerializationError::avro_error("Failed to deserialize from Avro bytes", e))
 }
 
 /// Avro serializer implementation
@@ -196,7 +197,10 @@ pub fn to_proto<T: Message>(message: &T) -> Result<Vec<u8>, SerializationError> 
     let mut buf = Vec::new();
     match message.encode(&mut buf) {
         Ok(_) => Ok(buf),
-        Err(e) => Err(SerializationError::SerializationFailed(e.to_string())),
+        Err(e) => Err(SerializationError::protobuf_error(
+            "Failed to encode protobuf message",
+            e,
+        )),
     }
 }
 
@@ -204,7 +208,10 @@ pub fn to_proto<T: Message>(message: &T) -> Result<Vec<u8>, SerializationError> 
 pub fn from_proto<T: Message + Default>(bytes: &[u8]) -> Result<T, SerializationError> {
     match T::decode(bytes) {
         Ok(message) => Ok(message),
-        Err(e) => Err(SerializationError::DeserializationFailed(e.to_string())),
+        Err(e) => Err(SerializationError::protobuf_error(
+            "Failed to decode protobuf message",
+            e,
+        )),
     }
 }
 

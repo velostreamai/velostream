@@ -57,10 +57,12 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
                 // If it's a JSON object, add each field
                 for (key, value) in obj {
                     let field_value = json_to_field_value(&value).map_err(|e| {
-                        SerializationError::DeserializationFailed(format!(
-                            "Field conversion failed: {}",
-                            e
-                        ))
+                        SerializationError::type_conversion_error(
+                            format!("Field conversion failed: {}", e),
+                            "JSON",
+                            "FieldValue",
+                            Some(e),
+                        )
                     })?;
                     fields.insert(key, field_value);
                 }
@@ -68,10 +70,12 @@ impl Serializer<HashMap<String, FieldValue>> for JsonCodec {
             _ => {
                 // If it's not an object, store as single "value" field
                 let field_value = json_to_field_value(&json_value).map_err(|e| {
-                    SerializationError::DeserializationFailed(format!(
-                        "Value conversion failed: {}",
-                        e
-                    ))
+                    SerializationError::type_conversion_error(
+                        format!("Value conversion failed: {}", e),
+                        "JSON",
+                        "FieldValue",
+                        Some(e),
+                    )
                 })?;
                 fields.insert("value".to_string(), field_value);
             }

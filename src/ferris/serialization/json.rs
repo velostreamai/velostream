@@ -22,7 +22,7 @@ impl SerializationFormat for JsonFormat {
 
         let json_object = serde_json::Value::Object(json_map);
         serde_json::to_vec(&json_object)
-            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))
+            .map_err(|e| SerializationError::json_error("Failed to serialize JSON", e))
     }
 
     fn deserialize_record(
@@ -30,7 +30,7 @@ impl SerializationFormat for JsonFormat {
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         let json_value: serde_json::Value = serde_json::from_slice(bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+            .map_err(|e| SerializationError::json_error("Failed to parse JSON from bytes", e))?;
 
         match json_value {
             serde_json::Value::Object(map) => {
@@ -41,8 +41,9 @@ impl SerializationFormat for JsonFormat {
                 }
                 Ok(record)
             }
-            _ => Err(SerializationError::DeserializationFailed(
-                "Expected JSON object".to_string(),
+            _ => Err(SerializationError::schema_validation_error(
+                "Expected JSON object",
+                None::<std::io::Error>,
             )),
         }
     }

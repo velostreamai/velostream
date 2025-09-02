@@ -47,8 +47,9 @@ where
 
         // Convert record to JSON first, then to bytes (simplified approach)
         let json_value = record_to_json_map(record)?;
-        let json_bytes = serde_json::to_vec(&json_value)
-            .map_err(|e| SerializationError::SerializationFailed(e.to_string()))?;
+        let json_bytes = serde_json::to_vec(&json_value).map_err(|e| {
+            SerializationError::json_error("Failed to serialize JSON for protobuf", e)
+        })?;
 
         // For a generic implementation, we'll store JSON as bytes
         // Real implementation would use proper protobuf message definitions
@@ -61,8 +62,9 @@ where
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
         // For generic protobuf support, decode from JSON bytes
-        let json_value: serde_json::Value = serde_json::from_slice(bytes)
-            .map_err(|e| SerializationError::DeserializationFailed(e.to_string()))?;
+        let json_value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| {
+            SerializationError::json_error("Failed to parse JSON from protobuf bytes", e)
+        })?;
 
         match json_value {
             serde_json::Value::Object(map) => {
@@ -73,8 +75,9 @@ where
                 }
                 Ok(record)
             }
-            _ => Err(SerializationError::DeserializationFailed(
-                "Expected JSON object from protobuf data".to_string(),
+            _ => Err(SerializationError::schema_validation_error(
+                "Expected JSON object from protobuf data",
+                None::<std::io::Error>,
             )),
         }
     }

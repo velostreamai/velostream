@@ -60,8 +60,11 @@ impl AvroCodec {
 
             self.avro_value_to_record(&avro_value)
         } else {
-            Err(SerializationError::DeserializationFailed(
+            Err(SerializationError::type_conversion_error(
                 "No records found in Avro data".to_string(),
+                "AvroData",
+                "Record",
+                None::<std::io::Error>,
             ))
         }
     }
