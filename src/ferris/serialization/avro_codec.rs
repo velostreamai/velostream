@@ -36,13 +36,13 @@ impl AvroCodec {
 
         // Create writer and serialize
         let mut writer = Writer::new(&self.schema, Vec::new());
-        writer
-            .append(avro_value)
-            .map_err(|e| SerializationError::avro_error("Failed to append Avro data to writer", e))?;
+        writer.append(avro_value).map_err(|e| {
+            SerializationError::avro_error("Failed to append Avro data to writer", e)
+        })?;
 
-        writer
-            .into_inner()
-            .map_err(|e| SerializationError::avro_error("Failed to extract serialized Avro bytes", e))
+        writer.into_inner().map_err(|e| {
+            SerializationError::avro_error("Failed to extract serialized Avro bytes", e)
+        })
     }
 
     /// Deserialize Avro bytes to HashMap<String, FieldValue>

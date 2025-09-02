@@ -7,7 +7,7 @@ use crate::ferris::sql::SqlError;
 pub enum SerializationError {
     // Legacy string-only variants (kept for backward compatibility)
     SerializationFailed(String),
-    DeserializationFailed(String), 
+    DeserializationFailed(String),
     FormatConversionFailed(String),
     UnsupportedType(String),
     SchemaError(String),
@@ -86,10 +86,17 @@ impl std::fmt::Display for SerializationError {
             SerializationError::SchemaValidationError { message, .. } => {
                 write!(f, "Schema validation error: {}", message)
             }
-            SerializationError::TypeConversionError { 
-                message, from_type, to_type, .. 
+            SerializationError::TypeConversionError {
+                message,
+                from_type,
+                to_type,
+                ..
             } => {
-                write!(f, "Type conversion error: {} (from {} to {})", message, from_type, to_type)
+                write!(
+                    f,
+                    "Type conversion error: {} (from {} to {})",
+                    message, from_type, to_type
+                )
             }
 
             // Backward compatibility
@@ -104,19 +111,23 @@ impl std::error::Error for SerializationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             // Legacy variants have no source chain
-            SerializationError::SerializationFailed(_) |
-            SerializationError::DeserializationFailed(_) |
-            SerializationError::FormatConversionFailed(_) |
-            SerializationError::UnsupportedType(_) |
-            SerializationError::SchemaError(_) => None,
+            SerializationError::SerializationFailed(_)
+            | SerializationError::DeserializationFailed(_)
+            | SerializationError::FormatConversionFailed(_)
+            | SerializationError::UnsupportedType(_)
+            | SerializationError::SchemaError(_) => None,
 
             // Enhanced variants with error chaining
             SerializationError::JsonError { source, .. } => Some(source.as_ref()),
             SerializationError::AvroError { source, .. } => Some(source.as_ref()),
             SerializationError::ProtobufError { source, .. } => Some(source.as_ref()),
             SerializationError::EncodingError { source, .. } => Some(source.as_ref()),
-            SerializationError::SchemaValidationError { source, .. } => source.as_ref().map(|s| s.as_ref() as &dyn std::error::Error),
-            SerializationError::TypeConversionError { source, .. } => source.as_ref().map(|s| s.as_ref() as &dyn std::error::Error),
+            SerializationError::SchemaValidationError { source, .. } => source
+                .as_ref()
+                .map(|s| s.as_ref() as &dyn std::error::Error),
+            SerializationError::TypeConversionError { source, .. } => source
+                .as_ref()
+                .map(|s| s.as_ref() as &dyn std::error::Error),
 
             // Backward compatibility
             SerializationError::JsonSerializationFailed(err) => Some(err.as_ref()),
@@ -126,7 +137,10 @@ impl std::error::Error for SerializationError {
 
 impl SerializationError {
     /// Create a JSON error with source chain preservation
-    pub fn json_error(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub fn json_error(
+        message: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
         SerializationError::JsonError {
             message: message.into(),
             source: Box::new(source),
@@ -134,7 +148,10 @@ impl SerializationError {
     }
 
     /// Create an Avro error with source chain preservation
-    pub fn avro_error(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub fn avro_error(
+        message: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
         SerializationError::AvroError {
             message: message.into(),
             source: Box::new(source),
@@ -142,7 +159,10 @@ impl SerializationError {
     }
 
     /// Create a Protobuf error with source chain preservation
-    pub fn protobuf_error(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub fn protobuf_error(
+        message: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
         SerializationError::ProtobufError {
             message: message.into(),
             source: Box::new(source),
@@ -150,7 +170,10 @@ impl SerializationError {
     }
 
     /// Create an encoding error with source chain preservation
-    pub fn encoding_error(message: impl Into<String>, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+    pub fn encoding_error(
+        message: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
         SerializationError::EncodingError {
             message: message.into(),
             source: Box::new(source),
@@ -158,7 +181,10 @@ impl SerializationError {
     }
 
     /// Create a schema validation error with optional source chain preservation
-    pub fn schema_validation_error(message: impl Into<String>, source: Option<impl std::error::Error + Send + Sync + 'static>) -> Self {
+    pub fn schema_validation_error(
+        message: impl Into<String>,
+        source: Option<impl std::error::Error + Send + Sync + 'static>,
+    ) -> Self {
         SerializationError::SchemaValidationError {
             message: message.into(),
             source: source.map(|s| Box::new(s) as Box<dyn std::error::Error + Send + Sync>),

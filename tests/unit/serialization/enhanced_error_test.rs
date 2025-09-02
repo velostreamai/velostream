@@ -15,12 +15,10 @@ mod enhanced_error_tests {
         // Create a JSON parsing error
         let invalid_json = r#"{"invalid": json, syntax}"#;
         let json_error = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-        
+
         // Create enhanced JSON error with source chain
-        let enhanced_error = SerializationError::json_error(
-            "Failed to parse user input as JSON",
-            json_error
-        );
+        let enhanced_error =
+            SerializationError::json_error("Failed to parse user input as JSON", json_error);
 
         // Verify display message
         let display_msg = enhanced_error.to_string();
@@ -29,7 +27,7 @@ mod enhanced_error_tests {
 
         // Verify error source chain is preserved
         assert!(enhanced_error.source().is_some());
-        
+
         // Verify we can downcast to the original JSON error
         let source_error = enhanced_error.source().unwrap();
         assert!(source_error.downcast_ref::<serde_json::Error>().is_some());
@@ -42,10 +40,8 @@ mod enhanced_error_tests {
         let utf8_error = String::from_utf8(invalid_utf8).unwrap_err();
 
         // Create enhanced encoding error with source chain
-        let enhanced_error = SerializationError::encoding_error(
-            "Invalid UTF-8 sequence in input data",
-            utf8_error
-        );
+        let enhanced_error =
+            SerializationError::encoding_error("Invalid UTF-8 sequence in input data", utf8_error);
 
         // Verify display message
         let display_msg = enhanced_error.to_string();
@@ -54,17 +50,19 @@ mod enhanced_error_tests {
 
         // Verify error source chain is preserved
         assert!(enhanced_error.source().is_some());
-        
+
         // Verify we can downcast to the original UTF-8 error
         let source_error = enhanced_error.source().unwrap();
-        assert!(source_error.downcast_ref::<std::string::FromUtf8Error>().is_some());
+        assert!(source_error
+            .downcast_ref::<std::string::FromUtf8Error>()
+            .is_some());
     }
 
     #[test]
     fn test_schema_validation_error_without_source() {
         let enhanced_error = SerializationError::schema_validation_error(
             "Schema field 'age' must be integer, found string",
-            None::<std::io::Error>
+            None::<std::io::Error>,
         );
 
         // Verify display message
@@ -78,14 +76,12 @@ mod enhanced_error_tests {
 
     #[test]
     fn test_schema_validation_error_with_source() {
-        let io_error = std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Invalid schema format"
-        );
-        
+        let io_error =
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid schema format");
+
         let enhanced_error = SerializationError::schema_validation_error(
             "Failed to validate Avro schema structure",
-            Some(io_error)
+            Some(io_error),
         );
 
         // Verify display message
@@ -94,7 +90,7 @@ mod enhanced_error_tests {
 
         // Verify error source chain is preserved
         assert!(enhanced_error.source().is_some());
-        
+
         // Verify we can downcast to the original IO error
         let source_error = enhanced_error.source().unwrap();
         assert!(source_error.downcast_ref::<std::io::Error>().is_some());
@@ -103,12 +99,12 @@ mod enhanced_error_tests {
     #[test]
     fn test_type_conversion_error_with_detailed_info() {
         let parse_error = "invalid float".parse::<f64>().unwrap_err();
-        
+
         let enhanced_error = SerializationError::type_conversion_error(
             "Cannot convert string value to floating point number",
             "String",
-            "f64", 
-            Some(parse_error)
+            "f64",
+            Some(parse_error),
         );
 
         // Verify detailed display message with type information
@@ -119,10 +115,12 @@ mod enhanced_error_tests {
 
         // Verify error source chain is preserved
         assert!(enhanced_error.source().is_some());
-        
+
         // Verify we can downcast to the original parse error
         let source_error = enhanced_error.source().unwrap();
-        assert!(source_error.downcast_ref::<std::num::ParseFloatError>().is_some());
+        assert!(source_error
+            .downcast_ref::<std::num::ParseFloatError>()
+            .is_some());
     }
 
     #[test]
@@ -131,7 +129,7 @@ mod enhanced_error_tests {
             "Unsupported conversion from complex nested structure",
             "HashMap<String, Vec<CustomStruct>>",
             "PrimitiveType",
-            None::<std::io::Error>
+            None::<std::io::Error>,
         );
 
         // Verify detailed display message
@@ -148,14 +146,12 @@ mod enhanced_error_tests {
     fn test_avro_error_with_source_chain() {
         // This would typically be an actual apache_avro::Error in real usage
         // For testing purposes, we'll use a generic error
-        let mock_avro_error = std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Avro schema mismatch"
-        );
-        
+        let mock_avro_error =
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Avro schema mismatch");
+
         let enhanced_error = SerializationError::avro_error(
             "Failed to serialize record with Avro schema",
-            mock_avro_error
+            mock_avro_error,
         );
 
         // Verify display message
@@ -172,12 +168,12 @@ mod enhanced_error_tests {
         // Mock protobuf error for testing
         let mock_protobuf_error = std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
-            "Protobuf message truncated"
+            "Protobuf message truncated",
         );
-        
+
         let enhanced_error = SerializationError::protobuf_error(
             "Protobuf deserialization failed due to malformed message",
-            mock_protobuf_error
+            mock_protobuf_error,
         );
 
         // Verify display message
@@ -192,7 +188,7 @@ mod enhanced_error_tests {
     #[test]
     fn test_backward_compatibility_with_json_serialization_failed() {
         let json_error = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
-        
+
         // Test that the old JsonSerializationFailed variant still works
         let legacy_error = SerializationError::JsonSerializationFailed(Box::new(json_error));
 
@@ -208,22 +204,22 @@ mod enhanced_error_tests {
     fn test_error_chain_traversal_deep() {
         // Create a deep error chain: ParseFloatError -> TypeConversionError -> JsonError
         let parse_error = "not_a_number".parse::<f64>().unwrap_err();
-        
+
         let type_conversion_error = SerializationError::type_conversion_error(
             "Failed to convert field to number",
             "String",
             "f64",
-            Some(parse_error)
+            Some(parse_error),
         );
 
         let json_error = SerializationError::json_error(
             "JSON object contains invalid numeric field",
-            type_conversion_error
+            type_conversion_error,
         );
 
         // Verify the top-level error
         assert!(json_error.to_string().contains("JSON error"));
-        
+
         // Traverse the error chain
         let mut current_error: &dyn Error = &json_error;
         let mut chain_depth = 0;
@@ -231,7 +227,7 @@ mod enhanced_error_tests {
         while let Some(source) = current_error.source() {
             chain_depth += 1;
             current_error = source;
-            
+
             // Prevent infinite loops in test
             if chain_depth > 10 {
                 break;
@@ -239,7 +235,11 @@ mod enhanced_error_tests {
         }
 
         // Should have at least 2 levels: JsonError -> TypeConversionError -> ParseFloatError
-        assert!(chain_depth >= 2, "Error chain should have at least 2 levels, found {}", chain_depth);
+        assert!(
+            chain_depth >= 2,
+            "Error chain should have at least 2 levels, found {}",
+            chain_depth
+        );
     }
 
     #[test]
@@ -249,7 +249,8 @@ mod enhanced_error_tests {
         assert!(legacy_error.to_string().contains("Serialization failed"));
         assert!(legacy_error.source().is_none()); // Legacy variants have no source
 
-        let legacy_error2 = SerializationError::UnsupportedType("Complex type not supported".to_string());
+        let legacy_error2 =
+            SerializationError::UnsupportedType("Complex type not supported".to_string());
         assert!(legacy_error2.to_string().contains("Unsupported type"));
         assert!(legacy_error2.source().is_none());
     }
