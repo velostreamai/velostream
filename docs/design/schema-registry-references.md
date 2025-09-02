@@ -148,7 +148,6 @@ pub enum SerializationFormat {
     Bytes,
     String,
     
-    #[cfg(feature = "avro")]
     Avro {
         schema_registry_url: String,
         subject: String,
@@ -157,7 +156,6 @@ pub enum SerializationFormat {
         cache_dependencies: bool,       // NEW: cache resolved dependencies
     },
     
-    #[cfg(feature = "protobuf")]  
     Protobuf {
         message_type: String,
         // Protobuf references handled at compile-time

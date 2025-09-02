@@ -88,12 +88,12 @@ where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
 {
-    brokers: String,
-    group_id: String,
-    key_format: SerializationFormat,
-    value_format: SerializationFormat,
-    consumer_config: Option<ConsumerConfig>,
-    serialization_config: Option<SerializationConfig>,
+    pub brokers: String,
+    pub group_id: String,
+    pub key_format: SerializationFormat,
+    pub value_format: SerializationFormat,
+    pub consumer_config: Option<ConsumerConfig>,
+    pub serialization_config: Option<SerializationConfig>,
     // Context will be DefaultConsumerContext by default
     // _context: Option<DefaultConsumerContext>,
     _phantom_key: PhantomData<K>,

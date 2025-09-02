@@ -42,13 +42,11 @@ mod serialization_format_tests {
         );
 
         // Test feature-gated formats
-        #[cfg(feature = "avro")]
         {
             let avro_format = "avro".parse::<SerializationFormat>().unwrap();
             assert!(matches!(avro_format, SerializationFormat::Avro { .. }));
         }
 
-        #[cfg(feature = "protobuf")]
         {
             let proto_format = "protobuf".parse::<SerializationFormat>().unwrap();
             assert!(matches!(proto_format, SerializationFormat::Protobuf { .. }));
@@ -84,7 +82,6 @@ mod serialization_format_tests {
         assert_eq!(SerializationFormat::Bytes.to_string(), "bytes");
         assert_eq!(SerializationFormat::String.to_string(), "string");
 
-        #[cfg(feature = "avro")]
         {
             let avro_format = SerializationFormat::Avro {
                 schema_registry_url: "http://localhost:8081".to_string(),
@@ -93,7 +90,6 @@ mod serialization_format_tests {
             assert_eq!(avro_format.to_string(), "avro");
         }
 
-        #[cfg(feature = "protobuf")]
         {
             let proto_format = SerializationFormat::Protobuf {
                 message_type: "MyMessage".to_string(),
@@ -145,7 +141,6 @@ mod serialization_format_tests {
         assert_eq!(config.value_format(), SerializationFormat::String);
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_serialization_config_avro_parameters() {
         let mut sql_params = HashMap::new();
@@ -202,7 +197,6 @@ mod serialization_format_tests {
         assert!(config.validate().is_ok());
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_serialization_config_validation_avro_missing_registry() {
         let mut sql_params = HashMap::new();
@@ -217,7 +211,6 @@ mod serialization_format_tests {
         assert!(err_msg.contains("Schema Registry URL required"));
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_serialization_config_validation_avro_missing_subject() {
         let mut sql_params = HashMap::new();
@@ -243,7 +236,6 @@ mod serialization_format_tests {
         assert!(SerializationFactory::validate_format(&SerializationFormat::String).is_ok());
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_serialization_factory_validate_format_avro_valid() {
         let avro_format = SerializationFormat::Avro {
@@ -253,7 +245,6 @@ mod serialization_format_tests {
         assert!(SerializationFactory::validate_format(&avro_format).is_ok());
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_serialization_factory_validate_format_avro_invalid() {
         // Empty schema registry URL
@@ -275,7 +266,6 @@ mod serialization_format_tests {
         assert!(format!("{}", result.unwrap_err()).contains("Subject cannot be empty"));
     }
 
-    #[cfg(feature = "protobuf")]
     #[test]
     fn test_serialization_factory_validate_format_protobuf_valid() {
         let proto_format = SerializationFormat::Protobuf {
@@ -284,7 +274,6 @@ mod serialization_format_tests {
         assert!(SerializationFactory::validate_format(&proto_format).is_ok());
     }
 
-    #[cfg(feature = "protobuf")]
     #[test]
     fn test_serialization_factory_validate_format_protobuf_invalid() {
         let proto_format = SerializationFormat::Protobuf {
@@ -293,25 +282,6 @@ mod serialization_format_tests {
         let result = SerializationFactory::validate_format(&proto_format);
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("Message type cannot be empty"));
-    }
-
-    #[cfg(not(feature = "avro"))]
-    #[test]
-    fn test_serialization_factory_avro_feature_not_enabled() {
-        // This test only runs when avro feature is NOT enabled
-        // We can't create Avro format without the feature, but we can test the error case
-        let result = "avro".parse::<SerializationFormat>();
-        // Should fail because avro feature is not enabled
-        assert!(result.is_err());
-    }
-
-    #[cfg(not(feature = "protobuf"))]
-    #[test]
-    fn test_serialization_factory_protobuf_feature_not_enabled() {
-        // This test only runs when protobuf feature is NOT enabled
-        let result = "protobuf".parse::<SerializationFormat>();
-        // Should fail because protobuf feature is not enabled
-        assert!(result.is_err());
     }
 
     #[test]
@@ -391,7 +361,6 @@ mod serialization_format_tests {
         assert_ne!(SerializationFormat::Json, SerializationFormat::Bytes);
         assert_ne!(SerializationFormat::String, SerializationFormat::Json);
 
-        #[cfg(feature = "avro")]
         {
             let avro1 = SerializationFormat::Avro {
                 schema_registry_url: "http://localhost:8081".to_string(),

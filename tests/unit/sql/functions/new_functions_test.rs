@@ -760,10 +760,7 @@ async fn test_position_error_cases() {
 #[tokio::test]
 async fn test_listagg_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(
-        tx,
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat),
-    );
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     // Test with wrong number of arguments

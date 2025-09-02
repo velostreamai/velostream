@@ -24,9 +24,12 @@ impl std::fmt::Display for SerializationError {
             SerializationError::FormatConversionFailed(msg) => {
                 write!(f, "Format conversion failed: {}", msg)
             }
-            SerializationError::UnsupportedType(msg) => write!(f, "Unsupported type: {}", msg),
+            SerializationError::UnsupportedType(msg) => {
+                write!(f, "Unsupported type: {}", msg)
+            },
+            // The corrected line is here
             SerializationError::SchemaError(msg) => {
-                write!(f, "Format conversion failed: {}", msg)
+                write!(f, "Schema error: {}", msg)
             }
         }
     }

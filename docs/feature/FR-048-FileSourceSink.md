@@ -111,9 +111,7 @@ This feature request implements a complete end-to-end data processing pipeline t
    ```rust
    pub enum SerializationFormat {
        Json,
-       #[cfg(feature = "avro")]
        Avro { schema_registry_url: String, subject: String },
-       #[cfg(feature = "protobuf")]
        Protobuf { message_type: String },
        Bytes,
        String,
@@ -196,9 +194,7 @@ let consumer = KafkaConsumer::<String, String, _, _>::new(
    ```rust
    pub enum SerializationFormat {
        Json,
-       #[cfg(feature = "avro")]
        Avro { schema_registry_url: String, subject: String },
-       #[cfg(feature = "protobuf")]
        Protobuf { message_type: String },
    }
 
@@ -207,9 +203,7 @@ let consumer = KafkaConsumer::<String, String, _, _>::new(
        pub fn create_serializer<T>(format: SerializationFormat) -> Box<dyn Serializer<T>> {
            match format {
                SerializationFormat::Json => Box::new(JsonSerializer),
-               #[cfg(feature = "avro")]
                SerializationFormat::Avro { .. } => Box::new(AvroSerializer::new(...)),
-               #[cfg(feature = "protobuf")]
                SerializationFormat::Protobuf { .. } => Box::new(ProtobufSerializer::new(...)),
            }
        }

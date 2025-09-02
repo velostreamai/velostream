@@ -62,7 +62,7 @@ fn test_comprehensive_error_source_chain_preservation() {
     // Create a deep error chain: JSON -> Serialization -> Kafka -> Contextual
     let invalid_json = "\x00\x01\x02invalid_json";
     let json_err = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-    let serialization_error = SerializationError::SerializationFailed(json_err);
+    let serialization_error = SerializationError::SerializationFailed(json_err.to_string());
     let kafka_error: KafkaClientError = serialization_error.into();
 
     // Add operational context with detailed metadata
@@ -92,10 +92,7 @@ fn test_comprehensive_error_source_chain_preservation() {
             println!("✅ Layer 1: KafkaClientError found in chain");
 
             // Traverse deeper into the error chain
-            assert!(
-                ser_err.source().is_some(),
-                "SerializationError should have source"
-            );
+            assert!(ser_err.source().is_some(), "SerializationError should have a source, but it returned None");
 
             let serialization_source = ser_err.source().unwrap();
             if let Some(_json_err) = serialization_source.downcast_ref::<serde_json::Error>() {
@@ -351,7 +348,7 @@ fn test_error_severity_categorization() {
     // Test serialization error categorization
     let invalid_json = "\x00\x01\x02invalid_json";
     let json_err = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-    let serialization_error = SerializationError::SerializationFailed(json_err);
+    let serialization_error = SerializationError::SerializationFailed(json_err.to_string());
     let kafka_serialization_error: KafkaClientError = serialization_error.into();
     assert_eq!(
         categorize_error(&kafka_serialization_error),

@@ -74,12 +74,12 @@ where
     K: Serialize + 'static,
     V: Serialize + 'static,
 {
-    brokers: String,
-    default_topic: String,
-    key_format: SerializationFormat,
-    value_format: SerializationFormat,
+    pub brokers: String,
+    pub default_topic: String,
+    pub key_format: SerializationFormat,
+    pub value_format: SerializationFormat,
     producer_config: Option<ProducerConfig>,
-    serialization_config: Option<SerializationConfig>,
+    pub serialization_config: Option<SerializationConfig>,
     // Context will be LoggingProducerContext by default
     // _context: Option<LoggingProducerContext>,
     _phantom_key: PhantomData<K>,

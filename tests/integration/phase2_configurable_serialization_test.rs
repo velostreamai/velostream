@@ -108,7 +108,6 @@ mod phase2_integration_tests {
         assert_eq!(config.custom_properties.get("enable.idempotence"), Some(&"true".to_string()));
     }
 
-    #[cfg(feature = "avro")]
     #[test]
     fn test_avro_sql_with_clause_integration() {
         // Test Avro serialization configuration via SQL WITH clause

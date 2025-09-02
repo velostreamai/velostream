@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     loop {
         // Read batch
-        let batch = reader.read_batch(args.batch_size).await?;
+        let batch = reader.read().await?;
         if batch.is_empty() {
             break;
         }
