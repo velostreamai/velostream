@@ -79,7 +79,7 @@ impl KafkaDataSource {
             }
             BatchStrategy::AdaptiveSize {
                 min_size,
-                max_size,
+                max_size: _,
                 target_latency,
             } => {
                 // Use min_size as conservative starting point

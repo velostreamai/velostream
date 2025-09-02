@@ -109,7 +109,6 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 2. **Flink Semantics**: Continuous emission with result deduplication
 3. **13 Aggregate Functions**: COUNT, SUM, AVG, MIN, MAX, STDDEV, VARIANCE, FIRST, LAST, STRING_AGG, COUNT_DISTINCT (all working)
 4. **Expression Support**: Boolean comparisons, complex expressions in GROUP BY
-5. **Type Safety**: Proper InternalValue ↔ FieldValue conversions
 
 ### Key Files Modified
 

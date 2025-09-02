@@ -236,12 +236,10 @@ pub async fn process_batch_with_output(
 }
 
 /// Determine if an error is recoverable
-fn is_recoverable_error(error: &crate::ferris::sql::SqlError) -> bool {
+fn is_recoverable_error(_error: &crate::ferris::sql::SqlError) -> bool {
     // This is a simple implementation - could be extended based on error types
-    match error {
-        // Add specific error pattern matching here
-        _ => false,
-    }
+    // Add specific error pattern matching here
+    false
 }
 
 /// Log progress for a job

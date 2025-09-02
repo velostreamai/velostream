@@ -6,8 +6,6 @@
 use crate::ferris::datasource::{
     config::BatchConfig, file::FileDataSource, kafka::KafkaDataSource, DataReader, DataSource,
 };
-// InternalValue no longer needed - using FieldValue directly
-// use crate::ferris::serialization::InternalValue;
 use crate::ferris::sql::{
     execution::types::StreamRecord,
     query_analyzer::{DataSourceRequirement, DataSourceType},

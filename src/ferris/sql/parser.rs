@@ -965,10 +965,8 @@ impl<'a> TokenParser<'a> {
         // Determine if from_stream is a URI or named stream
         let from_source = if from_stream.contains("://") {
             StreamSource::Uri(from_stream)
-        } else if from_stream.is_empty() {
-            StreamSource::Stream(from_stream) // Scalar queries
         } else {
-            StreamSource::Stream(from_stream) // Named streams
+            StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
         Ok(StreamingQuery::Select {

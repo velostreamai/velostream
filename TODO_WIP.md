@@ -48,8 +48,7 @@ This document tracks current work-in-progress items and technical debt that need
 
 ### Critical Performance Items
 
-- [ ] **Analyze StreamRecord → InternalValue Conversion Performance**
-  - **Current Implementation**: Uses `FieldValueConverter::field_value_to_internal()`
+- [ ] **Analyze StreamRecord → FieldValue Performance**
   - **Questions to Answer**:
     - Is the conversion zero-copy or does it allocate new memory?
     - What is the per-record conversion overhead in nanoseconds?
@@ -123,17 +122,9 @@ This document tracks current work-in-progress items and technical debt that need
 ### Conversion Performance Analysis
 
 **Current Code Path**:
-```rust
-// In src/ferris/sql/multi_job.rs:257-262
-let record_fields: HashMap<String, InternalValue> = record
-    .fields
-    .into_iter()
-    .map(|(k, v)| (k, FieldValueConverter::field_value_to_internal(v)))
-    .collect();
-```
 
 **Performance Questions**:
-1. **Memory Allocation**: Does `FieldValueConverter::field_value_to_internal()` allocate?
+1. **Memory Allocation**: Does `FieldValue` memory consumptionallocate?
 2. **Copy Semantics**: Are string/bytes fields copied or referenced?
 3. **HashMap Overhead**: Is HashMap the most efficient container for record fields?
 4. **Batching Opportunity**: Can we process multiple records in a batch to amortize costs?
@@ -638,7 +629,8 @@ let record_fields: HashMap<String, InternalValue> = record
      ```
    - **Files Updated**: `src/ferris/serialization/avro.rs`
    - **Result**: 15 Avro tests passing (was 13 with 2 ignored)
-
+also run doctrest
+   - 
 4. **✅ Completed InternalValue → StreamRecord Migration**
    - **Root Cause**: Tests still using obsolete InternalValue patterns after StreamExecutionEngine optimization
    - **Solution**: Updated all serialization tests to use modern StreamRecord patterns:

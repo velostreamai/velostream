@@ -83,7 +83,7 @@ impl KafkaDataReader {
 
         let consumer = KafkaConsumer::new(brokers, group_id, StringSerializer, codec)?;
         consumer
-            .subscribe(&vec![topic.as_str()])
+            .subscribe(&[topic.as_str()])
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
         Ok(Self {
