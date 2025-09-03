@@ -58,6 +58,12 @@ impl SimpleJobProcessor {
                 break;
             }
 
+            // Check if there are more records to process
+            if !reader.has_more().await? {
+                info!("Job '{}' no more records to process", job_name);
+                break;
+            }
+
             // Process one simple batch
             match self
                 .process_simple_batch(

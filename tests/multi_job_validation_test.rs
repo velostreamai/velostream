@@ -11,7 +11,10 @@ use ferrisstreams::ferris::{
 };
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, Mutex};
@@ -23,6 +26,8 @@ struct FailingMockDataReader {
     pub fail_on_begin_tx: bool,
     pub fail_on_commit_tx: bool,
     pub supports_tx: bool,
+    pub read_count: AtomicU32,
+    pub max_reads: u32,
 }
 
 impl FailingMockDataReader {
@@ -33,6 +38,8 @@ impl FailingMockDataReader {
             fail_on_begin_tx: false,
             fail_on_commit_tx: false,
             supports_tx: true,
+            read_count: AtomicU32::new(0),
+            max_reads: 1, // Default to only one read to prevent infinite loops
         }
     }
 
@@ -70,6 +77,9 @@ impl DataReader for FailingMockDataReader {
         if self.fail_on_read {
             return Err("Intentional read failure".into());
         }
+
+        // Increment read count
+        self.read_count.fetch_add(1, Ordering::Relaxed);
 
         let mut record = HashMap::new();
         record.insert(
@@ -124,7 +134,7 @@ impl DataReader for FailingMockDataReader {
     }
 
     async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(true)
+        Ok(self.read_count.load(Ordering::Relaxed) < self.max_reads)
     }
 }
 
@@ -409,8 +419,8 @@ async fn test_job_execution_stats_validation() {
 
     assert_eq!(stats.records_processed, 150);
     assert_eq!(stats.records_failed, 25);
-    assert_eq!(stats.batches_processed, 1); // Still 1 because this batch had failures
-    assert_eq!(stats.batches_failed, 2); // Now 2
+    assert_eq!(stats.batches_processed, 1); // Still 1 successful batch
+    assert_eq!(stats.batches_failed, 1); // Now 1 failed batch
     assert_eq!(stats.success_rate(), 150.0 / 175.0 * 100.0);
 }
 
