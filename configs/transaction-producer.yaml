@@ -1,0 +1,290 @@
+# Transaction-Enabled Kafka Producer Configuration
+# Optimized for exactly-once delivery with transactional guarantees
+# Compatible with FerrisStreams transactional multi-job processing
+
+datasink:
+  type: kafka
+  
+  # Transactional producer configuration
+  producer_config:
+    bootstrap_servers: "localhost:9092"
+    
+    # Exactly-once semantics configuration
+    enable_idempotence: true              # Required for transactions
+    transactional_id: "ferris-tx-producer-1"  # Unique per producer instance
+    transaction_timeout_ms: 60000         # 1 minute transaction timeout
+    
+    # Acknowledgment and retry settings for reliability
+    acks: "all"                          # Wait for all in-sync replicas
+    retries: 2147483647                  # Retry indefinitely (with timeout)
+    max_in_flight_requests_per_connection: 1  # Preserve ordering
+    retry_backoff_ms: 100
+    
+    # Batching optimized for transactions
+    batch_size: 16384                    # 16KB batches
+    linger_ms: 5                        # Small linger for low latency
+    buffer_memory: 33554432             # 32MB buffer
+    
+    # Delivery timeouts
+    delivery_timeout_ms: 120000          # 2 minutes total delivery timeout
+    request_timeout_ms: 30000           # 30 second request timeout
+    
+    # Compression for efficiency
+    compression_type: "lz4"              # Fast compression for real-time
+    
+    # Connection management
+    connections_max_idle_ms: 540000      # 9 minutes
+    reconnect_backoff_ms: 50
+    reconnect_backoff_max_ms: 1000
+    
+  # Schema configuration for transactional messages
+  schema:
+    key_format: string                   # Simple string keys for transactions
+    value_format: json                   # JSON for flexibility
+    
+    # Transaction envelope schema
+    envelope_schema: |
+      {
+        "type": "record",
+        "name": "TransactionEnvelope",
+        "fields": [
+          {"name": "transaction_id", "type": "string"},
+          {"name": "sequence_number", "type": "long"},
+          {"name": "timestamp", "type": "long"},
+          {"name": "producer_id", "type": "string"},
+          {"name": "payload", "type": "string"},
+          {"name": "checksum", "type": "string"}
+        ]
+      }
+    
+    # Schema Registry integration
+    registry_url: "http://localhost:8081"
+    # registry_username: "tx_schema_user"
+    # registry_password: "tx_schema_pass"
+    
+    # Financial data schema support
+    financial_schema: |
+      {
+        "type": "record",
+        "name": "FinancialTransaction",
+        "fields": [
+          {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 4}},
+          {"name": "currency", "type": "string"},
+          {"name": "account_id", "type": "string"},
+          {"name": "transaction_type", "type": "string"},
+          {"name": "reference", "type": ["null", "string"], "default": null}
+        ]
+      }
+      
+  # Default topic configuration for transactional topics
+  topic_config:
+    replication_factor: 3                # High availability
+    min_insync_replicas: 2              # Durability
+    cleanup_policy: "delete"            # Standard cleanup
+    segment_ms: 86400000                # 24 hour segments
+    retention_ms: 604800000             # 7 days retention
+    
+    # Transaction-specific topic settings
+    max_message_bytes: 1048576          # 1MB max message
+    unclean_leader_election_enable: false
+    
+  # Message headers for transaction tracking
+  headers:
+    producer_instance: "ferris-tx-producer-1"
+    schema_version: "1.0"
+    serialization_format: "json"
+    transaction_enabled: "true"
+    
+  # Performance monitoring
+  metrics:
+    enable_transaction_metrics: true
+    track_producer_metrics: true
+    alert_on_transaction_failures: true
+    
+  # Security configuration
+  security:
+    protocol: "SASL_SSL"
+    sasl_mechanism: "SCRAM-SHA-512"
+    # sasl_username: "tx_producer"
+    # sasl_password: "secure_tx_password"
+    
+    # SSL settings
+    ssl_ca_location: "/etc/ssl/certs/ca-cert.pem"
+    ssl_certificate_location: "/etc/ssl/certs/client-cert.pem"
+    ssl_key_location: "/etc/ssl/private/client-key.pem"
+    ssl_key_password: "client_key_password"
+
+# Transaction delivery profiles
+delivery_profiles:
+  financial_critical:
+    # Maximum reliability for financial transactions
+    acks: "all"
+    enable_idempotence: true
+    transactional_id: "ferris-financial-tx"
+    transaction_timeout_ms: 60000
+    delivery_timeout_ms: 180000
+    retries: 2147483647
+    max_in_flight_requests_per_connection: 1
+    linger_ms: 0                        # Immediate delivery
+    compression_type: "none"            # No compression for critical data
+    
+  batch_processing:
+    # Optimized for batch transaction processing
+    acks: "all"
+    enable_idempotence: true
+    transactional_id: "ferris-batch-tx"
+    transaction_timeout_ms: 300000      # 5 minutes for large batches
+    delivery_timeout_ms: 600000         # 10 minutes delivery timeout
+    retries: 100
+    max_in_flight_requests_per_connection: 5
+    linger_ms: 100                      # Allow batching
+    compression_type: "lz4"
+    batch_size: 65536                   # 64KB batches
+    
+  real_time_stream:
+    # Low latency with transaction guarantees
+    acks: "all"
+    enable_idempotence: true
+    transactional_id: "ferris-stream-tx"
+    transaction_timeout_ms: 30000
+    delivery_timeout_ms: 60000
+    retries: 50
+    max_in_flight_requests_per_connection: 1
+    linger_ms: 1                        # Minimal batching
+    compression_type: "lz4"
+    
+  high_throughput:
+    # Maximum throughput with transactions
+    acks: "all"
+    enable_idempotence: true
+    transactional_id: "ferris-throughput-tx"
+    transaction_timeout_ms: 120000      # 2 minutes
+    delivery_timeout_ms: 300000         # 5 minutes
+    retries: 1000
+    max_in_flight_requests_per_connection: 5
+    linger_ms: 50                       # Moderate batching
+    compression_type: "zstd"            # Best compression
+    batch_size: 131072                  # 128KB batches
+    buffer_memory: 134217728            # 128MB buffer
+
+# Error handling and recovery
+error_handling:
+  transaction_failure_strategy: "abort_and_retry"
+  max_transaction_retries: 3
+  transaction_retry_backoff_ms: 5000
+  
+  # Producer error recovery
+  producer_recovery_strategy: "recreate_producer"
+  recovery_backoff_ms: 10000
+  
+  # Dead letter topic for failed transactions
+  dlq_enabled: true
+  dlq_topic: "ferris-tx-producer-dlq"
+  dlq_headers:
+    failure_reason: "transaction_send_failure"
+    original_topic: "#{target_topic}"
+    failure_timestamp: "#{current_timestamp}"
+    retry_count: "#{retry_attempt}"
+
+# FerrisStreams integration configuration
+ferris_integration:
+  processor_type: "transactional"
+  
+  # Multi-job processor settings
+  job_config:
+    use_transactions: true
+    commit_strategy: "transactional"
+    rollback_strategy: "abort_transaction"
+    
+    # Transaction batch configuration
+    transaction_batch_size: 1000
+    transaction_timeout_ms: 60000
+    max_uncommitted_transactions: 5
+    
+  # Performance optimization for transactions
+  performance:
+    # Memory pools for transaction efficiency
+    record_pool_enabled: true
+    record_pool_size: 2000
+    
+    # Async processing settings
+    async_send: true
+    callback_threads: 4
+    
+    # Connection pooling
+    producer_pool_size: 5
+    producer_pool_timeout_ms: 30000
+    
+# Message transformation and validation
+message_processing:
+  # Pre-send validation
+  validation_enabled: true
+  validation_rules:
+    - field: "transaction_id"
+      required: true
+      pattern: "^tx-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    - field: "timestamp"
+      required: true
+      type: "integer"
+      min: 1640995200000
+    - field: "amount"
+      type: "scaled_integer"
+      precision: 4
+      
+  # Message transformation
+  transformations:
+    add_producer_metadata: true
+    calculate_checksum: true
+    add_sequence_numbers: true
+    
+  # Serialization settings
+  serialization:
+    preserve_field_order: true
+    include_null_fields: false
+    timestamp_format: "epoch_millis"
+    decimal_format: "scaled_integer"
+
+# Monitoring and alerting
+monitoring:
+  # Producer metrics
+  producer_metrics:
+    - "record-send-rate"
+    - "batch-size-avg"
+    - "request-latency-avg"
+    - "buffer-available-bytes"
+    
+  # Transaction metrics  
+  transaction_metrics:
+    - "transaction-count"
+    - "transaction-abort-rate"
+    - "transaction-commit-latency"
+    - "pending-transaction-count"
+    
+  # Alert thresholds
+  alerts:
+    high_transaction_abort_rate: 0.05    # 5% abort rate
+    high_send_latency_ms: 1000           # 1 second
+    low_buffer_available_pct: 0.1        # 10% buffer remaining
+    
+# Topic management
+topic_management:
+  auto_create_topics: false             # Explicit topic creation
+  validate_topic_config: true          # Verify transaction-compatible settings
+  
+  # Required topic configurations for transactions
+  required_topic_configs:
+    min.insync.replicas: 2
+    unclean.leader.election.enable: false
+    acks: "all"
+    
+# Development and testing settings
+development:
+  # Simplified settings for local development
+  transaction_timeout_ms: 30000
+  delivery_timeout_ms: 60000
+  buffer_memory: 16777216              # 16MB
+  batch_size: 8192                     # 8KB
+  
+  # Mock transaction settings
+  mock_transactions: false
+  dry_run_mode: false
