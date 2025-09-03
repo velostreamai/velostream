@@ -217,9 +217,9 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
 
             batch.push(StreamRecord {
                 fields,
-                timestamp: 1672531200000 + i as u64 * 1000,
-                offset: i as u64,
-                partition: (i % 4) as u32,
+                timestamp: 1672531200000 + i as i64 * 1000,
+                offset: i as i64,
+                partition: (i % 4) as i32,
                 headers: HashMap::new(),
             });
         }
@@ -232,9 +232,9 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
 fn create_benchmark_query() -> StreamingQuery {
     StreamingQuery::Select {
         fields: vec![
-            SelectField::Field("symbol".to_string()),
-            SelectField::Field("price".to_string()),
-            SelectField::Field("volume".to_string()),
+            SelectField::Column("symbol".to_string()),
+            SelectField::Column("price".to_string()),
+            SelectField::Column("volume".to_string()),
         ],
         from: StreamSource::Stream("benchmark_data".to_string()),
         joins: None,

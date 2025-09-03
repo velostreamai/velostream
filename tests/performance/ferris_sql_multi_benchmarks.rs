@@ -8,7 +8,7 @@
 use ferrisstreams::ferris::{
     datasource::{DataReader, DataWriter},
     sql::{
-        ast::{EmitMode, SelectField, StreamSource, WindowSpec, WindowType},
+        ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::types::{FieldValue, StreamRecord},
         multi_job_common::*,
         multi_job_simple::*,
@@ -279,8 +279,8 @@ fn create_benchmark_record(index: usize) -> StreamRecord {
     StreamRecord {
         fields,
         timestamp: 1672531200000 + index as i64 * 1000,
-        offset: index as u64,
-        partition: (index % 4) as u32,
+        offset: index as i64,
+        partition: (index % 4) as i32,
         headers: HashMap::new(),
     }
 }
@@ -291,9 +291,9 @@ fn create_simple_select_query() -> StreamingQuery {
 
     StreamingQuery::Select {
         fields: vec![
-            SelectField::Field("symbol".to_string()),
-            SelectField::Field("price".to_string()),
-            SelectField::Field("volume".to_string()),
+            SelectField::Column("symbol".to_string()),
+            SelectField::Column("price".to_string()),
+            SelectField::Column("volume".to_string()),
         ],
         from: StreamSource::Stream("benchmark_data".to_string()),
         joins: None,
@@ -313,27 +313,33 @@ fn create_aggregation_query() -> StreamingQuery {
 
     StreamingQuery::Select {
         fields: vec![
-            SelectField::Field("sector".to_string()),
-            SelectField::Aggregate {
-                function: "COUNT".to_string(),
-                args: vec![Expr::Wildcard],
+            SelectField::Column("symbol".to_string()),
+            SelectField::Expression {
+                expr: Expr::Function {
+                    name: "COUNT".to_string(),
+                    args: vec![Expr::Column("symbol".to_string())],
+                },
                 alias: Some("trade_count".to_string()),
             },
-            SelectField::Aggregate {
-                function: "AVG".to_string(),
-                args: vec![Expr::Field("price".to_string())],
+            SelectField::Expression {
+                expr: Expr::Function {
+                    name: "AVG".to_string(),
+                    args: vec![Expr::Column("price".to_string())],
+                },
                 alias: Some("avg_price".to_string()),
             },
-            SelectField::Aggregate {
-                function: "SUM".to_string(),
-                args: vec![Expr::Field("volume".to_string())],
+            SelectField::Expression {
+                expr: Expr::Function {
+                    name: "SUM".to_string(),
+                    args: vec![Expr::Column("volume".to_string())],
+                },
                 alias: Some("total_volume".to_string()),
             },
         ],
         from: StreamSource::Stream("benchmark_data".to_string()),
         joins: None,
         where_clause: None,
-        group_by: Some(vec![Expr::Field("sector".to_string())]),
+        group_by: Some(vec![Expr::Column("symbol".to_string())]),
         having: None,
         window: None,
         order_by: None,
@@ -348,15 +354,17 @@ fn create_window_function_query() -> StreamingQuery {
 
     StreamingQuery::Select {
         fields: vec![
-            SelectField::Field("symbol".to_string()),
-            SelectField::Field("price".to_string()),
-            SelectField::WindowFunction {
-                function: "AVG".to_string(),
-                args: vec!["price".to_string()],
-                window: WindowSpec {
-                    window_type: WindowType::Sliding,
-                    size: Duration::from_secs(300), // 5-minute sliding window
-                    advance: Some(Duration::from_secs(60)), // 1-minute advance
+            SelectField::Column("symbol".to_string()),
+            SelectField::Column("price".to_string()),
+            SelectField::Expression {
+                expr: ferrisstreams::ferris::sql::ast::Expr::WindowFunction {
+                    function_name: "AVG".to_string(),
+                    args: vec![ferrisstreams::ferris::sql::ast::Expr::Column("price".to_string())],
+                    over_clause: ferrisstreams::ferris::sql::ast::OverClause {
+                        partition_by: vec!["symbol".to_string()],
+                        order_by: vec![],
+                        window_frame: None,
+                    },
                 },
                 alias: Some("moving_avg_5min".to_string()),
             },
@@ -366,10 +374,10 @@ fn create_window_function_query() -> StreamingQuery {
         where_clause: None,
         group_by: None,
         having: None,
-        window: Some(WindowSpec {
-            window_type: WindowType::Sliding,
+        window: Some(WindowSpec::Sliding {
             size: Duration::from_secs(300),
-            advance: Some(Duration::from_secs(60)),
+            advance: Duration::from_secs(60),
+            time_column: None,
         }),
         order_by: None,
         limit: None,
