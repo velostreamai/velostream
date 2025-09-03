@@ -10,9 +10,9 @@
 CREATE STREAM raw_transactions (
     transaction_id STRING,
     customer_id STRING, 
-    amount DECIMAL(19,4),        -- Exact precision for financial amounts
+    amount STRING,               -- Amount as string for exact precision
     currency STRING,
-    timestamp BIGINT,
+    timestamp INTEGER,
     merchant_category STRING,
     description STRING
 ) WITH (
@@ -21,7 +21,7 @@ CREATE STREAM raw_transactions (
     format='csv',
     has_headers='true',
     watching='true',              -- Monitor file for changes
-    decimal_precision='4'         -- Use ScaledInteger for exact precision
+    decimal_precision='4'         -- String amounts parsed with precision
 );
 
 -- Basic transaction enrichment with financial metadata
@@ -116,7 +116,7 @@ SELECT
 FROM enriched_transactions e
 INNER JOIN customer_spending_patterns c 
     ON e.customer_id = c.customer_id
-    AND e.processed_at >= CURRENT_TIMESTAMP - INTERVAL '5 MINUTES'
+    AND e.processed_at >= CURRENT_TIMESTAMP
 WHERE e.amount > 50.0  -- Focus on medium+ value transactions
 EMIT CHANGES;
 
@@ -221,7 +221,7 @@ SELECT
     -- Compare with other categories
     SUM(amount) / (SELECT SUM(amount) 
                    FROM enriched_transactions e2
-                   WHERE e2.processed_at >= CURRENT_TIMESTAMP - INTERVAL '2 MINUTES' 
+                   WHERE e2.processed_at >= CURRENT_TIMESTAMP 
                    AND e2.processed_at < CURRENT_TIMESTAMP) * 100 AS percentage_of_total,
     -- Rankings (using simple ordering)
     SUM(amount) AS amount_rank,
