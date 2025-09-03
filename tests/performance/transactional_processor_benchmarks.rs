@@ -6,7 +6,7 @@
 use ferrisstreams::ferris::{
     datasource::{DataReader, DataWriter},
     sql::{
-        ast::{SelectField, StreamSource, EmitMode},
+        ast::{EmitMode, SelectField, StreamSource},
         execution::types::{FieldValue, StreamRecord},
         multi_job_common::*,
         multi_job_simple::*,
@@ -275,16 +275,26 @@ impl TransactionBenchmarkResult {
         println!("\n=== {} Performance ===", processor_type);
         println!("Records Processed: {}", self.records_processed);
         println!("Duration: {:?}", self.duration);
-        println!("Throughput: {:.2} records/sec", self.throughput_records_per_sec);
+        println!(
+            "Throughput: {:.2} records/sec",
+            self.throughput_records_per_sec
+        );
         if self.transaction_overhead_percent > 0.0 {
-            println!("Transaction Overhead: {:.1}%", self.transaction_overhead_percent);
+            println!(
+                "Transaction Overhead: {:.1}%",
+                self.transaction_overhead_percent
+            );
         }
         println!("===============================\n");
     }
 }
 
-async fn benchmark_simple_processor(record_count: usize, batch_size: usize) -> TransactionBenchmarkResult {
-    let reader = Box::new(TransactionalBenchmarkReader::new(record_count, batch_size)) as Box<dyn DataReader>;
+async fn benchmark_simple_processor(
+    record_count: usize,
+    batch_size: usize,
+) -> TransactionBenchmarkResult {
+    let reader = Box::new(TransactionalBenchmarkReader::new(record_count, batch_size))
+        as Box<dyn DataReader>;
     let writer = Some(Box::new(TransactionalBenchmarkWriter::new()) as Box<dyn DataWriter>);
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -331,8 +341,12 @@ async fn benchmark_simple_processor(record_count: usize, batch_size: usize) -> T
     }
 }
 
-async fn benchmark_transactional_processor(record_count: usize, batch_size: usize) -> TransactionBenchmarkResult {
-    let reader = Box::new(TransactionalBenchmarkReader::new(record_count, batch_size)) as Box<dyn DataReader>;
+async fn benchmark_transactional_processor(
+    record_count: usize,
+    batch_size: usize,
+) -> TransactionBenchmarkResult {
+    let reader = Box::new(TransactionalBenchmarkReader::new(record_count, batch_size))
+        as Box<dyn DataReader>;
     let writer = Some(Box::new(TransactionalBenchmarkWriter::new()) as Box<dyn DataWriter>);
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -396,21 +410,33 @@ async fn benchmark_simple_vs_transactional_small_batch() {
 
     // Calculate transaction overhead
     let overhead = if simple_result.throughput_records_per_sec > 0.0 {
-        ((simple_result.throughput_records_per_sec - transactional_result.throughput_records_per_sec)
-            / simple_result.throughput_records_per_sec) * 100.0
+        ((simple_result.throughput_records_per_sec
+            - transactional_result.throughput_records_per_sec)
+            / simple_result.throughput_records_per_sec)
+            * 100.0
     } else {
         0.0
     };
 
     println!("📊 COMPARISON RESULTS:");
-    println!("Simple Processor: {:.0} records/sec", simple_result.throughput_records_per_sec);
-    println!("Transactional Processor: {:.0} records/sec", transactional_result.throughput_records_per_sec);
+    println!(
+        "Simple Processor: {:.0} records/sec",
+        simple_result.throughput_records_per_sec
+    );
+    println!(
+        "Transactional Processor: {:.0} records/sec",
+        transactional_result.throughput_records_per_sec
+    );
     println!("Transaction Overhead: {:.1}%", overhead);
 
     // Both processors should achieve reasonable throughput
     assert!(simple_result.throughput_records_per_sec > 500.0);
     assert!(transactional_result.throughput_records_per_sec > 300.0);
-    assert!(overhead < 50.0, "Transaction overhead should be <50%, got {:.1}%", overhead);
+    assert!(
+        overhead < 50.0,
+        "Transaction overhead should be <50%, got {:.1}%",
+        overhead
+    );
 }
 
 #[tokio::test]
@@ -428,77 +454,102 @@ async fn benchmark_simple_vs_transactional_large_batch() {
 
     // Calculate transaction overhead for large batches
     let overhead = if simple_result.throughput_records_per_sec > 0.0 {
-        ((simple_result.throughput_records_per_sec - transactional_result.throughput_records_per_sec)
-            / simple_result.throughput_records_per_sec) * 100.0
+        ((simple_result.throughput_records_per_sec
+            - transactional_result.throughput_records_per_sec)
+            / simple_result.throughput_records_per_sec)
+            * 100.0
     } else {
         0.0
     };
 
     println!("📊 LARGE BATCH COMPARISON:");
-    println!("Simple Processor: {:.0} records/sec", simple_result.throughput_records_per_sec);
-    println!("Transactional Processor: {:.0} records/sec", transactional_result.throughput_records_per_sec);
+    println!(
+        "Simple Processor: {:.0} records/sec",
+        simple_result.throughput_records_per_sec
+    );
+    println!(
+        "Transactional Processor: {:.0} records/sec",
+        transactional_result.throughput_records_per_sec
+    );
     println!("Transaction Overhead: {:.1}%", overhead);
 
     // Large batches should improve throughput for both processors
     assert!(simple_result.throughput_records_per_sec > 1000.0);
     assert!(transactional_result.throughput_records_per_sec > 800.0);
-    
+
     // Transaction overhead should be lower with larger batches
-    assert!(overhead < 30.0, "Transaction overhead with large batches should be <30%, got {:.1}%", overhead);
+    assert!(
+        overhead < 30.0,
+        "Transaction overhead with large batches should be <30%, got {:.1}%",
+        overhead
+    );
 }
 
 #[tokio::test]
 async fn benchmark_transaction_failure_recovery() {
     println!("\n🔄 TRANSACTION FAILURE RECOVERY: Rollback Performance Impact");
-    
+
     // This test would simulate transaction failures and measure recovery time
     // For now, we'll test the normal case and document the framework
-    
+
     let record_count = 3000;
     let batch_size = 100;
-    
+
     let result = benchmark_transactional_processor(record_count, batch_size).await;
     result.print_summary("Transactional Processor (Failure Recovery Test)");
-    
+
     // In a real implementation, we'd inject failures and measure recovery time
     println!("📝 Note: Failure injection framework would go here");
     println!("- Simulate network failures during commit");
     println!("- Measure rollback and retry performance");
     println!("- Validate exactly-once semantics");
-    
+
     assert!(result.throughput_records_per_sec > 300.0);
 }
 
 #[tokio::test]
 async fn benchmark_exactly_once_semantics_overhead() {
     println!("\n🎯 EXACTLY-ONCE SEMANTICS: Performance Cost Analysis");
-    
+
     let record_count = 5000;
     let batch_size = 100;
-    
+
     // Compare transactional processor (exactly-once) with simple processor (at-least-once)
     let simple_result = benchmark_simple_processor(record_count, batch_size).await;
     let exactly_once_result = benchmark_transactional_processor(record_count, batch_size).await;
-    
+
     let exactly_once_overhead = if simple_result.throughput_records_per_sec > 0.0 {
-        ((simple_result.throughput_records_per_sec - exactly_once_result.throughput_records_per_sec)
-            / simple_result.throughput_records_per_sec) * 100.0
+        ((simple_result.throughput_records_per_sec
+            - exactly_once_result.throughput_records_per_sec)
+            / simple_result.throughput_records_per_sec)
+            * 100.0
     } else {
         0.0
     };
-    
+
     println!("📊 EXACTLY-ONCE PERFORMANCE COST:");
-    println!("At-Least-Once (Simple): {:.0} records/sec", simple_result.throughput_records_per_sec);
-    println!("Exactly-Once (Transactional): {:.0} records/sec", exactly_once_result.throughput_records_per_sec);
+    println!(
+        "At-Least-Once (Simple): {:.0} records/sec",
+        simple_result.throughput_records_per_sec
+    );
+    println!(
+        "Exactly-Once (Transactional): {:.0} records/sec",
+        exactly_once_result.throughput_records_per_sec
+    );
     println!("Exactly-Once Overhead: {:.1}%", exactly_once_overhead);
-    
+
     // Exactly-once semantics should have reasonable overhead
-    assert!(exactly_once_overhead < 40.0, 
-           "Exactly-once overhead should be <40%, got {:.1}%", exactly_once_overhead);
-    assert!(exactly_once_result.throughput_records_per_sec > 400.0,
-           "Exactly-once should still achieve >400 records/sec, got {:.2}",
-           exactly_once_result.throughput_records_per_sec);
-    
+    assert!(
+        exactly_once_overhead < 40.0,
+        "Exactly-once overhead should be <40%, got {:.1}%",
+        exactly_once_overhead
+    );
+    assert!(
+        exactly_once_result.throughput_records_per_sec > 400.0,
+        "Exactly-once should still achieve >400 records/sec, got {:.2}",
+        exactly_once_result.throughput_records_per_sec
+    );
+
     println!("✅ Exactly-once semantics implemented with acceptable performance cost!");
 }
 
@@ -509,28 +560,37 @@ async fn benchmark_comprehensive_processor_comparison() {
     println!("Comparing SimpleJobProcessor vs TransactionalJobProcessor");
     println!("across different batch sizes and workloads");
     println!("==========================================\n");
-    
+
     let record_count = 10000;
     let batch_sizes = vec![50, 100, 200, 500];
-    
+
     for batch_size in batch_sizes {
         println!("📊 Testing batch size: {}", batch_size);
-        
+
         let simple_result = benchmark_simple_processor(record_count, batch_size).await;
-        let transactional_result = benchmark_transactional_processor(record_count, batch_size).await;
-        
+        let transactional_result =
+            benchmark_transactional_processor(record_count, batch_size).await;
+
         let overhead = if simple_result.throughput_records_per_sec > 0.0 {
-            ((simple_result.throughput_records_per_sec - transactional_result.throughput_records_per_sec)
-                / simple_result.throughput_records_per_sec) * 100.0
+            ((simple_result.throughput_records_per_sec
+                - transactional_result.throughput_records_per_sec)
+                / simple_result.throughput_records_per_sec)
+                * 100.0
         } else {
             0.0
         };
-        
-        println!("  Simple: {:.0} records/sec", simple_result.throughput_records_per_sec);
-        println!("  Transactional: {:.0} records/sec", transactional_result.throughput_records_per_sec);
+
+        println!(
+            "  Simple: {:.0} records/sec",
+            simple_result.throughput_records_per_sec
+        );
+        println!(
+            "  Transactional: {:.0} records/sec",
+            transactional_result.throughput_records_per_sec
+        );
         println!("  Overhead: {:.1}%\n", overhead);
     }
-    
+
     println!("✅ Comprehensive processor comparison completed!");
     println!("🎉 Both processors validated for production use!");
 }

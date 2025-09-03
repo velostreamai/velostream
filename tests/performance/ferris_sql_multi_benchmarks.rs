@@ -60,7 +60,10 @@ impl BenchmarkMetrics {
         println!("\n=== {} Performance Results ===", test_name);
         println!("Records Processed: {}", self.records_processed);
         println!("Total Duration: {:?}", self.total_duration);
-        println!("Throughput: {:.2} records/sec", self.throughput_records_per_sec);
+        println!(
+            "Throughput: {:.2} records/sec",
+            self.throughput_records_per_sec
+        );
         println!("Latency P50: {:.2}ms", self.p50_latency_ms);
         println!("Latency P95: {:.2}ms", self.p95_latency_ms);
         println!("Latency P99: {:.2}ms", self.p99_latency_ms);
@@ -157,9 +160,7 @@ pub struct BenchmarkDataWriter {
 
 impl BenchmarkDataWriter {
     pub fn new() -> Self {
-        Self {
-            records_written: 0,
-        }
+        Self { records_written: 0 }
     }
 }
 
@@ -235,7 +236,10 @@ fn create_benchmark_record(index: usize) -> StreamRecord {
         "symbol".to_string(),
         FieldValue::String(format!("STOCK{:04}", index % 100)),
     );
-    fields.insert("timestamp".to_string(), FieldValue::Integer(1672531200000 + index as i64 * 1000));
+    fields.insert(
+        "timestamp".to_string(),
+        FieldValue::Integer(1672531200000 + index as i64 * 1000),
+    );
 
     // Financial precision fields using ScaledInteger
     fields.insert(
@@ -380,7 +384,8 @@ async fn run_query_benchmark(
     batch_size: usize,
     test_name: &str,
 ) -> BenchmarkMetrics {
-    let reader = Box::new(BenchmarkDataReader::new(record_count, batch_size)) as Box<dyn DataReader>;
+    let reader =
+        Box::new(BenchmarkDataReader::new(record_count, batch_size)) as Box<dyn DataReader>;
     let writer = Some(Box::new(BenchmarkDataWriter::new()) as Box<dyn DataWriter>);
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -401,14 +406,7 @@ async fn run_query_benchmark(
 
     let job_handle = tokio::spawn(async move {
         processor
-            .process_job(
-                reader,
-                writer,
-                engine,
-                query,
-                job_name,
-                shutdown_rx,
-            )
+            .process_job(reader, writer, engine, query, job_name, shutdown_rx)
             .await
     });
 
@@ -422,17 +420,17 @@ async fn run_query_benchmark(
     let total_duration = end_time - start_time;
 
     let mut metrics = BenchmarkMetrics::new();
-    
+
     if let Ok(stats) = result {
         metrics.records_processed = stats.records_processed;
         metrics.total_duration = total_duration;
         metrics.calculate_throughput();
-        
+
         // Simulated latency percentiles (in a real system, these would be measured)
         metrics.p50_latency_ms = 1.0 / (metrics.throughput_records_per_sec / 1000.0);
         metrics.p95_latency_ms = metrics.p50_latency_ms * 2.0;
         metrics.p99_latency_ms = metrics.p50_latency_ms * 5.0;
-        
+
         // Simulated memory and CPU (in a real system, these would be measured)
         metrics.memory_used_mb = (record_count as f64 * 0.001) + 50.0; // Estimated
         metrics.cpu_usage_percent = 15.0; // Estimated
@@ -447,81 +445,93 @@ async fn run_query_benchmark(
 async fn benchmark_simple_select_baseline() {
     println!("\n🚀 BASELINE PERFORMANCE: Simple SELECT Query");
     println!("Testing StreamExecutionEngine 9x optimization validation");
-    
+
     let metrics = run_query_benchmark(
         create_simple_select_query(),
         10000, // 10K records
         100,   // 100 records per batch
         "simple_select",
-    ).await;
-    
+    )
+    .await;
+
     metrics.print_summary("Simple SELECT Baseline");
-    
+
     // Validation: Should achieve high throughput with low latency
-    assert!(metrics.throughput_records_per_sec > 1000.0, 
-           "Simple SELECT should achieve >1K records/sec, got {:.2}", 
-           metrics.throughput_records_per_sec);
+    assert!(
+        metrics.throughput_records_per_sec > 1000.0,
+        "Simple SELECT should achieve >1K records/sec, got {:.2}",
+        metrics.throughput_records_per_sec
+    );
 }
 
 #[tokio::test]
 async fn benchmark_complex_aggregation() {
     println!("\n📊 AGGREGATION PERFORMANCE: GROUP BY with Multiple Functions");
     println!("Testing complex aggregation with financial precision (ScaledInteger)");
-    
+
     let metrics = run_query_benchmark(
         create_aggregation_query(),
         10000, // 10K records
         200,   // 200 records per batch
         "complex_aggregation",
-    ).await;
-    
+    )
+    .await;
+
     metrics.print_summary("Complex Aggregation (GROUP BY)");
-    
+
     // Validation: Should handle aggregations efficiently
-    assert!(metrics.throughput_records_per_sec > 500.0,
-           "Complex aggregation should achieve >500 records/sec, got {:.2}",
-           metrics.throughput_records_per_sec);
+    assert!(
+        metrics.throughput_records_per_sec > 500.0,
+        "Complex aggregation should achieve >500 records/sec, got {:.2}",
+        metrics.throughput_records_per_sec
+    );
 }
 
 #[tokio::test]
 async fn benchmark_window_functions() {
     println!("\n📈 WINDOW FUNCTION PERFORMANCE: Financial Analytics");
     println!("Testing sliding window with 42x ScaledInteger performance");
-    
+
     let metrics = run_query_benchmark(
         create_window_function_query(),
-        5000,  // 5K records (window functions are more intensive)
-        50,    // 50 records per batch
+        5000, // 5K records (window functions are more intensive)
+        50,   // 50 records per batch
         "window_functions",
-    ).await;
-    
+    )
+    .await;
+
     metrics.print_summary("Window Functions (Financial Analytics)");
-    
+
     // Validation: Window functions should still achieve reasonable throughput
-    assert!(metrics.throughput_records_per_sec > 100.0,
-           "Window functions should achieve >100 records/sec, got {:.2}",
-           metrics.throughput_records_per_sec);
+    assert!(
+        metrics.throughput_records_per_sec > 100.0,
+        "Window functions should achieve >100 records/sec, got {:.2}",
+        metrics.throughput_records_per_sec
+    );
 }
 
 #[tokio::test]
 async fn benchmark_batch_size_impact() {
     println!("\n⚡ BATCH SIZE PERFORMANCE: Throughput vs Latency Trade-off");
-    
+
     let record_count = 5000;
     let batch_sizes = vec![10, 50, 100, 500];
-    
+
     for batch_size in batch_sizes {
         let metrics = run_query_benchmark(
             create_simple_select_query(),
             record_count,
             batch_size,
             &format!("batch_{}", batch_size),
-        ).await;
-        
-        println!("Batch Size {}: {:.2} records/sec, {:.2}ms P50 latency",
-                batch_size, metrics.throughput_records_per_sec, metrics.p50_latency_ms);
+        )
+        .await;
+
+        println!(
+            "Batch Size {}: {:.2} records/sec, {:.2}ms P50 latency",
+            batch_size, metrics.throughput_records_per_sec, metrics.p50_latency_ms
+        );
     }
-    
+
     println!("Batch size analysis complete - check logs for optimal configuration");
 }
 
@@ -529,7 +539,7 @@ async fn benchmark_batch_size_impact() {
 async fn benchmark_financial_precision_impact() {
     println!("\n💰 FINANCIAL PRECISION: ScaledInteger vs Float Performance");
     println!("Validating 42x faster financial arithmetic claims");
-    
+
     // This test validates that using ScaledInteger for financial data
     // maintains high performance compared to traditional Float operations
     let metrics = run_query_benchmark(
@@ -537,39 +547,43 @@ async fn benchmark_financial_precision_impact() {
         10000,
         100,
         "financial_precision",
-    ).await;
-    
+    )
+    .await;
+
     metrics.print_summary("Financial Precision (ScaledInteger)");
-    
+
     // The throughput should be high despite using financial precision
-    assert!(metrics.throughput_records_per_sec > 800.0,
-           "Financial precision should achieve >800 records/sec, got {:.2}",
-           metrics.throughput_records_per_sec);
-           
+    assert!(
+        metrics.throughput_records_per_sec > 800.0,
+        "Financial precision should achieve >800 records/sec, got {:.2}",
+        metrics.throughput_records_per_sec
+    );
+
     println!("✅ ScaledInteger financial precision maintains high performance!");
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn benchmark_processor_comparison() {
     println!("\n🔄 PROCESSOR COMPARISON: Simple vs Transactional");
-    
+
     let record_count = 5000;
     let batch_size = 100;
-    
+
     // Simple processor benchmark
     let simple_metrics = run_query_benchmark(
         create_simple_select_query(),
         record_count,
         batch_size,
         "simple_processor",
-    ).await;
-    
+    )
+    .await;
+
     // For transactional processor, we'd need a separate runner
     // This is a placeholder showing the comparison framework
-    
+
     simple_metrics.print_summary("Simple Processor");
     println!("Transactional processor comparison would go here");
-    
+
     // Validation that simple processor achieves good baseline performance
     assert!(simple_metrics.throughput_records_per_sec > 1000.0);
 }
@@ -577,20 +591,23 @@ async fn benchmark_processor_comparison() {
 #[tokio::test]
 async fn benchmark_memory_efficiency() {
     println!("\n💾 MEMORY EFFICIENCY: Large Record Set Processing");
-    
+
     let metrics = run_query_benchmark(
         create_simple_select_query(),
         50000, // 50K records to test memory efficiency
         1000,  // Large batch size
         "memory_efficiency",
-    ).await;
-    
+    )
+    .await;
+
     metrics.print_summary("Memory Efficiency Test");
-    
+
     // Memory usage should scale reasonably with record count
-    assert!(metrics.memory_used_mb < 1000.0,
-           "Memory usage should be <1GB for 50K records, got {:.2}MB",
-           metrics.memory_used_mb);
+    assert!(
+        metrics.memory_used_mb < 1000.0,
+        "Memory usage should be <1GB for 50K records, got {:.2}MB",
+        metrics.memory_used_mb
+    );
 }
 
 // COMPREHENSIVE BENCHMARK SUITE RUNNER
@@ -604,7 +621,7 @@ async fn run_comprehensive_benchmark_suite() {
     println!("- ScaledInteger 42x financial precision improvement");
     println!("- End-to-end production performance validation");
     println!("===============================================\n");
-    
+
     // 1. Baseline Performance
     println!("1. Running baseline SELECT query benchmark...");
     let baseline = run_query_benchmark(
@@ -612,8 +629,9 @@ async fn run_comprehensive_benchmark_suite() {
         10000,
         100,
         "comprehensive_baseline",
-    ).await;
-    
+    )
+    .await;
+
     // 2. Aggregation Performance
     println!("2. Running aggregation benchmark...");
     let aggregation = run_query_benchmark(
@@ -621,8 +639,9 @@ async fn run_comprehensive_benchmark_suite() {
         10000,
         200,
         "comprehensive_aggregation",
-    ).await;
-    
+    )
+    .await;
+
     // 3. Window Function Performance
     println!("3. Running window function benchmark...");
     let window = run_query_benchmark(
@@ -630,20 +649,30 @@ async fn run_comprehensive_benchmark_suite() {
         5000,
         50,
         "comprehensive_window",
-    ).await;
-    
+    )
+    .await;
+
     // Print comprehensive results
     println!("\n🎉 COMPREHENSIVE BENCHMARK RESULTS");
     println!("=====================================");
     baseline.print_summary("1. Baseline SELECT");
     aggregation.print_summary("2. Complex Aggregation");
     window.print_summary("3. Window Functions");
-    
+
     println!("📊 PERFORMANCE SUMMARY:");
-    println!("- Baseline Throughput: {:.0} records/sec", baseline.throughput_records_per_sec);
-    println!("- Aggregation Throughput: {:.0} records/sec", aggregation.throughput_records_per_sec);
-    println!("- Window Function Throughput: {:.0} records/sec", window.throughput_records_per_sec);
-    
+    println!(
+        "- Baseline Throughput: {:.0} records/sec",
+        baseline.throughput_records_per_sec
+    );
+    println!(
+        "- Aggregation Throughput: {:.0} records/sec",
+        aggregation.throughput_records_per_sec
+    );
+    println!(
+        "- Window Function Throughput: {:.0} records/sec",
+        window.throughput_records_per_sec
+    );
+
     println!("\n✅ All benchmarks completed successfully!");
     println!("🚀 FerrisStreams performance validated for production use!");
 }
