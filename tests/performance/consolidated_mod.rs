@@ -7,20 +7,24 @@
 // Re-export existing test modules for immediate use
 pub use super::financial_precision_benchmark;
 pub use super::kafka_performance_tests;
-pub use super::query_performance_tests; 
+pub use super::query_performance_tests;
 pub use super::serialization_performance_tests;
+
+// Re-export new comprehensive benchmark modules
+pub use super::ferris_sql_multi_benchmarks;
+pub use super::transactional_processor_benchmarks;
 
 // Core Performance Test Modules (Future expansion structure)
 pub mod benchmarks {
     //! Micro-benchmarks for individual components
-    //! 
+    //!
     //! This module provides organized access to existing benchmarks
     //! and serves as a structure for future micro-benchmark additions.
-    
+
     // Re-export existing financial precision benchmarks
     pub use super::super::financial_precision_benchmark as financial_precision;
     pub use super::super::serialization_performance_tests as serialization;
-    
+
     // Placeholder modules for future implementation
     pub mod memory_allocation {
         //! Memory allocation performance benchmarks
@@ -28,7 +32,7 @@ pub mod benchmarks {
         #[cfg(feature = "jemalloc")]
         pub use super::super::utils::memory::*;
     }
-    
+
     pub mod codec_performance {
         //! Codec-specific performance benchmarks  
         //! This module will contain serialization format comparison tests
@@ -38,13 +42,13 @@ pub mod benchmarks {
 
 pub mod integration {
     //! End-to-end performance tests
-    //! 
+    //!
     //! This module organizes full pipeline performance testing
-    
+
     // Re-export existing integration tests
     pub use super::super::kafka_performance_tests as kafka_pipeline;
     pub use super::super::query_performance_tests as sql_execution;
-    
+
     // Placeholder for future transaction processing tests
     pub mod transaction_processing {
         //! Transaction processing performance tests
@@ -57,21 +61,21 @@ pub mod load_testing {
     //! High-throughput and sustained load tests
     //!
     //! This module will contain production-scale performance validation
-    
+
     pub mod throughput_benchmarks {
         //! Sustained throughput testing framework
         //! Tests for 1M+ records/sec sustained performance
         pub use super::super::config::LoadTestConfig;
         pub use super::super::utils::MetricsCollector;
     }
-    
+
     pub mod memory_pressure {
         //! Memory pressure testing utilities
         //! Resource exhaustion and backpressure validation
         #[cfg(feature = "jemalloc")]
         pub use super::super::utils::memory::*;
     }
-    
+
     pub mod scalability {
         //! Concurrent performance testing
         //! Multi-connection and parallel processing benchmarks
@@ -83,18 +87,18 @@ pub mod profiling {
     //! Memory and CPU profiling utilities
     //!
     //! This module contains production-ready profiling tools
-    
+
     pub mod memory_profiler {
         //! Memory allocation tracking and analysis
         #[cfg(feature = "jemalloc")]
         pub use super::super::utils::memory::*;
     }
-    
+
     pub mod cpu_profiler {
         //! CPU utilization and performance profiling
         pub use super::super::utils::cpu::*;
     }
-    
+
     pub mod allocation_tracker {
         //! Allocation pattern analysis
         pub use super::super::utils::*;
@@ -104,19 +108,19 @@ pub mod profiling {
 // Convenient re-exports with organized naming
 pub mod organized {
     //! Organized access to all performance tests
-    
+
     pub mod benchmarks {
         pub use super::super::benchmarks::*;
     }
-    
+
     pub mod integration {
         pub use super::super::integration::*;
     }
-    
+
     pub mod load_testing {
         pub use super::super::load_testing::*;
     }
-    
+
     pub mod profiling {
         pub use super::super::profiling::*;
     }
