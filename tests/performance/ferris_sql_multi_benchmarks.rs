@@ -359,7 +359,9 @@ fn create_window_function_query() -> StreamingQuery {
             SelectField::Expression {
                 expr: ferrisstreams::ferris::sql::ast::Expr::WindowFunction {
                     function_name: "AVG".to_string(),
-                    args: vec![ferrisstreams::ferris::sql::ast::Expr::Column("price".to_string())],
+                    args: vec![ferrisstreams::ferris::sql::ast::Expr::Column(
+                        "price".to_string(),
+                    )],
                     over_clause: ferrisstreams::ferris::sql::ast::OverClause {
                         partition_by: vec!["symbol".to_string()],
                         order_by: vec![],
