@@ -10,6 +10,10 @@ pub mod kafka_performance_tests;
 pub mod query_performance_tests;
 pub mod serialization_performance_tests;
 
+// New comprehensive benchmark modules
+pub mod ferris_sql_multi_benchmarks;
+pub mod transactional_processor_benchmarks;
+
 // New consolidated performance testing framework
 pub mod consolidated_mod;
 
