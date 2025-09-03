@@ -126,14 +126,39 @@ jobs:
         # Extract P95 latency (matches format: "   P95 Latency:       123.4 ms")
         P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?=\s+ms)' latency_perf_results.txt | head -1 || echo "999")
         
+        # Extract FerrisStreams SQL benchmark metrics
+        echo "=== FerrisStreams SQL Benchmark Results (Throughput lines) ==="
+        if [ -f ferris_sql_benchmarks.txt ]; then
+          grep "records/sec" ferris_sql_benchmarks.txt || echo "No throughput metrics found in ferris_sql_benchmarks.txt"
+          
+          # Extract baseline throughput (format: "BASELINE: 1234.5 records/sec")
+          BASELINE_THROUGHPUT=$(grep -oP 'BASELINE.*?\K\d+\.\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          
+          # Extract aggregation throughput (format: "AGGREGATION: 567.8 records/sec")  
+          AGGREGATION_THROUGHPUT=$(grep -oP 'AGGREGATION.*?\K\d+\.\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          
+          # Extract processor comparison ratio (format: "SimpleJobProcessor: 1234.5 records/sec, TransactionalJobProcessor: 123.4 records/sec (9.0x faster)")
+          PROCESSOR_RATIO=$(grep -oP 'TransactionalJobProcessor.*?\(\K\d+\.\d+(?=x\s+faster\))' ferris_sql_benchmarks.txt | head -1 || echo "1.0")
+        else
+          BASELINE_THROUGHPUT="0"
+          AGGREGATION_THROUGHPUT="0" 
+          PROCESSOR_RATIO="1.0"
+        fi
+        
         echo "JSON_THROUGHPUT=$JSON_THROUGHPUT" >> $GITHUB_ENV
         echo "RAW_THROUGHPUT=$RAW_THROUGHPUT" >> $GITHUB_ENV  
         echo "P95_LATENCY=$P95_LATENCY" >> $GITHUB_ENV
+        echo "BASELINE_THROUGHPUT=$BASELINE_THROUGHPUT" >> $GITHUB_ENV
+        echo "AGGREGATION_THROUGHPUT=$AGGREGATION_THROUGHPUT" >> $GITHUB_ENV
+        echo "PROCESSOR_RATIO=$PROCESSOR_RATIO" >> $GITHUB_ENV
         
         echo "Performance Metrics:"
         echo "JSON Throughput: $JSON_THROUGHPUT msg/s"
         echo "Raw Throughput: $RAW_THROUGHPUT msg/s"
         echo "P95 Latency: $P95_LATENCY ms"
+        echo "SQL Baseline Throughput: $BASELINE_THROUGHPUT records/sec"
+        echo "SQL Aggregation Throughput: $AGGREGATION_THROUGHPUT records/sec"
+        echo "Processor Performance Ratio: ${PROCESSOR_RATIO}x faster"
     
     - name: Performance Regression Check
       run: |
@@ -159,6 +184,29 @@ jobs:
         # Check P95 latency
         if (( $(echo "$P95_LATENCY > $MAX_P95_LATENCY" | bc -l) )); then
           echo "❌ Latency regression: $P95_LATENCY > $MAX_P95_LATENCY ms"
+          exit 1
+        fi
+        
+        # Check SQL performance thresholds
+        MIN_SQL_BASELINE=50
+        MIN_SQL_AGGREGATION=10
+        MIN_PROCESSOR_RATIO=5.0
+        
+        # Check SQL baseline throughput
+        if (( $(echo "$BASELINE_THROUGHPUT < $MIN_SQL_BASELINE" | bc -l) )); then
+          echo "❌ SQL baseline regression: $BASELINE_THROUGHPUT < $MIN_SQL_BASELINE records/sec"
+          exit 1
+        fi
+        
+        # Check SQL aggregation throughput
+        if (( $(echo "$AGGREGATION_THROUGHPUT < $MIN_SQL_AGGREGATION" | bc -l) )); then
+          echo "❌ SQL aggregation regression: $AGGREGATION_THROUGHPUT < $MIN_SQL_AGGREGATION records/sec"
+          exit 1
+        fi
+        
+        # Check processor performance ratio
+        if (( $(echo "$PROCESSOR_RATIO < $MIN_PROCESSOR_RATIO" | bc -l) )); then
+          echo "❌ Processor performance regression: ${PROCESSOR_RATIO}x < ${MIN_PROCESSOR_RATIO}x improvement"
           exit 1
         fi
         
@@ -202,14 +250,25 @@ jobs:
           const jsonThroughput = process.env.JSON_THROUGHPUT;
           const rawThroughput = process.env.RAW_THROUGHPUT;
           const p95Latency = process.env.P95_LATENCY;
+          const baselineThroughput = process.env.BASELINE_THROUGHPUT;
+          const aggregationThroughput = process.env.AGGREGATION_THROUGHPUT;
+          const processorRatio = process.env.PROCESSOR_RATIO;
           
           const comment = `## 📊 Performance Test Results
           
+          ### Kafka Streaming Performance
           | Metric | Value | Status |
           |--------|-------|--------|
           | JSON Throughput | ${jsonThroughput} msg/s | ${jsonThroughput > 1000 ? '✅' : '❌'} |
           | Raw Throughput | ${rawThroughput} msg/s | ${rawThroughput > 5000 ? '✅' : '❌'} |
           | P95 Latency | ${p95Latency} ms | ${p95Latency < 100 ? '✅' : '❌'} |
+          
+          ### FerrisStreams SQL Performance
+          | Metric | Value | Status |
+          |--------|-------|--------|
+          | SQL Baseline | ${baselineThroughput} records/sec | ${baselineThroughput > 50 ? '✅' : '❌'} |
+          | SQL Aggregation | ${aggregationThroughput} records/sec | ${aggregationThroughput > 10 ? '✅' : '❌'} |
+          | Processor Improvement | ${processorRatio}x faster | ${processorRatio > 5.0 ? '✅' : '❌'} |
           
           Performance tests completed automatically. Check the [workflow run](${context.payload.pull_request.html_url}/checks) for detailed results.`;
           
