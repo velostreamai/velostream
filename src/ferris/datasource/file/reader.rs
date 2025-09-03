@@ -320,7 +320,7 @@ impl FileReader {
         if field_name.contains("timestamp") {
             if let Ok(ts) = field_value.parse::<i64>() {
                 // Convert Unix timestamp to NaiveDateTime
-                if let Some(dt) = chrono::NaiveDateTime::from_timestamp_opt(ts, 0) {
+                if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.naive_utc()) {
                     return FieldValue::Timestamp(dt);
                 }
                 // Fallback to integer if conversion fails
