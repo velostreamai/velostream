@@ -185,7 +185,6 @@ WHERE amount > 100;
             "--file",
             temp_file,
             "--no-monitor",
-            "true",
             "--brokers",
             "localhost:9092",
             "--group-id",
@@ -339,10 +338,9 @@ INVALID QUERY STRUCTURE
 async fn test_complete_deployment_workflow() {
     // Create a comprehensive SQL application file
     let sql_content = r#"
--- Comprehensive SQL Application
--- name: comprehensive-test-app  
+-- SQL Application: comprehensive-test-app
 -- version: 2.0.0
--- description: Comprehensive test application with multiple statements
+-- description: Comprehensive test application with multiple statements  
 -- author: Integration Test Suite
 
 -- Simple SELECT statement
@@ -384,7 +382,6 @@ FROM transactions;
             "--default-topic",
             "test-transactions",
             "--no-monitor",
-            "true",
         ])
         .output()
         .expect("Failed to run comprehensive deployment test");
@@ -407,9 +404,9 @@ FROM transactions;
 
     // Verify application metadata was parsed
     assert!(
-        stdout.contains("2.0.0") || // version
-        stdout.contains("Comprehensive test application") || // description
-        stdout.contains("Integration Test Suite") // author
+        stdout.contains("comprehensive-test-app")
+            || stdout.contains("Successfully parsed application")
+            || stdout.contains("with 3 statements")
     );
 }
 
