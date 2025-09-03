@@ -436,7 +436,9 @@ impl MultiJobSqlServer {
             match stmt.statement_type {
                 crate::ferris::sql::app_parser::StatementType::StartJob
                 | crate::ferris::sql::app_parser::StatementType::DeployJob
-                | crate::ferris::sql::app_parser::StatementType::Select => {
+                | crate::ferris::sql::app_parser::StatementType::Select
+                | crate::ferris::sql::app_parser::StatementType::CreateStream
+                | crate::ferris::sql::app_parser::StatementType::CreateTable => {
                     // Extract job name from the SQL statement
                     let job_name = if let Some(name) = &stmt.name {
                         name.clone()

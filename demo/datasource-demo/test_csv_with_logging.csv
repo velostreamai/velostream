@@ -1,0 +1,4 @@
+transaction_id,customer_id,amount,currency,timestamp,merchant_category,description
+TXN00001,CUST009,74.27,USD,1704115364,restaurant,"Factory Restaurant"
+TXN00002,CUST018,24.08,USD,1704111387,entertainment,"Disney+ Subscription"
+TXN00003,CUST017,24.55,USD,1704114140,coffee,"Coffee Bean & Tea"

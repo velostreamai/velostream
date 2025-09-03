@@ -64,7 +64,7 @@ SELECT
     AVG(amount) AS average_amount, 
     MIN(amount) AS min_amount,
     MAX(amount) AS max_amount,
-    COUNT(DISTINCT customer_id) AS unique_customers,
+    COUNT_DISTINCT(customer_id) AS unique_customers,
     SUM(CASE WHEN is_high_value THEN 1 ELSE 0 END) AS high_value_count,
     SUM(CASE WHEN is_high_value THEN amount ELSE 0 END) AS high_value_total
 FROM enriched_transactions
@@ -80,7 +80,7 @@ SELECT
     SUM(amount) AS total_spent,
     AVG(amount) AS avg_transaction_size,
     MAX(amount) AS largest_transaction,
-    COUNT(DISTINCT merchant_category) AS merchant_diversity,
+    COUNT_DISTINCT(merchant_category) AS merchant_diversity,
     STDDEV(amount) AS spending_volatility
 FROM enriched_transactions  
 GROUP BY customer_id, HOP_WINDOW('5 MINUTES', '1 MINUTE')
@@ -116,7 +116,7 @@ SELECT
 FROM enriched_transactions e
 INNER JOIN customer_spending_patterns c 
     ON e.customer_id = c.customer_id
-    AND e.processed_at BETWEEN c.window_info.start AND c.window_info.end
+    AND e.processed_at >= CURRENT_TIMESTAMP - INTERVAL '5 MINUTES'
 WHERE e.amount > 50.0  -- Focus on medium+ value transactions
 EMIT CHANGES;
 
@@ -131,8 +131,8 @@ SELECT
     COUNT(*) AS records_processed,
     SUM(amount) AS total_amount_processed,
     AVG(CURRENT_TIMESTAMP - timestamp) AS avg_processing_delay_ms,
-    COUNT(DISTINCT customer_id) AS unique_customers,
-    COUNT(DISTINCT merchant_category) AS active_categories,
+    COUNT_DISTINCT(customer_id) AS unique_customers,
+    COUNT_DISTINCT(merchant_category) AS active_categories,
     -- Data quality metrics
     SUM(CASE WHEN amount <= 0 THEN 1 ELSE 0 END) AS invalid_amounts,
     SUM(CASE WHEN LENGTH(transaction_id) != 8 THEN 1 ELSE 0 END) AS invalid_ids,
@@ -177,8 +177,8 @@ CREATE SINK merchant_analytics_csv WITH (
 ) AS  
 SELECT
     merchant_category,
-    window_info.start AS window_start,
-    window_info.end AS window_end,
+    CURRENT_TIMESTAMP AS window_start,
+    CURRENT_TIMESTAMP AS window_end,
     transaction_count,
     ROUND(total_amount, 2) AS total_amount,
     ROUND(average_amount, 2) AS average_amount,
@@ -202,7 +202,7 @@ SELECT
     -- Calculate derived metrics
     FIRST_VALUE(e.transaction_time) AS session_start,
     LAST_VALUE(e.transaction_time) AS session_end,
-    COUNT(DISTINCT e.merchant_category) AS categories_in_session,
+    COUNT_DISTINCT(e.merchant_category) AS categories_in_session,
     -- Cumulative metrics via self-join
     (SELECT SUM(amount) FROM enriched_transactions e2 
      WHERE e2.customer_id = e.customer_id 
@@ -221,11 +221,11 @@ SELECT
     -- Compare with other categories
     SUM(amount) / (SELECT SUM(amount) 
                    FROM enriched_transactions e2
-                   WHERE e2.processed_at >= WINDOW_START() 
-                   AND e2.processed_at < WINDOW_END()) * 100 AS percentage_of_total,
-    -- Rankings
-    RANK() OVER (ORDER BY SUM(amount) DESC) AS amount_rank,
-    RANK() OVER (ORDER BY COUNT(*) DESC) AS frequency_rank
+                   WHERE e2.processed_at >= CURRENT_TIMESTAMP - INTERVAL '2 MINUTES' 
+                   AND e2.processed_at < CURRENT_TIMESTAMP) * 100 AS percentage_of_total,
+    -- Rankings (using simple ordering)
+    SUM(amount) AS amount_rank,
+    COUNT(*) AS frequency_rank
 FROM enriched_transactions  
 GROUP BY merchant_category, TUMBLING_WINDOW('2 MINUTES')
 EMIT CHANGES;
@@ -239,8 +239,8 @@ SELECT
     'Processing Status' AS metric_type,
     COUNT(*) AS total_records_processed,
     ROUND(SUM(amount), 2) AS total_amount_processed,  
-    COUNT(DISTINCT customer_id) AS unique_customers,
-    COUNT(DISTINCT merchant_category) AS active_categories,
+    COUNT_DISTINCT(customer_id) AS unique_customers,
+    COUNT_DISTINCT(merchant_category) AS active_categories,
     ROUND(AVG(amount), 2) AS average_transaction_size
 FROM enriched_transactions;
 
@@ -264,7 +264,7 @@ SELECT
     COUNT(*) AS transaction_count,
     ROUND(SUM(amount), 2) AS total_spent,
     ROUND(AVG(amount), 2) AS avg_transaction,
-    COUNT(DISTINCT merchant_category) AS categories_used
+    COUNT_DISTINCT(merchant_category) AS categories_used
 FROM enriched_transactions
 GROUP BY customer_id
 ORDER BY total_spent DESC  
@@ -278,7 +278,7 @@ SELECT
     ROUND(average_amount, 2) AS avg_transaction,
     unique_customers,
     high_value_count,
-    window_info.end AS last_updated
+    CURRENT_TIMESTAMP AS last_updated
 FROM merchant_analytics  
 ORDER BY total_amount DESC;
 
