@@ -7,21 +7,20 @@
 -- =====================================================
 
 -- Create a stream from the CSV file with schema inference
-CREATE STREAM raw_transactions (
-    transaction_id STRING,
-    customer_id STRING, 
-    amount STRING,               -- Amount as string for exact precision
-    currency STRING,
-    timestamp INTEGER,
-    merchant_category STRING,
-    description STRING
-) WITH (
-    datasource='file',
-    path='./demo_data/financial_transactions.csv',
-    format='csv',
-    has_headers='true',
-    watching='true',              -- Monitor file for changes
-    decimal_precision='4'         -- String amounts parsed with precision
+CREATE STREAM raw_transactions AS
+SELECT 
+    transaction_id,
+    customer_id,
+    amount,
+    currency,
+    timestamp,
+    merchant_category,
+    description
+FROM 'file://./demo_data/financial_transactions.csv'
+WITH (
+    'format'='csv',
+    'has_headers'='true',
+    'watching'='true'
 );
 
 -- Basic transaction enrichment with financial metadata
