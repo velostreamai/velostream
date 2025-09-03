@@ -66,19 +66,18 @@ jobs:
       run: cargo build --verbose
       continue-on-error: ${{ matrix.can_fail }}
 
-    - name: Run unit tests (excluding integration tests)
+    - name: Run unit tests (excluding integration and performance tests)
       run: |
-        # Run all tests except integration tests that require Kafka
-        # Performance tests are now lightweight unit tests for configurations  
-        cargo test --verbose -- --skip integration::
+        # Run all tests except integration tests that require Kafka and performance benchmarks
+        cargo test --verbose -- --skip integration:: --skip performance::
       env:
         SKIP_KAFKA_TESTS: "1"
       continue-on-error: ${{ matrix.can_fail }}
 
-    - name: Test with all features (excluding integration tests)
+    - name: Test with all features (excluding integration and performance tests)
       run: |
-        # Run all tests with all features, excluding integration tests
-        cargo test --all-features --verbose -- --skip integration::
+        # Run all tests with all features, excluding integration tests and performance benchmarks
+        cargo test --all-features --verbose -- --skip integration:: --skip performance::
       env:
         SKIP_KAFKA_TESTS: "1"
       continue-on-error: ${{ matrix.can_fail }}

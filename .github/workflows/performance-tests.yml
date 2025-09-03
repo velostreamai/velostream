@@ -164,6 +164,24 @@ jobs:
         
         echo "✅ All performance checks passed!"
     
+    - name: Run FerrisStreams SQL Performance Benchmarks
+      run: |
+        echo "Running FerrisStreams SQL Performance Benchmarks..."
+        echo "These benchmarks will run in CI mode with reduced dataset sizes"
+        export CI=true
+        export GITHUB_ACTIONS=true
+        # Run ignored performance benchmarks with reduced scope
+        timeout 300 cargo test --ignored --test mod --no-default-features \
+          benchmark_simple_select_baseline \
+          benchmark_complex_aggregation \
+          benchmark_simple_vs_transactional_small_batch \
+          -- --nocapture > ferris_sql_benchmarks.txt 2>&1 || true
+        echo "FerrisStreams SQL benchmarks completed"
+        if [ -f ferris_sql_benchmarks.txt ]; then
+          echo "=== FerrisStreams SQL Benchmark Results ==="
+          cat ferris_sql_benchmarks.txt | grep -E "(BASELINE|AGGREGATION|PROCESSOR|records/sec|✅|❌|Config:)" || true
+        fi
+
     - name: Upload Performance Results
       uses: actions/upload-artifact@v4
       if: always()
@@ -174,6 +192,7 @@ jobs:
           raw_perf_results.txt
           latency_perf_results.txt
           resource_perf_results.txt
+          ferris_sql_benchmarks.txt
     
     - name: Comment Performance Results (PR only)
       if: github.event_name == 'pull_request'

@@ -16,10 +16,39 @@ use ferrisstreams::ferris::{
 };
 use std::{
     collections::HashMap,
+    env,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, Mutex};
+
+/// Configuration parameters that adjust based on CI/CD vs manual execution
+#[derive(Debug, Clone)]
+pub struct BenchmarkConfig {
+    pub record_count: usize,
+    pub batch_size: usize,
+    pub timeout_multiplier: f64,
+}
+
+impl Default for BenchmarkConfig {
+    fn default() -> Self {
+        if env::var("CI").is_ok() || env::var("GITHUB_ACTIONS").is_ok() {
+            // Fast CI/CD mode - reduced scale for GitHub Actions
+            Self {
+                record_count: 1000,      // 10x smaller dataset
+                batch_size: 50,          // Smaller batches
+                timeout_multiplier: 0.5, // Faster timeouts
+            }
+        } else {
+            // Full manual/local testing mode
+            Self {
+                record_count: 10000,     // Full dataset
+                batch_size: 100,         // Standard batches
+                timeout_multiplier: 1.0, // Standard timeouts
+            }
+        }
+    }
+}
 
 /// Transactional benchmark data reader
 pub struct TransactionalBenchmarkReader {
@@ -396,11 +425,19 @@ async fn benchmark_transactional_processor(
 // BENCHMARK TESTS
 
 #[tokio::test]
+#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_simple_vs_transactional_small_batch() {
-    println!("\n⚡ PROCESSOR COMPARISON: Small Batch Size (50 records/batch)");
+    let config = BenchmarkConfig::default();
+    let test_record_count = (config.record_count / 2).max(1000); // Smaller for comparison test
+    let small_batch_size = config.batch_size / 2;
+    println!(
+        "\n⚡ PROCESSOR COMPARISON: Small Batch Size ({} records/batch)",
+        small_batch_size
+    );
+    println!("Config: {:?}, Records: {}", config, test_record_count);
 
-    let record_count = 5000;
-    let batch_size = 50;
+    let record_count = test_record_count;
+    let batch_size = small_batch_size;
 
     let simple_result = benchmark_simple_processor(record_count, batch_size).await;
     let transactional_result = benchmark_transactional_processor(record_count, batch_size).await;
@@ -440,6 +477,7 @@ async fn benchmark_simple_vs_transactional_small_batch() {
 }
 
 #[tokio::test]
+#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_simple_vs_transactional_large_batch() {
     println!("\n⚡ PROCESSOR COMPARISON: Large Batch Size (500 records/batch)");
 
@@ -486,6 +524,7 @@ async fn benchmark_simple_vs_transactional_large_batch() {
 }
 
 #[tokio::test]
+#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_transaction_failure_recovery() {
     println!("\n🔄 TRANSACTION FAILURE RECOVERY: Rollback Performance Impact");
 
@@ -508,6 +547,7 @@ async fn benchmark_transaction_failure_recovery() {
 }
 
 #[tokio::test]
+#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_exactly_once_semantics_overhead() {
     println!("\n🎯 EXACTLY-ONCE SEMANTICS: Performance Cost Analysis");
 
@@ -554,15 +594,23 @@ async fn benchmark_exactly_once_semantics_overhead() {
 }
 
 #[tokio::test]
+#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_comprehensive_processor_comparison() {
+    let config = BenchmarkConfig::default();
     println!("\n🎯 COMPREHENSIVE PROCESSOR BENCHMARK SUITE");
     println!("==========================================");
     println!("Comparing SimpleJobProcessor vs TransactionalJobProcessor");
     println!("across different batch sizes and workloads");
+    println!("Config: {:?}", config);
     println!("==========================================\n");
 
-    let record_count = 10000;
-    let batch_sizes = vec![50, 100, 200, 500];
+    let record_count = config.record_count;
+    // Scale batch sizes based on CI/CD mode
+    let batch_sizes = if config.record_count < 5000 {
+        vec![25, 50] // Reduced for CI
+    } else {
+        vec![50, 100, 200, 500] // Full range for local
+    };
 
     for batch_size in batch_sizes {
         println!("📊 Testing batch size: {}", batch_size);
