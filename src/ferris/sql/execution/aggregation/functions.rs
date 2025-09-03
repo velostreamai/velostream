@@ -7,6 +7,7 @@ use super::super::internal::GroupAccumulator;
 use super::super::types::FieldValue;
 use crate::ferris::sql::ast::{Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
+use hyperloglogplus::HyperLogLog;
 
 /// Utilities for aggregate function computation
 pub struct AggregateFunctions;
@@ -38,6 +39,9 @@ impl AggregateFunctions {
                     }
                     "COUNT_DISTINCT" => {
                         Self::compute_count_distinct_aggregate(field_name, accumulator)
+                    }
+                    "APPROX_COUNT_DISTINCT" => {
+                        Self::compute_approx_count_distinct_aggregate(field_name, accumulator)
                     }
                     _ => {
                         // Non-aggregate function - use first value
@@ -239,6 +243,21 @@ impl AggregateFunctions {
         }
     }
 
+    /// Compute APPROX_COUNT_DISTINCT aggregate value using HyperLogLog
+    fn compute_approx_count_distinct_aggregate(
+        field_name: &str,
+        accumulator: &GroupAccumulator,
+    ) -> Result<FieldValue, SqlError> {
+        if let Some(hll) = accumulator.approx_distinct_values.get(field_name) {
+            // Create a mutable copy to get the count
+            let mut hll_copy = hll.clone();
+            let count = hll_copy.count() as i64;
+            Ok(FieldValue::Integer(count))
+        } else {
+            Ok(FieldValue::Integer(0))
+        }
+    }
+
     /// Check if an expression is a valid aggregate function
     #[doc(hidden)]
     pub fn is_aggregate_function(expr: &Expr) -> bool {
@@ -254,6 +273,7 @@ impl AggregateFunctions {
                         | "STDDEV"
                         | "VARIANCE"
                         | "COUNT_DISTINCT"
+                        | "APPROX_COUNT_DISTINCT"
                         | "FIRST"
                         | "LAST"
                         | "STRING_AGG"
@@ -276,6 +296,7 @@ impl AggregateFunctions {
             "STDDEV",
             "VARIANCE",
             "COUNT_DISTINCT",
+            "APPROX_COUNT_DISTINCT",
             "FIRST",
             "LAST",
             "STRING_AGG",
