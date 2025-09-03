@@ -25,6 +25,7 @@ pub struct FileReader {
     file_list: Vec<String>,
     current_file_index: usize,
     eof_reached: bool,
+    csv_headers: Option<Vec<String>>, // Store CSV column headers
 }
 
 impl FileReader {
@@ -40,6 +41,7 @@ impl FileReader {
             file_list: Vec::new(),
             current_file_index: 0,
             eof_reached: false,
+            csv_headers: None,
         };
 
         reader.initialize_files().await?;
@@ -146,6 +148,9 @@ impl FileReader {
         self.current_position = 0;
         self.line_number = self.config.skip_lines;
 
+        // Reset headers for each new file
+        self.csv_headers = None;
+
         Ok(())
     }
 
@@ -176,9 +181,13 @@ impl FileReader {
                 Ok(_) => {
                     self.line_number += 1;
 
-                    // Skip header line if configured and this is the first line
+                    // Parse header line if configured and this is the first line
                     if self.config.csv_has_header && self.line_number == self.config.skip_lines + 1
                     {
+                        // Parse headers and store them
+                        if let Ok(headers) = self.parse_csv_fields(line.trim()) {
+                            self.csv_headers = Some(headers);
+                        }
                         continue; // Skip this line and try again
                     }
 
@@ -220,34 +229,26 @@ impl FileReader {
         }
     }
 
-    /// Parse a CSV line into a StreamRecord
+    /// Parse a CSV line into a StreamRecord with proper RFC 4180 compliance
     fn parse_csv_line(&self, line: &str) -> Result<StreamRecord, Box<dyn Error + Send + Sync>> {
-        // Simple CSV parsing - in production, use csv crate
-        let fields: Vec<&str> = line.split(self.config.csv_delimiter).collect();
+        let parsed_fields = self.parse_csv_fields(line)?;
 
-        let mut data = HashMap::new();
-        for (i, field) in fields.iter().enumerate() {
-            let key = format!("column_{}", i);
-            data.insert(
-                key,
-                serde_json::Value::String(field.trim_matches(self.config.csv_quote).to_string()),
-            );
-        }
-
-        // Convert JSON values to FieldValue
         let mut fields = HashMap::new();
-        for (key, json_val) in data {
-            let field_val = match json_val {
-                serde_json::Value::String(s) => FieldValue::String(s),
-                serde_json::Value::Number(n) if n.is_i64() => {
-                    FieldValue::Integer(n.as_i64().unwrap())
-                }
-                serde_json::Value::Number(n) => FieldValue::Float(n.as_f64().unwrap_or(0.0)),
-                serde_json::Value::Bool(b) => FieldValue::Boolean(b),
-                serde_json::Value::Null => FieldValue::Null,
-                _ => FieldValue::String(json_val.to_string()),
+
+        // Use header names if available, otherwise fall back to column indices
+        for (i, field_value) in parsed_fields.iter().enumerate() {
+            let field_name = if let Some(ref headers) = self.csv_headers {
+                headers
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("column_{}", i))
+            } else {
+                format!("column_{}", i)
             };
-            fields.insert(key, field_val);
+
+            // Smart type inference with financial precision detection
+            let field_val = self.infer_field_type(&field_name, field_value);
+            fields.insert(field_name, field_val);
         }
 
         Ok(StreamRecord {
@@ -257,6 +258,105 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
         })
+    }
+
+    /// RFC 4180 compliant CSV field parsing
+    fn parse_csv_fields(&self, line: &str) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let mut fields = Vec::new();
+        let mut current_field = String::new();
+        let mut in_quotes = false;
+        let mut chars = line.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                // Handle quote character
+                c if c == self.config.csv_quote => {
+                    if in_quotes {
+                        // Check for escaped quote (double quote)
+                        if chars.peek() == Some(&self.config.csv_quote) {
+                            current_field.push(self.config.csv_quote);
+                            chars.next(); // Consume the second quote
+                        } else {
+                            in_quotes = false;
+                        }
+                    } else {
+                        in_quotes = true;
+                    }
+                }
+                // Handle delimiter
+                c if c == self.config.csv_delimiter && !in_quotes => {
+                    fields.push(current_field.trim().to_string());
+                    current_field.clear();
+                }
+                // Regular character
+                c => {
+                    current_field.push(c);
+                }
+            }
+        }
+
+        // Don't forget the last field
+        fields.push(current_field.trim().to_string());
+
+        Ok(fields)
+    }
+
+    /// Smart type inference with financial precision detection
+    fn infer_field_type(&self, field_name: &str, field_value: &str) -> FieldValue {
+        if field_value.is_empty() {
+            return FieldValue::Null;
+        }
+
+        // Financial amount detection
+        if self.is_financial_field(field_name) {
+            if let Ok(amount) = field_value.parse::<f64>() {
+                // Convert to ScaledInteger with 4 decimal places for financial precision
+                let scaled_amount = (amount * 10000.0).round() as i64;
+                return FieldValue::ScaledInteger(scaled_amount, 4);
+            }
+        }
+
+        // Timestamp detection (Unix timestamp)
+        if field_name.contains("timestamp") {
+            if let Ok(ts) = field_value.parse::<i64>() {
+                // Convert Unix timestamp to NaiveDateTime
+                if let Some(dt) = chrono::NaiveDateTime::from_timestamp_opt(ts, 0) {
+                    return FieldValue::Timestamp(dt);
+                }
+                // Fallback to integer if conversion fails
+                return FieldValue::Integer(ts);
+            }
+        }
+
+        // Integer detection
+        if let Ok(i) = field_value.parse::<i64>() {
+            return FieldValue::Integer(i);
+        }
+
+        // Float detection
+        if let Ok(f) = field_value.parse::<f64>() {
+            return FieldValue::Float(f);
+        }
+
+        // Boolean detection
+        match field_value.to_lowercase().as_str() {
+            "true" | "yes" | "1" => FieldValue::Boolean(true),
+            "false" | "no" | "0" => FieldValue::Boolean(false),
+            _ => FieldValue::String(field_value.to_string()),
+        }
+    }
+
+    /// Detect if a field contains financial/monetary data
+    fn is_financial_field(&self, field_name: &str) -> bool {
+        let financial_patterns = [
+            "amount", "price", "cost", "fee", "total", "balance", "value", "payment", "charge",
+            "rate", "salary",
+        ];
+
+        let lower_name = field_name.to_lowercase();
+        financial_patterns
+            .iter()
+            .any(|pattern| lower_name.contains(pattern))
     }
 
     /// Read a single record from JSON Lines file

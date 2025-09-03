@@ -1,3 +1,4 @@
+-- SQL Application: financial_transaction_processing_demo
 -- Enhanced Financial Transaction Processing Demo
 -- Demonstrates FerrisStreams advanced SQL capabilities with file data sources
 

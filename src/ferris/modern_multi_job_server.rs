@@ -414,6 +414,16 @@ impl MultiJobSqlServer {
         app: SqlApplication,
         default_topic: Option<String>,
     ) -> Result<Vec<String>, SqlError> {
+        self.deploy_sql_application_with_filename(app, default_topic, None)
+            .await
+    }
+
+    pub async fn deploy_sql_application_with_filename(
+        &self,
+        app: SqlApplication,
+        default_topic: Option<String>,
+        source_filename: Option<String>,
+    ) -> Result<Vec<String>, SqlError> {
         info!(
             "Deploying SQL application '{}' version '{}'",
             app.metadata.name, app.metadata.version
@@ -425,12 +435,39 @@ impl MultiJobSqlServer {
         for stmt in &app.statements {
             match stmt.statement_type {
                 crate::ferris::sql::app_parser::StatementType::StartJob
-                | crate::ferris::sql::app_parser::StatementType::DeployJob => {
+                | crate::ferris::sql::app_parser::StatementType::DeployJob
+                | crate::ferris::sql::app_parser::StatementType::Select => {
                     // Extract job name from the SQL statement
                     let job_name = if let Some(name) = &stmt.name {
                         name.clone()
                     } else {
-                        format!("{}_stmt_{}", app.metadata.name, stmt.order)
+                        // Generate compact, meaningful job name: filename_snippet_timestamp_id
+                        let file_prefix = source_filename
+                            .as_ref()
+                            .and_then(|path| {
+                                std::path::Path::new(path)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                            })
+                            .map(|name| {
+                                // Take first few chars of filename, clean it up
+                                name.chars()
+                                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                                    .take(8)
+                                    .collect::<String>()
+                            })
+                            .unwrap_or_else(|| "app".to_string());
+
+                        let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                            % 100000; // Last 5 digits for compactness
+                        format!(
+                            "{}_{}_{}_{:02}",
+                            file_prefix, sql_snippet, timestamp, stmt.order
+                        )
                     };
 
                     // Determine topic from statement dependencies or use default
@@ -439,13 +476,7 @@ impl MultiJobSqlServer {
                     } else if let Some(ref default) = default_topic {
                         default.clone()
                     } else {
-                        return Err(SqlError::ExecutionError {
-                            message: format!(
-                                "No topic specified for job '{}' and no default topic provided",
-                                job_name
-                            ),
-                            query: None,
-                        });
+                        format!("processed_data_{}", job_name) // Auto-generate topic for SELECT statements
                     };
 
                     // Deploy the job
@@ -483,5 +514,88 @@ impl MultiJobSqlServer {
             app.metadata.name
         );
         Ok(deployed_jobs)
+    }
+
+    /// Extract a meaningful snippet from SQL for job naming
+    /// Examples:
+    /// - "SELECT customer_id, amount FROM transactions" -> "sel_customer_transactions"
+    /// - "SELECT COUNT(*) FROM fraud_alerts" -> "sel_count_fraud_alerts"  
+    /// - "SELECT AVG(amount) AS avg_amt FROM sales" -> "sel_avg_sales"
+    fn extract_sql_snippet(sql: &str) -> String {
+        // Clean and normalize the SQL
+        let sql_clean = sql
+            .to_lowercase()
+            .replace(['\n', '\r', '\t'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Extract key components
+        let mut parts = Vec::new();
+
+        // Extract query type (SELECT, INSERT, etc.)
+        if sql_clean.starts_with("select") {
+            parts.push("sel");
+
+            // Try to extract meaningful fields or functions
+            if let Some(select_part) = sql_clean.strip_prefix("select ") {
+                if let Some(from_pos) = select_part.find(" from ") {
+                    let select_fields = &select_part[..from_pos];
+
+                    // Look for aggregate functions
+                    if select_fields.contains("count(") {
+                        parts.push("count");
+                    } else if select_fields.contains("sum(") {
+                        parts.push("sum");
+                    } else if select_fields.contains("avg(") {
+                        parts.push("avg");
+                    } else if select_fields.contains("max(") {
+                        parts.push("max");
+                    } else if select_fields.contains("min(") {
+                        parts.push("min");
+                    } else if select_fields.contains("*") {
+                        parts.push("all");
+                    } else {
+                        // Extract first significant field name
+                        let first_field = select_fields
+                            .split(',')
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("data");
+                        parts.push(&first_field[..first_field.len().min(8)]);
+                    }
+                }
+
+                // Extract table name
+                if let Some(from_part) = select_part
+                    .strip_prefix(&select_part[..select_part.find(" from ").unwrap_or(0)])
+                {
+                    if let Some(table_start) = from_part.strip_prefix(" from ") {
+                        let table_name = table_start.split_whitespace().next().unwrap_or("table");
+                        parts.push(&table_name[..table_name.len().min(12)]);
+                    }
+                }
+            }
+        } else {
+            // For non-SELECT statements, use first word + generic identifier
+            let first_word = sql_clean.split_whitespace().next().unwrap_or("query");
+            parts.push(&first_word[..first_word.len().min(6)]);
+            parts.push("stmt");
+        }
+
+        // Join parts with underscores, ensuring valid identifier
+        let result = parts.join("_");
+
+        // Ensure it's a valid identifier (alphanumeric + underscore)
+        result
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .collect::<String>()
+            .get(..20) // Limit to 20 chars
+            .unwrap_or("job")
+            .to_string()
     }
 }

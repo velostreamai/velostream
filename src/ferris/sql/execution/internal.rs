@@ -6,6 +6,8 @@
 
 use super::types::{FieldValue, StreamRecord};
 use crate::ferris::sql::ast::{Expr, SelectField, StreamingQuery, WindowSpec};
+use hyperloglogplus::{HyperLogLog, HyperLogLogPlus};
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 
 /// State for tracking GROUP BY aggregations across streaming records
@@ -86,6 +88,8 @@ pub struct GroupAccumulator {
     pub string_values: HashMap<String, Vec<String>>,
     /// Distinct values for COUNT_DISTINCT
     pub distinct_values: HashMap<String, HashSet<String>>,
+    /// HyperLogLog estimators for APPROX_COUNT_DISTINCT
+    pub approx_distinct_values: HashMap<String, HyperLogLogPlus<String, RandomState>>,
     /// Sample record for non-aggregate fields (takes first record's values)
     pub sample_record: Option<StreamRecord>,
 }
@@ -104,6 +108,7 @@ impl GroupAccumulator {
             last_values: HashMap::new(),
             string_values: HashMap::new(),
             distinct_values: HashMap::new(),
+            approx_distinct_values: HashMap::new(),
             sample_record: None,
         }
     }
@@ -191,6 +196,16 @@ impl GroupAccumulator {
             .entry(field_name.to_string())
             .or_default()
             .insert(value_str);
+    }
+
+    /// Add a value to the HyperLogLog estimator for APPROX_COUNT_DISTINCT
+    pub fn add_to_approx_set(&mut self, field_name: &str, value: FieldValue) {
+        let value_str = format!("{:?}", value); // Convert to string representation
+        let hll = self
+            .approx_distinct_values
+            .entry(field_name.to_string())
+            .or_insert_with(|| HyperLogLogPlus::new(10, RandomState::new()).unwrap()); // 10-bit precision
+        hll.insert(&value_str);
     }
 
     /// Set the first value for FIRST() aggregates (only if not already set)

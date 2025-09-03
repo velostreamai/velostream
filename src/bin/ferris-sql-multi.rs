@@ -365,7 +365,7 @@ async fn deploy_sql_application_from_file(
         app.statements.len()
     );
     let deployed_jobs = server
-        .deploy_sql_application(app.clone(), default_topic)
+        .deploy_sql_application_with_filename(app.clone(), default_topic, Some(file_path.clone()))
         .await
         .map_err(|e| {
             let error_msg = format!("Failed to deploy SQL application: {}", e);

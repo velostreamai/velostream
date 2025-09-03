@@ -18,6 +18,23 @@ DATA_DIR="$DEMO_DIR/demo_data"
 OUTPUT_DIR="$DEMO_DIR/demo_output"
 CONFIG_DIR="$DEMO_DIR/configs"
 
+# Graceful shutdown handler for Ctrl+C
+cleanup_on_exit() {
+    echo -e "\n${YELLOW}🛑 Received interrupt signal. Cleaning up...${NC}"
+    
+    if [[ -f "$DEMO_DIR/docker-compose.demo.yml" ]]; then
+        cd "$DEMO_DIR"
+        echo "Stopping Docker containers..."
+        docker-compose -f docker-compose.demo.yml stop 2>/dev/null || true
+    fi
+    
+    echo -e "${GREEN}✅ Cleanup completed. Goodbye!${NC}"
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup_on_exit INT TERM
+
 echo -e "${BLUE}🚀 FerrisStreams DataSource Complete Demo${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
@@ -56,6 +73,25 @@ if ! command_exists docker; then
     SKIP_KAFKA=true
 else
     print_status "Docker found"
+    
+    # Proactive cleanup check for stale Kafka containers
+    if [[ -f "$DEMO_DIR/docker-compose.demo.yml" ]]; then
+        cd "$DEMO_DIR"
+        
+        # Check if there are any stale containers from previous runs
+        if docker-compose -f docker-compose.demo.yml ps -q 2>/dev/null | head -1 | grep -q .; then
+            echo "🔍 Checking for stale Kafka containers..."
+            
+            # Check if any containers are in an unhealthy state
+            if docker-compose -f docker-compose.demo.yml ps | grep -E "(Exit|Restarting|Dead)" >/dev/null 2>&1; then
+                echo "🧹 Removing stale containers..."
+                docker-compose -f docker-compose.demo.yml down -v 2>/dev/null || true
+                print_status "Stale containers cleaned"
+            fi
+        fi
+        
+        cd - >/dev/null
+    fi
 fi
 
 # Check if in correct directory
@@ -120,18 +156,61 @@ if [[ "$SKIP_KAFKA" != "true" ]]; then
     
     if [[ -f "$DEMO_DIR/docker-compose.demo.yml" ]]; then
         cd "$DEMO_DIR"
+        
+        # Function to check for Kafka cluster ID conflicts
+        check_kafka_health() {
+            echo "Checking Kafka health..."
+            sleep 8
+            
+            # Check for cluster ID conflicts in logs
+            if docker-compose -f docker-compose.demo.yml logs kafka 2>/dev/null | grep -q "InconsistentClusterIdException"; then
+                echo "🚨 Detected Kafka cluster ID conflict"
+                return 1
+            fi
+            
+            # Check if Kafka container is running properly
+            if ! docker-compose -f docker-compose.demo.yml ps kafka | grep -q "Up.*healthy"; then
+                echo "🚨 Kafka container not healthy"
+                return 1
+            fi
+            
+            return 0
+        }
+        
+        # Function to clean up Kafka data
+        clean_kafka_data() {
+            echo "🧹 Cleaning up Kafka persistent data..."
+            docker-compose -f docker-compose.demo.yml down -v 2>/dev/null || true
+            
+            # Clean up any orphaned volumes
+            echo "🧹 Removing orphaned Docker volumes..."
+            docker volume prune -f 2>/dev/null || true
+            
+            echo "✅ Kafka data cleaned"
+        }
+        
+        # Start Kafka with intelligent retry logic
         echo "Starting Kafka and related services..."
         docker-compose -f docker-compose.demo.yml up -d --quiet-pull
         
-        echo "Waiting for Kafka to be ready..."
-        sleep 10
-        
-        # Verify Kafka is running
-        if docker-compose -f docker-compose.demo.yml ps | grep -q "Up"; then
-            print_status "Kafka infrastructure started"
-        else
-            print_warning "Kafka may not be fully ready yet"
+        # Check if Kafka started successfully
+        if ! check_kafka_health; then
+            print_warning "Kafka startup issue detected. Attempting cleanup and retry..."
+            
+            # Clean up and retry once
+            clean_kafka_data
+            echo "🔄 Retrying Kafka startup..."
+            docker-compose -f docker-compose.demo.yml up -d --quiet-pull
+            
+            # Second health check
+            if ! check_kafka_health; then
+                print_error "❌ Kafka failed to start after cleanup. Please check Docker setup."
+                echo "   Try running: docker system prune -f --volumes"
+                exit 1
+            fi
         fi
+        
+        print_status "Kafka infrastructure started successfully"
     else
         print_warning "docker-compose.demo.yml not found. Skipping Kafka setup."
         SKIP_KAFKA=true
@@ -146,13 +225,32 @@ echo "1. File Processing Only (Rust API)"
 echo "2. SQL Interface Demo"
 echo "3. Complete Pipeline with Kafka"
 echo "4. All Demos (sequential)"
+echo "5. Clean Docker/Kafka Data (troubleshooting)"
 echo ""
 
 while true; do
-    read -p "Enter choice [1-4]: " choice
+    read -p "Enter choice [1-5]: " choice
     case $choice in
         [1-4]) break;;
-        *) echo "Please enter 1, 2, 3, or 4";;
+        5) 
+            echo -e "\n${BLUE}🧹 Cleaning Docker/Kafka Data${NC}"
+            echo "============================="
+            cd "$DEMO_DIR"
+            
+            echo "Stopping and removing all containers and volumes..."
+            docker-compose -f docker-compose.demo.yml down -v 2>/dev/null || true
+            
+            echo "Removing orphaned Docker volumes..."  
+            docker volume prune -f 2>/dev/null || true
+            
+            echo "Removing unused Docker images..."
+            docker image prune -f 2>/dev/null || true
+            
+            print_status "Docker/Kafka data cleaned successfully"
+            echo "You can now run the script again for a fresh start."
+            exit 0
+            ;;
+        *) echo "Please enter 1, 2, 3, 4, or 5";;
     esac
 done
 
@@ -181,11 +279,8 @@ case $choice in
         echo "• Financial precision with DECIMAL types"
         echo "• Complex joins and analytics"
         echo ""
-        echo "Starting FerrisStreams SQL server..."
-        echo "After server starts, run the SQL commands in enhanced_sql_demo.sql"
-        echo "Or use: ferris-sql-multi deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
-        echo ""
-        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- server
+        echo "Deploying and running SQL demo application..."
+        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql
         ;;
         
     3)

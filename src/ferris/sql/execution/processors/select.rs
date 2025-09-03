@@ -311,6 +311,7 @@ impl SelectProcessor {
                 last_values: HashMap::new(),
                 string_values: HashMap::new(),
                 distinct_values: HashMap::new(),
+                approx_distinct_values: HashMap::new(),
                 sample_record: Some(record.clone()),
             });
 
