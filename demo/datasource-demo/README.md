@@ -34,11 +34,11 @@ cd demo/datasource-demo
 ./generate_demo_data.sh
 
 # Step 2: Start FerrisStreams SQL server  
-cargo run --bin ferris-sql --no-default-features
+cargo run --bin ferris-sql-multi --no-default-features -- server
 
 # Step 3: Run the SQL demo (copy/paste from file_processing_sql_demo.sql)
 # OR execute directly:
-# ferris-sql --file ./demo/datasource-demo/file_processing_sql_demo.sql
+# ferris-sql-multi deploy-app --file ./demo/datasource-demo/file_processing_sql_demo.sql
 ```
 
 ### Option 3: Full Pipeline with Kafka (Advanced)

@@ -28,8 +28,7 @@ demo/trading/
 └── README.md                   # This file
 
 # References main project artifacts:
-../../target/release/ferris-sql              # SQL server
-../../target/release/ferris-sql-multi        # Multi-job SQL server
+../../target/release/ferris-sql-multi        # Multi-job SQL server (primary)
 ```
 
 ## 🚀 Quick Start

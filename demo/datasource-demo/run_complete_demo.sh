@@ -80,7 +80,7 @@ cd "$DEMO_DIR/../.."
 
 echo "Building core binaries..."
 RUSTFLAGS="-A dead_code" cargo build --bin file_processing_demo --no-default-features --quiet
-RUSTFLAGS="-A dead_code" cargo build --bin ferris-sql --no-default-features --quiet  
+# Legacy ferris-sql binary was removed - using ferris-sql-multi  
 RUSTFLAGS="-A dead_code" cargo build --bin ferris-sql-multi --no-default-features --quiet
 
 if [[ "$SKIP_KAFKA" != "true" ]]; then
@@ -183,9 +183,9 @@ case $choice in
         echo ""
         echo "Starting FerrisStreams SQL server..."
         echo "After server starts, run the SQL commands in enhanced_sql_demo.sql"
-        echo "Or use: ferris-sql --file ./demo/datasource-demo/enhanced_sql_demo.sql"
+        echo "Or use: ferris-sql-multi deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
         echo ""
-        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql --no-default-features -- server
+        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- server
         ;;
         
     3)
@@ -218,7 +218,7 @@ case $choice in
         
         echo -e "\n${YELLOW}Demo 3: SQL Interface${NC}"
         echo "SQL server will start for interactive use..."
-        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql --no-default-features -- server
+        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- server
         ;;
 esac
 
