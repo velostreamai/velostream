@@ -21,7 +21,6 @@
 //! cargo run --example complete_pipeline_demo --features json
 //! ```
 
-use ferrisstreams::ferris::datasource::config::{SinkConfig, SourceConfig};
 use ferrisstreams::ferris::datasource::file::config::FileFormat;
 use ferrisstreams::ferris::datasource::file::{
     CompressionType, FileDataSource, FileSink, FileSinkConfig, FileSourceConfig,

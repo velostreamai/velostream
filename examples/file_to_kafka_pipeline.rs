@@ -11,7 +11,8 @@
 //! ```
 
 use clap::Parser;
-use ferrisstreams::ferris::datasource::{create_sink, create_source};
+use ferrisstreams::ferris::datasource::{create_sink, create_source, registry::register_global_source, FileDataSource};
+use ferrisstreams::ferris::datasource::config::SourceConfig;
 use std::error::Error;
 
 #[derive(Parser, Debug)]
@@ -34,8 +35,68 @@ struct Args {
     verbose: bool,
 }
 
+/// Initialize the datasource registry with file source factory
+fn initialize_registry() {
+    register_global_source("file", |config: SourceConfig| {
+        // The factory function gets called with the parsed SourceConfig
+        // We need to create and initialize the FileDataSource here
+        let source = PreInitializedFileDataSource { config };
+        Ok(Box::new(source) as Box<dyn ferrisstreams::ferris::datasource::DataSource>)
+    });
+}
+
+/// Wrapper that holds config until initialize() is called
+struct PreInitializedFileDataSource {
+    config: SourceConfig,
+}
+
+#[async_trait::async_trait]
+impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSource {
+    async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Already have the config from factory
+        Ok(())
+    }
+
+    async fn fetch_schema(&self) -> Result<ferrisstreams::ferris::schema::Schema, Box<dyn Error + Send + Sync>> {
+        // Create and initialize a temporary FileDataSource to get schema
+        let mut temp_source = FileDataSource::new();
+        temp_source.initialize(self.config.clone()).await?;
+        temp_source.fetch_schema().await
+    }
+
+    async fn create_reader(&self) -> Result<Box<dyn ferrisstreams::ferris::datasource::DataReader>, Box<dyn Error + Send + Sync>> {
+        // Create and initialize a FileDataSource for reading
+        let mut source = FileDataSource::new();
+        source.initialize(self.config.clone()).await?;
+        source.create_reader().await
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true // File sources support streaming
+    }
+
+    fn supports_batch(&self) -> bool {
+        true // File sources support batch reading
+    }
+
+    fn metadata(&self) -> ferrisstreams::ferris::datasource::SourceMetadata {
+        ferrisstreams::ferris::datasource::SourceMetadata {
+            source_type: "file".to_string(),
+            version: "1.0.0".to_string(),
+            supports_streaming: true,
+            supports_batch: true,
+            supports_schema_evolution: false,
+            capabilities: vec!["read".to_string(), "batch".to_string()],
+        }
+    }
+}
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Initialize datasource registry
+    initialize_registry();
+    
     let args = Args::parse();
 
     // Initialize logging
@@ -159,6 +220,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_csv_processing() {
+        // Initialize registry for the test
+        initialize_registry();
+        
         // Create test CSV file
         let mut file = NamedTempFile::new().unwrap();
         writeln!(file, "id,name,value").unwrap();

@@ -131,8 +131,25 @@ impl FileReader {
         }
 
         let file_path = &self.file_list[self.current_file_index];
-        let file =
-            File::open(file_path).map_err(|e| FileDataSourceError::IoError(e.to_string()))?;
+
+        // Debug info: log current working directory and file path
+        let current_dir = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        println!("DEBUG: FileReader attempting to open file");
+        println!("DEBUG: Current working directory: {}", current_dir);
+        println!("DEBUG: File path: {}", file_path);
+        println!("DEBUG: File exists: {}", Path::new(file_path).exists());
+
+        let file = File::open(file_path).map_err(|e| {
+            let error_msg = format!(
+                "Failed to open file '{}' from directory '{}': {}",
+                file_path, current_dir, e
+            );
+            println!("DEBUG: {}", error_msg);
+            FileDataSourceError::IoError(error_msg)
+        })?;
 
         let mut reader = BufReader::new(file);
 
@@ -513,9 +530,12 @@ impl DataReader for FileReader {
             })
             .unwrap_or(100); // Default batch size for files
 
+        println!("DEBUG: FileReader.read() called - batch_size: {}, records_read: {}, finished: {}, watch_for_changes: {}", 
+                batch_size, self.records_read, self.finished, self.config.watch_for_changes);
+
         let mut records = Vec::with_capacity(batch_size);
 
-        for _ in 0..batch_size {
+        for _i in 0..batch_size {
             // Check if we've reached the maximum number of records
             if let Some(max) = self.config.max_records {
                 if self.records_read >= max {
@@ -544,9 +564,18 @@ impl DataReader for FileReader {
 
             match result {
                 Ok(Some(record)) => {
+                    println!(
+                        "DEBUG: Successfully read record #{}, fields: {:?}",
+                        self.records_read,
+                        record.fields.keys().collect::<Vec<_>>()
+                    );
                     records.push(record);
                 }
                 Ok(None) => {
+                    println!(
+                        "DEBUG: No more data available, finished: {}, watching: {}",
+                        self.finished, self.config.watch_for_changes
+                    );
                     // No more data, check if we should wait for new data
                     if self.config.watch_for_changes && !self.finished {
                         if self.check_for_new_data().await? {

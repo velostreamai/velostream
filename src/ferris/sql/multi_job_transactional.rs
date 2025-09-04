@@ -20,6 +20,11 @@ impl TransactionalJobProcessor {
         Self { config }
     }
 
+    /// Get reference to the job processing configuration
+    pub fn get_config(&self) -> &JobProcessingConfig {
+        &self.config
+    }
+
     /// Process records from a datasource with transactional guarantees
     pub async fn process_job(
         &self,

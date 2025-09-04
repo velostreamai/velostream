@@ -5,7 +5,6 @@ Tests for Avro serialization format implementation, including schema handling
 and schema evolution scenarios.
 */
 
-#[cfg(feature = "avro")]
 mod avro_tests {
     use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{AvroFormat, SerializationFormat};
@@ -492,12 +491,4 @@ mod avro_tests {
     }
 }
 
-// If Avro feature is not enabled, provide placeholder tests
-#[cfg(not(feature = "avro"))]
-mod avro_tests {
-    #[tokio::test]
-    async fn test_avro_feature_not_enabled() {
-        // This test just verifies that the feature flag is working correctly
-        assert!(true, "Avro feature is not enabled, tests are skipped");
-    }
-}
+// Avro is always available - no feature flag needed

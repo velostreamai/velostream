@@ -1,4 +1,4 @@
--- SQL Application: financial_transaction_processing_demo
+-- SQL Application: enhanced financial_transaction_processing_demo
 -- Enhanced Financial Transaction Processing Demo
 -- Demonstrates FerrisStreams advanced SQL capabilities with file data sources
 
@@ -16,11 +16,15 @@ SELECT
     timestamp,
     merchant_category,
     description
-FROM 'file://./demo_data/financial_transactions.csv'
+FROM 'file://demo/datasource-demo/demo_data/financial_transactions.csv'
 WITH (
     'format'='csv',
     'has_headers'='true',
-    'watching'='true'
+    'watching'='true',
+    'use_transactions'='false',
+    'failure_strategy'='RetryWithBackoff',
+    'retry_backoff'='1000',
+    'max_retries'='3'
 );
 
 -- Basic transaction enrichment with financial metadata
@@ -57,7 +61,7 @@ EMIT CHANGES;
 CREATE TABLE merchant_analytics AS
 SELECT 
     merchant_category,
-    TUMBLING_WINDOW('1 MINUTE') AS window_info,
+    WINDOW TUMBLING(1m) AS window_info,
     COUNT(*) AS transaction_count,
     SUM(amount) AS total_amount,
     AVG(amount) AS average_amount, 
@@ -67,14 +71,15 @@ SELECT
     SUM(CASE WHEN is_high_value THEN 1 ELSE 0 END) AS high_value_count,
     SUM(CASE WHEN is_high_value THEN amount ELSE 0 END) AS high_value_total
 FROM enriched_transactions
-GROUP BY merchant_category, TUMBLING_WINDOW('1 MINUTE')
+GROUP BY merchant_category
+WINDOW TUMBLING(1m)
 EMIT CHANGES;
 
 -- Customer spending patterns (5-minute sliding windows)  
 CREATE TABLE customer_spending_patterns AS
 SELECT
     customer_id,
-    HOP_WINDOW('5 MINUTES', '1 MINUTE') AS window_info,
+    '5_minute_hop_window' AS window_info,
     COUNT(*) AS transaction_frequency,
     SUM(amount) AS total_spent,
     AVG(amount) AS avg_transaction_size,
@@ -82,7 +87,8 @@ SELECT
     COUNT_DISTINCT(merchant_category) AS merchant_diversity,
     STDDEV(amount) AS spending_volatility
 FROM enriched_transactions  
-GROUP BY customer_id, HOP_WINDOW('5 MINUTES', '1 MINUTE')
+GROUP BY customer_id
+WINDOW SLIDING(5m, 1m)
 EMIT CHANGES;
 
 -- =====================================================
@@ -126,7 +132,7 @@ EMIT CHANGES;
 -- Processing performance metrics
 CREATE TABLE processing_metrics AS  
 SELECT
-    TUMBLING_WINDOW('30 SECONDS') AS window_info,
+    '30_second_window' AS window_info,
     COUNT(*) AS records_processed,
     SUM(amount) AS total_amount_processed,
     AVG(CURRENT_TIMESTAMP - timestamp) AS avg_processing_delay_ms,
@@ -137,7 +143,8 @@ SELECT
     SUM(CASE WHEN LENGTH(transaction_id) != 8 THEN 1 ELSE 0 END) AS invalid_ids,
     SUM(CASE WHEN currency != 'USD' THEN 1 ELSE 0 END) AS non_usd_transactions
 FROM raw_transactions
-GROUP BY TUMBLING_WINDOW('30 SECONDS') 
+GROUP BY 1
+WINDOW TUMBLING(30s) 
 EMIT CHANGES;
 
 -- =====================================================
@@ -186,6 +193,30 @@ SELECT
 FROM merchant_analytics
 EMIT CHANGES;
 
+-- Export high-value transactions to Kafka for testing Kafka writer logging
+CREATE SINK high_value_kafka WITH (
+    datasink='kafka',
+    topic='high_value_transactions',
+    brokers='localhost:9092',
+    format='json',
+    key_field='transaction_id',
+    'use_transactions'='false',
+    'failure_strategy'='RetryWithBackoff',
+    'retry_backoff'='1000',
+    'max_retries'='3'
+) AS
+SELECT 
+    transaction_id,
+    customer_id,
+    amount,
+    merchant_category,
+    transaction_time,
+    value_tier,
+    processed_at
+FROM enriched_transactions
+WHERE is_high_value = TRUE
+EMIT CHANGES;
+
 -- =====================================================  
 -- Part 6: Advanced Analytics with Complex Joins
 -- =====================================================
@@ -207,13 +238,13 @@ SELECT
      WHERE e2.customer_id = e.customer_id 
      AND e2.processed_at <= e.processed_at) AS running_total_spent
 FROM enriched_transactions e
-GROUP BY e.customer_id, SESSION_WINDOW('10 MINUTES')
+GROUP BY e.customer_id, WINDOW SESSION(10m)
 EMIT CHANGES;
 
 -- Cross-category spending analysis
 CREATE TABLE cross_category_analysis AS
 SELECT 
-    TUMBLING_WINDOW('2 MINUTES') AS window_info,
+    '2_minute_window' AS window_info,
     merchant_category,
     COUNT(*) AS transaction_count,
     SUM(amount) AS category_total,
@@ -226,7 +257,7 @@ SELECT
     SUM(amount) AS amount_rank,
     COUNT(*) AS frequency_rank
 FROM enriched_transactions  
-GROUP BY merchant_category, TUMBLING_WINDOW('2 MINUTES')
+GROUP BY merchant_category, WINDOW TUMBLING(2m)
 EMIT CHANGES;
 
 -- =====================================================

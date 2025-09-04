@@ -5,7 +5,6 @@ Tests for ScaledInteger precision preservation in Avro serialization/deserializa
 Tests both string-based and bytes-based decimal logical type support.
 */
 
-#[cfg(feature = "avro")]
 mod avro_tests {
     use apache_avro::types::Value as AvroValue;
     use ferrisstreams::ferris::serialization::helpers::{

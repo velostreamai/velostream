@@ -3,17 +3,21 @@
 //! This is the modern implementation that uses pluggable datasources
 //! instead of hardcoded Kafka-only processing.
 
+use crate::ferris::datasource::DataWriter;
 use crate::ferris::sql::{
+    ast::StreamingQuery,
     execution::performance::PerformanceMonitor,
     multi_job_common::{
-        create_datasource_reader, process_datasource_records, DataSourceConfig, JobProcessingConfig,
+        create_datasource_reader, process_datasource_records, DataSourceConfig, FailureStrategy,
+        JobProcessingConfig,
     },
     query_analyzer::QueryAnalyzer,
     SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
@@ -246,7 +250,7 @@ impl MultiJobSqlServer {
         let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
 
         // Create execution engine for this job with query-driven format
-        let (output_sender, _output_receiver) = mpsc::unbounded_channel();
+        let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // Enable performance monitoring for this job if available
@@ -259,6 +263,33 @@ impl MultiJobSqlServer {
         // Clone data for the job task
         let job_name = name.clone();
         let topic_clone = topic.clone();
+
+        // Spawn output handler task to consume from SQL engine output channel
+        let output_job_name = job_name.clone();
+        tokio::spawn(async move {
+            debug!(
+                "Job '{}': Starting output handler task for SQL engine output channel",
+                output_job_name
+            );
+            let mut stdout_writer = crate::ferris::datasource::StdoutWriter::new_pretty();
+
+            while let Some(record) = output_receiver.recv().await {
+                debug!(
+                    "Job '{}': SQL engine output channel received record, writing to stdout",
+                    output_job_name
+                );
+                if let Err(e) = stdout_writer.write(record).await {
+                    warn!(
+                        "Job '{}': Failed to write SQL engine output to stdout: {:?}",
+                        output_job_name, e
+                    );
+                }
+            }
+            debug!(
+                "Job '{}': Output handler task completed (channel closed)",
+                output_job_name
+            );
+        });
 
         // Spawn the job execution task using modern datasource approach
         let execution_handle = tokio::spawn(async move {
@@ -276,8 +307,19 @@ impl MultiJobSqlServer {
                     Ok(reader) => {
                         info!("Job '{}' successfully created datasource reader", job_name);
                         let job_name_clone = job_name.clone();
-                        // Use default configuration for simple processing
-                        let config = JobProcessingConfig::default();
+                        // Extract job processing configuration from query properties
+                        let config = Self::extract_job_config_from_query(&parsed_query);
+                        info!(
+                            "Job '{}' processing configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, log_progress={}",
+                            job_name,
+                            config.use_transactions,
+                            config.failure_strategy,
+                            config.max_batch_size,
+                            config.batch_timeout.as_millis(),
+                            config.max_retries,
+                            config.retry_backoff.as_millis(),
+                            config.log_progress
+                        );
                         match process_datasource_records(
                             reader,
                             None, // No sink writer for basic server
@@ -520,9 +562,11 @@ impl MultiJobSqlServer {
 
     /// Extract a meaningful snippet from SQL for job naming
     /// Examples:
+    /// - "CREATE STREAM raw_transactions AS SELECT..." -> "stream_raw_transactions"
+    /// - "CREATE TABLE merchant_analytics AS SELECT..." -> "table_merchant_analytics"  
+    /// - "CREATE SINK high_value_export WITH..." -> "sink_high_value_export"
     /// - "SELECT customer_id, amount FROM transactions" -> "sel_customer_transactions"
-    /// - "SELECT COUNT(*) FROM fraud_alerts" -> "sel_count_fraud_alerts"  
-    /// - "SELECT AVG(amount) AS avg_amt FROM sales" -> "sel_avg_sales"
+    /// - "SELECT COUNT(*) FROM fraud_alerts WHERE..." -> "sel_count_fraud_alerts"
     fn extract_sql_snippet(sql: &str) -> String {
         // Clean and normalize the SQL
         let sql_clean = sql
@@ -532,72 +576,76 @@ impl MultiJobSqlServer {
             .collect::<Vec<_>>()
             .join(" ");
 
-        // Extract key components
-        let mut parts = Vec::new();
-
-        // Extract query type (SELECT, INSERT, etc.)
-        if sql_clean.starts_with("select") {
-            parts.push("sel");
-
-            // Try to extract meaningful fields or functions
-            if let Some(select_part) = sql_clean.strip_prefix("select ") {
-                if let Some(from_pos) = select_part.find(" from ") {
-                    let select_fields = &select_part[..from_pos];
-
-                    // Look for aggregate functions
-                    if select_fields.contains("count(") {
-                        parts.push("count");
-                    } else if select_fields.contains("sum(") {
-                        parts.push("sum");
-                    } else if select_fields.contains("avg(") {
-                        parts.push("avg");
-                    } else if select_fields.contains("max(") {
-                        parts.push("max");
-                    } else if select_fields.contains("min(") {
-                        parts.push("min");
-                    } else if select_fields.contains("*") {
-                        parts.push("all");
-                    } else {
-                        // Extract first significant field name
-                        let first_field = select_fields
-                            .split(',')
-                            .next()
-                            .unwrap_or("")
-                            .trim()
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("data");
-                        parts.push(&first_field[..first_field.len().min(8)]);
-                    }
-                }
-
-                // Extract table name
-                if let Some(from_part) = select_part
-                    .strip_prefix(&select_part[..select_part.find(" from ").unwrap_or(0)])
-                {
-                    if let Some(table_start) = from_part.strip_prefix(" from ") {
-                        let table_name = table_start.split_whitespace().next().unwrap_or("table");
-                        parts.push(&table_name[..table_name.len().min(12)]);
-                    }
-                }
-            }
-        } else {
-            // For non-SELECT statements, use first word + generic identifier
-            let first_word = sql_clean.split_whitespace().next().unwrap_or("query");
-            parts.push(&first_word[..first_word.len().min(6)]);
-            parts.push("stmt");
-        }
-
-        // Join parts with underscores, ensuring valid identifier
-        let result = parts.join("_");
-
         // Ensure it's a valid identifier (alphanumeric + underscore)
-        result
+        sql_clean
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '_')
             .collect::<String>()
-            .get(..20) // Limit to 20 chars
+            .get(..30) // Increase limit to 30 chars for more descriptive names
             .unwrap_or("job")
             .to_string()
+    }
+
+    /// Extract job processing configuration from query properties
+    fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig {
+        let properties = Self::get_query_properties(query);
+
+        let mut config = JobProcessingConfig::default();
+
+        // Extract use_transactions
+        if let Some(use_tx) = properties.get("use_transactions") {
+            config.use_transactions = use_tx.to_lowercase() == "true";
+        }
+
+        // Extract failure_strategy
+        if let Some(strategy) = properties.get("failure_strategy") {
+            config.failure_strategy = match strategy.as_str() {
+                "RetryWithBackoff" => FailureStrategy::RetryWithBackoff,
+                "LogAndContinue" => FailureStrategy::LogAndContinue,
+                "FailBatch" => FailureStrategy::FailBatch,
+                "SendToDLQ" => FailureStrategy::SendToDLQ,
+                _ => FailureStrategy::LogAndContinue, // Default
+            };
+        }
+
+        // Extract retry_backoff (milliseconds)
+        if let Some(backoff) = properties.get("retry_backoff") {
+            if let Ok(ms) = backoff.parse::<u64>() {
+                config.retry_backoff = Duration::from_millis(ms);
+            }
+        }
+
+        // Extract max_retries
+        if let Some(retries) = properties.get("max_retries") {
+            if let Ok(max_retries) = retries.parse::<u32>() {
+                config.max_retries = max_retries;
+            }
+        }
+
+        // Extract max_batch_size
+        if let Some(batch_size) = properties.get("max_batch_size") {
+            if let Ok(size) = batch_size.parse::<usize>() {
+                config.max_batch_size = size;
+            }
+        }
+
+        // Extract batch_timeout (milliseconds)
+        if let Some(timeout) = properties.get("batch_timeout") {
+            if let Ok(ms) = timeout.parse::<u64>() {
+                config.batch_timeout = Duration::from_millis(ms);
+            }
+        }
+
+        config
+    }
+
+    /// Extract properties from different query types
+    fn get_query_properties(query: &StreamingQuery) -> HashMap<String, String> {
+        match query {
+            StreamingQuery::CreateStream { properties, .. } => properties.clone(),
+            StreamingQuery::CreateTable { properties, .. } => properties.clone(),
+            StreamingQuery::StartJob { properties, .. } => properties.clone(),
+            _ => HashMap::new(),
+        }
     }
 }

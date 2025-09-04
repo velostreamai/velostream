@@ -467,8 +467,8 @@ impl StreamExecutionEngine {
             // Send result to output channel directly (no conversion needed)
             self.output_sender
                 .send(result)
-                .map_err(|_| SqlError::ExecutionError {
-                    message: "Failed to send result to output channel".to_string(),
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Failed to send result to output channel: {}", e),
                     query: None,
                 })?;
         }

@@ -2603,7 +2603,7 @@ SELECT
     COUNT(*) as hourly_orders
 FROM orders
 GROUP BY customer_id
-WINDOW TUMBLING(1h, order_timestamp);
+WINDOW TUMBLING(1h);
 ```
 
 ### Window Functions with OVER Clauses

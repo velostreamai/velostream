@@ -82,11 +82,19 @@ else
         if docker-compose -f docker-compose.demo.yml ps -q 2>/dev/null | head -1 | grep -q .; then
             echo "🔍 Checking for stale Kafka containers..."
             
-            # Check if any containers are in an unhealthy state
-            if docker-compose -f docker-compose.demo.yml ps | grep -E "(Exit|Restarting|Dead)" >/dev/null 2>&1; then
-                echo "🧹 Removing stale containers..."
+            # Check if any containers are in an unhealthy state or have cluster ID issues
+            if docker-compose -f docker-compose.demo.yml ps | grep -E "(Exit|Restarting|Dead)" >/dev/null 2>&1 || \
+               docker-compose -f docker-compose.demo.yml logs kafka 2>/dev/null | grep -q "InconsistentClusterIdException"; then
+                echo "🧹 Removing stale containers and cleaning persistent data..."
                 docker-compose -f docker-compose.demo.yml down -v 2>/dev/null || true
-                print_status "Stale containers cleaned"
+                
+                # Additional cleanup for cluster ID issues
+                echo "🧹 Performing aggressive Kafka data cleanup..."
+                docker volume prune -f 2>/dev/null || true
+                docker container prune -f 2>/dev/null || true
+                docker network prune -f 2>/dev/null || true
+                
+                print_status "Stale containers and persistent data cleaned"
             fi
         fi
         
@@ -186,6 +194,14 @@ if [[ "$SKIP_KAFKA" != "true" ]]; then
             echo "🧹 Removing orphaned Docker volumes..."
             docker volume prune -f 2>/dev/null || true
             
+            # Remove any Kafka-related Docker containers and images that might be stale
+            echo "🧹 Cleaning up any stale Kafka containers..."
+            docker container prune -f 2>/dev/null || true
+            
+            # Clean up networks
+            echo "🧹 Cleaning up Docker networks..."
+            docker network prune -f 2>/dev/null || true
+            
             echo "✅ Kafka data cleaned"
         }
         
@@ -254,6 +270,17 @@ while true; do
     esac
 done
 
+# Ask for debug mode
+echo ""
+read -p "Enable debug mode (detailed logging and backtraces)? [y/N]: " debug_mode
+if [[ $debug_mode =~ ^[Yy]$ ]]; then
+    DEBUG_FLAGS="RUST_BACKTRACE=1 RUST_LOG=debug"
+    echo -e "${YELLOW}🐛 Debug mode enabled${NC}"
+else
+    DEBUG_FLAGS=""
+    echo -e "${GREEN}📋 Standard mode enabled${NC}"
+fi
+
 cd "$DEMO_DIR/../.."  # Back to project root
 
 # Execute chosen demo
@@ -267,7 +294,7 @@ case $choice in
         echo "• Writing to compressed JSON files with FileSink"
         echo "• Real-time file watching and rotation"
         echo ""
-        RUSTFLAGS="-A dead_code" cargo run --bin file_processing_demo --no-default-features
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin file_processing_demo --no-default-features"
         ;;
         
     2)
@@ -280,7 +307,7 @@ case $choice in
         echo "• Complex joins and analytics"
         echo ""
         echo "Deploying and running SQL demo application..."
-        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin ferris-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
         ;;
         
     3)
@@ -297,23 +324,23 @@ case $choice in
         echo "• High-throughput streaming with backpressure"
         echo "• Production-ready error handling"
         echo ""
-        RUSTFLAGS="-A dead_code" cargo run --bin complete_pipeline_demo         ;;
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin complete_pipeline_demo"         ;;
         
     4)
         echo -e "\n${BLUE}🎪 Running All Demos${NC}"
         echo "=================="
         
         echo -e "\n${YELLOW}Demo 1: File Processing${NC}"
-        timeout 30s RUSTFLAGS="-A dead_code" cargo run --bin file_processing_demo --no-default-features || true
+        eval "timeout 30s $DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin file_processing_demo --no-default-features" || true
         
         if [[ "$SKIP_KAFKA" != "true" ]]; then
             echo -e "\n${YELLOW}Demo 2: Complete Pipeline${NC}"  
-            timeout 30s RUSTFLAGS="-A dead_code" cargo run --bin complete_pipeline_demo || true
+            eval "timeout 30s $DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin complete_pipeline_demo" || true
         fi
         
         echo -e "\n${YELLOW}Demo 3: SQL Interface${NC}"
         echo "SQL server will start for interactive use..."
-        RUSTFLAGS="-A dead_code" cargo run --bin ferris-sql-multi --no-default-features -- server
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin ferris-sql-multi --no-default-features -- server"
         ;;
 esac
 

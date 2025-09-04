@@ -38,6 +38,7 @@ pub mod config;
 pub mod file;
 pub mod kafka;
 pub mod registry;
+pub mod stdout_writer;
 pub mod traits;
 pub mod types;
 
@@ -52,6 +53,7 @@ pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 // Re-export specific implementations
 pub use file::{FileDataSource, FileSink};
 pub use kafka::{KafkaDataSink, KafkaDataSource};
+pub use stdout_writer::StdoutWriter;
 
 // Re-export registry functions
 pub use registry::{create_sink, create_source, DataSourceRegistry};

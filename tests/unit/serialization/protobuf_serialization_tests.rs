@@ -4,7 +4,6 @@
 Tests for Protocol Buffers serialization format implementation.
 */
 
-#[cfg(feature = "protobuf")]
 mod protobuf_tests {
     use super::super::common_test_data::*;
     use ferrisstreams::ferris::serialization::{ProtobufFormat, SerializationFormat};
@@ -274,12 +273,4 @@ mod protobuf_tests {
     }
 }
 
-// If Protobuf feature is not enabled, provide placeholder tests
-#[cfg(not(feature = "protobuf"))]
-mod protobuf_tests {
-    #[tokio::test]
-    async fn test_protobuf_feature_not_enabled() {
-        // This test just verifies that the feature flag is working correctly
-        assert!(true, "Protobuf feature is not enabled, tests are skipped");
-    }
-}
+// Protobuf is always available - no feature flag needed

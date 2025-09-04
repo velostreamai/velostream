@@ -3,7 +3,7 @@
 //! This module provides best-effort job processing without transactional semantics.
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
-use crate::ferris::datasource::{DataReader, DataWriter};
+use crate::ferris::datasource::{DataReader, DataWriter, StdoutWriter};
 use crate::ferris::sql::{multi_job_common::*, StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
@@ -20,6 +20,11 @@ impl SimpleJobProcessor {
         Self { config }
     }
 
+    /// Get reference to the job processing configuration
+    pub fn get_config(&self) -> &JobProcessingConfig {
+        &self.config
+    }
+
     /// Process records from a datasource with best-effort semantics
     pub async fn process_job(
         &self,
@@ -32,22 +37,62 @@ impl SimpleJobProcessor {
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
+        // Create a StdoutWriter if no sink is provided
+        if writer.is_none() {
+            info!(
+                "Job '{}': No sink provided, creating StdoutWriter for output",
+                job_name
+            );
+            writer = Some(Box::new(StdoutWriter::new_pretty()));
+        }
+
         info!(
             "Job '{}' starting simple (non-transactional) processing",
             job_name
         );
 
-        // Check if datasources have transaction capabilities (for logging only)
+        // Log comprehensive configuration details
+        info!(
+            "Job '{}' configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, progress_interval={}, log_progress={}",
+            job_name,
+            self.config.use_transactions,
+            self.config.failure_strategy,
+            self.config.max_batch_size,
+            self.config.batch_timeout.as_millis(),
+            self.config.max_retries,
+            self.config.retry_backoff.as_millis(),
+            self.config.progress_interval,
+            self.config.log_progress
+        );
+
+        // Check if datasources have transaction capabilities and log detailed info
         let reader_has_tx = reader.supports_transactions();
         let writer_has_tx = writer
             .as_ref()
             .map(|w| w.supports_transactions())
             .unwrap_or(false);
 
+        // Log detailed information about the source and sink types
+        let reader_type = std::any::type_name_of_val(reader.as_ref());
+        let writer_type = writer
+            .as_ref()
+            .map(|w| std::any::type_name_of_val(w.as_ref()))
+            .unwrap_or("None");
+
+        info!(
+            "Job '{}': Source type: '{}' (supports_transactions: {})",
+            job_name, reader_type, reader_has_tx
+        );
+
+        info!(
+            "Job '{}': Sink type: '{}' (supports_transactions: {})",
+            job_name, writer_type, writer_has_tx
+        );
+
         if reader_has_tx || writer_has_tx {
             info!(
-                "Job '{}': Note - datasources support transactions but running in simple mode (reader_tx: {}, writer_tx: {})",
-                job_name, reader_has_tx, writer_has_tx
+                "Job '{}': Note - datasources support transactions but running in simple mode",
+                job_name
             );
         }
 
@@ -85,11 +130,19 @@ impl SimpleJobProcessor {
                     }
                 }
                 Err(e) => {
-                    error!("Job '{}' batch processing failed: {:?}", job_name, e);
+                    warn!("Job '{}' batch processing failed: {:?}", job_name, e);
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
+                    warn!(
+                        "Job '{}': Applying retry backoff of {:?} due to batch failure",
+                        job_name, self.config.retry_backoff
+                    );
                     tokio::time::sleep(self.config.retry_backoff).await;
+                    debug!(
+                        "Job '{}': Backoff complete, retrying batch processing",
+                        job_name
+                    );
                 }
             }
         }
@@ -108,16 +161,28 @@ impl SimpleJobProcessor {
         job_name: &str,
         stats: &mut JobExecutionStats,
     ) -> DataSourceResult<()> {
+        debug!("Job '{}': Starting batch processing cycle", job_name);
+
         // Step 1: Read batch from datasource
         let batch = reader.read().await?;
         if batch.is_empty() {
-            // No data available - just wait
+            debug!("Job '{}': No data available, waiting 100ms", job_name);
             tokio::time::sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 
+        debug!(
+            "Job '{}': Read {} records from datasource",
+            job_name,
+            batch.len()
+        );
+
         // Step 2: Process batch through SQL engine and capture output
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        debug!(
+            "Job '{}': SQL processing complete - {} records processed, {} failed",
+            job_name, batch_result.records_processed, batch_result.records_failed
+        );
 
         // Step 3: Handle results based on failure strategy
         let should_commit = match self.config.failure_strategy {
@@ -144,13 +209,15 @@ impl SimpleJobProcessor {
             }
             FailureStrategy::RetryWithBackoff => {
                 if batch_result.records_failed > 0 {
-                    // For simple processing, just log and continue
                     warn!(
-                        "Job '{}': {} records failed - RetryWithBackoff not supported in simple mode, logging instead",
+                        "Job '{}': {} records failed in batch - will retry with backoff",
                         job_name, batch_result.records_failed
                     );
+                    // Don't commit on failures - this will trigger retry at batch level
+                    false
+                } else {
+                    true
                 }
-                true
             }
         };
 
@@ -162,7 +229,8 @@ impl SimpleJobProcessor {
                     job_name,
                     batch_result.output_records.len()
                 );
-                // In simple mode, we don't abort source commit if sink fails - just log error
+
+                // Attempt to write to sink with retry logic
                 match w.write_batch(batch_result.output_records.clone()).await {
                     Ok(()) => {
                         debug!(
@@ -172,9 +240,28 @@ impl SimpleJobProcessor {
                         );
                     }
                     Err(e) => {
-                        error!("Job '{}': Failed to write {} records to sink (continuing anyway): {:?}", 
-                               job_name, batch_result.output_records.len(), e);
-                        // In simple mode, we continue processing even if sink fails
+                        warn!(
+                            "Job '{}': Failed to write {} records to sink: {:?}",
+                            job_name,
+                            batch_result.output_records.len(),
+                            e
+                        );
+
+                        // Apply backoff and return error to trigger retry at batch level
+                        if matches!(
+                            self.config.failure_strategy,
+                            FailureStrategy::RetryWithBackoff
+                        ) {
+                            warn!(
+                                "Job '{}': Applying retry backoff of {:?} before retrying batch",
+                                job_name, self.config.retry_backoff
+                            );
+                            tokio::time::sleep(self.config.retry_backoff).await;
+                            return Err(format!("Sink write failed, will retry: {}", e).into());
+                        } else {
+                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})", 
+                                  job_name, self.config.failure_strategy);
+                        }
                     }
                 }
             }
@@ -182,7 +269,8 @@ impl SimpleJobProcessor {
 
         // Step 5: Commit with simple semantics (no rollback if sink fails)
         if should_commit {
-            self.commit_simple(reader, writer, job_name).await?;
+            self.commit_simple(reader, writer.as_deref_mut(), job_name)
+                .await?;
 
             // Convert to regular BatchProcessingResult for stats update
             let stats_result = BatchProcessingResult {
@@ -201,12 +289,30 @@ impl SimpleJobProcessor {
                 );
             }
         } else {
-            // FailBatch strategy - don't commit, just log
-            warn!(
-                "Job '{}': Skipping commit due to {} batch failures",
-                job_name, batch_result.records_failed
-            );
-            stats.batches_failed += 1;
+            // Batch failed or RetryWithBackoff strategy triggered
+            match self.config.failure_strategy {
+                FailureStrategy::RetryWithBackoff => {
+                    warn!(
+                        "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
+                        job_name, batch_result.records_failed
+                    );
+                    stats.batches_failed += 1;
+                    // Return error to trigger retry at the calling level
+                    return Err(format!(
+                        "Batch processing failed with {} record failures - will retry with backoff",
+                        batch_result.records_failed
+                    )
+                    .into());
+                }
+                _ => {
+                    // FailBatch strategy - don't commit, just log
+                    warn!(
+                        "Job '{}': Skipping commit due to {} batch failures",
+                        job_name, batch_result.records_failed
+                    );
+                    stats.batches_failed += 1;
+                }
+            }
         }
 
         Ok(())

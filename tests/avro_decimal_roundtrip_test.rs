@@ -3,7 +3,6 @@
 //! Integration test for Avro decimal logical type round-trip conversion
 //! Tests that ScaledInteger can properly serialize/deserialize through Avro with schema-aware precision/scale
 
-#[cfg(feature = "avro")]
 mod avro_decimal_tests {
     use ferrisstreams::ferris::serialization::AvroFormat;
     use ferrisstreams::ferris::serialization::{FieldValue, SerializationFormat};
@@ -229,12 +228,6 @@ mod avro_decimal_tests {
     }
 }
 
-#[cfg(not(feature = "avro"))]
-fn main() {
-    println!("⚠️  Avro feature not enabled. Run with: cargo test --features avro");
-}
-
-#[cfg(feature = "avro")]
 fn main() {
     println!("🚀 Running Avro decimal round-trip tests...");
 

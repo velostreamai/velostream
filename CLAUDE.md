@@ -353,6 +353,9 @@ fn test_query_analyzer_error_handling() {
 4. **Performance Regressions**: Monitor financial arithmetic benchmarks
 5. **CI/CD Formatting Failures**: Always run `cargo fmt --all -- --check` before committing
 
+### Critical Development Rule
+**NEVER mark tasks as completed when code doesn't compile.** Always verify compilation and basic functionality before marking work as done. This is essential for maintaining code quality and avoiding wasted time.
+
 ### Useful Debug Commands
 ```bash
 # Debug specific test with full output

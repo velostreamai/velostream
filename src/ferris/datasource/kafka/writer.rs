@@ -106,14 +106,23 @@ impl KafkaDataWriter {
             _ => (None, None),
         };
 
-        Ok(Self {
+        let writer = Self {
             producer,
-            topic,
+            topic: topic.clone(),
             format,
             key_field: key_field.or(Some("key".to_string())), // Default to "key" field
             avro_codec,
             protobuf_codec,
-        })
+        };
+
+        log::info!(
+            "KafkaDataWriter: Initialized writer for topic '{}' with format={:?}, key_field={:?}",
+            topic,
+            writer.format,
+            writer.key_field
+        );
+
+        Ok(writer)
     }
 
     /// Validate that required schemas are provided for formats that need them
@@ -423,6 +432,12 @@ impl KafkaDataWriter {
 #[async_trait]
 impl DataWriter for KafkaDataWriter {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!(
+            "KafkaDataWriter: Sending record to topic '{}', format={:?}",
+            self.topic,
+            self.format
+        );
+
         // Extract key for partitioning
         let key = self.extract_key(&record);
 
@@ -449,14 +464,30 @@ impl DataWriter for KafkaDataWriter {
             ));
         }
 
-        // Send to Kafka
+        // Send to Kafka with comprehensive debug logging
+        log::debug!("KafkaDataWriter: Sending record to topic '{}' with key {:?}, payload_size={} bytes, format={:?}", 
+                   self.topic, key, payload.len(), self.format);
+
         match self
             .producer
             .send(kafka_record, Duration::from_secs(5))
             .await
         {
-            Ok(_) => Ok(()),
-            Err((kafka_error, _)) => Err(Box::new(kafka_error)),
+            Ok(delivery) => {
+                log::debug!("KafkaDataWriter: Successfully sent record to topic '{}', partition={}, offset={}", 
+                           self.topic, delivery.partition, delivery.offset);
+                Ok(())
+            }
+            Err((kafka_error, _)) => {
+                log::error!(
+                    "KafkaDataWriter: Failed to send record to topic '{}': {:?}",
+                    self.topic,
+                    kafka_error
+                );
+                log::error!("KafkaDataWriter: Failed record details - key: {:?}, payload_size: {} bytes, format: {:?}", 
+                           key, payload.len(), self.format);
+                Err(Box::new(kafka_error))
+            }
         }
     }
 
@@ -464,10 +495,50 @@ impl DataWriter for KafkaDataWriter {
         &mut self,
         records: Vec<StreamRecord>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!(
+            "KafkaDataWriter: Starting batch write of {} records to topic '{}', format={:?}",
+            records.len(),
+            self.topic,
+            self.format
+        );
+
+        let batch_size = records.len();
+        let mut successful_writes = 0;
+
         // Process each record individually to avoid lifetime issues
-        for record in records {
-            self.write(record).await?;
+        for (index, record) in records.into_iter().enumerate() {
+            log::debug!(
+                "KafkaDataWriter: Processing record {}/{} in batch for topic '{}'",
+                index + 1,
+                batch_size,
+                self.topic
+            );
+
+            match self.write(record).await {
+                Ok(()) => {
+                    successful_writes += 1;
+                }
+                Err(e) => {
+                    log::error!(
+                        "KafkaDataWriter: Batch failed at record {}/{} in topic '{}': {:?}",
+                        index + 1,
+                        batch_size,
+                        self.topic,
+                        e
+                    );
+                    log::error!("KafkaDataWriter: Batch statistics - {}/{} records successfully written before failure", 
+                               successful_writes, batch_size);
+                    return Err(e);
+                }
+            }
         }
+
+        log::debug!(
+            "KafkaDataWriter: Successfully completed batch write of {}/{} records to topic '{}'",
+            successful_writes,
+            batch_size,
+            self.topic
+        );
         Ok(())
     }
 
@@ -482,6 +553,11 @@ impl DataWriter for KafkaDataWriter {
 
     async fn delete(&mut self, key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Send tombstone record (null payload) for deletion
+        log::debug!(
+            "KafkaDataWriter: Sending tombstone record for key '{}' to topic '{}'",
+            key,
+            self.topic
+        );
         let kafka_record: FutureRecord<'_, _, ()> = FutureRecord::to(&self.topic).key(key);
         // No payload = tombstone
 
@@ -490,16 +566,46 @@ impl DataWriter for KafkaDataWriter {
             .send(kafka_record, Duration::from_secs(5))
             .await
         {
-            Ok(_) => Ok(()),
-            Err((kafka_error, _)) => Err(Box::new(kafka_error)),
+            Ok(delivery) => {
+                log::debug!("KafkaDataWriter: Successfully sent tombstone for key '{}' to topic '{}', partition={}, offset={}", 
+                           key, self.topic, delivery.partition, delivery.offset);
+                Ok(())
+            }
+            Err((kafka_error, _)) => {
+                log::error!(
+                    "KafkaDataWriter: Failed to send tombstone for key '{}' to topic '{}': {:?}",
+                    key,
+                    self.topic,
+                    kafka_error
+                );
+                Err(Box::new(kafka_error))
+            }
         }
     }
 
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Flush pending messages to Kafka
-        self.producer
-            .flush(Duration::from_secs(5))
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        log::debug!(
+            "KafkaDataWriter: Flushing pending messages to topic '{}'",
+            self.topic
+        );
+        match self.producer.flush(Duration::from_secs(5)) {
+            Ok(()) => {
+                log::debug!(
+                    "KafkaDataWriter: Successfully flushed all pending messages to topic '{}'",
+                    self.topic
+                );
+                Ok(())
+            }
+            Err(e) => {
+                log::error!(
+                    "KafkaDataWriter: Failed to flush pending messages to topic '{}': {:?}",
+                    self.topic,
+                    e
+                );
+                Err(Box::new(e) as Box<dyn Error + Send + Sync>)
+            }
+        }
     }
 
     // Transaction support methods
