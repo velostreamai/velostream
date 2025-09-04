@@ -6,7 +6,9 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "ferris-sql-multi")]
-#[command(about = "FerrisStreams StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
+#[command(
+    about = "FerrisStreams StreamJobServer - Execute multiple streaming SQL jobs concurrently"
+)]
 #[command(version = "1.0.0")]
 struct Cli {
     #[command(subcommand)]
@@ -75,10 +77,7 @@ async fn start_stream_job_server(
     enable_metrics: bool,
     metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "Starting FerrisStreams StreamJobServer on port {}",
-        port
-    );
+    info!("Starting FerrisStreams StreamJobServer on port {}", port);
     info!("Max concurrent jobs: {}", max_jobs);
 
     let server = StreamJobServer::new_with_monitoring(
