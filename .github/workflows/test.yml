@@ -1,5 +1,10 @@
 name: Tests
 
+# Optimized CI/CD strategy:
+# 1. Fast tests (library + core unit tests) run first for immediate feedback (~3-5 minutes)
+# 2. Comprehensive tests (40+ second failure scenarios) run conditionally for thorough validation
+# 3. Coverage generation focuses on fast tests to maintain CI speed
+
 on:
   push:
     branches: [ main, develop, master ]
@@ -66,21 +71,27 @@ jobs:
       run: cargo build --verbose
       continue-on-error: ${{ matrix.can_fail }}
 
-    - name: Run unit tests (excluding integration and performance tests)
+    - name: Run fast unit tests (library + core functionality)
       run: |
-        # Run all tests except integration tests that require Kafka and performance benchmarks
-        cargo test --verbose -- --skip integration:: --skip performance::
+        # Run library tests first for immediate feedback (11 seconds)
+        echo "🚀 Running library tests for fast feedback..."
+        cargo test --lib --quiet
+        echo "✅ Library tests completed successfully"
+        
+        # Run fast unit tests (excludes comprehensive/long-running tests)  
+        echo "🧪 Running fast unit tests (excludes comprehensive scenarios)..."
+        cargo test --tests --verbose -- --skip integration:: --skip performance:: --skip comprehensive
       env:
         SKIP_KAFKA_TESTS: "1"
       continue-on-error: ${{ matrix.can_fail }}
+      timeout-minutes: 15
 
-    - name: Test with all features (excluding integration and performance tests)
+    - name: Run doctests
       run: |
-        # Run all tests with all features, excluding integration tests and performance benchmarks
-        cargo test --all-features --verbose -- --skip integration:: --skip performance::
-      env:
-        SKIP_KAFKA_TESTS: "1"
+        echo "📚 Running doctests..."
+        cargo test --doc --quiet
       continue-on-error: ${{ matrix.can_fail }}
+      timeout-minutes: 10
 
     - name: Build examples
       run: |
@@ -91,6 +102,45 @@ jobs:
         cargo build --example message_metadata_example
         cargo build --example typed_kafka_example
       continue-on-error: ${{ matrix.can_fail }}
+
+  comprehensive-tests:
+    name: Comprehensive Tests
+    runs-on: ubuntu-latest
+    needs: test  # Only run if fast tests pass
+    # Only run comprehensive tests on master branch or for PRs to master
+    if: github.ref == 'refs/heads/master' || github.base_ref == 'master' || contains(github.event.pull_request.labels.*.name, 'comprehensive-tests')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Protocol Buffers compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-comprehensive-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Run comprehensive failure scenario tests
+      run: |
+        echo "🧪 Running comprehensive failure scenario tests..."
+        echo "⏱️  These tests take 40+ seconds each and validate production-ready failure handling"
+        cargo test --features comprehensive-tests --verbose -- comprehensive
+      env:
+        SKIP_KAFKA_TESTS: "1"
+      timeout-minutes: 20
 
   coverage:
     name: Code Coverage
@@ -121,10 +171,13 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Generate code coverage
-      run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+    - name: Generate code coverage (fast tests only)
+      run: |
+        echo "📊 Generating code coverage for fast tests..."
+        cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info -- --skip integration:: --skip performance:: --skip comprehensive
       env:
         SKIP_KAFKA_TESTS: "1"
+      timeout-minutes: 20
 
     # - name: Upload coverage to Codecov
     #   uses: codecov/codecov-action@v3
