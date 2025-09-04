@@ -198,7 +198,7 @@ GROUP BY operations work within window boundaries:
 SELECT customer_id, COUNT(*) as order_count
 FROM orders 
 GROUP BY customer_id
-WINDOW TUMBLING(5 MINUTES)
+WINDOW TUMBLING(5m)
 ```
 
 ### Multiple Result Emission

@@ -85,7 +85,7 @@ SELECT
     AVG(amount) as avg_sale_amount
 FROM sales_stream
 GROUP BY category
-WINDOW TUMBLING(INTERVAL 1 HOUR)
+WINDOW TUMBLING(1h)
 EMIT FINAL;
 ```
 
@@ -120,7 +120,7 @@ GROUP BY customer_id;
 SELECT customer_id, COUNT(*) as orders
 FROM orders_stream
 GROUP BY customer_id  
-WINDOW TUMBLING(INTERVAL 5 MINUTES);
+WINDOW TUMBLING(5m);
 -- Results emitted when 5-minute windows close
 ```
 
@@ -135,11 +135,11 @@ SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id EMIT CHANGES;
 
 -- ✅ EMIT CHANGES with WINDOW (overrides windowed behavior)
 SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id 
-WINDOW TUMBLING(INTERVAL 1 HOUR) EMIT CHANGES;
+WINDOW TUMBLING(1h) EMIT CHANGES;
 
 -- ✅ EMIT FINAL with WINDOW (requires WINDOW clause)  
 SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id
-WINDOW TUMBLING(INTERVAL 1 HOUR) EMIT FINAL;
+WINDOW TUMBLING(1h) EMIT FINAL;
 ```
 
 ### ❌ Invalid Combinations
@@ -170,7 +170,7 @@ SELECT
     SUM(amount) as running_total
 FROM sales_stream
 GROUP BY region, product_category
-WINDOW TUMBLING(INTERVAL 15 MINUTES)  -- Provides time-based partitioning
+WINDOW TUMBLING(15m)  -- Provides time-based partitioning
 EMIT CHANGES;  -- But emit updates immediately, not just when window closes
 ```
 
@@ -186,7 +186,7 @@ SELECT
     COUNT_DISTINCT(customer_id) as unique_customers
 FROM payment_stream
 GROUP BY DATE(transaction_time), merchant_id  
-WINDOW TUMBLING(INTERVAL 1 DAY)
+WINDOW TUMBLING(1d)
 EMIT FINAL;
 ```
 
@@ -231,7 +231,7 @@ SELECT
     SUM(revenue) as total_revenue
 FROM sales_topic  
 GROUP BY region, product_line
-WINDOW TUMBLING(INTERVAL 1 HOUR)
+WINDOW TUMBLING(1h)
 EMIT FINAL  -- Complete hourly results only
 WITH ('output.topic' = 'reports_output');
 ```

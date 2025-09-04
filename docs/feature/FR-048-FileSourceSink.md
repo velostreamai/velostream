@@ -474,7 +474,7 @@ SELECT
 FROM processed_transactions_source
 WHERE amount > 10.00
 GROUP BY customer_id, merchant_category
-WINDOW TUMBLING(INTERVAL 5 MINUTES)
+WINDOW TUMBLING(5m)
 INTO kafka_aggregated_sink
 WITH (
     source_config='configs/processed_transactions_source.yaml',
@@ -618,7 +618,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         FROM transaction_stream
         WHERE CAST(amount, 'DECIMAL') > CAST('10.00', 'DECIMAL')
         GROUP BY customer_id, merchant_category
-        WINDOW TUMBLING(INTERVAL 5 MINUTES)
+        WINDOW TUMBLING(5m)
         EMIT CHANGES
     "#;
     

@@ -137,7 +137,7 @@ SELECT
     SUM(amount) as hourly_revenue  
 FROM sales_stream
 GROUP BY category
-WINDOW TUMBLING(INTERVAL 1 HOUR)
+WINDOW TUMBLING(1h)
 EMIT FINAL;
 ```
 
@@ -152,7 +152,7 @@ GROUP BY customer_id;  -- Updates emitted immediately
 SELECT customer_id, COUNT(*)
 FROM orders 
 GROUP BY customer_id 
-WINDOW TUMBLING(INTERVAL 5 MINUTES);  -- Results emitted when window closes
+WINDOW TUMBLING(5m);  -- Results emitted when window closes
 ```
 
 ## Best Practices

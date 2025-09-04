@@ -603,7 +603,7 @@ SELECT
     END as hourly_tier,
     CURRENT_TIMESTAMP as calculated_at
 FROM orders
-WINDOW TUMBLING (INTERVAL 1 HOUR)  
+WINDOW TUMBLING(1h)  
 GROUP BY customer_id
 HAVING COUNT(*) >= 2;
 
@@ -754,7 +754,7 @@ SELECT
     SUM(CASE WHEN position_size < 0 THEN ABS(position_size * current_price) ELSE 0 END) as short_exposure,
     CURRENT_TIMESTAMP as risk_calc_time
 FROM positions 
-WINDOW SLIDING (INTERVAL 5 MINUTES)
+WINDOW SLIDING(5m, 1m)
 GROUP BY portfolio_id, symbol
 HAVING SUM(ABS(position_size * current_price)) > 100000.00;
 
@@ -928,7 +928,7 @@ SELECT
     MAX(value) as max_value,
     COUNT(*) as reading_count
 FROM sensor_readings 
-WINDOW TUMBLING (INTERVAL 5 MINUTES)
+WINDOW TUMBLING(5m)
 GROUP BY device_id, sensor_type
 HAVING AVG(value) > 75.0;
 
