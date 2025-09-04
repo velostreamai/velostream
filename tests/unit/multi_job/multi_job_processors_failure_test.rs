@@ -1,20 +1,20 @@
 //! Failure scenario tests for multi-job processors
-//! 
+//!
 //! This module contains all tests related to error handling, transaction failures,
 //! and resilience scenarios for both transactional and simple processors.
 //! These tests verify that processors handle various failure modes correctly
 //! and maintain data consistency during error conditions.
 
-use ferrisstreams::ferris::sql::{
-    execution::types::StreamRecord,
-    StreamExecutionEngine,
-};
+use ferrisstreams::ferris::sql::{execution::types::StreamRecord, StreamExecutionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
 // Import test utilities
 use super::multi_job_test_utils::*;
+use ferrisstreams::ferris::server::processors::{
+    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+};
 
 #[tokio::test]
 async fn test_transactional_processor_sink_failure() {
@@ -54,14 +54,10 @@ async fn test_transactional_processor_sink_failure() {
     });
 
     // Let the job complete naturally with timeout handling
-    let result = tokio::time::timeout(
-        Duration::from_secs(30),
-        job_handle
-    ).await;
+    let result = tokio::time::timeout(Duration::from_secs(30), job_handle).await;
 
     let result = match result {
-        Ok(join_result) => join_result
-            .expect("Job should complete"),
+        Ok(join_result) => join_result.expect("Job should complete"),
         Err(_) => {
             println!("⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios");
             return;
@@ -79,7 +75,10 @@ async fn test_transactional_processor_sink_failure() {
             println!("Job completed with expected failures: {:?}", stats);
         }
         Err(e) => {
-            println!("Job failed as expected due to sink transaction failure: {:?}", e);
+            println!(
+                "Job failed as expected due to sink transaction failure: {:?}",
+                e
+            );
         }
     }
 }
@@ -268,7 +267,10 @@ async fn test_simple_processor_sink_failure_continues_processing() {
         .expect("Job should succeed");
 
     // Simple processor should still commit source even if sink fails
-    assert_eq!(stats.records_processed, 5, "Should process all records (3+2)");
+    assert_eq!(
+        stats.records_processed, 5,
+        "Should process all records (3+2)"
+    );
     assert_eq!(stats.batches_processed, 2, "Should process 2 batches");
     // Note: Simple processor commits source regardless of sink failure (best effort)
 }

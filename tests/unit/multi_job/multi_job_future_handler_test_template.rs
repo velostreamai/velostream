@@ -13,26 +13,25 @@
 mod multi_job_test_infrastructure;
 
 use multi_job_test_infrastructure::{
-    AdvancedMockDataReader, AdvancedMockDataWriter, create_test_record, create_test_query, 
-    create_test_engine, MultiJobProcessor, run_comprehensive_failure_tests,
-    test_source_read_failure_scenario, test_sink_write_failure_scenario,
-    test_disk_full_scenario, test_network_partition_scenario,
+    create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
+    test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_empty_batch_handling_scenario,
+    test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
+    AdvancedMockDataWriter, MultiJobProcessor,
 };
 
+use async_trait::async_trait;
 use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
 use ferrisstreams::ferris::sql::{
-    execution::{
-        types::{FieldValue, StreamRecord}, 
-        engine::StreamExecutionEngine,
-    },
     ast::{SelectField, StreamSource, StreamingQuery},
-    multi_job_common::{JobProcessingConfig, FailureStrategy, JobExecutionStats},
+    execution::{
+        engine::StreamExecutionEngine,
+        types::{FieldValue, StreamRecord},
+    },
+    multi_job_common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     // TODO: Replace with your actual processor module
     // multi_job_your_processor::YourJobProcessor,
 };
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -102,7 +101,8 @@ async fn test_your_processor_comprehensive_failure_scenarios() {
         log_progress: true,
     };
     let log_continue_processor = YourJobProcessorWrapper::new(log_continue_config);
-    run_comprehensive_failure_tests(&log_continue_processor, "YourJobProcessor_LogAndContinue").await;
+    run_comprehensive_failure_tests(&log_continue_processor, "YourJobProcessor_LogAndContinue")
+        .await;
 
     // Test with RetryWithBackoff strategy
     let retry_backoff_config = JobProcessingConfig {
@@ -117,14 +117,34 @@ async fn test_your_processor_comprehensive_failure_scenarios() {
         log_progress: true,
     };
     let retry_backoff_processor = YourJobProcessorWrapper::new(retry_backoff_config);
-    
+
     // Run individual tests for RetryWithBackoff (some may timeout, which is expected)
-    test_source_read_failure_scenario(&retry_backoff_processor, "YourJobProcessor_RetryWithBackoff").await;
-    test_network_partition_scenario(&retry_backoff_processor, "YourJobProcessor_RetryWithBackoff").await;
-    test_partial_batch_failure_scenario(&retry_backoff_processor, "YourJobProcessor_RetryWithBackoff").await;
-    test_shutdown_signal_scenario(&retry_backoff_processor, "YourJobProcessor_RetryWithBackoff").await;
-    test_empty_batch_handling_scenario(&retry_backoff_processor, "YourJobProcessor_RetryWithBackoff").await;
-    
+    test_source_read_failure_scenario(
+        &retry_backoff_processor,
+        "YourJobProcessor_RetryWithBackoff",
+    )
+    .await;
+    test_network_partition_scenario(
+        &retry_backoff_processor,
+        "YourJobProcessor_RetryWithBackoff",
+    )
+    .await;
+    test_partial_batch_failure_scenario(
+        &retry_backoff_processor,
+        "YourJobProcessor_RetryWithBackoff",
+    )
+    .await;
+    test_shutdown_signal_scenario(
+        &retry_backoff_processor,
+        "YourJobProcessor_RetryWithBackoff",
+    )
+    .await;
+    test_empty_batch_handling_scenario(
+        &retry_backoff_processor,
+        "YourJobProcessor_RetryWithBackoff",
+    )
+    .await;
+
     // Note: Skip tests that may timeout for RetryWithBackoff
     println!("⚠️  Some tests skipped for RetryWithBackoff due to potential timeout behavior");
 
@@ -160,9 +180,7 @@ async fn test_your_processor_specific_behavior() {
     // - Performance optimizations
     // - Integration with specific systems
 
-    let test_batches = vec![
-        vec![create_test_record(1), create_test_record(2)],
-    ];
+    let test_batches = vec![vec![create_test_record(1), create_test_record(2)]];
 
     let config = JobProcessingConfig {
         // TODO: Configure for your processor's specific test case
@@ -225,15 +243,15 @@ Example: How to create a test for a streaming processor
 #[tokio::test]
 async fn test_streaming_processor_high_throughput() {
     let _ = env_logger::builder().is_test(true).try_init();
-    
+
     // Create high-volume test data
     let large_batches: Vec<Vec<StreamRecord>> = (0..1000)
         .map(|i| vec![create_test_record(i)])
         .collect();
-        
+
     let reader = Box::new(AdvancedMockDataReader::new(large_batches)) as Box<dyn DataReader>;
     let writer = Box::new(AdvancedMockDataWriter::new()) as Box<dyn DataWriter>;
-    
+
     let config = JobProcessingConfig {
         use_transactions: false,
         failure_strategy: FailureStrategy::LogAndContinue,
@@ -244,19 +262,19 @@ async fn test_streaming_processor_high_throughput() {
         progress_interval: 100,
         log_progress: false, // Minimize logging overhead
     };
-    
+
     let processor = StreamingJobProcessor::new(config);
-    
+
     let start = std::time::Instant::now();
     let result = processor.process_job(
-        reader, Some(writer), engine, query, 
+        reader, Some(writer), engine, query,
         "streaming_throughput_test".to_string(), shutdown_rx
     ).await;
     let duration = start.elapsed();
-    
+
     assert!(result.is_ok());
     println!("Processed 1000 records in {:?}", duration);
-    
+
     // Assert performance metrics
     assert!(duration < Duration::from_secs(1), "Should process quickly");
 }
@@ -268,16 +286,16 @@ Example: How to test a batch processor with specific timing
 #[tokio::test]
 async fn test_batch_processor_timing() {
     let _ = env_logger::builder().is_test(true).try_init();
-    
+
     let test_batches = vec![
         vec![create_test_record(1)],
         // Simulate delay between batches
     ];
-    
+
     let reader = Box::new(AdvancedMockDataReader::new(test_batches)
         .with_timeout_simulation()) as Box<dyn DataReader>;
     let writer = Box::new(AdvancedMockDataWriter::new()) as Box<dyn DataWriter>;
-    
+
     let config = JobProcessingConfig {
         use_transactions: false,
         failure_strategy: FailureStrategy::LogAndContinue,
@@ -288,16 +306,16 @@ async fn test_batch_processor_timing() {
         progress_interval: 1,
         log_progress: true,
     };
-    
+
     let processor = BatchJobProcessor::new(config);
-    
+
     // Test should complete within reasonable time despite timeout simulation
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        processor.process_job(reader, Some(writer), engine, query, 
+        processor.process_job(reader, Some(writer), engine, query,
                             "batch_timing_test".to_string(), shutdown_rx)
     ).await;
-    
+
     assert!(result.is_ok());
 }
 */

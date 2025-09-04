@@ -11,8 +11,10 @@
 //! ```
 
 use clap::Parser;
-use ferrisstreams::ferris::datasource::{create_sink, create_source, registry::register_global_source, FileDataSource};
 use ferrisstreams::ferris::datasource::config::SourceConfig;
+use ferrisstreams::ferris::datasource::{
+    create_sink, create_source, registry::register_global_source, FileDataSource,
+};
 use std::error::Error;
 
 #[derive(Parser, Debug)]
@@ -52,19 +54,27 @@ struct PreInitializedFileDataSource {
 
 #[async_trait::async_trait]
 impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSource {
-    async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        _config: SourceConfig,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Already have the config from factory
         Ok(())
     }
 
-    async fn fetch_schema(&self) -> Result<ferrisstreams::ferris::schema::Schema, Box<dyn Error + Send + Sync>> {
+    async fn fetch_schema(
+        &self,
+    ) -> Result<ferrisstreams::ferris::schema::Schema, Box<dyn Error + Send + Sync>> {
         // Create and initialize a temporary FileDataSource to get schema
         let mut temp_source = FileDataSource::new();
         temp_source.initialize(self.config.clone()).await?;
         temp_source.fetch_schema().await
     }
 
-    async fn create_reader(&self) -> Result<Box<dyn ferrisstreams::ferris::datasource::DataReader>, Box<dyn Error + Send + Sync>> {
+    async fn create_reader(
+        &self,
+    ) -> Result<Box<dyn ferrisstreams::ferris::datasource::DataReader>, Box<dyn Error + Send + Sync>>
+    {
         // Create and initialize a FileDataSource for reading
         let mut source = FileDataSource::new();
         source.initialize(self.config.clone()).await?;
@@ -91,12 +101,11 @@ impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSou
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // Initialize datasource registry
     initialize_registry();
-    
+
     let args = Args::parse();
 
     // Initialize logging
@@ -222,7 +231,7 @@ mod tests {
     async fn test_csv_processing() {
         // Initialize registry for the test
         initialize_registry();
-        
+
         // Create test CSV file
         let mut file = NamedTempFile::new().unwrap();
         writeln!(file, "id,name,value").unwrap();

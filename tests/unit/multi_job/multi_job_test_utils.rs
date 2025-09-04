@@ -1,16 +1,16 @@
 //! Shared test utilities for multi-job processor testing
-//! 
+//!
 //! This module contains common mock implementations and helper functions
 //! used across multiple processor test files to avoid duplication.
 
 use async_trait::async_trait;
 use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
+use ferrisstreams::ferris::server::processors::{
+    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+};
 use ferrisstreams::ferris::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::types::{FieldValue, StreamRecord},
-    multi_job_common::*,
-    multi_job_simple::*,
-    multi_job_transactional::*,
 };
 use std::collections::HashMap;
 

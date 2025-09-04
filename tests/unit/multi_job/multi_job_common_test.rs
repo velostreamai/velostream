@@ -6,12 +6,12 @@
 //! - Job execution statistics and batch processing
 //! - Configuration and error handling utilities
 
+use ferrisstreams::ferris::server::processors::common::*;
 use ferrisstreams::ferris::sql::{
     execution::types::{FieldValue, StreamRecord},
-    multi_job_common::*,
     StreamExecutionEngine,
 };
-use ferrisstreams::ferris::MultiJobSqlServer;
+use ferrisstreams::ferris::StreamJobServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -400,7 +400,7 @@ fn test_check_transaction_support_logging() {
 async fn test_concurrent_operations() {
     println!("🧪 Testing concurrent job operations");
 
-    let server = MultiJobSqlServer::new("localhost:9092".to_string(), "test".to_string(), 10);
+    let server = StreamJobServer::new("localhost:9092".to_string(), "test".to_string(), 10);
     let concurrent_jobs = 5;
     let mut handles = Vec::new();
 
@@ -441,7 +441,7 @@ async fn test_concurrent_operations() {
 async fn test_resource_cleanup() {
     println!("🧪 Testing resource cleanup and memory management");
 
-    let server = MultiJobSqlServer::new("localhost:9092".to_string(), "test".to_string(), 5);
+    let server = StreamJobServer::new("localhost:9092".to_string(), "test".to_string(), 5);
 
     // Deploy and immediately stop multiple jobs to test cleanup
     for i in 0..3 {
@@ -473,7 +473,7 @@ async fn test_resource_cleanup() {
 async fn test_job_metrics() {
     println!("🧪 Testing job metrics tracking");
 
-    let server = MultiJobSqlServer::new("localhost:9092".to_string(), "test".to_string(), 5);
+    let server = StreamJobServer::new("localhost:9092".to_string(), "test".to_string(), 5);
     let job_name = "metrics_test";
 
     // Deploy a job and check its metrics

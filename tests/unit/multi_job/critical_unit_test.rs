@@ -1,4 +1,4 @@
-//! Critical Unit Tests for MultiJobSqlServer
+//! Critical Unit Tests for StreamJobServer
 //!
 //! These tests cover the CRITICAL priority areas that must pass before production:
 //! 1. Core functionality (deploy_job, stop_job, list_jobs)
@@ -7,12 +7,12 @@
 //! 4. Input validation and error handling
 
 use ferrisstreams::ferris::sql::SqlApplicationParser;
-use ferrisstreams::ferris::{JobStatus, MultiJobSqlServer};
+use ferrisstreams::ferris::{JobStatus, StreamJobServer};
 use std::time::Duration;
 
 // Test helper functions
-async fn create_test_server(max_jobs: usize) -> MultiJobSqlServer {
-    MultiJobSqlServer::new(
+async fn create_test_server(max_jobs: usize) -> StreamJobServer {
+    StreamJobServer::new(
         "localhost:9092".to_string(),
         "test-group".to_string(),
         max_jobs,
@@ -20,7 +20,7 @@ async fn create_test_server(max_jobs: usize) -> MultiJobSqlServer {
 }
 
 async fn deploy_test_job(
-    server: &MultiJobSqlServer,
+    server: &StreamJobServer,
     name: &str,
     version: &str,
 ) -> Result<(), ferrisstreams::ferris::sql::SqlError> {
@@ -36,13 +36,13 @@ async fn deploy_test_job(
 
 #[tokio::test]
 async fn test_multi_job_server_creation() {
-    println!("🧪 Testing MultiJobSqlServer creation and configuration");
+    println!("🧪 Testing StreamJobServer creation and configuration");
 
     let brokers = "localhost:9092".to_string();
     let group_id = "test-group".to_string();
     let max_jobs = 5;
 
-    let server = MultiJobSqlServer::new(brokers.clone(), group_id.clone(), max_jobs);
+    let server = StreamJobServer::new(brokers.clone(), group_id.clone(), max_jobs);
 
     // Validate configuration - we can only test the initially empty jobs list
     let jobs = server.list_jobs().await;

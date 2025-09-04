@@ -6,7 +6,7 @@
 use ferrisstreams::ferris::sql::app_parser::SqlApplicationParser;
 use std::time::Duration;
 
-// Import the MultiJobSqlServer from the binary crate
+// Import the StreamJobServer from the binary crate
 // Note: This requires the structs to be pub in the binary or moved to lib
 use std::io::Write;
 use std::process::{Command, Stdio};

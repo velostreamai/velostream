@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use ferrisstreams::ferris::{sql::SqlApplicationParser, MultiJobSqlServer};
+use ferrisstreams::ferris::{sql::SqlApplicationParser, StreamJobServer};
 use log::{error, info};
 use std::fs;
 use std::time::Duration;
@@ -81,7 +81,7 @@ async fn start_multi_job_server(
     );
     info!("Max concurrent jobs: {}", max_jobs);
 
-    let server = MultiJobSqlServer::new_with_monitoring(
+    let server = StreamJobServer::new_with_monitoring(
         brokers.clone(),
         group_id.clone(),
         max_jobs,
@@ -131,7 +131,7 @@ async fn start_multi_job_server(
 
 /// Start a simple HTTP server for metrics endpoints (multi-job version)
 async fn start_metrics_server_multi(
-    server: MultiJobSqlServer,
+    server: StreamJobServer,
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tokio::net::TcpListener;
@@ -180,7 +180,7 @@ async fn start_metrics_server_multi(
 }
 
 /// Handle HTTP metrics requests for multi-job server
-async fn handle_multi_metrics_request(request: &str, server: &MultiJobSqlServer) -> String {
+async fn handle_multi_metrics_request(request: &str, server: &StreamJobServer) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
         first_line.split_whitespace().nth(1).unwrap_or("/")
@@ -357,7 +357,7 @@ async fn deploy_sql_application_from_file(
         "Creating multi-job server with brokers: {}, group_id: {}",
         brokers, group_id
     );
-    let server = MultiJobSqlServer::new(brokers, group_id, 100); // High limit for app deployment
+    let server = StreamJobServer::new(brokers, group_id, 100); // High limit for app deployment
 
     // Deploy the application
     println!(

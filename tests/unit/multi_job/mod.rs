@@ -1,5 +1,5 @@
 //! Multi-Job Server Tests
-//! 
+//!
 //! Comprehensive test suite for FerrisStreams multi-job functionality.
 //! This module is organized into focused test categories for maintainability.
 
@@ -13,7 +13,7 @@ pub mod critical_unit_test;
 /// Multi-job SQL server integration tests  
 pub mod sql_server_test;
 
-// =============================================================================  
+// =============================================================================
 // PROCESSOR TESTS (using shared infrastructure)
 // =============================================================================
 
@@ -53,4 +53,3 @@ pub mod multi_job_select_deployment_test;
 
 /// General multi-job integration tests
 pub mod multi_job_test;
-

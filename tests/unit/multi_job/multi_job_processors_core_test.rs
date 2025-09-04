@@ -6,13 +6,13 @@
 
 use async_trait::async_trait;
 use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
+use ferrisstreams::ferris::server::processors::{
+    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+};
 use ferrisstreams::ferris::sql::DataType;
 use ferrisstreams::ferris::sql::{
     ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
     execution::types::{FieldValue, StreamRecord},
-    multi_job_common::*,
-    multi_job_simple::*,
-    multi_job_transactional::*,
     StreamExecutionEngine,
 };
 use std::collections::HashMap;
@@ -260,10 +260,7 @@ async fn test_transactional_processor_success() {
     });
 
     // Let the job complete naturally with timeout handling
-    let result = tokio::time::timeout(
-        Duration::from_secs(30),
-        job_handle
-    ).await;
+    let result = tokio::time::timeout(Duration::from_secs(30), job_handle).await;
 
     let stats = match result {
         Ok(join_result) => join_result
@@ -274,8 +271,11 @@ async fn test_transactional_processor_success() {
             return;
         }
     };
-    
-    assert_eq!(stats.records_processed, 8, "Should process all records (5+3)");
+
+    assert_eq!(
+        stats.records_processed, 8,
+        "Should process all records (5+3)"
+    );
     assert_eq!(stats.records_failed, 0, "Should have no failures");
     assert_eq!(stats.batches_processed, 2, "Should process 2 batches");
 }
@@ -433,7 +433,7 @@ async fn test_simple_processor_with_transaction_capable_sources() {
         }
     });
 
-    // Let the job complete naturally when all data is processed  
+    // Let the job complete naturally when all data is processed
     let stats = job_handle
         .await
         .expect("Job should complete")

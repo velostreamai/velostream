@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::modern_multi_job_server::MultiJobSqlServer;
+use ferrisstreams::ferris::modern_multi_job_server::StreamJobServer;
 use ferrisstreams::ferris::sql::app_parser::{
     ApplicationMetadata, ApplicationResources, SqlApplication, SqlStatement, StatementType,
 };
@@ -59,7 +59,7 @@ async fn test_select_statement_auto_deployment() {
     };
 
     // Create server instance for testing
-    let server = MultiJobSqlServer::new("localhost:9092".to_string(), "test-group".to_string(), 5);
+    let server = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 5);
 
     // Test deployment
     let result = server
@@ -145,8 +145,7 @@ async fn test_mixed_statement_types_deployment() {
         },
     };
 
-    let server =
-        MultiJobSqlServer::new("localhost:9092".to_string(), "test-group-2".to_string(), 5);
+    let server = StreamJobServer::new("localhost:9092".to_string(), "test-group-2".to_string(), 5);
     let result = server.deploy_sql_application(app.clone(), None).await;
 
     assert!(
@@ -220,7 +219,7 @@ async fn test_topic_generation_logic() {
         },
     };
 
-    let server = MultiJobSqlServer::new(
+    let server = StreamJobServer::new(
         "localhost:9092".to_string(),
         "topic-test-group".to_string(),
         5,

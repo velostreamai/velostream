@@ -10,17 +10,19 @@ use super::multi_job_test_infrastructure::{
 
 use async_trait::async_trait;
 use ferrisstreams::ferris::datasource::{DataReader, DataWriter, SourceOffset};
+use ferrisstreams::ferris::server::processors::{
+    common::{
+        process_batch_with_output, DataSourceResult, FailureStrategy, JobExecutionStats,
+        JobProcessingConfig,
+    },
+    simple::SimpleJobProcessor,
+};
 use ferrisstreams::ferris::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
-    multi_job_common::{
-        process_batch_with_output, DataSourceResult, FailureStrategy, JobExecutionStats,
-        JobProcessingConfig,
-    },
-    multi_job_simple::SimpleJobProcessor,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -272,7 +274,10 @@ impl DataWriter for MockDataWriter {
 // =====================================================
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore = "comprehensive: Slow test with 40+ second runtime - use cargo test --features comprehensive-tests")]
+#[cfg_attr(
+    not(feature = "comprehensive-tests"),
+    ignore = "comprehensive: Slow test with 40+ second runtime - use cargo test --features comprehensive-tests"
+)]
 async fn test_simple_processor_comprehensive_failure_scenarios() {
     let _ = env_logger::builder().is_test(true).try_init();
 
