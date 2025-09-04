@@ -68,6 +68,7 @@ impl MultiJobProcessor for TransactionalJobProcessorWrapper {
 // =====================================================
 
 #[tokio::test]
+#[cfg_attr(not(feature = "comprehensive-tests"), ignore = "comprehensive: Slow test with 40+ second runtime - use cargo test --features comprehensive-tests")]
 async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let _ = env_logger::builder().is_test(true).try_init();
 

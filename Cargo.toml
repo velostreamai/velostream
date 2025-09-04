@@ -132,3 +132,8 @@ path = "tests/debug/test_streamrecord_performance.rs"
 [[bin]]
 name = "test_final_performance"
 path = "tests/debug/test_final_performance.rs"
+
+# Features for test categorization
+[features]
+default = []
+comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ seconds
