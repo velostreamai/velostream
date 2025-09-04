@@ -6,8 +6,8 @@
 //! 3. Duplicate job name rejection
 //! 4. Input validation and error handling
 
-use ferrisstreams::ferris::sql::SqlApplicationParser;
 use ferrisstreams::ferris::server::{JobStatus, StreamJobServer};
+use ferrisstreams::ferris::sql::SqlApplicationParser;
 use std::time::Duration;
 
 // Test helper functions

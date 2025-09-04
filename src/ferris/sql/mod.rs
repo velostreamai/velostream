@@ -7,9 +7,7 @@ pub mod config;
 pub mod context;
 pub mod error;
 pub mod execution;
-pub mod multi_job_common;
-pub mod multi_job_simple;
-pub mod multi_job_transactional;
+// Legacy multi_job modules removed - functionality moved to src/ferris/server/processors/
 pub mod parser;
 pub mod query_analyzer;
 

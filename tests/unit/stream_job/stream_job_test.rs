@@ -1,13 +1,13 @@
 //! Integration tests for multi-job SQL server functionality
 
+use ferrisstreams::ferris::server::processors::common::{
+    create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
+    JobProcessingConfig,
+};
 use ferrisstreams::ferris::sql::{
     execution::StreamExecutionEngine,
     query_analyzer::{DataSourceRequirement, DataSourceType},
     StreamingSqlParser,
-};
-use ferrisstreams::ferris::server::processors::common::{
-    create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
-    JobProcessingConfig,
 };
 use std::collections::HashMap;
 use std::sync::Arc;

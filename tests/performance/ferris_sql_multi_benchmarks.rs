@@ -7,15 +7,11 @@
 
 use ferrisstreams::ferris::{
     datasource::{DataReader, DataWriter},
+    server::processors::{common::*, simple::*, transactional::*},
     sql::{
         ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::types::{FieldValue, StreamRecord},
         StreamExecutionEngine, StreamingQuery,
-    },
-    server::processors::{
-        common::*,
-        simple::*,
-        transactional::*,
     },
 };
 use std::{
