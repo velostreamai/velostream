@@ -76,7 +76,7 @@ async fn start_stream_job_server(
     metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
-        "Starting FerrisStreams StreamJobServer on port {},"
+        "Starting FerrisStreams StreamJobServer on port {}",
         port
     );
     info!("Max concurrent jobs: {}", max_jobs);
@@ -354,7 +354,7 @@ async fn deploy_sql_application_from_file(
 
     // Create a temporary server instance for deployment
     println!(
-        "Creating StreamJobServer with brokers: {}, group_id: {},"
+        "Creating StreamJobServer with brokers: {}, group_id: {}",
         brokers, group_id
     );
     let server = StreamJobServer::new(brokers, group_id, 100); // High limit for app deployment

@@ -85,6 +85,7 @@ impl StreamJobProcessor for YourJobProcessorWrapper {
 // =====================================================
 
 #[tokio::test]
+#[ignore = "Template test with unimplemented processor - use as reference for creating new processor tests"]
 async fn test_your_processor_comprehensive_failure_scenarios() {
     let _ = env_logger::builder().is_test(true).try_init();
 
