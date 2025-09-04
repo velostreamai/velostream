@@ -1,11 +1,11 @@
-# FerrisStreams Multi-Job SQL Server Operations Guide
+# FerrisStreams StreamJobServer Operations Guide
 
 ## Overview
 
-The FerrisStreams Multi-Job SQL Server is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
+The FerrisStreams StreamJobServer is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
 
 **Prerequisites**: 
-- FerrisStreams Multi-Job SQL Server deployed (via Docker or Kubernetes)
+- FerrisStreams StreamJobServer deployed (via Docker or Kubernetes)
 - Access to the server container or cluster
 - Basic SQL knowledge
 
@@ -24,7 +24,7 @@ The FerrisStreams Multi-Job SQL Server is a production-ready streaming SQL engin
 ### Checking Server Status
 
 ```bash
-# Check if multi-job server is running
+# Check if StreamJobServer is running
 docker exec ferris-streams ferris-sql-multi --version
 
 # Check server health
@@ -34,9 +34,9 @@ curl http://localhost:8081/health
 docker ps | grep ferris
 ```
 
-### Starting the Multi-Job Server
+### Starting the StreamJobServer
 
-The multi-job server runs on port 8081 (by default) and provides these endpoints:
+The StreamJobServer runs on port 8081 (by default) and provides these endpoints:
 
 - **Port 8081**: Main API for job management
 - **Port 9091**: Metrics and monitoring
@@ -53,13 +53,13 @@ curl http://localhost:8081/config
 
 ### Streaming Engine Architecture
 
-**Yes, the multi-job server runs a dedicated streaming engine per query/job:**
+**Yes, the StreamJobServer runs a dedicated streaming engine per query/job:**
 
 #### Per-Job Streaming Engine Isolation
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    Multi-Job SQL Server                            │
+│                    StreamJobServer                                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Job 1: fraud_detection                                              │
 │ ├── Dedicated Kafka Consumer (group: fraud_detection)              │
@@ -151,7 +151,7 @@ SQL job files define multiple streaming jobs that run concurrently. Each file ca
 
 ```sql
 -- ==============================================================================
--- FERRISSTREAMS MULTI-JOB SQL FILE
+-- FERRISSTREAMS STREAM JOB SERVER SQL FILE
 -- ==============================================================================
 
 -- GLOBAL CONFIGURATION SECTION
@@ -206,7 +206,7 @@ All configuration is specified using SQL comments with specific prefixes:
 
 ### Multi-Topic Avro Schema Handling
 
-The multi-job server handles different Avro schemas per topic by allowing each job to specify its own schema file:
+The StreamJobServer handles different Avro schemas per topic by allowing each job to specify its own schema file:
 
 #### Individual Schema Per Job
 ```sql
@@ -989,4 +989,4 @@ Each job handles its own schema evolution independently:
 
 This approach allows gradual migration of schemas without affecting other jobs.
 
-This guide provides everything needed to operate the FerrisStreams Multi-Job SQL Server in production environments without requiring access to source code.
+This guide provides everything needed to operate the FerrisStreams StreamJobServer in production environments without requiring access to source code.

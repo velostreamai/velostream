@@ -71,7 +71,7 @@ ferris-sql-multi deploy-app \
 ### Option 2: Deploy to Running Server
 
 ```bash
-# Start multi-job server first
+# Start StreamJobServer first
 ferris-sql-multi server \
   --brokers localhost:9092 \
   --max-jobs 20 \
@@ -292,7 +292,7 @@ Applications continue deploying jobs even if individual jobs fail:
 3. **Dependency Tracking**: Automatic topic resolution and dependency analysis
 4. **Job Properties**: Fine-grained control over job execution parameters
 5. **Lifecycle Management**: Deploy, monitor, and manage applications as cohesive units
-6. **Production Ready**: Built for enterprise-scale multi-job deployments
+6. **Production Ready**: Built for enterprise-scale concurrent job deployments
 
 ### ✅ **Use Cases Enabled**
 
@@ -307,7 +307,7 @@ Applications continue deploying jobs even if individual jobs fail:
 ## 🏃‍♂️ Quick Start
 
 ```bash
-# 1. Build the multi-job server
+# 1. Build the StreamJobServer
 cargo build --release --bin ferris-sql-multi
 
 # 2. Deploy a complete application

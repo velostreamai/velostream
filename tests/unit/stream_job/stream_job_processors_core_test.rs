@@ -1,6 +1,6 @@
-//! Core multi-job processor functionality tests
+//! Core stream job processor functionality tests
 //!
-//! This file contains tests for the fundamental operations of multi-job processors,
+//! This file contains tests for the fundamental operations of stream job processors,
 //! focusing on success scenarios, throughput testing, and basic transactional capabilities.
 //! These tests verify core processor behavior without failure injection scenarios.
 

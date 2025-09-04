@@ -24,11 +24,11 @@ cargo run --bin ferris-sql server --brokers localhost:9092 --port 8080 --enable-
 | `GET /health` | Health check with performance status | `application/json` |
 | `GET /report` | Detailed performance report | `text/plain` |
 
-## Multi-Job SQL Server (`ferris-sql-multi`)
+## StreamJobServer (`ferris-sql-multi`)
 
 ### Usage
 ```bash
-# Start multi-job server with monitoring
+# Start StreamJobServer with monitoring
 cargo run --bin ferris-sql-multi server --brokers localhost:9092 --port 8080 --enable-metrics
 
 # Deploy app with monitoring enabled

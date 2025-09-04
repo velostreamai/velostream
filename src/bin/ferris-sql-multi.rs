@@ -6,7 +6,7 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "ferris-sql-multi")]
-#[command(about = "FerrisStreams Multi-Job SQL Server - Execute multiple SQL jobs concurrently")]
+#[command(about = "FerrisStreams StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
 #[command(version = "1.0.0")]
 struct Cli {
     #[command(subcommand)]
@@ -15,7 +15,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the multi-job SQL server
+    /// Start the StreamJobServer for concurrent job execution
     Server {
         /// Kafka broker addresses
         #[arg(long, default_value = "localhost:9092")]
@@ -65,9 +65,9 @@ enum Commands {
     },
 }
 
-// FerrisStreams Multi-Job SQL Server - Execute multiple SQL jobs concurrently using StreamJobServer
+// FerrisStreams StreamJobServer - Execute multiple streaming SQL jobs concurrently
 
-async fn start_multi_job_server(
+async fn start_stream_job_server(
     brokers: String,
     port: u16,
     group_id: String,
@@ -76,7 +76,7 @@ async fn start_multi_job_server(
     metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
-        "Starting FerrisStreams Multi-Job SQL Server on port {}",
+        "Starting FerrisStreams StreamJobServer on port {},"
         port
     );
     info!("Max concurrent jobs: {}", max_jobs);
@@ -106,7 +106,7 @@ async fn start_multi_job_server(
         });
     }
 
-    info!("Multi-job SQL server ready - no jobs deployed");
+    info!("StreamJobServer ready - no jobs deployed");
     info!("Use 'deploy-app' command or HTTP API to deploy SQL applications");
 
     // Status monitoring loop
@@ -129,7 +129,7 @@ async fn start_multi_job_server(
     }
 }
 
-/// Start a simple HTTP server for metrics endpoints (multi-job version)
+/// Start a simple HTTP server for metrics endpoints (StreamJobServer version)
 async fn start_metrics_server_multi(
     server: StreamJobServer,
     port: u16,
@@ -137,12 +137,12 @@ async fn start_metrics_server_multi(
     use tokio::net::TcpListener;
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-    info!("Multi-job metrics server listening on port {}", port);
+    info!("StreamJobServer metrics server listening on port {}", port);
 
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
-                info!("Multi-job metrics request from: {}", addr);
+                info!("StreamJobServer metrics request from: {}", addr);
                 let server = server.clone();
 
                 tokio::spawn(async move {
@@ -179,7 +179,7 @@ async fn start_metrics_server_multi(
     }
 }
 
-/// Handle HTTP metrics requests for multi-job server
+/// Handle HTTP metrics requests for StreamJobServer
 async fn handle_multi_metrics_request(request: &str, server: &StreamJobServer) -> String {
     // Parse the request path
     let path = if let Some(first_line) = request.lines().next() {
@@ -290,7 +290,7 @@ async fn main() -> ferrisstreams::ferris::error::FerrisResult<()> {
             enable_metrics,
             metrics_port,
         } => {
-            start_multi_job_server(
+            start_stream_job_server(
                 brokers,
                 port,
                 group_id,
@@ -354,7 +354,7 @@ async fn deploy_sql_application_from_file(
 
     // Create a temporary server instance for deployment
     println!(
-        "Creating multi-job server with brokers: {}, group_id: {}",
+        "Creating StreamJobServer with brokers: {}, group_id: {},"
         brokers, group_id
     );
     let server = StreamJobServer::new(brokers, group_id, 100); // High limit for app deployment

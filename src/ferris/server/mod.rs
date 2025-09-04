@@ -1,4 +1,4 @@
-//! StreamJobServer - Multi-job streaming SQL server
+//! StreamJobServer - Concurrent streaming SQL job execution
 //!
 //! This module provides a production-ready streaming SQL engine that can execute
 //! multiple concurrent SQL jobs with full isolation. Each job runs in its own

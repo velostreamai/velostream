@@ -1,4 +1,4 @@
-//! Failure scenario tests for multi-job processors
+//! Failure scenario tests for stream job processors
 //!
 //! This module contains all tests related to error handling, transaction failures,
 //! and resilience scenarios for both transactional and simple processors.

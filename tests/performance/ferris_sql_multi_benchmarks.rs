@@ -1,4 +1,4 @@
-//! Comprehensive Performance Benchmarks for FerrisStreams Multi-Job SQL System
+//! Comprehensive Performance Benchmarks for FerrisStreams StreamJobServer
 //!
 //! This module provides systematic performance validation after all optimizations:
 //! - StreamExecutionEngine 9x improvement validation

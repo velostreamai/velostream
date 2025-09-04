@@ -1,4 +1,4 @@
-//! StreamJobServer - Multi-job streaming SQL server
+//! StreamJobServer - Concurrent streaming SQL job execution
 //!
 //! Production-ready streaming SQL engine that can execute multiple concurrent
 //! SQL jobs with full isolation. Uses pluggable datasources instead of
@@ -96,7 +96,7 @@ impl StreamJobServer {
     ) -> Self {
         let performance_monitor = if enable_monitoring {
             let monitor = Arc::new(PerformanceMonitor::new());
-            info!("Performance monitoring enabled for multi-job SQL server");
+            info!("Performance monitoring enabled for StreamJobServer");
             Some(monitor)
         } else {
             None
