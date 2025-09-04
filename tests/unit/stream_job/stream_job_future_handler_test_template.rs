@@ -10,9 +10,7 @@
 //! 4. Customize the processor-specific tests as needed
 //! 5. Update the wrapper configuration for your processor's specific needs
 
-mod stream_job_test_infrastructure;
-
-use stream_job_test_infrastructure::{
+use super::stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
@@ -28,7 +26,9 @@ use ferrisstreams::ferris::sql::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
-    server::processors::common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
+};
+use ferrisstreams::ferris::server::processors::{
+    common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     // TODO: Replace with your actual processor module
     // multi_job_your_processor::YourJobProcessor,
 };
@@ -41,7 +41,7 @@ use tokio::sync::{mpsc, Mutex};
 // YOUR PROCESSOR WRAPPER FOR TESTING (TEMPLATE)
 // =====================================================
 
-/// Wrapper to implement the MultiJobProcessor trait for YourJobProcessor
+/// Wrapper to implement the StreamJobProcessor trait for YourJobProcessor
 /// TODO: Replace YourJobProcessor with your actual processor type
 struct YourJobProcessorWrapper {
     // processor: YourJobProcessor,
@@ -56,7 +56,7 @@ impl YourJobProcessorWrapper {
 }
 
 #[async_trait]
-impl MultiJobProcessor for YourJobProcessorWrapper {
+impl StreamJobProcessor for YourJobProcessorWrapper {
     type StatsType = JobExecutionStats; // TODO: Update if your processor uses different stats
 
     async fn process_job(

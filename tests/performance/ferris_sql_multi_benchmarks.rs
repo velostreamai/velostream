@@ -10,10 +10,12 @@ use ferrisstreams::ferris::{
     sql::{
         ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::types::{FieldValue, StreamRecord},
-        multi_job_common::*,
-        multi_job_simple::*,
-        multi_job_transactional::*,
         StreamExecutionEngine, StreamingQuery,
+    },
+    server::processors::{
+        common::*,
+        simple::*,
+        transactional::*,
     },
 };
 use std::{

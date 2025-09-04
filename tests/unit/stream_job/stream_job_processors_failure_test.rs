@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
 // Import test utilities
-use super::multi_job_test_utils::*;
+use super::stream_job_test_utils::*;
 use ferrisstreams::ferris::server::processors::{
     common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };

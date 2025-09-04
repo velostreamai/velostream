@@ -20,6 +20,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 
+// Import test utilities
+use super::stream_job_test_utils::*;
+
 /// Mock datasource reader for testing
 pub struct MockDataReader {
     pub records: Vec<Vec<StreamRecord>>,

@@ -11,7 +11,9 @@ use ferrisstreams::ferris::sql::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
-    server::processors::common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
+};
+use ferrisstreams::ferris::server::processors::{
+    common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
 };
 use std::collections::HashMap;
 use std::sync::Arc;

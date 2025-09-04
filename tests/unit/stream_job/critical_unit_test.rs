@@ -7,7 +7,7 @@
 //! 4. Input validation and error handling
 
 use ferrisstreams::ferris::sql::SqlApplicationParser;
-use ferrisstreams::ferris::{JobStatus, StreamJobServer};
+use ferrisstreams::ferris::server::{JobStatus, StreamJobServer};
 use std::time::Duration;
 
 // Test helper functions

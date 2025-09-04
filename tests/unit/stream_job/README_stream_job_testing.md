@@ -7,8 +7,8 @@ This directory contains a comprehensive, reusable testing infrastructure for all
 ### Core Components
 
 1. **`stream_job_test_infrastructure.rs`** - Shared testing infrastructure
-2. **`multi_job_simple_test.rs`** - Tests for SimpleJobProcessor
-3. **`multi_job_transactional_test.rs`** - Tests for TransactionalJobProcessor  
+2. **`stream_job_simple_test.rs`** - Tests for SimpleJobProcessor
+3. **`stream_job_transactional_test.rs`** - Tests for TransactionalJobProcessor  
 4. **`multi_job_future_handler_test_template.rs`** - Template for future processors
 
 ## Shared Test Infrastructure
@@ -235,8 +235,8 @@ cargo test multi_job --no-default-features -- --nocapture
 
 ### Run Specific Processor Tests
 ```bash
-cargo test multi_job_simple_test --no-default-features -- --nocapture
-cargo test multi_job_transactional_test --no-default-features -- --nocapture
+cargo test stream_job_simple_test --no-default-features -- --nocapture
+cargo test stream_job_transactional_test --no-default-features -- --nocapture
 ```
 
 ### Run Individual Test Scenarios
