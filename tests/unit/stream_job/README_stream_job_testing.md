@@ -6,7 +6,7 @@ This directory contains a comprehensive, reusable testing infrastructure for all
 
 ### Core Components
 
-1. **`multi_job_test_infrastructure.rs`** - Shared testing infrastructure
+1. **`stream_job_test_infrastructure.rs`** - Shared testing infrastructure
 2. **`multi_job_simple_test.rs`** - Tests for SimpleJobProcessor
 3. **`multi_job_transactional_test.rs`** - Tests for TransactionalJobProcessor  
 4. **`multi_job_future_handler_test_template.rs`** - Template for future processors

@@ -1,7 +1,7 @@
-//! Shared test infrastructure for multi-job processors
+//! Shared test infrastructure for stream job processors
 //!
 //! This module provides reusable test components and failure scenarios
-//! that can be used across different multi-job processor implementations.
+//! that can be used across different stream job processor implementations.
 
 use async_trait::async_trait;
 use ferrisstreams::ferris::datasource::{DataReader, DataWriter, SourceOffset};
@@ -11,7 +11,7 @@ use ferrisstreams::ferris::sql::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
-    multi_job_common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
+    server::processors::common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -384,7 +384,7 @@ pub fn create_test_engine() -> Arc<Mutex<StreamExecutionEngine>> {
 /// Generic trait for multi-job processor testing
 /// This allows us to test any job processor implementation consistently
 #[async_trait]
-pub trait MultiJobProcessor {
+pub trait StreamJobProcessor {
     type StatsType;
 
     async fn process_job(
@@ -405,8 +405,10 @@ pub trait MultiJobProcessor {
 // =====================================================
 
 /// Test source read failure handling across different processors
-pub async fn test_source_read_failure_scenario<T: MultiJobProcessor>(processor: &T, test_name: &str)
-where
+pub async fn test_source_read_failure_scenario<T: StreamJobProcessor>(
+    processor: &T,
+    test_name: &str,
+) where
     T::StatsType: std::fmt::Debug,
 {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -443,7 +445,7 @@ where
 }
 
 /// Test sink write failure handling across different processors
-pub async fn test_sink_write_failure_scenario<T: MultiJobProcessor>(processor: &T, test_name: &str)
+pub async fn test_sink_write_failure_scenario<T: StreamJobProcessor>(processor: &T, test_name: &str)
 where
     T::StatsType: std::fmt::Debug,
 {
@@ -478,7 +480,7 @@ where
 }
 
 /// Test disk full scenario across different processors
-pub async fn test_disk_full_scenario<T: MultiJobProcessor>(processor: &T, test_name: &str)
+pub async fn test_disk_full_scenario<T: StreamJobProcessor>(processor: &T, test_name: &str)
 where
     T::StatsType: std::fmt::Debug,
 {
@@ -519,7 +521,7 @@ where
 }
 
 /// Test network partition scenario across different processors
-pub async fn test_network_partition_scenario<T: MultiJobProcessor>(processor: &T, test_name: &str)
+pub async fn test_network_partition_scenario<T: StreamJobProcessor>(processor: &T, test_name: &str)
 where
     T::StatsType: std::fmt::Debug,
 {
@@ -558,7 +560,7 @@ where
 }
 
 /// Test partial batch failure scenario across different processors
-pub async fn test_partial_batch_failure_scenario<T: MultiJobProcessor>(
+pub async fn test_partial_batch_failure_scenario<T: StreamJobProcessor>(
     processor: &T,
     test_name: &str,
 ) where
@@ -607,7 +609,7 @@ pub async fn test_partial_batch_failure_scenario<T: MultiJobProcessor>(
 }
 
 /// Test shutdown signal handling across different processors
-pub async fn test_shutdown_signal_scenario<T: MultiJobProcessor>(processor: &T, test_name: &str)
+pub async fn test_shutdown_signal_scenario<T: StreamJobProcessor>(processor: &T, test_name: &str)
 where
     T::StatsType: std::fmt::Debug,
 {
@@ -661,7 +663,7 @@ where
 }
 
 /// Test empty batch handling across different processors
-pub async fn test_empty_batch_handling_scenario<T: MultiJobProcessor>(
+pub async fn test_empty_batch_handling_scenario<T: StreamJobProcessor>(
     processor: &T,
     test_name: &str,
 ) where
@@ -710,7 +712,7 @@ pub async fn test_empty_batch_handling_scenario<T: MultiJobProcessor>(
 // =====================================================
 
 /// Runs all failure scenarios for a given processor
-pub async fn run_comprehensive_failure_tests<T: MultiJobProcessor>(
+pub async fn run_comprehensive_failure_tests<T: StreamJobProcessor>(
     processor: &T,
     processor_name: &str,
 ) where

@@ -2,11 +2,11 @@
 
 use ferrisstreams::ferris::sql::{
     execution::StreamExecutionEngine,
-    multi_job_common::{
+    query_analyzer::{DataSourceRequirement, DataSourceType},
+    server::processors::common::{
         create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
         JobProcessingConfig,
     },
-    query_analyzer::{DataSourceRequirement, DataSourceType},
     StreamingSqlParser,
 };
 use std::collections::HashMap;

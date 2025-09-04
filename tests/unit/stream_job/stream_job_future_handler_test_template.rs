@@ -1,23 +1,23 @@
-//! Template for testing future multi-job processors using shared test infrastructure
+//! Template for testing future stream job processors using shared test infrastructure
 //!
-//! This template shows how to create comprehensive tests for any new multi-job processor
+//! This template shows how to create comprehensive tests for any new stream job processor
 //! by leveraging the shared test infrastructure.
 //!
 //! To use this template for a new processor:
-//! 1. Copy this file and rename it to `multi_job_[your_processor_name]_test.rs`
+//! 1. Copy this file and rename it to `stream_job_[your_processor_name]_test.rs`
 //! 2. Replace `YourJobProcessor` with your actual processor type
 //! 3. Update the imports to include your processor module
 //! 4. Customize the processor-specific tests as needed
 //! 5. Update the wrapper configuration for your processor's specific needs
 
-mod multi_job_test_infrastructure;
+mod stream_job_test_infrastructure;
 
-use multi_job_test_infrastructure::{
+use stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
     test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
-    AdvancedMockDataWriter, MultiJobProcessor,
+    AdvancedMockDataWriter, StreamJobProcessor,
 };
 
 use async_trait::async_trait;
@@ -28,7 +28,7 @@ use ferrisstreams::ferris::sql::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
-    multi_job_common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
+    server::processors::common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     // TODO: Replace with your actual processor module
     // multi_job_your_processor::YourJobProcessor,
 };

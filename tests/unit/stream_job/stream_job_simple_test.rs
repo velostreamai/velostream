@@ -1,11 +1,11 @@
-//! Tests for multi_job_simple module using shared test infrastructure
+//! Tests for stream_job simple module using shared test infrastructure
 
-use super::multi_job_test_infrastructure::{
+use super::stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
     test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
-    AdvancedMockDataWriter, MultiJobProcessor,
+    AdvancedMockDataWriter, StreamJobProcessor,
 };
 
 use async_trait::async_trait;
@@ -33,7 +33,7 @@ use tokio::sync::{mpsc, Mutex};
 // SIMPLE PROCESSOR WRAPPER FOR TESTING
 // =====================================================
 
-/// Wrapper to implement the MultiJobProcessor trait for SimpleJobProcessor
+/// Wrapper to implement the StreamJobProcessor trait for SimpleJobProcessor
 struct SimpleJobProcessorWrapper {
     processor: SimpleJobProcessor,
 }
@@ -47,7 +47,7 @@ impl SimpleJobProcessorWrapper {
 }
 
 #[async_trait]
-impl MultiJobProcessor for SimpleJobProcessorWrapper {
+impl StreamJobProcessor for SimpleJobProcessorWrapper {
     type StatsType = JobExecutionStats;
 
     async fn process_job(

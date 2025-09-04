@@ -65,7 +65,7 @@ enum Commands {
     },
 }
 
-// All struct definitions moved to src/ferris/modern_multi_job_server.rs
+// FerrisStreams Multi-Job SQL Server - Execute multiple SQL jobs concurrently using StreamJobServer
 
 async fn start_multi_job_server(
     brokers: String,
