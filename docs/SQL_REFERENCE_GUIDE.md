@@ -2567,11 +2567,10 @@ FROM events;
 
 ### Window Specifications
 
-FerrisStreams supports multiple window syntax formats for compatibility:
+FerrisStreams supports window operations with simple duration syntax:
 
-#### Supported Window Syntax Formats
+#### Window Syntax Format
 
-**Format 1: Simple Duration (Recommended)**
 ```sql
 -- Tumbling window (non-overlapping fixed intervals)
 WINDOW TUMBLING(5m)     -- 5 minutes
@@ -2586,13 +2585,6 @@ WINDOW SLIDING(1h, 15m) -- 1-hour window, advance every 15 minutes
 -- Session window (activity-based grouping)
 WINDOW SESSION(5m)      -- 5-minute inactivity gap
 WINDOW SESSION(30m)     -- 30-minute inactivity gap
-```
-
-**Format 2: INTERVAL Syntax (Also Supported)**
-```sql
-WINDOW TUMBLING(INTERVAL 5 MINUTES)
-WINDOW SLIDING(INTERVAL 10 MINUTES, INTERVAL 5 MINUTES)  
-WINDOW SESSION(TIMEOUT 5 MINUTES)
 ```
 
 **Duration Units Supported:**
