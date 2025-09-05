@@ -120,6 +120,16 @@ impl KafkaDataSource {
                     (batch_config.max_batch_size / 4).to_string(),
                 );
             }
+            BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing: _ } => {
+                // Optimize Kafka consumer for minimal latency
+                kafka_config.insert("max.poll.records".to_string(), max_batch_size.to_string());
+                kafka_config.insert("fetch.max.wait.ms".to_string(), max_wait_time.as_millis().to_string());
+                kafka_config.insert("fetch.min.bytes".to_string(), "1".to_string()); // Don't wait for data accumulation
+                kafka_config.insert("max.partition.fetch.bytes".to_string(), "65536".to_string()); // 64KB limit
+                // Enable auto-commit for low latency (less overhead than manual commits)
+                kafka_config.insert("enable.auto.commit".to_string(), "true".to_string());
+                kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string()); // Frequent commits
+            }
         }
 
         // Always set session.timeout.ms and heartbeat.interval.ms for reliable batching
@@ -221,7 +231,44 @@ impl KafkaDataSource {
             self.topic.clone(),
             group_id,
             format,
-            batch_size,
+            batch_size.map(|size| crate::ferris::datasource::BatchConfig {
+                strategy: crate::ferris::datasource::BatchStrategy::FixedSize(size),
+                ..Default::default()
+            }),
+            schema.as_deref(), // Pass schema if available
+        )
+        .await
+    }
+
+    /// Create a consumer with BatchConfig
+    async fn create_unified_reader_with_batch_config(
+        &self,
+        group_id: &str,
+        batch_config: crate::ferris::datasource::BatchConfig,
+    ) -> Result<KafkaDataReader, Box<dyn std::error::Error + Send + Sync>> {
+        // Get serialization format from config (default to JSON if not specified)
+        let value_format = self
+            .config
+            .get("value.serializer")
+            .map(|s| s.as_str())
+            .unwrap_or("json");
+
+        // Parse format using FromStr with proper error handling
+        let format = {
+            use std::str::FromStr;
+            SerializationFormat::from_str(value_format).unwrap_or(SerializationFormat::Json)
+        };
+
+        // Extract schema from config based on format
+        let schema = self.extract_schema_for_format(&format)?;
+
+        // Create unified reader with BatchConfig
+        KafkaDataReader::new_with_batch_config(
+            &self.brokers,
+            self.topic.clone(),
+            group_id,
+            format,
+            batch_config,
             schema.as_deref(), // Pass schema if available
         )
         .await
@@ -376,6 +423,22 @@ impl DataSource for KafkaDataSource {
 
         // Create the unified reader
         let reader = self.create_unified_reader(group_id, batch_size).await?;
+
+        Ok(Box::new(reader))
+    }
+
+    async fn create_reader_with_batch_config(
+        &self, 
+        batch_config: crate::ferris::datasource::BatchConfig
+    ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
+        let group_id = self.group_id.as_ref().ok_or_else(|| {
+            Box::new(KafkaDataSourceError::Configuration(
+                "Group ID required for consumer".to_string(),
+            )) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        // Create the unified reader with BatchConfig
+        let reader = self.create_unified_reader_with_batch_config(group_id, batch_config).await?;
 
         Ok(Box::new(reader))
     }

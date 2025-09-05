@@ -1,6 +1,9 @@
 //! Unified Kafka data writer implementation
 
-use crate::ferris::datasource::{DataWriter, BatchConfig, BatchStrategy};
+use crate::ferris::datasource::{DataWriter, BatchConfig};
+use crate::ferris::datasource::config::unified::{
+    ConfigFactory, ConfigLogger
+};
 use crate::ferris::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
@@ -118,23 +121,20 @@ impl KafkaDataWriter {
         // Validate schema requirements based on format
         Self::validate_schema_requirements(&format, schema)?;
         
-        // Create producer configuration with batch optimization
-        let mut producer_config = HashMap::new();
-        producer_config.insert("bootstrap.servers".to_string(), brokers.to_string());
-        
-        // Apply base configuration
-        Self::apply_base_producer_config(&mut producer_config);
-        
-        // Apply user properties first (so they can be overridden by batch config if needed)
-        for (key, value) in properties.iter() {
-            producer_config.insert(key.clone(), value.clone());
-        }
-        
-        // Apply batch configuration optimizations if provided
-        if let Some(batch_config) = batch_config {
-            Self::apply_batch_config_to_producer(&mut producer_config, &batch_config);
-            Self::log_producer_config(&producer_config, &batch_config, &topic);
-        }
+        // Create optimized producer configuration using unified system
+        let producer_config = if let Some(batch_config) = batch_config {
+            let config = ConfigFactory::create_kafka_producer_config(brokers, properties, &batch_config);
+            ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
+            config
+        } else {
+            let mut config = HashMap::new();
+            config.insert("bootstrap.servers".to_string(), brokers.to_string());
+            // Apply user properties
+            for (key, value) in properties.iter() {
+                config.insert(key.clone(), value.clone());
+            }
+            config
+        };
         
         // Create Kafka ClientConfig from our optimized configuration
         let mut client_config = ClientConfig::new();
@@ -479,176 +479,6 @@ impl KafkaDataWriter {
             .collect()
     }
 
-    /// Apply base producer configuration (replaces hardcoded defaults)
-    fn apply_base_producer_config(config: &mut HashMap<String, String>) {
-        config.insert("message.timeout.ms".to_string(), "5000".to_string());
-        config.insert("queue.buffering.max.messages".to_string(), "100000".to_string());
-        config.insert("queue.buffering.max.ms".to_string(), "100".to_string());
-        config.insert("batch.num.messages".to_string(), "1000".to_string());
-    }
-
-    /// Apply BatchConfig settings to Kafka producer configuration
-    /// This is the same logic from KafkaDataSink but now in the writer itself
-    fn apply_batch_config_to_producer(
-        producer_config: &mut HashMap<String, String>,
-        batch_config: &BatchConfig,
-    ) {
-        if !batch_config.enable_batching {
-            // Disable batching - send immediately (only if not explicitly set)
-            if !producer_config.contains_key("batch.size") {
-                producer_config.insert("batch.size".to_string(), "0".to_string()); // No batching
-            }
-            if !producer_config.contains_key("linger.ms") {
-                producer_config.insert("linger.ms".to_string(), "0".to_string()); // Send immediately
-            }
-            return;
-        }
-
-        // Configure producer based on batch strategy
-        match &batch_config.strategy {
-            BatchStrategy::FixedSize(size) => {
-                // Suggest batch.size to accommodate fixed batch size (only if not explicitly set)
-                if !producer_config.contains_key("batch.size") {
-                    let batch_size = (*size * 1024).min(batch_config.max_batch_size * 1024); // KB estimate
-                    producer_config.insert("batch.size".to_string(), batch_size.to_string());
-                }
-                
-                // Suggest moderate linger time for fixed batching (only if not explicitly set)
-                if !producer_config.contains_key("linger.ms") {
-                    producer_config.insert("linger.ms".to_string(), "10".to_string());
-                }
-                
-                // Suggest compression only if not explicitly set
-                if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "snappy".to_string()); // Efficient compression
-                }
-            }
-            BatchStrategy::TimeWindow(duration) => {
-                // Suggest time-based batching with linger.ms (only if not explicitly set)
-                if !producer_config.contains_key("linger.ms") {
-                    let linger_ms = duration.as_millis().min(30000) as u64; // Cap at 30s
-                    producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
-                }
-                
-                // Suggest batch size for time-based batching (only if not explicitly set)
-                if !producer_config.contains_key("batch.size") {
-                    producer_config.insert("batch.size".to_string(), "65536".to_string()); // 64KB batches
-                }
-                
-                // Suggest fast compression only if not explicitly set
-                if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "lz4".to_string()); // Fast compression
-                }
-            }
-            BatchStrategy::AdaptiveSize { target_latency, .. } => {
-                // Suggest target latency as linger time (only if not explicitly set)
-                if !producer_config.contains_key("linger.ms") {
-                    let linger_ms = target_latency.as_millis().min(5000) as u64; // Cap at 5s
-                    producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
-                }
-                
-                // Suggest batch size for adaptive batching (only if not explicitly set)
-                if !producer_config.contains_key("batch.size") {
-                    producer_config.insert("batch.size".to_string(), "32768".to_string()); // 32KB adaptive batches
-                }
-                
-                // Suggest compression only if not explicitly set
-                if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "snappy".to_string());
-                }
-            }
-            BatchStrategy::MemoryBased(max_bytes) => {
-                // Suggest batch.size based on memory target (only if not explicitly set)
-                if !producer_config.contains_key("batch.size") {
-                    let batch_size = (*max_bytes / 2).min(1024 * 1024); // Half of memory target, max 1MB
-                    producer_config.insert("batch.size".to_string(), batch_size.to_string());
-                }
-                
-                // Suggest longer linger for large batches (only if not explicitly set)
-                if !producer_config.contains_key("linger.ms") {
-                    producer_config.insert("linger.ms".to_string(), "100".to_string()); // Longer linger for large batches
-                }
-                
-                // Suggest better compression for large batches only if not explicitly set
-                if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "gzip".to_string()); // Better compression for large batches
-                }
-                
-                // Suggest memory target for buffer settings (only if not explicitly set)
-                if !producer_config.contains_key("queue.buffering.max.kbytes") {
-                    // Note: buffer.memory might not be supported in all rdkafka versions
-                    // Using queue.buffering.max.kbytes as alternative
-                    let buffer_memory_kb = ((*max_bytes * 4).min(64 * 1024 * 1024)) / 1024; // Convert to KB
-                    producer_config.insert("queue.buffering.max.kbytes".to_string(), buffer_memory_kb.to_string());
-                }
-            }
-            BatchStrategy::LowLatency { max_wait_time, .. } => {
-                // Suggest optimizations for minimal latency (only if not explicitly set)
-                if !producer_config.contains_key("batch.size") {
-                    producer_config.insert("batch.size".to_string(), "1024".to_string()); // Very small batches (1KB)
-                }
-                
-                if !producer_config.contains_key("linger.ms") {
-                    let linger_ms = max_wait_time.as_millis().min(10) as u64; // Ultra-short linger time
-                    producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
-                }
-                
-                // Suggest no compression for minimal latency only if not explicitly set
-                if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "none".to_string()); // No compression overhead
-                }
-                
-                // Suggest fast acknowledgment settings (only if not explicitly set)
-                if !producer_config.contains_key("acks") {
-                    producer_config.insert("acks".to_string(), "1".to_string()); // Fast acknowledgment (leader only)
-                }
-                
-                if !producer_config.contains_key("retries") {
-                    producer_config.insert("retries".to_string(), "0".to_string()); // No retries for speed
-                }
-                
-                if !producer_config.contains_key("max.in.flight.requests.per.connection") {
-                    producer_config.insert("max.in.flight.requests.per.connection".to_string(), "5".to_string()); // Parallel requests
-                }
-            }
-        }
-
-        // Suggest general batch timeout as request timeout (only if not explicitly set)
-        if !producer_config.contains_key("request.timeout.ms") {
-            let request_timeout_ms = batch_config.batch_timeout.as_millis().min(300000) as u64; // Max 5 minutes
-            producer_config.insert("request.timeout.ms".to_string(), request_timeout_ms.to_string());
-        }
-    }
-
-    /// Log the producer configuration for debugging and monitoring
-    fn log_producer_config(
-        producer_config: &HashMap<String, String>,
-        batch_config: &BatchConfig,
-        topic: &str,
-    ) {
-        use log::info;
-        
-        info!("=== KafkaDataWriter Producer Configuration ===");
-        info!("Batch Strategy: {:?}", batch_config.strategy);
-        info!("Batch Configuration:");
-        info!("  - Enable Batching: {}", batch_config.enable_batching);
-        info!("  - Max Batch Size: {}", batch_config.max_batch_size);
-        info!("  - Batch Timeout: {:?}", batch_config.batch_timeout);
-        
-        info!("Applied Producer Settings:");
-        info!("  - batch.size: {}", producer_config.get("batch.size").unwrap_or(&"default".to_string()));
-        info!("  - linger.ms: {}", producer_config.get("linger.ms").unwrap_or(&"default".to_string()));
-        info!("  - compression.type: {}", producer_config.get("compression.type").unwrap_or(&"none".to_string()));
-        info!("  - acks: {}", producer_config.get("acks").unwrap_or(&"all".to_string()));
-        info!("  - retries: {}", producer_config.get("retries").unwrap_or(&"default".to_string()));
-        info!("  - request.timeout.ms: {}", producer_config.get("request.timeout.ms").unwrap_or(&"default".to_string()));
-        if let Some(buffer_memory) = producer_config.get("queue.buffering.max.kbytes") {
-            info!("  - queue.buffering.max.kbytes: {}KB", buffer_memory);
-        }
-        info!("  - topic: {}", topic);
-        info!("  - brokers: {}", producer_config.get("bootstrap.servers").unwrap_or(&"default".to_string()));
-        info!("===============================================");
-    }
 }
 
 #[async_trait]

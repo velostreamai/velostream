@@ -391,6 +391,20 @@ impl DataSource for FileDataSource {
         Ok(Box::new(reader))
     }
 
+    async fn create_reader_with_batch_config(
+        &self, 
+        batch_config: crate::ferris::datasource::BatchConfig
+    ) -> Result<Box<dyn DataReader>, Box<dyn Error + Send + Sync>> {
+        let config = self.config.as_ref().ok_or_else(|| {
+            Box::new(FileDataSourceError::InvalidPath(
+                "FileDataSource not initialized".to_string(),
+            )) as Box<dyn Error + Send + Sync>
+        })?;
+
+        let reader = FileReader::new_with_batch_config(config.clone(), batch_config).await?;
+        Ok(Box::new(reader))
+    }
+
     fn supports_streaming(&self) -> bool {
         self.config
             .as_ref()

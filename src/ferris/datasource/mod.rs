@@ -42,7 +42,7 @@ pub mod stdout_writer;
 pub mod traits;
 pub mod types;
 
-// Re-export core types
+// Re-export core types from config.rs
 pub use config::{
     BatchConfig, BatchStrategy, CdcFormat, CompressionType, ConnectionString, FileFormat,
     SinkConfig, SourceConfig, WriteMode,

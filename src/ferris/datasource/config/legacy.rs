@@ -26,6 +26,14 @@ pub enum BatchStrategy {
     },
     /// Memory-based batching (approximate bytes)
     MemoryBased(usize),
+    /// Low-latency batching optimized for minimal delay
+    /// Prioritizes speed over throughput with very small batches and aggressive timeouts
+    LowLatency {
+        max_batch_size: usize, // Small batch size (e.g., 1-10 records)
+        #[serde(with = "duration_serde")]
+        max_wait_time: Duration, // Aggressive timeout (e.g., 1-5ms)
+        eager_processing: bool, // Process immediately when any record is available
+    },
 }
 
 impl Default for BatchStrategy {
