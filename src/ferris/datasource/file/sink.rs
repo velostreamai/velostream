@@ -8,6 +8,7 @@
 
 use crate::ferris::datasource::config::SinkConfig;
 use crate::ferris::datasource::traits::{DataSink, DataWriter};
+use crate::ferris::datasource::{BatchConfig, BatchStrategy};
 use crate::ferris::datasource::types::SinkMetadata;
 use crate::ferris::schema::Schema;
 use crate::ferris::serialization::helpers::field_value_to_json;
@@ -179,6 +180,102 @@ impl FileSink {
 
         parent.join(rotated_name)
     }
+
+    /// Optimize file sink configuration based on batch strategy
+    fn optimize_config_for_batch_strategy(
+        &self,
+        base_config: &FileSinkConfig,
+        batch_config: &BatchConfig,
+    ) -> FileSinkConfig {
+        let mut optimized_config = base_config.clone();
+
+        if !batch_config.enable_batching {
+            // Suggest disabling batching optimizations - immediate writes (only if using default buffer size)
+            if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                optimized_config.buffer_size_bytes = 0; // No buffering
+            }
+            return optimized_config;
+        }
+
+        match &batch_config.strategy {
+            BatchStrategy::FixedSize(size) => {
+                // Suggest buffer size to accommodate fixed batch size (only if using default buffer size)
+                if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                    let buffer_size = (*size * 4096).min(batch_config.max_batch_size * 4096); // 4KB per record estimate
+                    optimized_config.buffer_size_bytes = buffer_size as u64;
+                }
+            }
+            BatchStrategy::TimeWindow(duration) => {
+                // Suggest larger buffer for time-based batching (only if using default buffer size)
+                if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                    optimized_config.buffer_size_bytes = 1024 * 1024; // 1MB buffer for time-based batching
+                }
+            }
+            BatchStrategy::AdaptiveSize { target_latency, .. } => {
+                // Suggest moderate buffer for adaptive sizing (only if using default buffer size)
+                if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                    optimized_config.buffer_size_bytes = 512 * 1024; // 512KB adaptive buffer
+                }
+            }
+            BatchStrategy::MemoryBased(max_bytes) => {
+                // Suggest buffer size based on memory target (only if using default buffer size)
+                if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                    let buffer_size = (*max_bytes).min(16 * 1024 * 1024); // Max 16MB buffer
+                    optimized_config.buffer_size_bytes = buffer_size as u64;
+                }
+                
+                // Suggest compression for large batches only if not explicitly set
+                let buffer_size = optimized_config.buffer_size_bytes;
+                if optimized_config.compression.is_none() && buffer_size > 1024 * 1024 {
+                    optimized_config.compression = Some(super::config::CompressionType::Gzip);
+                }
+            }
+            BatchStrategy::LowLatency { max_wait_time, eager_processing, .. } => {
+                // Suggest optimizations for low latency (only if using default buffer size)
+                if optimized_config.buffer_size_bytes == 65536 { // Default buffer size
+                    if *eager_processing {
+                        // Immediate write mode
+                        optimized_config.buffer_size_bytes = 0;
+                    } else {
+                        // Small buffer for minimal latency
+                        optimized_config.buffer_size_bytes = 4096; // 4KB minimal buffer
+                    }
+                }
+            }
+        }
+
+        optimized_config
+    }
+
+    /// Log the file writer configuration for debugging and monitoring
+    fn log_file_writer_config(
+        &self,
+        config: &FileSinkConfig,
+        batch_config: &BatchConfig,
+    ) {
+        use log::info;
+        
+        info!("=== File Writer Configuration ===");
+        info!("Batch Strategy: {:?}", batch_config.strategy);
+        info!("Batch Configuration:");
+        info!("  - Enable Batching: {}", batch_config.enable_batching);
+        info!("  - Max Batch Size: {}", batch_config.max_batch_size);
+        info!("  - Batch Timeout: {:?}", batch_config.batch_timeout);
+        
+        info!("Applied File Writer Settings:");
+        info!("  - buffer_size_bytes: {}", config.buffer_size_bytes);
+        info!("  - compression: {:?}", config.compression);
+        info!("  - format: {:?}", config.format);
+        info!("  - path: {}", config.path);
+        info!("  - append_if_exists: {}", config.append_if_exists);
+        if let Some(max_file_size) = config.max_file_size_bytes {
+            info!("  - max_file_size: {}MB", max_file_size / (1024 * 1024));
+        }
+        if let Some(rotation_interval_ms) = config.rotation_interval_ms {
+            info!("  - rotation_interval: {}ms", rotation_interval_ms);
+        }
+        info!("=====================================");
+    }
 }
 
 impl Default for FileSink {
@@ -270,6 +367,30 @@ impl DataSink for FileSink {
         Ok(Box::new(writer))
     }
 
+    async fn create_writer_with_batch_config(
+        &self,
+        batch_config: BatchConfig,
+    ) -> Result<Box<dyn DataWriter>, Box<dyn Error + Send + Sync>> {
+        let config = self.config.as_ref().ok_or_else(|| {
+            Box::new(FileDataSourceError::InvalidPath(
+                "FileSink not initialized".to_string(),
+            )) as Box<dyn Error + Send + Sync>
+        })?;
+
+        // Create an optimized config based on batch strategy
+        let optimized_config = self.optimize_config_for_batch_strategy(config, &batch_config);
+        
+        // Log the optimized configuration
+        self.log_file_writer_config(&optimized_config, &batch_config);
+        
+        let writer = FileWriter::new_with_batch_config(
+            optimized_config, 
+            self.active_writers.clone(),
+            batch_config,
+        ).await?;
+        Ok(Box::new(writer))
+    }
+
     fn supports_transactions(&self) -> bool {
         false // File sinks don't support transactions
     }
@@ -320,6 +441,59 @@ impl FileWriter {
             rotation_index: 0,
             write_buffer: Vec::with_capacity(config.buffer_size_bytes as usize),
             buffer_size: config.buffer_size_bytes as usize,
+            created_at: SystemTime::now(),
+            last_rotation: SystemTime::now(),
+            active_writers,
+        };
+
+        // Open initial file
+        writer.open_new_file().await?;
+
+        // Write CSV header if needed
+        if writer.config.format == FileFormat::Csv && writer.config.csv_has_header {
+            // Header will be written with first record when schema is known
+        }
+
+        Ok(writer)
+    }
+
+    /// Create a new file writer with batch configuration optimizations
+    pub async fn new_with_batch_config(
+        config: FileSinkConfig,
+        active_writers: Arc<Mutex<Vec<FileWriterState>>>,
+        batch_config: BatchConfig,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Apply batch configuration optimizations to buffer size
+        let buffer_size = config.buffer_size_bytes.max(64 * 1024) as usize; // Default 64KB
+        let optimized_buffer_size = if batch_config.enable_batching {
+            match &batch_config.strategy {
+                BatchStrategy::FixedSize(size) => {
+                    (*size * 1024).min(buffer_size.max(8 * 1024)) // At least 8KB, scale with batch size
+                }
+                BatchStrategy::MemoryBased(max_bytes) => {
+                    (*max_bytes).min(16 * 1024 * 1024) // Max 16MB
+                }
+                BatchStrategy::LowLatency { eager_processing: true, .. } => {
+                    0 // No buffering for eager processing
+                }
+                BatchStrategy::LowLatency { .. } => {
+                    4096 // 4KB minimal buffer
+                }
+                _ => buffer_size, // Use configured buffer size
+            }
+        } else {
+            0 // No batching, no buffering
+        };
+
+        let mut writer = Self {
+            config: config.clone(),
+            current_file: None,
+            current_path: PathBuf::from(&config.path),
+            bytes_written: 0,
+            records_written: 0,
+            rotation_index: 0,
+            write_buffer: Vec::with_capacity(optimized_buffer_size),
+            buffer_size: optimized_buffer_size,
             created_at: SystemTime::now(),
             last_rotation: SystemTime::now(),
             active_writers,

@@ -25,7 +25,33 @@ FerrisStreams is a high-performance streaming SQL engine written in Rust that pr
 
 ## Recent Major Enhancements
 
-### SerializationError Enhancement: Comprehensive Error Chaining (Latest)
+### Compression Independence in Batch Configuration (Latest)
+
+**Problem Solved**
+- Batch strategies were overriding explicit compression settings
+- Users couldn't configure compression independently from batch optimizations
+- Need for fine-grained control over compression vs automatic optimization
+
+**Solution Implemented**
+- **Suggestion vs Override Pattern**: Batch strategies suggest compression only when none is explicitly set
+- **Full Independence**: Explicit compression settings are never overridden by batch configurations
+- **Intelligent Defaults**: When no compression is specified, batch strategies provide optimal suggestions
+- **Comprehensive Logging**: Detailed logging shows final applied compression settings
+
+**Key Benefits**
+```rust
+// Explicit compression is always preserved
+props.insert("compression.type".to_string(), "zstd".to_string());
+let batch_config = BatchConfig {
+    strategy: BatchStrategy::MemoryBased(1024 * 1024), // Would suggest gzip
+    // ... 
+};
+// Result: compression.type remains "zstd" (user choice preserved)
+```
+
+See [docs/COMPRESSION_INDEPENDENCE.md](docs/COMPRESSION_INDEPENDENCE.md) for complete documentation.
+
+### SerializationError Enhancement: Comprehensive Error Chaining
 
 **Problem Solved**
 - Limited error diagnostics for serialization failures
