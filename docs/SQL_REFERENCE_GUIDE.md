@@ -3570,6 +3570,45 @@ FROM events;
 
 FerrisStreams provides comprehensive performance configuration through its unified configuration management system. This includes batch processing strategies, buffer configurations, compression settings, and performance optimizations that can be applied at the stream, job, or application level.
 
+### SQL Configuration Limitations
+
+**Important Note**: Batch processing strategies are currently configured at the **application/code level** only and are **not configurable via SQL WITH clauses**. The examples below show what SQL configuration **is actually supported**.
+
+#### Supported SQL Configuration
+SQL WITH clauses currently support Kafka and file connector properties only:
+
+```sql
+-- Kafka source and sink configuration (ACTUALLY SUPPORTED)
+CREATE STREAM orders AS
+SELECT * FROM kafka_source
+WITH (
+    'source.kafka.bootstrap.servers' = 'localhost:9092',
+    'source.kafka.topic' = 'orders',
+    'source.kafka.group.id' = 'processor',
+    'source.kafka.fetch.min.bytes' = '1024',
+    'source.kafka.max.poll.records' = '500'
+);
+
+-- File source configuration (ACTUALLY SUPPORTED)  
+CREATE STREAM csv_data AS
+SELECT * FROM file_source
+WITH (
+    'source.file.path' = '/data/input.csv',
+    'source.file.format' = 'csv',
+    'source.file.has_headers' = 'true'
+);
+
+-- Sink configuration (ACTUALLY SUPPORTED)
+INSERT INTO output_stream
+SELECT * FROM processed_data
+WITH (
+    'sink.kafka.bootstrap.servers' = 'localhost:9092',
+    'sink.kafka.topic' = 'results',
+    'sink.kafka.compression.type' = 'lz4',
+    'sink.kafka.batch.size' = '32768'
+);
+```
+
 ### Batch Processing Strategies
 
 #### 1. FixedSize Strategy

@@ -269,45 +269,46 @@ Processes records in fixed-size batches for predictable memory usage and consist
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `batch.strategy` | String | `"FixedSize"` | Strategy identifier |
-| `batch.batch_size` | Integer | `1000` | Fixed number of records per batch |
+| `batch.batch_size` | Integer | `100` | Fixed number of records per batch |
 | `batch.enable_batching` | Boolean | `true` | Enable/disable batch processing |
-| `batch.timeout_ms` | Integer | `30000` | Max wait time for incomplete batches |
-| `batch.max_memory_per_batch` | Integer | `16777216` | 16MB max memory per batch |
+| `batch.timeout_ms` | Integer | `1000` | Max wait time for incomplete batches |
+| `batch.max_batch_size` | Integer | `1000` | Hard limit to prevent memory issues |
 
 #### Source Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `fetch.min.bytes` | `1024` | Minimum bytes to fetch |
-| `fetch.max.bytes` | `52428800` | Maximum bytes to fetch (50MB) |
-| `max.poll.records` | `1000` | Matches batch_size |
+| `fetch.min.bytes` | `1` | Minimum bytes to fetch |
+| `fetch.max.wait.ms` | `500` | Maximum wait time for fetch |
+| `max.poll.records` | `500` | Maximum records per poll |
 | `receive.buffer.bytes` | `65536` | 64KB receive buffer |
 
 #### Source Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.read_buffer_size` | `1048576` | 1MB read buffer |
-| `file.batch_read_lines` | `1000` | Matches batch_size |
+| `file.read_buffer_size` | `65536` | 64KB read buffer |
+| `file.batch_read_lines` | `100` | Matches batch_size |
 | `file.concurrent_readers` | `1` | Single reader for consistency |
 
 #### Sink Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `batch.size` | `32768` | 32KB Kafka batch size |
-| `linger.ms` | `10` | Wait up to 10ms for batching |
-| `buffer.memory` | `67108864` | 64MB total buffer |
-| `compression.type` | `"lz4"` | Fast compression |
-| `acks` | `"1"` | Balanced reliability/performance |
+| `batch.size` | `16384` | 16KB Kafka batch size |
+| `linger.ms` | `10` | Wait up to 10ms for batching (suggested) |
+| `buffer.memory` | `33554432` | 32MB total buffer |
+| `compression.type` | `"snappy"` | Fast compression (suggested) |
+| `acks` | `"all"` | Default reliability |
+| `retries` | `2147483647` | Maximum retries (default) |
 
 #### Sink Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.write_buffer_size` | `1048576` | 1MB write buffer |
-| `file.batch_write_records` | `1000` | Matches batch_size |
-| `file.sync_frequency` | `1000` | Sync every 1000 records |
+| `file.write_buffer_size` | `65536` | 64KB write buffer |
+| `file.batch_write_records` | `100` | Matches batch_size |
+| `file.sync_frequency` | `100` | Sync every 100 records |
 
 #### SQL Configuration Example
 ```sql
@@ -316,14 +317,14 @@ SELECT customer_id, amount, timestamp
 FROM orders
 WITH (
     'batch.strategy' = 'FixedSize',
-    'batch.batch_size' = '1000',
+    'batch.batch_size' = '100',
     'batch.enable_batching' = 'true',
-    'batch.timeout_ms' = '30000',
-    'kafka.fetch.min.bytes' = '1024',
-    'kafka.max.poll.records' = '1000',
-    'kafka.batch.size' = '32768',
-    'kafka.linger.ms' = '10',
-    'kafka.compression.type' = 'lz4'
+    'batch.timeout_ms' = '1000',
+    'source.fetch.min.bytes' = '1',
+    'source.max.poll.records' = '500',
+    'sink.batch.size' = '16384',
+    'sink.linger.ms' = '10',
+    'sink.compression.type' = 'snappy'
 );
 ```
 
@@ -338,17 +339,17 @@ Processes records within specified time windows, optimal for real-time analytics
 |-----------|------|---------|-------------|
 | `batch.strategy` | String | `"TimeWindow"` | Strategy identifier |
 | `batch.window_duration_ms` | Integer | `5000` | 5 second time windows |
-| `batch.max_batch_size` | Integer | `10000` | Maximum records per window |
+| `batch.max_batch_size` | Integer | `1000` | Maximum records per window |
 | `batch.enable_batching` | Boolean | `true` | Enable/disable batch processing |
-| `batch.window_alignment` | String | `"processing_time"` | Time alignment mode |
+| `batch.timeout_ms` | Integer | `1000` | Max wait time for incomplete batches |
 
 #### Source Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `fetch.min.bytes` | `1` | Minimal fetch for low latency |
-| `fetch.max.wait.ms` | `100` | 100ms max wait |
-| `max.poll.records` | `10000` | Matches max_batch_size |
+| `fetch.max.wait.ms` | `500` | 500ms max wait |
+| `max.poll.records` | `500` | Maximum records per poll |
 | `session.timeout.ms` | `30000` | 30 second session timeout |
 
 #### Source Settings (File)
@@ -363,11 +364,11 @@ Processes records within specified time windows, optimal for real-time analytics
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `batch.size` | `16384` | 16KB for lower latency |
-| `linger.ms` | `5` | Minimal linger time |
+| `batch.size` | `65536` | 64KB batches (suggested) |
+| `linger.ms` | `5000` | Up to 5 seconds linger time (suggested) |
 | `buffer.memory` | `33554432` | 32MB buffer |
-| `compression.type` | `"lz4"` | Fast compression |
-| `acks` | `"1"` | Balanced reliability |
+| `compression.type` | `"lz4"` | Fast compression (suggested) |
+| `acks` | `"all"` | Default reliability |
 
 #### Sink Settings (File)
 
@@ -387,11 +388,11 @@ GROUP BY customer_id, TUMBLE(timestamp, INTERVAL '5' SECONDS)
 WITH (
     'batch.strategy' = 'TimeWindow',
     'batch.window_duration_ms' = '5000',
-    'batch.max_batch_size' = '10000',
-    'batch.window_alignment' = 'processing_time',
-    'kafka.fetch.max.wait.ms' = '100',
-    'kafka.linger.ms' = '5',
-    'kafka.compression.type' = 'lz4'
+    'batch.max_batch_size' = '1000',
+    'batch.timeout_ms' = '1000',
+    'source.fetch.max.wait.ms' = '500',
+    'sink.linger.ms' = '5000',
+    'sink.compression.type' = 'lz4'
 );
 ```
 
@@ -405,47 +406,47 @@ Dynamically adjusts batch sizes based on processing performance and system load.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `batch.strategy` | String | `"AdaptiveSize"` | Strategy identifier |
-| `batch.initial_batch_size` | Integer | `1000` | Starting batch size |
-| `batch.max_batch_size` | Integer | `10000` | Maximum allowed batch size |
-| `batch.min_batch_size` | Integer | `100` | Minimum allowed batch size |
-| `batch.adaptation_factor` | Float | `1.5` | Size adjustment multiplier |
-| `batch.performance_window_ms` | Integer | `10000` | Performance measurement window |
+| `batch.min_size` | Integer | `50` | Minimum allowed batch size |
+| `batch.max_size` | Integer | `1000` | Maximum allowed batch size (limited by max_batch_size) |
+| `batch.target_latency_ms` | Integer | `100` | Target processing latency |
+| `batch.max_batch_size` | Integer | `1000` | Hard limit to prevent memory issues |
+| `batch.timeout_ms` | Integer | `1000` | Max wait time for incomplete batches |
 | `batch.enable_batching` | Boolean | `true` | Enable/disable batch processing |
 
 #### Source Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `fetch.min.bytes` | `1024` | Base fetch size |
-| `fetch.max.bytes` | `104857600` | 100MB max (for large batches) |
-| `max.poll.records` | `10000` | Matches max_batch_size |
-| `session.timeout.ms` | `45000` | Extended for variable processing |
+| `fetch.min.bytes` | `1` | Base fetch size |
+| `fetch.max.wait.ms` | `500` | Maximum wait time for fetch |
+| `max.poll.records` | `500` | Maximum records per poll |
+| `session.timeout.ms` | `30000` | Default session timeout |
 
 #### Source Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.read_buffer_size` | `2097152` | 2MB adaptive buffer |
-| `file.batch_read_lines` | `1000` | Initial batch size |
+| `file.read_buffer_size` | `65536` | 64KB base buffer |
+| `file.batch_read_lines` | `100` | Base batch size |
 | `file.adaptive_reading` | `true` | Enable adaptive file reading |
 
 #### Sink Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `batch.size` | `65536` | 64KB adaptive batch |
-| `linger.ms` | `20` | Moderate linger time |
-| `buffer.memory` | `134217728` | 128MB large buffer |
-| `compression.type` | `"snappy"` | Moderate compression |
-| `acks` | `"1"` | Balanced reliability |
+| `batch.size` | `32768` | 32KB adaptive batch (suggested) |
+| `linger.ms` | `100` | Moderate linger time (suggested) |
+| `buffer.memory` | `33554432` | 32MB buffer |
+| `compression.type` | `"snappy"` | Moderate compression (suggested) |
+| `acks` | `"all"` | Default reliability |
 
 #### Sink Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.write_buffer_size` | `2097152` | 2MB adaptive buffer |
-| `file.batch_write_records` | `1000` | Initial batch size |
-| `file.sync_frequency` | `5000` | Sync based on performance |
+| `file.write_buffer_size` | `524288` | 512KB adaptive buffer (suggested) |
+| `file.batch_write_records` | `100` | Base batch size |
+| `file.sync_frequency` | `100` | Sync based on performance |
 
 #### SQL Configuration Example
 ```sql
@@ -453,14 +454,14 @@ CREATE STREAM adaptive_stream AS
 SELECT * FROM high_volume_orders
 WITH (
     'batch.strategy' = 'AdaptiveSize',
-    'batch.initial_batch_size' = '1000',
-    'batch.max_batch_size' = '10000',
-    'batch.min_batch_size' = '100',
-    'batch.adaptation_factor' = '1.5',
-    'batch.performance_window_ms' = '10000',
-    'kafka.fetch.max.bytes' = '104857600',
-    'kafka.batch.size' = '65536',
-    'kafka.compression.type' = 'snappy'
+    'batch.min_size' = '50',
+    'batch.max_size' = '1000',
+    'batch.target_latency_ms' = '100',
+    'batch.max_batch_size' = '1000',
+    'batch.timeout_ms' = '1000',
+    'source.fetch.max.wait.ms' = '500',
+    'sink.batch.size' = '32768',
+    'sink.compression.type' = 'snappy'
 );
 ```
 
@@ -474,47 +475,45 @@ Adjusts batch processing based on available memory and memory pressure indicator
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `batch.strategy` | String | `"MemoryBased"` | Strategy identifier |
-| `batch.target_memory_usage` | Float | `0.8` | Target memory utilization (80%) |
-| `batch.min_batch_size` | Integer | `100` | Minimum batch size |
-| `batch.max_batch_size` | Integer | `5000` | Maximum batch size |
-| `batch.memory_check_frequency_ms` | Integer | `5000` | Memory check interval |
-| `batch.gc_pressure_threshold` | Float | `0.9` | GC pressure threshold (90%) |
+| `batch.target_memory_bytes` | Integer | `1048576` | Target memory per batch (1MB) |
+| `batch.max_batch_size` | Integer | `1000` | Hard limit to prevent memory issues |
+| `batch.timeout_ms` | Integer | `1000` | Max wait time for incomplete batches |
 | `batch.enable_batching` | Boolean | `true` | Enable/disable batch processing |
 
 #### Source Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `fetch.min.bytes` | `1024` | Conservative fetch size |
-| `fetch.max.bytes` | `10485760` | 10MB max to limit memory |
-| `max.poll.records` | `5000` | Matches max_batch_size |
+| `fetch.min.bytes` | `1` | Conservative fetch size |
+| `fetch.max.wait.ms` | `500` | Maximum wait time for fetch |
+| `max.poll.records` | `500` | Conservative records per poll |
 | `receive.buffer.bytes` | `32768` | 32KB conservative buffer |
 
 #### Source Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.read_buffer_size` | `524288` | 512KB conservative buffer |
+| `file.read_buffer_size` | `65536` | 64KB conservative buffer |
+| `file.batch_read_lines` | `100` | Conservative batch size |
 | `file.memory_monitoring` | `true` | Enable memory monitoring |
-| `file.gc_aware_reading` | `true` | Adjust for GC pressure |
 
 #### Sink Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `batch.size` | `16384` | 16KB conservative batch |
-| `linger.ms` | `50` | Longer linger for efficiency |
+| `batch.size` | `16384` | 16KB conservative batch (suggested) |
+| `linger.ms` | `100` | Longer linger for efficiency (suggested) |
 | `buffer.memory` | `33554432` | 32MB conservative buffer |
-| `compression.type` | `"gzip"` | Good compression for memory |
-| `acks` | `"1"` | Balanced reliability |
+| `compression.type` | `"gzip"` | Good compression for memory (suggested) |
+| `acks` | `"all"` | Default reliability |
 
 #### Sink Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.write_buffer_size` | `524288` | 512KB conservative buffer |
+| `file.write_buffer_size` | `65536` | 64KB conservative buffer |
+| `file.batch_write_records` | `100` | Conservative batch size |
 | `file.memory_aware_flushing` | `true` | Memory-based flush decisions |
-| `file.gc_aware_writing` | `true` | Adjust for GC pressure |
 
 #### SQL Configuration Example
 ```sql
@@ -522,13 +521,12 @@ CREATE STREAM memory_aware_stream AS
 SELECT * FROM large_records_stream
 WITH (
     'batch.strategy' = 'MemoryBased',
-    'batch.target_memory_usage' = '0.8',
-    'batch.min_batch_size' = '100',
-    'batch.max_batch_size' = '5000',
-    'batch.memory_check_frequency_ms' = '5000',
-    'kafka.fetch.max.bytes' = '10485760',
-    'kafka.batch.size' = '16384',
-    'kafka.compression.type' = 'gzip'
+    'batch.target_memory_bytes' = '1048576',
+    'batch.max_batch_size' = '1000',
+    'batch.timeout_ms' = '1000',
+    'source.fetch.max.wait.ms' = '500',
+    'sink.batch.size' = '16384',
+    'sink.compression.type' = 'gzip'
 );
 ```
 
@@ -542,11 +540,11 @@ Minimizes processing latency with small batches and immediate processing.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `batch.strategy` | String | `"LowLatency"` | Strategy identifier |
-| `batch.max_latency_ms` | Integer | `100` | Maximum allowed latency |
-| `batch.batch_size` | Integer | `10` | Very small batch sizes |
-| `batch.immediate_processing` | Boolean | `true` | Process records immediately |
+| `batch.max_batch_size` | Integer | `10` | Very small batch sizes |
+| `batch.max_wait_time_ms` | Integer | `5` | Ultra-short wait time |
+| `batch.eager_processing` | Boolean | `true` | Process records immediately |
 | `batch.enable_batching` | Boolean | `true` | Enable minimal batching |
-| `batch.latency_monitoring` | Boolean | `true` | Monitor and adjust for latency |
+| `batch.timeout_ms` | Integer | `1000` | Max wait time for incomplete batches |
 
 #### Source Settings (Kafka)
 
@@ -554,7 +552,7 @@ Minimizes processing latency with small batches and immediate processing.
 |-----------|---------|-------------|
 | `fetch.min.bytes` | `1` | Immediate fetch |
 | `fetch.max.wait.ms` | `1` | 1ms max wait |
-| `max.poll.records` | `10` | Matches batch_size |
+| `max.poll.records` | `10` | Matches max_batch_size |
 | `heartbeat.interval.ms` | `1000` | Frequent heartbeats |
 | `session.timeout.ms` | `10000` | Quick failure detection |
 
@@ -563,27 +561,27 @@ Minimizes processing latency with small batches and immediate processing.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `file.read_buffer_size` | `4096` | 4KB minimal buffer |
+| `file.batch_read_lines` | `10` | Very small batches |
 | `file.poll_interval_ms` | `1` | Continuous polling |
-| `file.low_latency_mode` | `true` | Optimize for latency |
 
 #### Sink Settings (Kafka)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `batch.size` | `1024` | 1KB tiny batches |
-| `linger.ms` | `0` | No lingering |
+| `batch.size` | `1024` | 1KB tiny batches (suggested) |
+| `linger.ms` | `5` | Ultra-short linger time (suggested) |
 | `buffer.memory` | `16777216` | 16MB minimal buffer |
-| `compression.type` | `"none"` | No compression overhead |
-| `acks` | `"0"` | Fire-and-forget for speed |
-| `retries` | `0` | No retry delays |
+| `compression.type` | `"none"` | No compression overhead (suggested) |
+| `acks` | `"1"` | Leader acknowledgment (suggested) |
+| `retries` | `0` | No retry delays (suggested) |
 
 #### Sink Settings (File)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `file.write_buffer_size` | `4096` | 4KB minimal buffer |
+| `file.write_buffer_size` | `4096` | 4KB minimal buffer (suggested) |
+| `file.batch_write_records` | `10` | Very small batches |
 | `file.immediate_flush` | `true` | Flush immediately |
-| `file.sync_frequency` | `1` | Sync every record |
 
 #### SQL Configuration Example
 ```sql
@@ -593,14 +591,14 @@ FROM critical_alerts
 WHERE severity = 'CRITICAL'
 WITH (
     'batch.strategy' = 'LowLatency',
-    'batch.max_latency_ms' = '100',
-    'batch.batch_size' = '10',
-    'batch.immediate_processing' = 'true',
-    'kafka.fetch.max.wait.ms' = '1',
-    'kafka.batch.size' = '1024',
-    'kafka.linger.ms' = '0',
-    'kafka.compression.type' = 'none',
-    'kafka.acks' = '0'
+    'batch.max_batch_size' = '10',
+    'batch.max_wait_time_ms' = '5',
+    'batch.eager_processing' = 'true',
+    'source.fetch.max.wait.ms' = '1',
+    'sink.batch.size' = '1024',
+    'sink.linger.ms' = '5',
+    'sink.compression.type' = 'none',
+    'sink.acks' = '1'
 );
 ```
 
@@ -623,6 +621,156 @@ WITH (
 - **Log Processing**: FixedSize for consistent throughput, TimeWindow for real-time monitoring
 - **Real-time Analytics**: TimeWindow for dashboards, AdaptiveSize for variable queries
 - **Batch ETL**: FixedSize for predictable processing, MemoryBased for large datasets
+
+## Configuration Implementation Notes
+
+**Important**: Batch processing strategies are currently implemented at the **application code level** only. SQL WITH clauses do not currently support batch configuration parameters like `'batch.strategy'` or `'batch.batch_size'`.
+
+### Supported SQL Configuration Patterns
+
+#### Pattern 1: Kafka Configuration (ACTUALLY SUPPORTED)
+Configure Kafka source and sink properties:
+
+```sql
+CREATE STREAM processed_orders AS
+SELECT order_id, customer_id, amount, status
+FROM orders
+WHERE amount > 100.0
+WITH (
+    -- Kafka settings (ACTUALLY SUPPORTED)
+    'source.kafka.bootstrap.servers' = 'localhost:9092',
+    'source.kafka.topic' = 'orders',
+    'source.kafka.group.id' = 'processor',
+    'sink.kafka.topic' = 'processed-orders',
+    'sink.kafka.compression.type' = 'snappy',
+    'sink.kafka.batch.size' = '32768'
+);
+```
+
+#### Pattern 2: File Configuration (ACTUALLY SUPPORTED)  
+Configure file source and sink properties:
+
+```sql
+CREATE STREAM csv_processor AS
+SELECT col_0 as id, col_1 as name, col_2 as amount
+FROM csv_input
+WITH (
+    -- File settings (ACTUALLY SUPPORTED)
+    'source.file.path' = '/data/input.csv',
+    'source.file.format' = 'csv',
+    'source.file.has_headers' = 'true',
+    'sink.file.path' = '/data/output.json',
+    'sink.file.format' = 'json'
+);
+```
+
+### How Batch Configuration Actually Works
+
+Batch processing strategies are configured **programmatically** when creating data sources and sinks:
+
+```rust
+// Example: Configure batch processing in Rust code
+let batch_config = BatchConfig {
+    strategy: BatchStrategy::FixedSize(1000),
+    max_batch_size: 10000,
+    batch_timeout: Duration::from_millis(1000),
+    enable_batching: true,
+};
+
+// Create Kafka source with batch config
+let kafka_source = KafkaDataSource::new(brokers, topic, group_id, format)
+    .await?;
+let reader = kafka_source
+    .create_reader_with_batch_config(batch_config)
+    .await?;
+
+// Create Kafka sink with batch config  
+let kafka_sink = KafkaDataSink::new(brokers, topic, format)
+    .await?;
+let writer = kafka_sink
+    .create_writer_with_batch_config(batch_config)
+    .await?;
+```
+
+### Actual SQL Configuration Support
+
+SQL WITH clauses currently support connector-specific properties only:
+
+```sql
+-- What IS supported: Kafka/File connector properties
+CREATE STREAM real_example AS
+SELECT order_id, customer_id, amount
+FROM orders
+WHERE amount > 100.0
+WITH (
+    'source.kafka.bootstrap.servers' = 'localhost:9092',
+    'source.kafka.topic' = 'orders',
+    'source.kafka.group.id' = 'processor',
+    'source.kafka.fetch.min.bytes' = '1024',
+    'sink.kafka.topic' = 'processed-orders',
+    'sink.kafka.compression.type' = 'lz4',
+    'sink.kafka.batch.size' = '32768'
+);
+```
+
+## Configuration Property Reference
+
+### Batch Parameters (Code-Level Only)
+
+**Important**: These parameters are configured in **Rust code** using `BatchConfig` struct, not in SQL:
+
+```rust
+// Batch configuration structure (NOT available in SQL)
+pub struct BatchConfig {
+    pub strategy: BatchStrategy,
+    pub max_batch_size: usize,
+    pub batch_timeout: Duration,
+    pub enable_batching: bool,
+}
+
+// Available batch strategies (NOT configurable in SQL)
+pub enum BatchStrategy {
+    FixedSize(usize),                    // Fixed records per batch
+    TimeWindow(Duration),                // Time-based batching  
+    AdaptiveSize { target_latency: Duration, /* ... */ },
+    MemoryBased(usize),                  // Memory-limited batching
+    LowLatency,                          // Minimal latency processing
+}
+```
+
+### Kafka Configuration Parameters
+
+**Source (Consumer) Settings:**
+- `fetch.min.bytes` (Integer, default: 1) - Minimum bytes to fetch
+- `fetch.max.wait.ms` (Integer, default: 500) - Maximum wait time
+- `max.poll.records` (Integer, default: 500) - Maximum records per poll
+- `session.timeout.ms` (Integer, default: 30000) - Session timeout
+
+**Sink (Producer) Settings:**
+- `batch.size` (Integer, default: 16384) - Kafka batch size in bytes
+- `linger.ms` (Integer, default: 0) - Wait time for batching
+- `compression.type` (String, default: "none") - Compression algorithm
+- `acks` (String, default: "all") - Acknowledgment level
+- `retries` (Integer, default: 2147483647) - Maximum retries
+- `buffer.memory` (Integer, default: 33554432) - Producer buffer memory
+
+### File Configuration Parameters
+
+**Source (Reader) Settings:**
+- `file.read_buffer_size` (Integer, default: 65536) - Read buffer size in bytes
+- `file.batch_read_lines` (Integer, varies by strategy) - Lines per batch
+- `file.path` (String, required) - File path or pattern
+- `file.format` (String, default: "json") - File format (json/csv)
+- `file.has_headers` (Boolean, default: false) - CSV has headers
+- `file.watching` (Boolean, default: false) - Watch for new files
+
+**Sink (Writer) Settings:**
+- `file.write_buffer_size` (Integer, default: 65536) - Write buffer size in bytes
+- `file.batch_write_records` (Integer, varies by strategy) - Records per batch
+- `file.path` (String, required) - Output file path
+- `file.format` (String, default: "json") - Output format
+- `file.append` (Boolean, default: false) - Append to existing file
+- `file.compression` (String, default: "none") - File compression
 
 ### 4. Serialization Optimizations
 
