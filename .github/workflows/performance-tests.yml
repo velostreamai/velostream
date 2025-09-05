@@ -102,6 +102,28 @@ jobs:
         echo "Running Resource Monitoring Test..."
         cargo run --release --example resource_monitoring_test > resource_perf_results.txt 2>&1
         cat resource_perf_results.txt
+
+    - name: Run FerrisStreams SQL Performance Benchmarks
+      run: |
+        echo "Running FerrisStreams SQL Performance Benchmarks..."
+        echo "These benchmarks will run in CI mode with reduced dataset sizes"
+        export CI=true
+        export GITHUB_ACTIONS=true
+        # Run ignored performance benchmarks with reduced scope
+        timeout 300 cargo test --ignored --test ferris_sql_multi_benchmarks --no-default-features \
+          benchmark_simple_select_baseline \
+          benchmark_complex_aggregation \
+          -- --nocapture > ferris_sql_benchmarks.txt 2>&1 || true
+        
+        # Also run transactional processor benchmarks
+        timeout 300 cargo test --ignored --test transactional_processor_benchmarks --no-default-features \
+          benchmark_simple_vs_transactional_small_batch \
+          -- --nocapture >> ferris_sql_benchmarks.txt 2>&1 || true
+        echo "FerrisStreams SQL benchmarks completed"
+        if [ -f ferris_sql_benchmarks.txt ]; then
+          echo "=== FerrisStreams SQL Benchmark Results ==="
+          cat ferris_sql_benchmarks.txt | grep -E "(BASELINE|AGGREGATION|PROCESSOR|records/sec|✅|❌|Config:)" || true
+        fi
     
     - name: Extract Performance Metrics
       run: |
@@ -131,14 +153,20 @@ jobs:
         if [ -f ferris_sql_benchmarks.txt ]; then
           grep "records/sec" ferris_sql_benchmarks.txt || echo "No throughput metrics found in ferris_sql_benchmarks.txt"
           
-          # Extract baseline throughput (format: "BASELINE: 1234.5 records/sec")
-          BASELINE_THROUGHPUT=$(grep -oP 'BASELINE.*?\K\d+\.\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          # Extract baseline throughput (format: "- Baseline Throughput: 1234 records/sec")
+          BASELINE_THROUGHPUT=$(grep -oP '- Baseline Throughput:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
           
-          # Extract aggregation throughput (format: "AGGREGATION: 567.8 records/sec")  
-          AGGREGATION_THROUGHPUT=$(grep -oP 'AGGREGATION.*?\K\d+\.\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          # Extract aggregation throughput (format: "- Aggregation Throughput: 567 records/sec")  
+          AGGREGATION_THROUGHPUT=$(grep -oP '- Aggregation Throughput:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
           
-          # Extract processor comparison ratio (format: "SimpleJobProcessor: 1234.5 records/sec, TransactionalJobProcessor: 123.4 records/sec (9.0x faster)")
-          PROCESSOR_RATIO=$(grep -oP 'TransactionalJobProcessor.*?\(\K\d+\.\d+(?=x\s+faster\))' ferris_sql_benchmarks.txt | head -1 || echo "1.0")
+          # Extract processor comparison ratio by calculating Simple/Transactional ratio
+          SIMPLE_THROUGHPUT=$(grep -oP 'Simple Processor:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          TRANSACTIONAL_THROUGHPUT=$(grep -oP 'Transactional Processor:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "1")
+          if [ "$TRANSACTIONAL_THROUGHPUT" != "0" ] && [ "$SIMPLE_THROUGHPUT" != "0" ]; then
+            PROCESSOR_RATIO=$(echo "scale=1; $SIMPLE_THROUGHPUT / $TRANSACTIONAL_THROUGHPUT" | bc -l || echo "1.0")
+          else
+            PROCESSOR_RATIO="1.0"
+          fi
         else
           BASELINE_THROUGHPUT="0"
           AGGREGATION_THROUGHPUT="0" 
@@ -211,24 +239,6 @@ jobs:
         fi
         
         echo "✅ All performance checks passed!"
-    
-    - name: Run FerrisStreams SQL Performance Benchmarks
-      run: |
-        echo "Running FerrisStreams SQL Performance Benchmarks..."
-        echo "These benchmarks will run in CI mode with reduced dataset sizes"
-        export CI=true
-        export GITHUB_ACTIONS=true
-        # Run ignored performance benchmarks with reduced scope
-        timeout 300 cargo test --ignored --test mod --no-default-features \
-          benchmark_simple_select_baseline \
-          benchmark_complex_aggregation \
-          benchmark_simple_vs_transactional_small_batch \
-          -- --nocapture > ferris_sql_benchmarks.txt 2>&1 || true
-        echo "FerrisStreams SQL benchmarks completed"
-        if [ -f ferris_sql_benchmarks.txt ]; then
-          echo "=== FerrisStreams SQL Benchmark Results ==="
-          cat ferris_sql_benchmarks.txt | grep -E "(BASELINE|AGGREGATION|PROCESSOR|records/sec|✅|❌|Config:)" || true
-        fi
 
     - name: Upload Performance Results
       uses: actions/upload-artifact@v4
