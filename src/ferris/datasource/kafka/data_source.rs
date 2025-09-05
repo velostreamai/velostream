@@ -120,15 +120,23 @@ impl KafkaDataSource {
                     (batch_config.max_batch_size / 4).to_string(),
                 );
             }
-            BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing: _ } => {
+            BatchStrategy::LowLatency {
+                max_batch_size,
+                max_wait_time,
+                eager_processing: _,
+            } => {
                 // Optimize Kafka consumer for minimal latency
                 kafka_config.insert("max.poll.records".to_string(), max_batch_size.to_string());
-                kafka_config.insert("fetch.max.wait.ms".to_string(), max_wait_time.as_millis().to_string());
+                kafka_config.insert(
+                    "fetch.max.wait.ms".to_string(),
+                    max_wait_time.as_millis().to_string(),
+                );
                 kafka_config.insert("fetch.min.bytes".to_string(), "1".to_string()); // Don't wait for data accumulation
                 kafka_config.insert("max.partition.fetch.bytes".to_string(), "65536".to_string()); // 64KB limit
-                // Enable auto-commit for low latency (less overhead than manual commits)
+                                                                                                   // Enable auto-commit for low latency (less overhead than manual commits)
                 kafka_config.insert("enable.auto.commit".to_string(), "true".to_string());
-                kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string()); // Frequent commits
+                kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string());
+                // Frequent commits
             }
         }
 
@@ -428,8 +436,8 @@ impl DataSource for KafkaDataSource {
     }
 
     async fn create_reader_with_batch_config(
-        &self, 
-        batch_config: crate::ferris::datasource::BatchConfig
+        &self,
+        batch_config: crate::ferris::datasource::BatchConfig,
     ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
         let group_id = self.group_id.as_ref().ok_or_else(|| {
             Box::new(KafkaDataSourceError::Configuration(
@@ -438,7 +446,9 @@ impl DataSource for KafkaDataSource {
         })?;
 
         // Create the unified reader with BatchConfig
-        let reader = self.create_unified_reader_with_batch_config(group_id, batch_config).await?;
+        let reader = self
+            .create_unified_reader_with_batch_config(group_id, batch_config)
+            .await?;
 
         Ok(Box::new(reader))
     }

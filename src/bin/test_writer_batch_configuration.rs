@@ -1,16 +1,16 @@
 use ferrisstreams::ferris::datasource::{
-    BatchConfig, BatchStrategy,
-    kafka::data_sink::KafkaDataSink,
-    file::sink::FileSink,
-    traits::{DataSink, DataWriter},
     config::SinkConfig,
+    file::sink::FileSink,
+    kafka::data_sink::KafkaDataSink,
+    traits::{DataSink, DataWriter},
+    BatchConfig, BatchStrategy,
 };
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::schema::{Schema, FieldDefinition};
+use ferrisstreams::ferris::schema::{FieldDefinition, Schema};
 use ferrisstreams::ferris::sql::ast::DataType;
+use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
-use log::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -21,8 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Test Kafka Sink batch configurations
     test_kafka_sink_batch_configs().await?;
-    
-    // Test File Sink batch configurations  
+
+    // Test File Sink batch configurations
     test_file_sink_batch_configs().await?;
 
     info!("\n=== Writer Batch Configuration Tests Complete ===");
@@ -42,18 +42,20 @@ async fn test_kafka_sink_batch_configs() -> Result<(), Box<dyn std::error::Error
     };
 
     let mut kafka_sink = KafkaDataSink::new(
-        "localhost:9092".to_string(), 
-        "test-output-fixed".to_string()
+        "localhost:9092".to_string(),
+        "test-output-fixed".to_string(),
     );
-    
+
     let sink_config = SinkConfig::Kafka {
         brokers: "localhost:9092".to_string(),
         topic: "test-output-fixed".to_string(),
         properties: HashMap::new(),
     };
-    
+
     kafka_sink.initialize(sink_config).await?;
-    let _fixed_writer = kafka_sink.create_writer_with_batch_config(fixed_size_config).await?;
+    let _fixed_writer = kafka_sink
+        .create_writer_with_batch_config(fixed_size_config)
+        .await?;
 
     // Test 2: LowLatency batch strategy (eager processing)
     info!("\n2. Testing Kafka Sink with LowLatency batch strategy (eager processing)...");
@@ -69,18 +71,20 @@ async fn test_kafka_sink_batch_configs() -> Result<(), Box<dyn std::error::Error
     };
 
     let mut kafka_sink_ll = KafkaDataSink::new(
-        "localhost:9092".to_string(), 
-        "test-output-low-latency".to_string()
+        "localhost:9092".to_string(),
+        "test-output-low-latency".to_string(),
     );
-    
+
     let sink_config_ll = SinkConfig::Kafka {
         brokers: "localhost:9092".to_string(),
         topic: "test-output-low-latency".to_string(),
         properties: HashMap::new(),
     };
-    
+
     kafka_sink_ll.initialize(sink_config_ll).await?;
-    let _ll_writer = kafka_sink_ll.create_writer_with_batch_config(low_latency_config).await?;
+    let _ll_writer = kafka_sink_ll
+        .create_writer_with_batch_config(low_latency_config)
+        .await?;
 
     // Test 3: MemoryBased batch strategy
     info!("\n3. Testing Kafka Sink with MemoryBased batch strategy (1MB)...");
@@ -92,18 +96,20 @@ async fn test_kafka_sink_batch_configs() -> Result<(), Box<dyn std::error::Error
     };
 
     let mut kafka_sink_mem = KafkaDataSink::new(
-        "localhost:9092".to_string(), 
-        "test-output-memory".to_string()
+        "localhost:9092".to_string(),
+        "test-output-memory".to_string(),
     );
-    
+
     let sink_config_mem = SinkConfig::Kafka {
         brokers: "localhost:9092".to_string(),
         topic: "test-output-memory".to_string(),
         properties: HashMap::new(),
     };
-    
+
     kafka_sink_mem.initialize(sink_config_mem).await?;
-    let _mem_writer = kafka_sink_mem.create_writer_with_batch_config(memory_config).await?;
+    let _mem_writer = kafka_sink_mem
+        .create_writer_with_batch_config(memory_config)
+        .await?;
 
     Ok(())
 }
@@ -121,7 +127,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
     };
 
     let mut file_sink = FileSink::new();
-    
+
     let sink_config = SinkConfig::File {
         path: "./test_output_fixed.csv".to_string(),
         format: ferrisstreams::ferris::datasource::config::FileFormat::Csv {
@@ -132,9 +138,11 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
         properties: HashMap::new(),
         compression: None,
     };
-    
+
     file_sink.initialize(sink_config).await?;
-    let mut fixed_writer = file_sink.create_writer_with_batch_config(fixed_size_config).await?;
+    let mut fixed_writer = file_sink
+        .create_writer_with_batch_config(fixed_size_config)
+        .await?;
 
     // Write some test data
     let test_records = create_test_records(10);
@@ -157,16 +165,18 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
     };
 
     let mut file_sink_ll = FileSink::new();
-    
+
     let sink_config_ll = SinkConfig::File {
         path: "./test_output_low_latency.json".to_string(),
         format: ferrisstreams::ferris::datasource::config::FileFormat::Json,
         properties: HashMap::new(),
         compression: None,
     };
-    
+
     file_sink_ll.initialize(sink_config_ll).await?;
-    let mut ll_writer = file_sink_ll.create_writer_with_batch_config(low_latency_config).await?;
+    let mut ll_writer = file_sink_ll
+        .create_writer_with_batch_config(low_latency_config)
+        .await?;
 
     // Write test data with immediate flushing expected
     let test_records = create_test_records(5);
@@ -185,16 +195,18 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
     };
 
     let mut file_sink_mem = FileSink::new();
-    
+
     let sink_config_mem = SinkConfig::File {
         path: "./test_output_memory.json".to_string(),
         format: ferrisstreams::ferris::datasource::config::FileFormat::Json,
         properties: HashMap::new(),
         compression: None, // Will be automatically enabled by batch config for large memory targets
     };
-    
+
     file_sink_mem.initialize(sink_config_mem).await?;
-    let mut mem_writer = file_sink_mem.create_writer_with_batch_config(memory_config).await?;
+    let mut mem_writer = file_sink_mem
+        .create_writer_with_batch_config(memory_config)
+        .await?;
 
     // Write a larger dataset
     let test_records = create_test_records(100);
@@ -208,15 +220,24 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
 
 fn create_test_records(count: usize) -> Vec<StreamRecord> {
     let mut records = Vec::with_capacity(count);
-    
+
     for i in 0..count {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-        fields.insert("name".to_string(), FieldValue::String(format!("Record-{}", i)));
-        fields.insert("amount".to_string(), FieldValue::ScaledInteger(12345 + (i as i64 * 100), 2)); // $123.45, $124.45, etc.
+        fields.insert(
+            "name".to_string(),
+            FieldValue::String(format!("Record-{}", i)),
+        );
+        fields.insert(
+            "amount".to_string(),
+            FieldValue::ScaledInteger(12345 + (i as i64 * 100), 2),
+        ); // $123.45, $124.45, etc.
         fields.insert("active".to_string(), FieldValue::Boolean(i % 2 == 0));
-        fields.insert("timestamp".to_string(), FieldValue::Timestamp(chrono::Utc::now().naive_utc()));
-        
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Timestamp(chrono::Utc::now().naive_utc()),
+        );
+
         records.push(StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -225,7 +246,7 @@ fn create_test_records(count: usize) -> Vec<StreamRecord> {
             headers: HashMap::new(),
         });
     }
-    
+
     records
 }
 

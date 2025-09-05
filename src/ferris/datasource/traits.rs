@@ -9,7 +9,7 @@ use crate::ferris::sql::execution::types::StreamRecord; // TODO: Move this to ge
 use async_trait::async_trait;
 use std::error::Error;
 
-use super::config::{SinkConfig, SourceConfig, BatchConfig};
+use super::config::{BatchConfig, SinkConfig, SourceConfig};
 use super::types::{SinkMetadata, SourceMetadata, SourceOffset};
 
 /// Core trait for data input sources
@@ -34,8 +34,8 @@ pub trait DataSource: Send + Sync + 'static {
     /// Create a reader for this source with specific batch configuration
     /// Default implementation calls create_reader() for backward compatibility
     async fn create_reader_with_batch_config(
-        &self, 
-        _batch_config: BatchConfig
+        &self,
+        _batch_config: BatchConfig,
     ) -> Result<Box<dyn DataReader>, Box<dyn Error + Send + Sync>> {
         self.create_reader().await
     }
@@ -69,8 +69,8 @@ pub trait DataSink: Send + Sync + 'static {
     /// Create a writer for this sink with specific batch configuration
     /// Default implementation calls create_writer() for backward compatibility
     async fn create_writer_with_batch_config(
-        &self, 
-        _batch_config: BatchConfig
+        &self,
+        _batch_config: BatchConfig,
     ) -> Result<Box<dyn DataWriter>, Box<dyn Error + Send + Sync>> {
         self.create_writer().await
     }

@@ -1,6 +1,6 @@
 //! Unified Kafka data reader implementation
 
-use crate::ferris::datasource::{DataReader, SourceOffset, BatchConfig, BatchStrategy};
+use crate::ferris::datasource::{BatchConfig, BatchStrategy, DataReader, SourceOffset};
 use crate::ferris::kafka::{serialization::StringSerializer, KafkaConsumer};
 
 // Removed unused imports - AvroSerializer and ProtoSerializer don't exist
@@ -9,10 +9,10 @@ use crate::ferris::serialization::{json_codec::JsonCodec, SerializationCodec};
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
+use log::info;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::{Duration, Instant};
-use log::info;
 
 // Import the unified SerializationFormat from the main module
 pub use crate::ferris::kafka::serialization_format::SerializationFormat;
@@ -43,14 +43,14 @@ impl AdaptiveBatchState {
             last_adjustment: Instant::now(),
         }
     }
-    
+
     fn record_latency(&mut self, latency: Duration) {
         self.recent_latencies.push(latency);
         if self.recent_latencies.len() > 10 {
             self.recent_latencies.remove(0);
         }
     }
-    
+
     fn average_latency(&self) -> Option<Duration> {
         if self.recent_latencies.is_empty() {
             None
@@ -120,15 +120,20 @@ impl KafkaDataReader {
         let codec = Self::create_serialization_codec(&format, passed_schema_json)?;
 
         let batch_config = batch_config.unwrap_or_default();
-        
+
         // Configure Kafka consumer based on BatchConfig
-        let mut consumer_config = crate::ferris::kafka::consumer_config::ConsumerConfig::new(brokers, group_id);
+        let mut consumer_config =
+            crate::ferris::kafka::consumer_config::ConsumerConfig::new(brokers, group_id);
         Self::apply_batch_config_to_consumer(&mut consumer_config, &batch_config);
 
         // Log the applied consumer configuration
         Self::log_consumer_config(&consumer_config, &batch_config);
 
-        let consumer = crate::ferris::kafka::KafkaConsumer::with_config(consumer_config, StringSerializer, codec)?;
+        let consumer = crate::ferris::kafka::KafkaConsumer::with_config(
+            consumer_config,
+            StringSerializer,
+            codec,
+        )?;
 
         consumer
             .subscribe(&[topic.as_str()])
@@ -148,7 +153,7 @@ impl KafkaDataReader {
             adaptive_state: AdaptiveBatchState::new(initial_size),
         })
     }
-    
+
     /// Create a new Kafka data reader with BatchConfig (preferred method)
     pub async fn new_with_batch_config(
         brokers: &str,
@@ -158,7 +163,15 @@ impl KafkaDataReader {
         batch_config: BatchConfig,
         passed_schema_json: Option<&str>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_schema(brokers, topic, group_id, format, Some(batch_config), passed_schema_json).await
+        Self::new_with_schema(
+            brokers,
+            topic,
+            group_id,
+            format,
+            Some(batch_config),
+            passed_schema_json,
+        )
+        .await
     }
 
     /// Create a new Kafka data reader with JSON format (convenience method)
@@ -172,7 +185,7 @@ impl KafkaDataReader {
             strategy: BatchStrategy::FixedSize(size),
             ..Default::default()
         });
-        
+
         Self::new_with_schema(
             brokers,
             topic,
@@ -218,12 +231,22 @@ impl DataReader for KafkaDataReader {
         match &self.batch_config.strategy {
             BatchStrategy::FixedSize(size) => self.read_fixed_size(*size).await,
             BatchStrategy::TimeWindow(duration) => self.read_time_window(*duration).await,
-            BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
-                self.read_adaptive(*min_size, *max_size, *target_latency).await
+            BatchStrategy::AdaptiveSize {
+                min_size,
+                max_size,
+                target_latency,
+            } => {
+                self.read_adaptive(*min_size, *max_size, *target_latency)
+                    .await
             }
             BatchStrategy::MemoryBased(max_bytes) => self.read_memory_based(*max_bytes).await,
-            BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing } => {
-                self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing).await
+            BatchStrategy::LowLatency {
+                max_batch_size,
+                max_wait_time,
+                eager_processing,
+            } => {
+                self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing)
+                    .await
             }
         }
     }
@@ -294,10 +317,11 @@ impl KafkaDataReader {
                 // Set max_poll_records to batch size, capped by max_batch_size
                 let poll_records = (*size).min(batch_config.max_batch_size) as u32;
                 consumer_config.max_poll_records = poll_records;
-                
+
                 // Use reasonable fetch settings for fixed size batching
                 consumer_config.fetch_min_bytes = 1; // Don't wait for more data
-                consumer_config.fetch_max_wait = std::time::Duration::from_millis(100); // Short wait
+                consumer_config.fetch_max_wait = std::time::Duration::from_millis(100);
+                // Short wait
             }
             BatchStrategy::TimeWindow(duration) => {
                 // For time-based batching, use a reasonable poll size and longer fetch wait
@@ -305,11 +329,15 @@ impl KafkaDataReader {
                 consumer_config.fetch_max_wait = *duration;
                 consumer_config.fetch_min_bytes = 1; // Accept any amount of data
             }
-            BatchStrategy::AdaptiveSize { min_size, max_size: _, target_latency } => {
+            BatchStrategy::AdaptiveSize {
+                min_size,
+                max_size: _,
+                target_latency,
+            } => {
                 // Start conservatively with min_size
                 let poll_records = (*min_size).min(batch_config.max_batch_size) as u32;
                 consumer_config.max_poll_records = poll_records;
-                
+
                 // Use target latency as fetch wait time
                 consumer_config.fetch_max_wait = *target_latency;
                 consumer_config.fetch_min_bytes = 1;
@@ -319,9 +347,10 @@ impl KafkaDataReader {
                 // Estimate ~1KB per record as baseline
                 let estimated_records = (*max_bytes / 1024).min(batch_config.max_batch_size);
                 consumer_config.max_poll_records = estimated_records as u32;
-                
+
                 // Use memory target to set fetch limits
-                consumer_config.max_partition_fetch_bytes = (*max_bytes as u32).min(50 * 1024 * 1024); // Cap at 50MB
+                consumer_config.max_partition_fetch_bytes =
+                    (*max_bytes as u32).min(50 * 1024 * 1024); // Cap at 50MB
                 consumer_config.fetch_min_bytes = 1;
                 consumer_config.fetch_max_wait = batch_config.batch_timeout;
             }
@@ -333,25 +362,31 @@ impl KafkaDataReader {
             // session_timeout_ms: 6000     # Fast failure detection
             //     heartbeat_interval_ms: 2000  # Frequent heartbeats
             // auto_offset_reset: "latest"  # Start from newest messages
-
-            BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing: _ } => {
+            BatchStrategy::LowLatency {
+                max_batch_size,
+                max_wait_time,
+                eager_processing: _,
+            } => {
                 // Optimize for minimal latency with very small batches
                 let poll_records = (*max_batch_size).min(batch_config.max_batch_size) as u32;
                 consumer_config.max_poll_records = poll_records;
-                
+
                 // Use aggressive timeout settings for low latency
                 consumer_config.fetch_max_wait = *max_wait_time;
                 consumer_config.fetch_min_bytes = 1; // Don't wait for data to accumulate
                 consumer_config.max_partition_fetch_bytes = 64 * 1024; // Small fetch size (64KB)
-                
+
                 // Enable low-level optimizations for latency
                 consumer_config.enable_auto_commit = true;
-                consumer_config.auto_commit_interval = std::time::Duration::from_millis(50); // Frequent commits
+                consumer_config.auto_commit_interval = std::time::Duration::from_millis(50);
+                // Frequent commits
             }
         }
-        
+
         // Apply general batch timeout
-        consumer_config.max_poll_interval = batch_config.batch_timeout.max(std::time::Duration::from_secs(30));
+        consumer_config.max_poll_interval = batch_config
+            .batch_timeout
+            .max(std::time::Duration::from_secs(30));
     }
 
     /// Log the consumer configuration for debugging and monitoring
@@ -365,15 +400,27 @@ impl KafkaDataReader {
         info!("  - Enable Batching: {}", batch_config.enable_batching);
         info!("  - Max Batch Size: {}", batch_config.max_batch_size);
         info!("  - Batch Timeout: {:?}", batch_config.batch_timeout);
-        
+
         info!("Applied Consumer Settings:");
         info!("  - max_poll_records: {}", consumer_config.max_poll_records);
         info!("  - fetch_min_bytes: {}", consumer_config.fetch_min_bytes);
         info!("  - fetch_max_wait: {:?}", consumer_config.fetch_max_wait);
-        info!("  - max_partition_fetch_bytes: {}", consumer_config.max_partition_fetch_bytes);
-        info!("  - enable_auto_commit: {}", consumer_config.enable_auto_commit);
-        info!("  - auto_commit_interval: {:?}", consumer_config.auto_commit_interval);
-        info!("  - max_poll_interval: {:?}", consumer_config.max_poll_interval);
+        info!(
+            "  - max_partition_fetch_bytes: {}",
+            consumer_config.max_partition_fetch_bytes
+        );
+        info!(
+            "  - enable_auto_commit: {}",
+            consumer_config.enable_auto_commit
+        );
+        info!(
+            "  - auto_commit_interval: {:?}",
+            consumer_config.auto_commit_interval
+        );
+        info!(
+            "  - max_poll_interval: {:?}",
+            consumer_config.max_poll_interval
+        );
         info!("  - brokers: {}", consumer_config.brokers());
         info!("  - group_id: {}", consumer_config.group_id);
         info!("=====================================");
@@ -382,7 +429,7 @@ impl KafkaDataReader {
     /// Read a single record (when batching is disabled)
     async fn read_single(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let timeout = self.batch_config.batch_timeout;
-        
+
         match self.consumer.poll(timeout).await {
             Ok(mut message) => {
                 let record = self.create_stream_record(message)?;
@@ -393,7 +440,10 @@ impl KafkaDataReader {
     }
 
     /// Read fixed number of records
-    async fn read_fixed_size(&mut self, size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_fixed_size(
+        &mut self,
+        size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(size.min(self.batch_config.max_batch_size));
         let timeout = Duration::from_millis(1000);
 
@@ -416,11 +466,14 @@ impl KafkaDataReader {
     }
 
     /// Read records within a time window
-    async fn read_time_window(&mut self, duration: Duration) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_time_window(
+        &mut self,
+        duration: Duration,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::new();
         let start_time = Instant::now();
         let timeout = Duration::from_millis(100); // Short poll timeout for time-based batching
-        
+
         // Initialize batch start time if not set
         if self.current_batch_start.is_none() {
             self.current_batch_start = Some(start_time);
@@ -449,28 +502,38 @@ impl KafkaDataReader {
     }
 
     /// Read records with adaptive batch sizing
-    async fn read_adaptive(&mut self, min_size: usize, max_size: usize, target_latency: Duration) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_adaptive(
+        &mut self,
+        min_size: usize,
+        max_size: usize,
+        target_latency: Duration,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let batch_start = Instant::now();
-        let current_size = self.adaptive_state.current_size.clamp(min_size, max_size.min(self.batch_config.max_batch_size));
-        
+        let current_size = self
+            .adaptive_state
+            .current_size
+            .clamp(min_size, max_size.min(self.batch_config.max_batch_size));
+
         // Read current adaptive batch size
         let records = self.read_fixed_size(current_size).await?;
         let batch_latency = batch_start.elapsed();
-        
+
         // Record latency for adaptive adjustment
         self.adaptive_state.record_latency(batch_latency);
-        
+
         // Adjust batch size every 10 seconds
         if self.adaptive_state.last_adjustment.elapsed() > Duration::from_secs(10) {
             if let Some(avg_latency) = self.adaptive_state.average_latency() {
                 if avg_latency > target_latency && current_size > min_size {
                     // Too slow, reduce batch size
                     self.adaptive_state.current_size = (current_size as f64 * 0.8) as usize;
-                    self.adaptive_state.current_size = self.adaptive_state.current_size.max(min_size);
+                    self.adaptive_state.current_size =
+                        self.adaptive_state.current_size.max(min_size);
                 } else if avg_latency < target_latency / 2 && current_size < max_size {
                     // Too fast, increase batch size
                     self.adaptive_state.current_size = (current_size as f64 * 1.2) as usize;
-                    self.adaptive_state.current_size = self.adaptive_state.current_size.min(max_size);
+                    self.adaptive_state.current_size =
+                        self.adaptive_state.current_size.min(max_size);
                 }
             }
             self.adaptive_state.last_adjustment = Instant::now();
@@ -480,7 +543,10 @@ impl KafkaDataReader {
     }
 
     /// Read records up to a memory limit (approximate)
-    async fn read_memory_based(&mut self, max_bytes: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_memory_based(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::new();
         let mut estimated_size = 0usize;
         let timeout = Duration::from_millis(1000);
@@ -489,17 +555,20 @@ impl KafkaDataReader {
             match self.consumer.poll(timeout).await {
                 Ok(mut message) => {
                     let record = self.create_stream_record(message)?;
-                    
+
                     // Rough estimate: 24 bytes overhead + field data
-                    let record_size = 24 + record.fields.iter()
-                        .map(|(k, v)| k.len() + self.estimate_field_size(v))
-                        .sum::<usize>();
-                    
+                    let record_size = 24
+                        + record
+                            .fields
+                            .iter()
+                            .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                            .sum::<usize>();
+
                     if estimated_size + record_size > max_bytes && !records.is_empty() {
                         // Would exceed memory limit, return current batch
                         break;
                     }
-                    
+
                     estimated_size += record_size;
                     records.push(record);
                 }
@@ -516,10 +585,15 @@ impl KafkaDataReader {
     }
 
     /// Read records with low-latency optimization
-    async fn read_low_latency(&mut self, max_batch_size: usize, max_wait_time: Duration, eager_processing: bool) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_low_latency(
+        &mut self,
+        max_batch_size: usize,
+        max_wait_time: Duration,
+        eager_processing: bool,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(max_batch_size.min(self.batch_config.max_batch_size));
         let start_time = Instant::now();
-        
+
         // Low-latency strategy: prioritize immediate processing over batch completeness
         while records.len() < max_batch_size && start_time.elapsed() < max_wait_time {
             let poll_result = if eager_processing {
@@ -527,14 +601,15 @@ impl KafkaDataReader {
                 self.consumer.poll(Duration::from_millis(0))
             } else {
                 // Poll with minimal timeout
-                self.consumer.poll(std::cmp::min(max_wait_time, Duration::from_millis(1)))
+                self.consumer
+                    .poll(std::cmp::min(max_wait_time, Duration::from_millis(1)))
             };
-            
+
             match poll_result.await {
                 Ok(message) => {
                     let record = self.create_stream_record(message)?;
                     records.push(record);
-                    
+
                     // For eager processing, return immediately after first record
                     if eager_processing && !records.is_empty() {
                         break;
@@ -547,12 +622,15 @@ impl KafkaDataReader {
                 }
             }
         }
-        
+
         Ok(records)
     }
 
     /// Helper method to create a StreamRecord from a Kafka message
-    fn create_stream_record(&self, mut message: crate::ferris::kafka::message::Message<String, HashMap<String, FieldValue>>) -> Result<StreamRecord, Box<dyn Error + Send + Sync>> {
+    fn create_stream_record(
+        &self,
+        mut message: crate::ferris::kafka::message::Message<String, HashMap<String, FieldValue>>,
+    ) -> Result<StreamRecord, Box<dyn Error + Send + Sync>> {
         let mut fields = message.take_value();
 
         // Add message key to fields map if present
@@ -564,7 +642,9 @@ impl KafkaDataReader {
 
         Ok(StreamRecord {
             fields,
-            timestamp: message.timestamp().unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            timestamp: message
+                .timestamp()
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
             offset: message.offset(),
             partition: message.partition(),
             headers: message.take_headers().into_map(),
@@ -584,9 +664,24 @@ impl KafkaDataReader {
             FieldValue::Decimal(_) => 16,
             FieldValue::Null => 0,
             FieldValue::Interval { .. } => 16,
-            FieldValue::Array(arr) => 24 + arr.iter().map(|v| self.estimate_field_size(v)).sum::<usize>(),
-            FieldValue::Map(map) => 24 + map.iter().map(|(k, v)| k.len() + self.estimate_field_size(v)).sum::<usize>(),
-            FieldValue::Struct(s) => 24 + s.iter().map(|(k, v)| k.len() + self.estimate_field_size(v)).sum::<usize>(),
+            FieldValue::Array(arr) => {
+                24 + arr
+                    .iter()
+                    .map(|v| self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
+            FieldValue::Map(map) => {
+                24 + map
+                    .iter()
+                    .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
+            FieldValue::Struct(s) => {
+                24 + s
+                    .iter()
+                    .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
         }
     }
 }

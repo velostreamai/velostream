@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let batch_time = start.elapsed();
     println!("   Records read: {}", batch_count);
     println!("   Time taken: {:?}", batch_time);
-    
+
     if traditional_time > batch_time {
         let speedup = traditional_time.as_millis() as f64 / batch_time.as_millis() as f64;
         println!("   🚀 Batch reading is {:.2}x faster!\n", speedup);
@@ -40,7 +40,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         min_size: 10,
         max_size: 100,
         target_latency: std::time::Duration::from_millis(10),
-    }).await?;
+    })
+    .await?;
     let adaptive_time = start.elapsed();
     println!("   Records read: {}", adaptive_count);
     println!("   Time taken: {:?}\n", adaptive_time);
@@ -60,11 +61,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         max_batch_size: 5,
         max_wait_time: std::time::Duration::from_millis(2),
         eager_processing: true,
-    }).await?;
+    })
+    .await?;
     let low_latency_time = start.elapsed();
     println!("   Records read: {}", low_latency_count);
     println!("   Time taken: {:?}", low_latency_time);
-    
+
     if low_latency_time < traditional_time {
         let speedup = traditional_time.as_millis() as f64 / low_latency_time.as_millis() as f64;
         println!("   🚀 Low-latency reading is {:.2}x faster!\n", speedup);
@@ -79,7 +81,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         max_batch_size: 10,
         max_wait_time: std::time::Duration::from_millis(5),
         eager_processing: false,
-    }).await?;
+    })
+    .await?;
     let low_latency_std_time = start.elapsed();
     println!("   Records read: {}", low_latency_std_count);
     println!("   Time taken: {:?}\n", low_latency_std_time);
@@ -87,7 +90,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("=== Test Complete ===");
     println!("Strategy performance comparison:");
     println!("  Traditional: {:?}", traditional_time);
-    println!("  Fixed Batch: {:?} ({:.2}x speedup)", batch_time, traditional_time.as_millis() as f64 / batch_time.as_millis() as f64);
+    println!(
+        "  Fixed Batch: {:?} ({:.2}x speedup)",
+        batch_time,
+        traditional_time.as_millis() as f64 / batch_time.as_millis() as f64
+    );
     println!("  Adaptive:    {:?}", adaptive_time);
     println!("  Memory-based:{:?}", memory_time);
     println!("  Low-latency (eager): {:?}", low_latency_time);
@@ -97,13 +104,20 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 async fn test_traditional_reading() -> Result<usize, Box<dyn Error + Send + Sync>> {
-    let mut file_source = FileDataSource::from_properties(&[
-        ("path".to_string(), "./demo/datasource-demo/demo_data/financial_transactions.csv".to_string()),
-        ("format".to_string(), "csv".to_string()),
-    ].into_iter().collect());
+    let mut file_source = FileDataSource::from_properties(
+        &[
+            (
+                "path".to_string(),
+                "./demo/datasource-demo/demo_data/financial_transactions.csv".to_string(),
+            ),
+            ("format".to_string(), "csv".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    );
 
     file_source.self_initialize().await?;
-    
+
     let mut reader = file_source.create_reader().await?;
     let mut total_records = 0;
 
@@ -119,14 +133,23 @@ async fn test_traditional_reading() -> Result<usize, Box<dyn Error + Send + Sync
     Ok(total_records)
 }
 
-async fn test_batch_reading(strategy: BatchStrategy) -> Result<usize, Box<dyn Error + Send + Sync>> {
-    let mut file_source = FileDataSource::from_properties(&[
-        ("path".to_string(), "./demo/datasource-demo/demo_data/financial_transactions.csv".to_string()),
-        ("format".to_string(), "csv".to_string()),
-    ].into_iter().collect());
+async fn test_batch_reading(
+    strategy: BatchStrategy,
+) -> Result<usize, Box<dyn Error + Send + Sync>> {
+    let mut file_source = FileDataSource::from_properties(
+        &[
+            (
+                "path".to_string(),
+                "./demo/datasource-demo/demo_data/financial_transactions.csv".to_string(),
+            ),
+            ("format".to_string(), "csv".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    );
 
     file_source.self_initialize().await?;
-    
+
     let batch_config = BatchConfig {
         enable_batching: true,
         strategy,
@@ -134,7 +157,9 @@ async fn test_batch_reading(strategy: BatchStrategy) -> Result<usize, Box<dyn Er
         batch_timeout: std::time::Duration::from_millis(5000),
     };
 
-    let mut reader = file_source.create_reader_with_batch_config(batch_config).await?;
+    let mut reader = file_source
+        .create_reader_with_batch_config(batch_config)
+        .await?;
     let mut total_records = 0;
     let mut batch_count = 0;
 
@@ -146,7 +171,7 @@ async fn test_batch_reading(strategy: BatchStrategy) -> Result<usize, Box<dyn Er
         }
         total_records += records.len();
         batch_count += 1;
-        
+
         // Log batch details for first few batches
         if batch_count <= 3 {
             println!("   Batch {}: {} records", batch_count, records.len());

@@ -1,10 +1,9 @@
 use ferrisstreams::ferris::datasource::{
-    BatchConfig, BatchStrategy,
-    kafka::writer::KafkaDataWriter,
+    kafka::writer::KafkaDataWriter, BatchConfig, BatchStrategy,
 };
+use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
-use log::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -20,7 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_user_properties_not_overridden(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("🔒 Testing that explicit user properties are never overridden");
 
     // Test 1: User sets batch.size=2048, FixedSize strategy should not override it
@@ -29,7 +29,7 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
     props.insert("batch.size".to_string(), "2048".to_string()); // User's explicit setting
     props.insert("linger.ms".to_string(), "200".to_string()); // User's explicit setting
     props.insert("compression.type".to_string(), "snappy".to_string()); // User's explicit setting
-    
+
     let batch_config = BatchConfig {
         enable_batching: true,
         strategy: BatchStrategy::FixedSize(500), // Would suggest different batch.size
@@ -42,7 +42,8 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
         "test-no-override-1".to_string(),
         &props,
         batch_config,
-    ).await?;
+    )
+    .await?;
     // Log should show:
     // - batch.size: 2048 (user's explicit setting, not batch config suggestion)
     // - linger.ms: 200 (user's explicit setting, not batch config suggestion)
@@ -53,12 +54,16 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
     let mut props_ll = HashMap::new();
     props_ll.insert("acks".to_string(), "all".to_string()); // User wants durability
     props_ll.insert("retries".to_string(), "10".to_string()); // User wants reliability
-    props_ll.insert("max.in.flight.requests.per.connection".to_string(), "1".to_string()); // User wants ordering
+    props_ll.insert(
+        "max.in.flight.requests.per.connection".to_string(),
+        "1".to_string(),
+    ); // User wants ordering
     props_ll.insert("compression.type".to_string(), "gzip".to_string()); // User wants compression
-    
+
     let low_latency_config = BatchConfig {
         enable_batching: true,
-        strategy: BatchStrategy::LowLatency { // Would suggest different acks/retries
+        strategy: BatchStrategy::LowLatency {
+            // Would suggest different acks/retries
             max_batch_size: 1,
             max_wait_time: Duration::from_millis(1),
             eager_processing: true,
@@ -72,7 +77,8 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
         "test-no-override-2".to_string(),
         &props_ll,
         low_latency_config,
-    ).await?;
+    )
+    .await?;
     // Log should show:
     // - acks: all (user's explicit setting, not "1" from LowLatency strategy)
     // - retries: 10 (user's explicit setting, not "0" from LowLatency strategy)
@@ -84,7 +90,7 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
     let mut props_mem = HashMap::new();
     props_mem.insert("queue.buffering.max.kbytes".to_string(), "1024".to_string()); // User's explicit buffer
     props_mem.insert("request.timeout.ms".to_string(), "5000".to_string()); // User's explicit timeout
-    
+
     let memory_config = BatchConfig {
         enable_batching: true,
         strategy: BatchStrategy::MemoryBased(4 * 1024 * 1024), // 4MB - would suggest different buffer
@@ -97,7 +103,8 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
         "test-no-override-3".to_string(),
         &props_mem,
         memory_config,
-    ).await?;
+    )
+    .await?;
     // Log should show:
     // - queue.buffering.max.kbytes: 1024KB (user's explicit setting)
     // - request.timeout.ms: 5000 (user's explicit setting, not 30000 from batch timeout)
@@ -107,7 +114,7 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
     let mut props_disabled = HashMap::new();
     props_disabled.insert("batch.size".to_string(), "32768".to_string()); // User wants some batching
     props_disabled.insert("linger.ms".to_string(), "50".to_string()); // User wants some linger
-    
+
     let disabled_config = BatchConfig {
         enable_batching: false, // Would suggest batch.size=0, linger.ms=0
         strategy: BatchStrategy::FixedSize(100),
@@ -120,7 +127,8 @@ async fn test_user_properties_not_overridden() -> Result<(), Box<dyn std::error:
         "test-no-override-4".to_string(),
         &props_disabled,
         disabled_config,
-    ).await?;
+    )
+    .await?;
     // Log should show:
     // - batch.size: 32768 (user's explicit setting, not "0" from disabled batching)
     // - linger.ms: 50 (user's explicit setting, not "0" from disabled batching)

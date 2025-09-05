@@ -1,8 +1,8 @@
-use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
 use ferrisstreams::ferris::datasource::kafka::reader::KafkaDataReader;
+use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
 use ferrisstreams::ferris::kafka::serialization_format::SerializationFormat;
-use std::time::Duration;
 use log::info;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -27,7 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(fixed_size_config),
         None,
-    ).await;
+    )
+    .await;
 
     info!("\n2. Testing LowLatency batch strategy (eager processing)...");
     let low_latency_config = BatchConfig {
@@ -48,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(low_latency_config),
         None,
-    ).await;
+    )
+    .await;
 
     info!("\n3. Testing AdaptiveSize batch strategy...");
     let adaptive_config = BatchConfig {
@@ -69,7 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(adaptive_config),
         None,
-    ).await;
+    )
+    .await;
 
     info!("\n4. Testing MemoryBased batch strategy...");
     let memory_config = BatchConfig {
@@ -86,7 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(memory_config),
         None,
-    ).await;
+    )
+    .await;
 
     info!("\n=== Configuration Logging Test Complete ===");
     Ok(())

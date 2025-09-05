@@ -1,6 +1,8 @@
 //! Kafka data sink implementation
 
-use crate::ferris::datasource::{DataSink, DataWriter, SinkConfig, SinkMetadata, BatchConfig, BatchStrategy};
+use crate::ferris::datasource::{
+    BatchConfig, BatchStrategy, DataSink, DataWriter, SinkConfig, SinkMetadata,
+};
 use crate::ferris::schema::Schema;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -86,11 +88,12 @@ impl KafkaDataSink {
         // Let the KafkaDataWriter handle batch configuration directly
         // This provides better integration and more accurate configuration
         KafkaDataWriter::from_properties_with_batch_config(
-            &self.brokers, 
-            self.topic.clone(), 
+            &self.brokers,
+            self.topic.clone(),
             &self.config,
-            batch_config
-        ).await
+            batch_config,
+        )
+        .await
     }
 
     /// Apply BatchConfig settings to Kafka producer configuration
@@ -114,13 +117,14 @@ impl KafkaDataSink {
                 // Set batch.size to accommodate fixed batch size
                 let batch_size = (*size * 1024).min(batch_config.max_batch_size * 1024); // KB estimate
                 producer_config.insert("batch.size".to_string(), batch_size.to_string());
-                
+
                 // Use moderate linger time for fixed batching
                 producer_config.insert("linger.ms".to_string(), "10".to_string());
-                
+
                 // Suggest compression only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "snappy".to_string()); // Efficient compression
+                    producer_config.insert("compression.type".to_string(), "snappy".to_string());
+                    // Efficient compression
                 }
             }
             BatchStrategy::TimeWindow(duration) => {
@@ -128,10 +132,11 @@ impl KafkaDataSink {
                 let linger_ms = duration.as_millis().min(30000) as u64; // Cap at 30s
                 producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
                 producer_config.insert("batch.size".to_string(), "65536".to_string()); // 64KB batches
-                
+
                 // Suggest fast compression only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "lz4".to_string()); // Fast compression
+                    producer_config.insert("compression.type".to_string(), "lz4".to_string());
+                    // Fast compression
                 }
             }
             BatchStrategy::AdaptiveSize { target_latency, .. } => {
@@ -139,7 +144,7 @@ impl KafkaDataSink {
                 let linger_ms = target_latency.as_millis().min(5000) as u64; // Cap at 5s
                 producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
                 producer_config.insert("batch.size".to_string(), "32768".to_string()); // 32KB adaptive batches
-                
+
                 // Suggest compression only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
                     producer_config.insert("compression.type".to_string(), "snappy".to_string());
@@ -150,12 +155,13 @@ impl KafkaDataSink {
                 let batch_size = (*max_bytes / 2).min(1024 * 1024); // Half of memory target, max 1MB
                 producer_config.insert("batch.size".to_string(), batch_size.to_string());
                 producer_config.insert("linger.ms".to_string(), "100".to_string()); // Longer linger for large batches
-                
+
                 // Suggest better compression for large batches only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "gzip".to_string()); // Better compression for large batches
+                    producer_config.insert("compression.type".to_string(), "gzip".to_string());
+                    // Better compression for large batches
                 }
-                
+
                 // Use memory target for buffer settings
                 let buffer_memory = (*max_bytes * 4).min(64 * 1024 * 1024); // 4x batch size, max 64MB
                 producer_config.insert("buffer.memory".to_string(), buffer_memory.to_string());
@@ -165,22 +171,29 @@ impl KafkaDataSink {
                 producer_config.insert("batch.size".to_string(), "1024".to_string()); // Very small batches (1KB)
                 let linger_ms = max_wait_time.as_millis().min(10) as u64; // Ultra-short linger time
                 producer_config.insert("linger.ms".to_string(), linger_ms.to_string());
-                
+
                 // Suggest no compression for minimal latency only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "none".to_string()); // No compression overhead
+                    producer_config.insert("compression.type".to_string(), "none".to_string());
+                    // No compression overhead
                 }
-                
+
                 producer_config.insert("acks".to_string(), "1".to_string()); // Fast acknowledgment (leader only)
                 producer_config.insert("retries".to_string(), "0".to_string()); // No retries for speed
-                producer_config.insert("max.in.flight.requests.per.connection".to_string(), "5".to_string()); // Parallel requests
+                producer_config.insert(
+                    "max.in.flight.requests.per.connection".to_string(),
+                    "5".to_string(),
+                ); // Parallel requests
             }
         }
 
         // Apply general batch timeout as request timeout
         let request_timeout_ms = batch_config.batch_timeout.as_millis().min(300000) as u64; // Max 5 minutes
-        producer_config.insert("request.timeout.ms".to_string(), request_timeout_ms.to_string());
-        
+        producer_config.insert(
+            "request.timeout.ms".to_string(),
+            request_timeout_ms.to_string(),
+        );
+
         // Log the producer configuration
         self.log_producer_config(producer_config, batch_config);
     }
@@ -192,21 +205,49 @@ impl KafkaDataSink {
         batch_config: &BatchConfig,
     ) {
         use log::info;
-        
+
         info!("=== Kafka Producer Configuration ===");
         info!("Batch Strategy: {:?}", batch_config.strategy);
         info!("Batch Configuration:");
         info!("  - Enable Batching: {}", batch_config.enable_batching);
         info!("  - Max Batch Size: {}", batch_config.max_batch_size);
         info!("  - Batch Timeout: {:?}", batch_config.batch_timeout);
-        
+
         info!("Applied Producer Settings:");
-        info!("  - batch.size: {}", producer_config.get("batch.size").unwrap_or(&"default".to_string()));
-        info!("  - linger.ms: {}", producer_config.get("linger.ms").unwrap_or(&"default".to_string()));
-        info!("  - compression.type: {}", producer_config.get("compression.type").unwrap_or(&"none".to_string()));
-        info!("  - acks: {}", producer_config.get("acks").unwrap_or(&"all".to_string()));
-        info!("  - retries: {}", producer_config.get("retries").unwrap_or(&"default".to_string()));
-        info!("  - request.timeout.ms: {}", producer_config.get("request.timeout.ms").unwrap_or(&"default".to_string()));
+        info!(
+            "  - batch.size: {}",
+            producer_config
+                .get("batch.size")
+                .unwrap_or(&"default".to_string())
+        );
+        info!(
+            "  - linger.ms: {}",
+            producer_config
+                .get("linger.ms")
+                .unwrap_or(&"default".to_string())
+        );
+        info!(
+            "  - compression.type: {}",
+            producer_config
+                .get("compression.type")
+                .unwrap_or(&"none".to_string())
+        );
+        info!(
+            "  - acks: {}",
+            producer_config.get("acks").unwrap_or(&"all".to_string())
+        );
+        info!(
+            "  - retries: {}",
+            producer_config
+                .get("retries")
+                .unwrap_or(&"default".to_string())
+        );
+        info!(
+            "  - request.timeout.ms: {}",
+            producer_config
+                .get("request.timeout.ms")
+                .unwrap_or(&"default".to_string())
+        );
         if let Some(buffer_memory) = producer_config.get("buffer.memory") {
             info!("  - buffer.memory: {}", buffer_memory);
         }
@@ -286,12 +327,15 @@ impl DataSink for KafkaDataSink {
         batch_config: BatchConfig,
     ) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
         // Create a writer optimized for the specific batch strategy
-        let writer = self.create_unified_writer_with_batch_config(batch_config).await.map_err(|e| {
-            Box::new(KafkaDataSourceError::Configuration(format!(
-                "Failed to create batch-optimized writer: {}",
-                e
-            ))) as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let writer = self
+            .create_unified_writer_with_batch_config(batch_config)
+            .await
+            .map_err(|e| {
+                Box::new(KafkaDataSourceError::Configuration(format!(
+                    "Failed to create batch-optimized writer: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
         Ok(Box::new(writer))
     }

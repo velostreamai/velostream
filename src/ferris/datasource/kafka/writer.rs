@@ -1,9 +1,7 @@
 //! Unified Kafka data writer implementation
 
-use crate::ferris::datasource::{DataWriter, BatchConfig};
-use crate::ferris::datasource::config::unified::{
-    ConfigFactory, ConfigLogger
-};
+use crate::ferris::datasource::config::unified::{ConfigFactory, ConfigLogger};
+use crate::ferris::datasource::{BatchConfig, DataWriter};
 use crate::ferris::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
@@ -44,7 +42,16 @@ impl KafkaDataWriter {
         key_field: Option<String>,
         schema: Option<&str>, // Unified schema parameter
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::create_with_schema_validation_and_batch_config(brokers, topic, format, key_field, schema, &HashMap::new(), None).await
+        Self::create_with_schema_validation_and_batch_config(
+            brokers,
+            topic,
+            format,
+            key_field,
+            schema,
+            &HashMap::new(),
+            None,
+        )
+        .await
     }
 
     /// Create from HashMap properties (similar to KafkaDataReader pattern)
@@ -73,8 +80,15 @@ impl KafkaDataWriter {
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
         Self::create_with_schema_validation_and_batch_config(
-            brokers, topic, format, key_field, schema.as_deref(), &HashMap::new(), None
-        ).await
+            brokers,
+            topic,
+            format,
+            key_field,
+            schema.as_deref(),
+            &HashMap::new(),
+            None,
+        )
+        .await
     }
 
     /// Create from HashMap properties with batch configuration optimizations
@@ -104,8 +118,15 @@ impl KafkaDataWriter {
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
         Self::create_with_schema_validation_and_batch_config(
-            brokers, topic, format, key_field, schema.as_deref(), properties, Some(batch_config)
-        ).await
+            brokers,
+            topic,
+            format,
+            key_field,
+            schema.as_deref(),
+            properties,
+            Some(batch_config),
+        )
+        .await
     }
 
     /// Internal method with schema validation and batch configuration support
@@ -120,10 +141,11 @@ impl KafkaDataWriter {
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Validate schema requirements based on format
         Self::validate_schema_requirements(&format, schema)?;
-        
+
         // Create optimized producer configuration using unified system
         let producer_config = if let Some(batch_config) = batch_config {
-            let config = ConfigFactory::create_kafka_producer_config(brokers, properties, &batch_config);
+            let config =
+                ConfigFactory::create_kafka_producer_config(brokers, properties, &batch_config);
             ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
             config
         } else {
@@ -135,13 +157,13 @@ impl KafkaDataWriter {
             }
             config
         };
-        
+
         // Create Kafka ClientConfig from our optimized configuration
         let mut client_config = ClientConfig::new();
         for (key, value) in &producer_config {
             client_config.set(key, value);
         }
-        
+
         let producer: FutureProducer = client_config.create()?;
 
         // Initialize codec based on format using optimized single codec creation
@@ -478,7 +500,6 @@ impl KafkaDataWriter {
             .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
             .collect()
     }
-
 }
 
 #[async_trait]

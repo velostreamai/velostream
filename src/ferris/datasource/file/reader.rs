@@ -10,8 +10,8 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
-use tokio::time::{sleep, Duration};
 use std::time::Instant;
+use tokio::time::{sleep, Duration};
 
 use super::config::{FileFormat, FileSourceConfig};
 use super::error::FileDataSourceError;
@@ -51,14 +51,14 @@ impl FileAdaptiveBatchState {
             bytes_per_record_estimate: None,
         }
     }
-    
+
     fn record_latency(&mut self, latency: Duration) {
         self.recent_latencies.push(latency);
         if self.recent_latencies.len() > 10 {
             self.recent_latencies.remove(0);
         }
     }
-    
+
     fn average_latency(&self) -> Option<Duration> {
         if self.recent_latencies.is_empty() {
             None
@@ -74,9 +74,12 @@ impl FileReader {
     pub async fn new(config: FileSourceConfig) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Self::new_with_batch_config(config, BatchConfig::default()).await
     }
-    
+
     /// Create a new file reader with configuration and batch config
-    pub async fn new_with_batch_config(config: FileSourceConfig, batch_config: BatchConfig) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub async fn new_with_batch_config(
+        config: FileSourceConfig,
+        batch_config: BatchConfig,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let initial_size = match &batch_config.strategy {
             BatchStrategy::FixedSize(size) => *size,
             BatchStrategy::AdaptiveSize { min_size, .. } => *min_size,
@@ -581,12 +584,22 @@ impl DataReader for FileReader {
         match &self.batch_config.strategy {
             BatchStrategy::FixedSize(size) => self.read_fixed_size(*size).await,
             BatchStrategy::TimeWindow(duration) => self.read_time_window(*duration).await,
-            BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
-                self.read_adaptive(*min_size, *max_size, *target_latency).await
+            BatchStrategy::AdaptiveSize {
+                min_size,
+                max_size,
+                target_latency,
+            } => {
+                self.read_adaptive(*min_size, *max_size, *target_latency)
+                    .await
             }
             BatchStrategy::MemoryBased(max_bytes) => self.read_memory_based(*max_bytes).await,
-            BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing } => {
-                self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing).await
+            BatchStrategy::LowLatency {
+                max_batch_size,
+                max_wait_time,
+                eager_processing,
+            } => {
+                self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing)
+                    .await
             }
         }
     }
@@ -661,9 +674,12 @@ impl FileReader {
     }
 
     /// Read fixed number of records with optimized batch I/O
-    async fn read_fixed_size(&mut self, size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_fixed_size(
+        &mut self,
+        size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let batch_size = size.min(self.batch_config.max_batch_size);
-        
+
         // Use optimized batch reading for different formats
         match self.config.format {
             FileFormat::Csv | FileFormat::CsvNoHeader | FileFormat::JsonLines => {
@@ -678,16 +694,21 @@ impl FileReader {
     }
 
     /// Optimized batch reading for line-based formats (CSV, JSONL)
-    async fn read_lines_batch(&mut self, batch_size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_lines_batch(
+        &mut self,
+        batch_size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(batch_size);
-        
+
         // Calculate optimal read buffer size based on batch size and estimated line length
         let estimated_line_length = self.adaptive_state.bytes_per_record_estimate.unwrap_or(256);
-        let buffer_size = (batch_size * estimated_line_length).max(8192).min(1024 * 1024); // 8KB to 1MB
-        
+        let buffer_size = (batch_size * estimated_line_length)
+            .max(8192)
+            .min(1024 * 1024); // 8KB to 1MB
+
         let mut lines_buffer = Vec::with_capacity(batch_size);
         let mut total_bytes_read = 0;
-        
+
         // Read multiple lines in one I/O operation
         while records.len() < batch_size {
             // Check limits
@@ -709,7 +730,7 @@ impl FileReader {
             // Read a chunk of lines
             let mut chunk_buffer = String::with_capacity(buffer_size);
             let mut lines_in_chunk = 0;
-            
+
             while lines_in_chunk < batch_size && chunk_buffer.len() < buffer_size {
                 let mut line = String::new();
                 match reader.read_line(&mut line) {
@@ -751,9 +772,10 @@ impl FileReader {
             if records.len() > 0 && total_bytes_read > 0 {
                 let bytes_per_record = total_bytes_read / records.len();
                 self.adaptive_state.bytes_per_record_estimate = Some(
-                    self.adaptive_state.bytes_per_record_estimate
+                    self.adaptive_state
+                        .bytes_per_record_estimate
                         .map(|avg| (avg + bytes_per_record) / 2)
-                        .unwrap_or(bytes_per_record)
+                        .unwrap_or(bytes_per_record),
                 );
             }
 
@@ -773,7 +795,10 @@ impl FileReader {
     }
 
     /// Fallback to single-record reading for complex formats
-    async fn read_fixed_size_fallback(&mut self, batch_size: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_fixed_size_fallback(
+        &mut self,
+        batch_size: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::with_capacity(batch_size);
 
         for _ in 0..batch_size {
@@ -805,10 +830,13 @@ impl FileReader {
     }
 
     /// Read records within a time window
-    async fn read_time_window(&mut self, duration: Duration) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_time_window(
+        &mut self,
+        duration: Duration,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::new();
         let start_time = Instant::now();
-        
+
         while start_time.elapsed() < duration && records.len() < self.batch_config.max_batch_size {
             // Check record limits
             if let Some(max) = self.config.max_records {
@@ -836,28 +864,38 @@ impl FileReader {
     }
 
     /// Read records with adaptive batch sizing
-    async fn read_adaptive(&mut self, min_size: usize, max_size: usize, target_latency: Duration) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_adaptive(
+        &mut self,
+        min_size: usize,
+        max_size: usize,
+        target_latency: Duration,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let batch_start = Instant::now();
-        let current_size = self.adaptive_state.current_size.clamp(min_size, max_size.min(self.batch_config.max_batch_size));
-        
+        let current_size = self
+            .adaptive_state
+            .current_size
+            .clamp(min_size, max_size.min(self.batch_config.max_batch_size));
+
         // Read current adaptive batch size
         let records = self.read_fixed_size(current_size).await?;
         let batch_latency = batch_start.elapsed();
-        
+
         // Record latency for adaptive adjustment
         self.adaptive_state.record_latency(batch_latency);
-        
+
         // Adjust batch size every 10 seconds
         if self.adaptive_state.last_adjustment.elapsed() > Duration::from_secs(10) {
             if let Some(avg_latency) = self.adaptive_state.average_latency() {
                 if avg_latency > target_latency && current_size > min_size {
                     // Too slow, reduce batch size
                     self.adaptive_state.current_size = (current_size as f64 * 0.8) as usize;
-                    self.adaptive_state.current_size = self.adaptive_state.current_size.max(min_size);
+                    self.adaptive_state.current_size =
+                        self.adaptive_state.current_size.max(min_size);
                 } else if avg_latency < target_latency / 2 && current_size < max_size {
                     // Too fast, increase batch size
                     self.adaptive_state.current_size = (current_size as f64 * 1.2) as usize;
-                    self.adaptive_state.current_size = self.adaptive_state.current_size.min(max_size);
+                    self.adaptive_state.current_size =
+                        self.adaptive_state.current_size.min(max_size);
                 }
             }
             self.adaptive_state.last_adjustment = Instant::now();
@@ -867,7 +905,10 @@ impl FileReader {
     }
 
     /// Read records up to a memory limit (approximate)
-    async fn read_memory_based(&mut self, max_bytes: usize) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_memory_based(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let mut records = Vec::new();
         let mut estimated_size = 0usize;
 
@@ -881,23 +922,27 @@ impl FileReader {
 
             if let Some(record) = self.read_one_record().await? {
                 // Estimate record size: 24 bytes overhead + field data
-                let record_size = 24 + record.fields.iter()
-                    .map(|(k, v)| k.len() + self.estimate_field_size(v))
-                    .sum::<usize>();
-                
+                let record_size = 24
+                    + record
+                        .fields
+                        .iter()
+                        .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                        .sum::<usize>();
+
                 if estimated_size + record_size > max_bytes && !records.is_empty() {
                     // Would exceed memory limit, return current batch
                     break;
                 }
-                
+
                 estimated_size += record_size;
                 records.push(record);
-                
+
                 // Update adaptive state with bytes per record estimate
                 self.adaptive_state.bytes_per_record_estimate = Some(
-                    self.adaptive_state.bytes_per_record_estimate
+                    self.adaptive_state
+                        .bytes_per_record_estimate
                         .map(|avg| (avg + record_size) / 2)
-                        .unwrap_or(record_size)
+                        .unwrap_or(record_size),
                 );
             } else {
                 // No more data available
@@ -914,10 +959,15 @@ impl FileReader {
     }
 
     /// Read records with low-latency optimization for file sources
-    async fn read_low_latency(&mut self, max_batch_size: usize, max_wait_time: Duration, eager_processing: bool) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_low_latency(
+        &mut self,
+        max_batch_size: usize,
+        max_wait_time: Duration,
+        eager_processing: bool,
+    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let batch_size = max_batch_size.min(self.batch_config.max_batch_size);
         let start_time = Instant::now();
-        
+
         if eager_processing {
             // Eager processing: return immediately with first available record
             if let Some(record) = self.read_one_record().await? {
@@ -939,7 +989,7 @@ impl FileReader {
 
         // Standard low-latency processing with small batches and tight timeouts
         let mut records = Vec::with_capacity(batch_size);
-        
+
         while records.len() < batch_size && start_time.elapsed() < max_wait_time {
             // Check limits
             if let Some(max) = self.config.max_records {
@@ -954,7 +1004,7 @@ impl FileReader {
 
             if let Some(record) = self.read_one_record().await? {
                 records.push(record);
-                
+
                 // In low-latency mode, prefer returning smaller batches quickly
                 // Return immediately if we have any records and aggressive timing is requested
                 if max_wait_time <= Duration::from_millis(5) && !records.is_empty() {
@@ -979,7 +1029,9 @@ impl FileReader {
     }
 
     /// Helper method to read a single record
-    async fn read_one_record(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read_one_record(
+        &mut self,
+    ) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
         // Try to read a record based on format
         match self.config.format {
             FileFormat::Csv | FileFormat::CsvNoHeader => self.read_csv_record().await,
@@ -994,19 +1046,18 @@ impl FileReader {
     }
 
     /// Parse a single line into a StreamRecord based on format
-    async fn parse_line_to_record(&mut self, line: String) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn parse_line_to_record(
+        &mut self,
+        line: String,
+    ) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
         // Skip empty lines
         if line.trim().is_empty() {
             return Ok(None);
         }
 
         match self.config.format {
-            FileFormat::Csv | FileFormat::CsvNoHeader => {
-                self.parse_csv_line_batch(line).await
-            }
-            FileFormat::JsonLines => {
-                self.parse_jsonl_line_batch(line).await
-            }
+            FileFormat::Csv | FileFormat::CsvNoHeader => self.parse_csv_line_batch(line).await,
+            FileFormat::JsonLines => self.parse_jsonl_line_batch(line).await,
             FileFormat::Json => {
                 return Err(Box::new(FileDataSourceError::UnsupportedFormat(
                     "JSON array format not supported in batch line parsing".to_string(),
@@ -1016,7 +1067,10 @@ impl FileReader {
     }
 
     /// Parse a CSV line into a StreamRecord (for batch processing)
-    async fn parse_csv_line_batch(&mut self, line: String) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn parse_csv_line_batch(
+        &mut self,
+        line: String,
+    ) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let line = line.trim();
         if line.is_empty() {
             return Ok(None);
@@ -1024,9 +1078,9 @@ impl FileReader {
 
         // Parse CSV fields (simple split for now - could be enhanced with proper CSV parsing)
         let fields_raw: Vec<&str> = line.split(',').map(|f| f.trim()).collect();
-        
+
         let mut fields = HashMap::new();
-        
+
         // Handle headers
         if self.csv_headers.is_none() && self.config.format == FileFormat::Csv {
             // First line is headers
@@ -1037,12 +1091,17 @@ impl FileReader {
         // Use headers if available, otherwise generate field names
         let headers = match &self.csv_headers {
             Some(h) => h.clone(),
-            None => (0..fields_raw.len()).map(|i| format!("field_{}", i)).collect(),
+            None => (0..fields_raw.len())
+                .map(|i| format!("field_{}", i))
+                .collect(),
         };
 
         // Create field map
         for (i, value) in fields_raw.iter().enumerate() {
-            let field_name = headers.get(i).cloned().unwrap_or_else(|| format!("field_{}", i));
+            let field_name = headers
+                .get(i)
+                .cloned()
+                .unwrap_or_else(|| format!("field_{}", i));
             let field_value = self.infer_field_type_simple(value);
             fields.insert(field_name, field_value);
         }
@@ -1059,7 +1118,10 @@ impl FileReader {
     }
 
     /// Parse a JSONL line into a StreamRecord (for batch processing)
-    async fn parse_jsonl_line_batch(&mut self, line: String) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn parse_jsonl_line_batch(
+        &mut self,
+        line: String,
+    ) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
         let line = line.trim();
         if line.is_empty() {
             return Ok(None);
@@ -1156,9 +1218,24 @@ impl FileReader {
             FieldValue::Decimal(_) => 16,
             FieldValue::Null => 0,
             FieldValue::Interval { .. } => 16,
-            FieldValue::Array(arr) => 24 + arr.iter().map(|v| self.estimate_field_size(v)).sum::<usize>(),
-            FieldValue::Map(map) => 24 + map.iter().map(|(k, v)| k.len() + self.estimate_field_size(v)).sum::<usize>(),
-            FieldValue::Struct(s) => 24 + s.iter().map(|(k, v)| k.len() + self.estimate_field_size(v)).sum::<usize>(),
+            FieldValue::Array(arr) => {
+                24 + arr
+                    .iter()
+                    .map(|v| self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
+            FieldValue::Map(map) => {
+                24 + map
+                    .iter()
+                    .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
+            FieldValue::Struct(s) => {
+                24 + s
+                    .iter()
+                    .map(|(k, v)| k.len() + self.estimate_field_size(v))
+                    .sum::<usize>()
+            }
         }
     }
 }

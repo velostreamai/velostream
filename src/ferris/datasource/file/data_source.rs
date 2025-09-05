@@ -392,8 +392,8 @@ impl DataSource for FileDataSource {
     }
 
     async fn create_reader_with_batch_config(
-        &self, 
-        batch_config: crate::ferris::datasource::BatchConfig
+        &self,
+        batch_config: crate::ferris::datasource::BatchConfig,
     ) -> Result<Box<dyn DataReader>, Box<dyn Error + Send + Sync>> {
         let config = self.config.as_ref().ok_or_else(|| {
             Box::new(FileDataSourceError::InvalidPath(
