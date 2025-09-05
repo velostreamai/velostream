@@ -90,18 +90,21 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
         log_progress: true,
     };
     let log_continue_processor = TransactionalJobProcessorWrapper::new(log_continue_config);
-    
+
     // Add timeout to prevent hanging
     let result = tokio::time::timeout(
         Duration::from_secs(30),
         run_comprehensive_failure_tests(
             &log_continue_processor,
             "TransactionalJobProcessor_LogAndContinue",
-        )
-    ).await;
-    
+        ),
+    )
+    .await;
+
     if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor LogAndContinue comprehensive tests timed out after 30s");
+        println!(
+            "⚠️  TransactionalJobProcessor LogAndContinue comprehensive tests timed out after 30s"
+        );
     }
 
     // Test with RetryWithBackoff strategy
@@ -119,44 +122,64 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
 
     // Run individual tests for RetryWithBackoff with timeouts (some may timeout, which is expected)
     println!("Running TransactionalJobProcessor RetryWithBackoff scenarios with 10s timeouts...");
-    
+
     // Test each scenario with timeout
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        test_source_read_failure_scenario(&retry_backoff_processor, "TransactionalJobProcessor_RetryWithBackoff")
-    ).await;
+        test_source_read_failure_scenario(
+            &retry_backoff_processor,
+            "TransactionalJobProcessor_RetryWithBackoff",
+        ),
+    )
+    .await;
     if result.is_err() {
         println!("⚠️  TransactionalJobProcessor RetryWithBackoff source_read scenario timed out after 10s (expected)");
     }
-    
+
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        test_network_partition_scenario(&retry_backoff_processor, "TransactionalJobProcessor_RetryWithBackoff")
-    ).await;
+        test_network_partition_scenario(
+            &retry_backoff_processor,
+            "TransactionalJobProcessor_RetryWithBackoff",
+        ),
+    )
+    .await;
     if result.is_err() {
         println!("⚠️  TransactionalJobProcessor RetryWithBackoff network_partition scenario timed out after 10s (expected)");
     }
-    
+
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        test_partial_batch_failure_scenario(&retry_backoff_processor, "TransactionalJobProcessor_RetryWithBackoff")
-    ).await;
+        test_partial_batch_failure_scenario(
+            &retry_backoff_processor,
+            "TransactionalJobProcessor_RetryWithBackoff",
+        ),
+    )
+    .await;
     if result.is_err() {
         println!("⚠️  TransactionalJobProcessor RetryWithBackoff partial_batch scenario timed out after 10s (expected)");
     }
-    
+
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        test_shutdown_signal_scenario(&retry_backoff_processor, "TransactionalJobProcessor_RetryWithBackoff")
-    ).await;
+        test_shutdown_signal_scenario(
+            &retry_backoff_processor,
+            "TransactionalJobProcessor_RetryWithBackoff",
+        ),
+    )
+    .await;
     if result.is_err() {
         println!("⚠️  TransactionalJobProcessor RetryWithBackoff shutdown_signal scenario timed out after 10s (expected)");
     }
-    
+
     let result = tokio::time::timeout(
         Duration::from_secs(10),
-        test_empty_batch_handling_scenario(&retry_backoff_processor, "TransactionalJobProcessor_RetryWithBackoff")
-    ).await;
+        test_empty_batch_handling_scenario(
+            &retry_backoff_processor,
+            "TransactionalJobProcessor_RetryWithBackoff",
+        ),
+    )
+    .await;
     if result.is_err() {
         println!("⚠️  TransactionalJobProcessor RetryWithBackoff empty_batch scenario timed out after 10s (expected)");
     }
