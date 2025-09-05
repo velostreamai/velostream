@@ -369,14 +369,22 @@ WITH (
     "sink_config" = "configs/kafka_sink.yaml"
 );
 
+-- Alternative: Inline configuration with source./sink. prefixes
+CREATE STREAM orders_inline AS 
+SELECT id, customer_id, amount, status 
+FROM 'kafka://localhost:9092/orders'
+WITH (
+    "source.group_id" = "orders_processor",
+    "source.value.format" = "json"
+);
+
 -- Multi-config file support with environment variables (implemented)
+-- Configuration files can use 'extends:' for inheritance
 CREATE STREAM kafka_replication AS 
 SELECT * FROM kafka_source 
 INTO kafka_sink
 WITH (
-    "base_source_config" = "configs/base_kafka.yaml",
     "source_config" = "configs/kafka_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_kafka_sink.yaml", 
     "sink_config" = "configs/kafka_sink_${ENVIRONMENT}.yaml",
     "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
     "security_config" = "configs/security.yaml",
@@ -409,13 +417,12 @@ WITH (
 
 **🚧 TODO - Planned Multi-Source Support:**
 -- TODO: PostgreSQL to S3 (architecture ready, implementations not done)
+-- Configuration files use 'extends:' for inheritance instead of base_* configs
 CREATE STREAM db_replication AS 
 SELECT * FROM postgres_source   -- TODO: Implement PostgreSQL DataSource 
 INTO s3_sink                    -- TODO: Implement S3 DataSink
 WITH (
-    "base_source_config" = "configs/base_postgres.yaml",
     "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_s3.yaml", 
     "sink_config" = "configs/s3_${ENVIRONMENT}.yaml"
 );
 ```
@@ -427,6 +434,7 @@ Create a materialized table job that processes aggregated data and outputs to a 
 **✅ Currently Working:**
 ```sql
 -- CREATE TABLE INTO with aggregation (Kafka to Kafka working)
+-- Configuration files use 'extends:' for inheritance
 CREATE TABLE user_analytics AS 
 SELECT 
     customer_id,
@@ -437,9 +445,7 @@ FROM kafka_orders_stream
 GROUP BY customer_id
 INTO kafka_analytics_sink
 WITH (
-    "base_source_config" = "configs/base_kafka_source.yaml",
     "source_config" = "configs/kafka_orders_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_kafka_sink.yaml", 
     "sink_config" = "configs/kafka_analytics_${ENVIRONMENT}.yaml",
     "batch_size" = "500"
 );
@@ -463,15 +469,85 @@ WITH (
 
 #### Configuration File Support
 
-The new CREATE STREAM/TABLE INTO syntax supports multiple configuration layers:
+The CREATE STREAM/TABLE INTO syntax supports multiple configuration approaches:
 
-- **base_source_config**: Base configuration for the source (shared settings)
-- **source_config**: Specific source configuration (environment-specific)
-- **base_sink_config**: Base configuration for the sink (shared settings)
-- **sink_config**: Specific sink configuration (environment-specific)
+**Configuration Files:**
+- **source_config**: Source configuration file (can inherit from base using `extends:`)
+- **sink_config**: Sink configuration file (can inherit from base using `extends:`)
 - **monitoring_config**: Monitoring and metrics configuration
 - **security_config**: Security and authentication configuration
-- **inline properties**: Direct key-value properties in the WITH clause
+
+**Inline Configuration:**
+- **source.*** properties**: Direct source configuration (e.g., `source.format`, `source.topic`)
+- **sink.*** properties**: Direct sink configuration (e.g., `sink.path`, `sink.bootstrap.servers`)
+- **Mixed approach**: Combine config files with inline overrides
+
+#### YAML Configuration Inheritance
+
+Configuration files support inheritance using the `extends:` keyword:
+
+```yaml
+# configs/kafka_prod.yaml
+extends: configs/base_kafka.yaml
+topic: "orders_production"
+brokers: ["prod-kafka-1:9092", "prod-kafka-2:9092"]
+```
+
+This approach replaces the deprecated `base_source_config` and `base_sink_config` pattern.
+
+#### Configuration Pattern Examples
+
+**Pattern 1: Configuration Files Only**
+```sql
+CREATE STREAM processing AS 
+SELECT * FROM kafka_source INTO file_sink
+WITH (
+    "source_config" = "configs/kafka_orders.yaml",
+    "sink_config" = "configs/file_export.yaml"
+);
+```
+
+**Pattern 2: Inline Configuration Only**  
+```sql
+CREATE STREAM file_processing AS
+SELECT * FROM 'file://data/input.csv'
+INTO file_sink
+WITH (
+    "source.format" = "csv",
+    "source.has_headers" = "true",
+    "source.watching" = "true",
+    "sink.path" = "output/results.json",
+    "sink.format" = "json",
+    "sink.append" = "true"
+);
+```
+
+**Pattern 3: Mixed Configuration (File + Inline Overrides)**
+```sql
+CREATE STREAM kafka_processing AS
+SELECT * FROM kafka_source INTO kafka_sink  
+WITH (
+    "source_config" = "configs/kafka_base.yaml",
+    "sink_config" = "configs/kafka_sink.yaml",
+    -- Inline overrides for specific job requirements
+    "source.group_id" = "special_processor_${ENVIRONMENT}",
+    "sink.topic" = "processed_${JOB_TYPE}",
+    "sink.failure_strategy" = "RetryWithBackoff"
+);
+```
+
+**Pattern 4: URI with Inline Parameters**
+```sql
+CREATE STREAM orders AS
+SELECT * FROM 'kafka://broker1:9092,broker2:9092/orders'
+INTO 'file://output/processed_orders.json'
+WITH (
+    "source.group_id" = "orders_analytics",
+    "source.value.format" = "avro",
+    "sink.format" = "json",
+    "sink.append" = "true"
+);
+```
 
 #### Environment Variable Resolution
 
@@ -483,9 +559,42 @@ Environment variables are resolved at parse time using these patterns:
 | `${VAR:-default}` | Use default if VAR unset | `"kafka_${ENV:-dev}.yaml"` |
 | `${VAR:?message}` | Error if VAR unset | `"${REQUIRED_CONFIG:?Config required}"` |
 
+#### Property Prefix Behavior
+
+The `source.` and `sink.` prefixes provide powerful configuration isolation with intelligent fallback behavior:
+
+**Prefix Priority Rules:**
+1. **Prefixed properties take priority**: `source.brokers` overrides `brokers` for source configuration
+2. **Fallback to unprefixed**: If `source.brokers` doesn't exist, `brokers` is used as fallback
+3. **Property isolation**: Source config excludes `sink.` properties and vice versa
+4. **Alias support**: Multiple property names can map to the same configuration (e.g., `bootstrap.servers` ↔ `brokers`)
+
+**Example Priority Resolution:**
+```sql
+CREATE STREAM priority_example AS
+SELECT * FROM kafka_source INTO kafka_sink
+WITH (
+    -- Source will use: source.brokers (priority)
+    "brokers" = "fallback-broker:9092",
+    "source.brokers" = "priority-broker:9092",
+    
+    -- Sink will use: brokers (fallback - no sink.brokers specified)
+    -- "sink.brokers" would take priority if present
+    
+    -- Property isolation in action:
+    "source.group_id" = "reader_group",    -- Only in source config
+    "sink.topic" = "output_topic",         -- Only in sink config
+    "failure_strategy" = "RetryWithBackoff" -- Shared property (both configs)
+);
+```
+
+**Property Aliases:**
+- **Kafka**: `brokers` ↔ `bootstrap.servers`
+- **File**: `watching` ↔ `watch`, `has_headers` ↔ `header`
+
 #### Backward Compatibility
 
-The traditional CREATE STREAM and CREATE TABLE syntax continues to work unchanged:
+The traditional CREATE STREAM and CREATE TABLE syntax continues to work but prints the output to STDOUT unless INTO is specified:
 
 ```sql
 -- Legacy CREATE STREAM (still supported)
@@ -565,6 +674,53 @@ FROM orders o
 INNER JOIN customers c ON o.customer_id = c.customer_id
 WHERE o.status = 'completed';
 ```
+
+#### INSERT with Configuration (TODO - Coming Soon)
+
+> **Note**: INSERT INTO syntax with configuration support is currently under development. The parser implementation is planned for a future release.
+
+For streaming INSERT operations that require source and sink configuration, you can use the WITH clause to specify connection details:
+
+```sql
+-- INSERT with configuration files (PLANNED)
+INSERT INTO high_value_orders
+SELECT order_id, customer_id, amount, order_date
+FROM orders
+WHERE amount > 1000.0
+WITH (
+    "source_config" = "configs/orders_source.yaml",
+    "sink_config" = "configs/high_value_sink.yaml"
+);
+
+-- INSERT with inline properties (PLANNED)  
+INSERT INTO processed_transactions
+SELECT 
+    transaction_id,
+    customer_id,
+    amount,
+    processed_at
+FROM raw_transactions
+WHERE status = 'validated'
+WITH (
+    "source.topic" = "raw_transactions",
+    "source.group.id" = "insert-processor",
+    "sink.topic" = "processed_transactions",
+    "sink.type" = "kafka",
+    "batch_size" = "1000"
+);
+```
+
+**Key Differences from CREATE STREAM**:
+- **INSERT INTO**: One-time data transfer/migration operation 
+- **CREATE STREAM**: Continuous processing job that runs indefinitely
+
+**Use Cases for INSERT INTO**:
+- Data backfills and historical data migration
+- One-time batch processing operations
+- Manual data transfers between streams/tables
+- Testing and data validation workflows
+
+**Current Workaround**: Use CREATE STREAM AS SELECT for continuous processing needs until INSERT parsing is implemented.
 
 ### UPDATE Operations
 

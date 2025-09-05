@@ -3,7 +3,7 @@
 //! This module provides best-effort job processing without transactional semantics.
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
-use crate::ferris::datasource::{DataReader, DataWriter, StdoutWriter};
+use crate::ferris::datasource::{DataReader, DataWriter};
 use crate::ferris::server::processors::common::*;
 use crate::ferris::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
@@ -39,13 +39,7 @@ impl SimpleJobProcessor {
         let mut stats = JobExecutionStats::new();
 
         // Create a StdoutWriter if no sink is provided
-        if writer.is_none() {
-            info!(
-                "Job '{}': No sink provided, creating StdoutWriter for output",
-                job_name
-            );
-            writer = Some(Box::new(StdoutWriter::new_pretty()));
-        }
+        ensure_sink_or_create_stdout(&mut writer, &job_name);
 
         info!(
             "Job '{}' starting simple (non-transactional) processing",
@@ -53,44 +47,17 @@ impl SimpleJobProcessor {
         );
 
         // Log comprehensive configuration details
-        info!(
-            "Job '{}' configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, progress_interval={}, log_progress={}",
-            job_name,
-            self.config.use_transactions,
-            self.config.failure_strategy,
-            self.config.max_batch_size,
-            self.config.batch_timeout.as_millis(),
-            self.config.max_retries,
-            self.config.retry_backoff.as_millis(),
-            self.config.progress_interval,
-            self.config.log_progress
-        );
-
-        // Check if datasources have transaction capabilities and log detailed info
-        let reader_has_tx = reader.supports_transactions();
-        let writer_has_tx = writer
-            .as_ref()
-            .map(|w| w.supports_transactions())
-            .unwrap_or(false);
+        log_job_configuration(&job_name, &self.config);
 
         // Log detailed information about the source and sink types
-        let reader_type = std::any::type_name_of_val(reader.as_ref());
-        let writer_type = writer
-            .as_ref()
-            .map(|w| std::any::type_name_of_val(w.as_ref()))
-            .unwrap_or("None");
+        log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
 
-        info!(
-            "Job '{}': Source type: '{}' (supports_transactions: {})",
-            job_name, reader_type, reader_has_tx
-        );
-
-        info!(
-            "Job '{}': Sink type: '{}' (supports_transactions: {})",
-            job_name, writer_type, writer_has_tx
-        );
-
-        if reader_has_tx || writer_has_tx {
+        if reader.supports_transactions()
+            || writer
+                .as_ref()
+                .map(|w| w.supports_transactions())
+                .unwrap_or(false)
+        {
             info!(
                 "Job '{}': Note - datasources support transactions but running in simple mode",
                 job_name
@@ -186,41 +153,11 @@ impl SimpleJobProcessor {
         );
 
         // Step 3: Handle results based on failure strategy
-        let should_commit = match self.config.failure_strategy {
-            FailureStrategy::FailBatch => batch_result.records_failed == 0,
-            FailureStrategy::LogAndContinue => {
-                // Always commit, just log failures
-                if batch_result.records_failed > 0 {
-                    warn!(
-                        "Job '{}': {} records failed in batch, logging and continuing",
-                        job_name, batch_result.records_failed
-                    );
-                }
-                true
-            }
-            FailureStrategy::SendToDLQ => {
-                // TODO: Implement DLQ functionality
-                if batch_result.records_failed > 0 {
-                    warn!(
-                        "Job '{}': {} records failed - DLQ not yet implemented, logging instead",
-                        job_name, batch_result.records_failed
-                    );
-                }
-                true
-            }
-            FailureStrategy::RetryWithBackoff => {
-                if batch_result.records_failed > 0 {
-                    warn!(
-                        "Job '{}': {} records failed in batch - will retry with backoff",
-                        job_name, batch_result.records_failed
-                    );
-                    // Don't commit on failures - this will trigger retry at batch level
-                    false
-                } else {
-                    true
-                }
-            }
-        };
+        let should_commit = should_commit_batch(
+            self.config.failure_strategy,
+            batch_result.records_failed,
+            &job_name,
+        );
 
         // Step 4: Write processed data to sink if we have one
         if let Some(w) = writer.as_mut() {
@@ -273,15 +210,8 @@ impl SimpleJobProcessor {
             self.commit_simple(reader, writer.as_deref_mut(), job_name)
                 .await?;
 
-            // Convert to regular BatchProcessingResult for stats update
-            let stats_result = BatchProcessingResult {
-                records_processed: batch_result.records_processed,
-                records_failed: batch_result.records_failed,
-                processing_time: batch_result.processing_time,
-                batch_size: batch_result.batch_size,
-                error_details: batch_result.error_details,
-            };
-            stats.update_from_batch(&stats_result);
+            // Update stats from batch result
+            update_stats_from_batch_result(stats, &batch_result);
 
             if batch_result.records_failed > 0 {
                 debug!(

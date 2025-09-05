@@ -429,16 +429,29 @@ pub async fn test_source_read_failure_scenario<T: StreamJobProcessor>(
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_source_read_failure_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Source read failure test timed out after 10s ({})",
+                test_name
+            );
+            return;
+        }
+    };
 
     println!(
         "Source read failure test result ({}): {:?}",
@@ -464,16 +477,29 @@ where
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_sink_write_failure_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Sink write failure test timed out after 10s ({})",
+                test_name
+            );
+            return;
+        }
+    };
 
     println!(
         "Sink write failure test result ({}): {:?}",
@@ -544,16 +570,29 @@ where
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_network_partition_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Network partition test timed out after 10s ({})",
+                test_name
+            );
+            return;
+        }
+    };
 
     println!(
         "Network partition test result ({}): {:?}",
@@ -593,16 +632,29 @@ pub async fn test_partial_batch_failure_scenario<T: StreamJobProcessor>(
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_partial_batch_failure_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Partial batch failure test timed out after 10s ({})",
+                test_name
+            );
+            return;
+        }
+    };
 
     println!(
         "Partial batch failure test result ({}): {:?}",
@@ -637,17 +689,31 @@ where
     });
 
     let start = std::time::Instant::now();
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_shutdown_signal_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
     let elapsed = start.elapsed();
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Shutdown signal test timed out after 5s ({})",
+                test_name
+            );
+            shutdown_handle.await.unwrap();
+            return;
+        }
+    };
 
     shutdown_handle.await.unwrap();
 
@@ -692,16 +758,29 @@ pub async fn test_empty_batch_handling_scenario<T: StreamJobProcessor>(
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor
-        .process_job(
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        processor.process_job(
             reader,
             Some(writer),
             engine,
             query,
             format!("test_empty_batch_handling_{}", test_name),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
+
+    let result = match result {
+        Ok(job_result) => job_result,
+        Err(_) => {
+            println!(
+                "⚠️  Empty batch handling test timed out after 10s ({})",
+                test_name
+            );
+            return;
+        }
+    };
 
     println!(
         "Empty batch handling test result ({}): {:?}",

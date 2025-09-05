@@ -24,24 +24,39 @@ impl KafkaDataSource {
         default_topic: &str,
         job_name: &str,
     ) -> Self {
-        let brokers = props
-            .get("brokers")
-            .cloned()
+        // Helper function to get property with source. prefix fallback
+        let get_source_prop = |key: &str| {
+            props
+                .get(&format!("source.{}", key))
+                .or_else(|| props.get(key))
+                .cloned()
+        };
+
+        let brokers = get_source_prop("brokers")
+            .or_else(|| get_source_prop("bootstrap.servers"))
             .unwrap_or_else(|| "localhost:9092".to_string());
-        let topic = props
-            .get("topic")
-            .cloned()
-            .unwrap_or_else(|| default_topic.to_string());
-        let group_id = props
-            .get("group_id")
-            .cloned()
-            .unwrap_or_else(|| format!("ferris-sql-{}", job_name));
+        let topic = get_source_prop("topic").unwrap_or_else(|| default_topic.to_string());
+        let group_id =
+            get_source_prop("group_id").unwrap_or_else(|| format!("ferris-sql-{}", job_name));
+
+        // Create filtered config with source. properties
+        let mut source_config = HashMap::new();
+        for (key, value) in props.iter() {
+            if key.starts_with("source.") {
+                // Remove source. prefix for the config map
+                let config_key = key.strip_prefix("source.").unwrap().to_string();
+                source_config.insert(config_key, value.clone());
+            } else if !key.starts_with("sink.") && !props.contains_key(&format!("source.{}", key)) {
+                // Include unprefixed properties only if there's no prefixed version and it's not a sink property
+                source_config.insert(key.clone(), value.clone());
+            }
+        }
 
         Self {
             brokers,
             topic,
             group_id: Some(group_id),
-            config: props.clone(),
+            config: source_config,
         }
     }
 
@@ -151,6 +166,23 @@ impl KafkaDataSource {
             properties: self.config.clone(),
             batch_config: Default::default(),
         }
+    }
+
+    // Getter methods for testing
+    pub fn brokers(&self) -> &str {
+        &self.brokers
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
+    }
+
+    pub fn group_id(&self) -> &Option<String> {
+        &self.group_id
+    }
+
+    pub fn config(&self) -> &HashMap<String, String> {
+        &self.config
     }
 
     /// Self-initialize with current configuration

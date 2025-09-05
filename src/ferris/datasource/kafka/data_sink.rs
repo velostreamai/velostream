@@ -25,6 +25,41 @@ impl KafkaDataSink {
         }
     }
 
+    /// Create a Kafka data sink from properties
+    pub fn from_properties(props: &HashMap<String, String>, job_name: &str) -> Self {
+        // Helper function to get property with sink. prefix fallback
+        let get_sink_prop = |key: &str| {
+            props
+                .get(&format!("sink.{}", key))
+                .or_else(|| props.get(key))
+                .cloned()
+        };
+
+        let brokers = get_sink_prop("brokers")
+            .or_else(|| get_sink_prop("bootstrap.servers"))
+            .unwrap_or_else(|| "localhost:9092".to_string());
+        let topic = get_sink_prop("topic").unwrap_or_else(|| format!("{}_output", job_name));
+
+        // Create filtered config with sink. properties
+        let mut sink_config = HashMap::new();
+        for (key, value) in props.iter() {
+            if key.starts_with("sink.") {
+                // Remove sink. prefix for the config map
+                let config_key = key.strip_prefix("sink.").unwrap().to_string();
+                sink_config.insert(config_key, value.clone());
+            } else if !key.starts_with("source.") && !props.contains_key(&format!("sink.{}", key)) {
+                // Include unprefixed properties only if there's no prefixed version and it's not a source property
+                sink_config.insert(key.clone(), value.clone());
+            }
+        }
+
+        Self {
+            brokers,
+            topic,
+            config: sink_config,
+        }
+    }
+
     /// Create a unified writer based on the serialization format in config
     async fn create_unified_writer(
         &self,
@@ -47,6 +82,19 @@ impl KafkaDataSink {
     pub fn with_config(mut self, key: String, value: String) -> Self {
         self.config.insert(key, value);
         self
+    }
+
+    // Getter methods for testing
+    pub fn brokers(&self) -> &str {
+        &self.brokers
+    }
+
+    pub fn topic(&self) -> &str {
+        &self.topic
+    }
+
+    pub fn config(&self) -> &HashMap<String, String> {
+        &self.config
     }
 }
 

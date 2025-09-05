@@ -41,15 +41,17 @@ impl FileDataSource {
     pub fn from_properties(props: &std::collections::HashMap<String, String>) -> Self {
         let mut datasource = Self::new();
 
+        // Helper function to get property with source. prefix fallback
+        let get_source_prop = |key: &str| {
+            props
+                .get(&format!("source.{}", key))
+                .or_else(|| props.get(key))
+                .cloned()
+        };
+
         // Extract path and format from properties
-        let path = props
-            .get("path")
-            .cloned()
-            .unwrap_or_else(|| "./demo_data/sample.csv".to_string());
-        let format_str = props
-            .get("format")
-            .cloned()
-            .unwrap_or_else(|| "csv".to_string());
+        let path = get_source_prop("path").unwrap_or_else(|| "./demo_data/sample.csv".to_string());
+        let format_str = get_source_prop("format").unwrap_or_else(|| "csv".to_string());
 
         // Parse format
         let format = Self::parse_file_format(&format_str);
@@ -58,19 +60,17 @@ impl FileDataSource {
         let config = FileSourceConfig {
             path,
             format,
-            watch_for_changes: props
-                .get("watch")
+            watch_for_changes: get_source_prop("watching")
+                .or_else(|| get_source_prop("watch"))
                 .and_then(|v| v.parse::<bool>().ok())
                 .unwrap_or(false),
-            polling_interval_ms: props
-                .get("polling_interval")
+            polling_interval_ms: get_source_prop("polling_interval")
                 .and_then(|v| v.parse::<u64>().ok()),
-            csv_delimiter: props
-                .get("delimiter")
+            csv_delimiter: get_source_prop("delimiter")
                 .and_then(|v| v.chars().next())
                 .unwrap_or(','),
-            csv_has_header: props
-                .get("header")
+            csv_has_header: get_source_prop("has_headers")
+                .or_else(|| get_source_prop("header"))
                 .and_then(|v| v.parse::<bool>().ok())
                 .unwrap_or(true),
             ..Default::default()

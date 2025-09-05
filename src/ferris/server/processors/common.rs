@@ -4,14 +4,16 @@
 //! and non-transactional multi-job processors.
 
 use crate::ferris::datasource::{
-    file::FileDataSource, kafka::KafkaDataSource, DataReader, DataSource, DataWriter,
+    file::{FileDataSource, FileSink},
+    kafka::{KafkaDataSink, KafkaDataSource},
+    DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
 };
 use crate::ferris::sql::{
     execution::types::StreamRecord,
-    query_analyzer::{DataSourceRequirement, DataSourceType},
+    query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
     StreamExecutionEngine, StreamingQuery,
 };
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -304,8 +306,17 @@ pub struct DataSourceConfig {
     pub job_name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DataSinkConfig {
+    pub requirement: DataSinkRequirement,
+    pub job_name: String,
+}
+
 /// Result of datasource creation
 pub type DataSourceCreationResult = Result<Box<dyn DataReader>, String>;
+
+/// Result of datasink creation
+pub type DataSinkCreationResult = Result<Box<dyn DataWriter>, String>;
 
 /// Helper to check if a reader supports transactions
 pub fn check_transaction_support(reader: &dyn DataReader, job_name: &str) -> bool {
@@ -432,6 +443,266 @@ async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceCreati
         .create_reader()
         .await
         .map_err(|e| format!("Failed to create File reader: {}", e))
+}
+
+/// Create a datasink writer based on configuration
+pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreationResult {
+    let requirement = &config.requirement;
+
+    match requirement.sink_type {
+        DataSinkType::Kafka => create_kafka_writer(&requirement.properties, &config.job_name).await,
+        DataSinkType::File => create_file_writer(&requirement.properties).await,
+        _ => Err(format!(
+            "Unsupported datasink type '{:?}'",
+            requirement.sink_type
+        )),
+    }
+}
+
+/// Create a Kafka datasink writer
+async fn create_kafka_writer(
+    props: &HashMap<String, String>,
+    job_name: &str,
+) -> DataSinkCreationResult {
+    // Let KafkaDataSink handle its own configuration extraction
+    let mut datasink = KafkaDataSink::from_properties(props, job_name);
+
+    // Initialize with Kafka SinkConfig
+    let config = SinkConfig::Kafka {
+        brokers: "localhost:9092".to_string(),
+        topic: "default".to_string(),
+        properties: HashMap::new(),
+    };
+    datasink
+        .initialize(config)
+        .await
+        .map_err(|e| format!("Failed to initialize Kafka datasink: {}", e))?;
+
+    datasink
+        .create_writer()
+        .await
+        .map_err(|e| format!("Failed to create Kafka writer: {}", e))
+}
+
+/// Create a file datasink writer
+async fn create_file_writer(props: &HashMap<String, String>) -> DataSinkCreationResult {
+    // Let FileSink handle its own configuration extraction
+    let mut datasink = FileSink::from_properties(props);
+
+    // Initialize with File SinkConfig
+    let config = SinkConfig::File {
+        path: "output.json".to_string(),
+        format: crate::ferris::datasource::FileFormat::Json,
+        compression: None,
+        properties: HashMap::new(),
+    };
+    datasink
+        .initialize(config)
+        .await
+        .map_err(|e| format!("Failed to initialize File datasink: {}", e))?;
+
+    datasink
+        .create_writer()
+        .await
+        .map_err(|e| format!("Failed to create File writer: {}", e))
+}
+
+/// Log comprehensive configuration details for a job
+pub fn log_job_configuration(job_name: &str, config: &JobProcessingConfig) {
+    info!(
+        "Job '{}' configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, progress_interval={}, log_progress={}",
+        job_name,
+        config.use_transactions,
+        config.failure_strategy,
+        config.max_batch_size,
+        config.batch_timeout.as_millis(),
+        config.max_retries,
+        config.retry_backoff.as_millis(),
+        config.progress_interval,
+        config.log_progress
+    );
+}
+
+/// Log detailed datasource type information
+pub fn log_datasource_info(
+    job_name: &str,
+    reader: &dyn DataReader,
+    writer: Option<&dyn DataWriter>,
+) {
+    let reader_type = std::any::type_name_of_val(reader);
+    let writer_type = writer
+        .map(|w| std::any::type_name_of_val(w))
+        .unwrap_or("None");
+    let reader_has_tx = reader.supports_transactions();
+    let writer_has_tx = writer.map(|w| w.supports_transactions()).unwrap_or(false);
+
+    info!(
+        "Job '{}': Source type: '{}' (supports_transactions: {})",
+        job_name, reader_type, reader_has_tx
+    );
+
+    info!(
+        "Job '{}': Sink type: '{}' (supports_transactions: {})",
+        job_name, writer_type, writer_has_tx
+    );
+}
+
+/// Determine if batch should be committed based on failure strategy
+pub fn should_commit_batch(
+    failure_strategy: FailureStrategy,
+    records_failed: usize,
+    job_name: &str,
+) -> bool {
+    match failure_strategy {
+        FailureStrategy::FailBatch => records_failed == 0,
+        FailureStrategy::LogAndContinue => {
+            if records_failed > 0 {
+                warn!(
+                    "Job '{}': {} records failed in batch, logging and continuing",
+                    job_name, records_failed
+                );
+            }
+            true
+        }
+        FailureStrategy::SendToDLQ => {
+            if records_failed > 0 {
+                warn!(
+                    "Job '{}': {} records failed - DLQ not yet implemented, logging instead",
+                    job_name, records_failed
+                );
+            }
+            true
+        }
+        FailureStrategy::RetryWithBackoff => {
+            if records_failed > 0 {
+                warn!(
+                    "Job '{}': {} records failed in batch - will retry with backoff",
+                    job_name, records_failed
+                );
+                false
+            } else {
+                true
+            }
+        }
+    }
+}
+
+/// Write batch to sink with error handling and retry logic
+pub async fn write_batch_to_sink(
+    writer: &mut dyn DataWriter,
+    output_records: &[StreamRecord],
+    job_name: &str,
+    failure_strategy: FailureStrategy,
+    retry_backoff: Duration,
+) -> DataSourceResult<()> {
+    match writer.write_batch(output_records.to_vec()).await {
+        Ok(()) => {
+            debug!(
+                "Job '{}': Successfully wrote {} records to sink",
+                job_name,
+                output_records.len()
+            );
+            Ok(())
+        }
+        Err(e) => {
+            warn!(
+                "Job '{}': Failed to write {} records to sink: {:?}",
+                job_name,
+                output_records.len(),
+                e
+            );
+
+            if matches!(failure_strategy, FailureStrategy::RetryWithBackoff) {
+                warn!(
+                    "Job '{}': Applying retry backoff of {:?} before retrying batch",
+                    job_name, retry_backoff
+                );
+                tokio::time::sleep(retry_backoff).await;
+                Err(format!("Sink write failed, will retry: {}", e).into())
+            } else {
+                warn!(
+                    "Job '{}': Sink write failed but continuing (failure strategy: {:?})",
+                    job_name, failure_strategy
+                );
+                Err(format!("Sink write failed: {:?}", e).into())
+            }
+        }
+    }
+}
+
+/// Update stats from batch processing result
+pub fn update_stats_from_batch_result(
+    stats: &mut JobExecutionStats,
+    batch_result: &BatchProcessingResultWithOutput,
+) {
+    let stats_result = BatchProcessingResult {
+        records_processed: batch_result.records_processed,
+        records_failed: batch_result.records_failed,
+        processing_time: batch_result.processing_time,
+        batch_size: batch_result.batch_size,
+        error_details: batch_result.error_details.clone(),
+    };
+    stats.update_from_batch(&stats_result);
+}
+
+/// Handle missing sink by creating a StdoutWriter and logging a warning
+pub fn ensure_sink_or_create_stdout(writer: &mut Option<Box<dyn DataWriter>>, job_name: &str) {
+    if writer.is_none() {
+        warn!(
+            "Job '{}': No sink specified, defaulting to stdout.",
+            job_name
+        );
+        *writer = Some(Box::new(StdoutWriter::new_pretty()));
+    }
+}
+
+/// Main processing loop shared by both simple and transactional processors
+pub async fn run_processing_loop<F, Fut>(
+    job_name: &str,
+    config: &JobProcessingConfig,
+    mut shutdown_rx: mpsc::Receiver<()>,
+    mut stats: JobExecutionStats,
+    mut process_batch_fn: F,
+) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = DataSourceResult<()>>,
+{
+    loop {
+        // Check for shutdown signal
+        if shutdown_rx.try_recv().is_ok() {
+            info!("Job '{}' received shutdown signal", job_name);
+            break;
+        }
+
+        // Process one batch
+        match process_batch_fn().await {
+            Ok(()) => {
+                // Successful batch processing
+                if config.log_progress && stats.batches_processed % config.progress_interval == 0 {
+                    log_job_progress(job_name, &stats);
+                }
+            }
+            Err(e) => {
+                warn!("Job '{}' batch processing failed: {:?}", job_name, e);
+                stats.batches_failed += 1;
+
+                // Apply retry backoff
+                warn!(
+                    "Job '{}': Applying retry backoff of {:?} due to batch failure",
+                    job_name, config.retry_backoff
+                );
+                tokio::time::sleep(config.retry_backoff).await;
+                debug!(
+                    "Job '{}': Backoff complete, retrying batch processing",
+                    job_name
+                );
+            }
+        }
+    }
+
+    log_final_stats(job_name, &stats);
+    Ok(stats)
 }
 
 /// Process records from a datasource using the modern multi-job processors

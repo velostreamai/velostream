@@ -133,9 +133,7 @@ fn test_create_stream_into_analysis() {
 
     let config_props = ConfigProperties {
         inline_properties: properties.clone(),
-        base_source_config: None,
         source_config: None,
-        base_sink_config: None,
         sink_config: None,
         monitoring_config: None,
         security_config: None,

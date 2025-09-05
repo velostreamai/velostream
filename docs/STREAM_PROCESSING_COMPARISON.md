@@ -319,17 +319,27 @@ WITH (
     "sink_config" = "configs/kafka_sink.yaml"
 );
 
--- Enterprise configuration with environment variables
+-- Enterprise configuration with environment variables and YAML inheritance
 CREATE STREAM db_replication AS 
 SELECT * FROM postgres_source 
 INTO s3_sink
 WITH (
-    "base_source_config" = "configs/base_postgres.yaml",
     "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_s3.yaml", 
     "sink_config" = "configs/s3_${ENVIRONMENT}.yaml",
     "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
     "security_config" = "configs/security.yaml"
+);
+
+-- Alternative: Inline configuration with source./sink. prefixes
+CREATE STREAM inline_processing AS
+SELECT * FROM 'kafka://broker:9092/orders'
+INTO 'file://output/processed.json' 
+WITH (
+    "source.group_id" = "processor_${ENVIRONMENT}",
+    "source.value.format" = "avro",
+    "sink.format" = "json",
+    "sink.append" = "true",
+    "failure_strategy" = "RetryWithBackoff"
 );
 ```
 
@@ -356,8 +366,9 @@ WITH (
 - **Advanced Data Types**: First-class support for ARRAY, MAP, STRUCT with 25+ functions
 - **Complete JOIN Operations**: All JOIN types with windowed correlation and stream-table optimization
 - **Temporal Processing**: WITHIN INTERVAL syntax for time-based correlation
-- **🆕 Enterprise Configuration Management**: Multi-layered configuration with environment variable resolution
-  - Six configuration types: base_source_config, source_config, base_sink_config, sink_config, monitoring_config, security_config
+- **🆕 Enterprise Configuration Management**: Multi-layered YAML configuration with inheritance
+  - Configuration approaches: YAML files, inline parameters (`source.*`, `sink.*`), or mixed
+  - YAML inheritance via `extends:` keyword for DRY configuration management
   - Environment variable patterns: ${VAR}, ${VAR:-default}, ${VAR:?error}
   - Parse-time validation and substitution for DevOps-friendly deployments
 - **Built-in Versioning**: DEPLOY with BLUE_GREEN, CANARY, ROLLING strategies

@@ -18,13 +18,13 @@ SELECT
     description
 FROM 'file://demo/datasource-demo/demo_data/financial_transactions.csv'
 WITH (
-    'format'='csv',
-    'has_headers'='true',
-    'watching'='true',
-    'use_transactions'='false',
-    'failure_strategy'='RetryWithBackoff',
-    'retry_backoff'='1000',
-    'max_retries'='3'
+    'source.format'='csv',
+    'source.has_headers'='true',
+    'source.watching'='true',
+    'source.use_transactions'='false',
+    'source.failure_strategy'='RetryWithBackoff',
+    'source.retry_backoff'='1000',
+    'source.max_retries'='3'
 );
 
 -- Basic transaction enrichment with financial metadata
@@ -152,14 +152,7 @@ EMIT CHANGES;
 -- =====================================================
 
 -- Export high-value transactions to file
-CREATE SINK high_value_export WITH (
-    datasink='file',
-    path='./demo_output/high_value_transactions.jsonl', 
-    format='json_lines',
-    compression='gzip',
-    rotation='1MB',
-    buffer_size='64KB'
-) AS
+CREATE STREAM high_value_export AS
 SELECT 
     transaction_id,
     customer_id,
@@ -171,16 +164,16 @@ SELECT
     'exported_' || UNIX_TIMESTAMP() AS export_id
 FROM enriched_transactions
 WHERE is_high_value = TRUE
+INTO file_sink
+WITH (
+    'sink.path' = 'demo/datasource-demo/output/high_value_transactions.json',
+    'sink.format' = 'json',
+    'sink.append' = 'true'
+)
 EMIT CHANGES;
 
 -- Export merchant analytics to CSV
-CREATE SINK merchant_analytics_csv WITH (
-    datasink='file', 
-    path='./demo_output/merchant_analytics.csv',
-    format='csv',
-    headers='true',
-    rotation='5 minutes'
-) AS  
+CREATE STREAM merchant_analytics_csv AS
 SELECT
     merchant_category,
     CURRENT_TIMESTAMP AS window_start,
@@ -191,20 +184,17 @@ SELECT
     unique_customers,
     high_value_count
 FROM merchant_analytics
+INTO csv_sink
+WITH (
+    'sink.path' = 'demo/datasource-demo/output/merchant_analytics.csv',
+    'sink.format' = 'csv',
+    'sink.has_headers' = 'true',
+    'sink.append' = 'false'
+)
 EMIT CHANGES;
 
 -- Export high-value transactions to Kafka for testing Kafka writer logging
-CREATE SINK high_value_kafka WITH (
-    datasink='kafka',
-    topic='high_value_transactions',
-    brokers='localhost:9092',
-    format='json',
-    key_field='transaction_id',
-    'use_transactions'='false',
-    'failure_strategy'='RetryWithBackoff',
-    'retry_backoff'='1000',
-    'max_retries'='3'
-) AS
+CREATE STREAM high_value_kafka AS
 SELECT 
     transaction_id,
     customer_id,
@@ -215,6 +205,13 @@ SELECT
     processed_at
 FROM enriched_transactions
 WHERE is_high_value = TRUE
+INTO kafka_sink
+WITH (
+    'sink.bootstrap.servers' = 'localhost:9092',
+    'sink.topic' = 'high-value-transactions',
+    'sink.value.format' = 'json',
+    'sink.failure_strategy' = 'LogAndContinue'
+)
 EMIT CHANGES;
 
 -- =====================================================  

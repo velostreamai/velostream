@@ -56,6 +56,53 @@ impl FileSink {
         }
     }
 
+    /// Create a file sink from properties
+    pub fn from_properties(props: &std::collections::HashMap<String, String>) -> Self {
+        use super::config::{FileFormat, FileSinkConfig};
+
+        // Helper function to get property with sink. prefix fallback
+        let get_sink_prop = |key: &str| {
+            props
+                .get(&format!("sink.{}", key))
+                .or_else(|| props.get(key))
+                .cloned()
+        };
+
+        let path = get_sink_prop("path").unwrap_or_else(|| "output.json".to_string());
+        let format = match get_sink_prop("format").as_deref() {
+            Some("csv") => FileFormat::Csv,
+            Some("json") => FileFormat::Json,
+            Some("jsonlines") => FileFormat::JsonLines,
+            _ => FileFormat::Json, // Default to JSON
+        };
+
+        let config = FileSinkConfig {
+            path,
+            format,
+            append_if_exists: get_sink_prop("append")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
+            buffer_size_bytes: get_sink_prop("buffer_size")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8192),
+            max_file_size_bytes: None,
+            rotation_interval_ms: None,
+            max_records_per_file: None,
+            compression: None, // TODO: Parse compression from props
+            csv_delimiter: ",".to_string(),
+            csv_has_header: get_sink_prop("has_headers")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(true),
+            writer_threads: 1,
+        };
+
+        Self {
+            config: Some(config),
+            metadata: None,
+            active_writers: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
     /// Get the current configuration
     pub fn config(&self) -> Option<&FileSinkConfig> {
         self.config.as_ref()

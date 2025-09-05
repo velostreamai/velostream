@@ -38,12 +38,21 @@ impl TransactionalJobProcessor {
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
+        // Create a StdoutWriter if no sink is provided
+        ensure_sink_or_create_stdout(&mut writer, &job_name);
+
         // Check transaction support for reader and writer
         let reader_supports_tx = check_transaction_support(reader.as_ref(), &job_name);
         let writer_supports_tx = writer
             .as_ref()
             .map(|w| check_writer_transaction_support(w.as_ref(), &job_name))
             .unwrap_or(false);
+
+        // Log comprehensive configuration details
+        log_job_configuration(&job_name, &self.config);
+
+        // Log detailed information about the source and sink types
+        log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
 
         info!(
             "Job '{}' starting transactional processing (reader_tx: {}, writer_tx: {})",
@@ -80,11 +89,19 @@ impl TransactionalJobProcessor {
                     }
                 }
                 Err(e) => {
-                    error!("Job '{}' batch processing failed: {:?}", job_name, e);
+                    warn!("Job '{}' batch processing failed: {:?}", job_name, e);
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
+                    warn!(
+                        "Job '{}': Applying retry backoff of {:?} due to batch failure",
+                        job_name, self.config.retry_backoff
+                    );
                     tokio::time::sleep(self.config.retry_backoff).await;
+                    debug!(
+                        "Job '{}': Backoff complete, retrying batch processing",
+                        job_name
+                    );
                 }
             }
         }
@@ -154,17 +171,11 @@ impl TransactionalJobProcessor {
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
 
         // Step 4: Handle results based on failure strategy
-        let should_commit = match self.config.failure_strategy {
-            FailureStrategy::FailBatch => batch_result.records_failed == 0,
-            FailureStrategy::LogAndContinue | FailureStrategy::SendToDLQ => true,
-            FailureStrategy::RetryWithBackoff => {
-                if batch_result.records_failed > 0 {
-                    // TODO: Implement retry logic for failed records
-                    warn!("Job '{}': RetryWithBackoff not yet implemented, treating as LogAndContinue", job_name);
-                }
-                true
-            }
-        };
+        let should_commit = should_commit_batch(
+            self.config.failure_strategy,
+            batch_result.records_failed,
+            &job_name,
+        );
 
         // Step 5: Write processed data to sink if we have one
         if let Some(w) = writer.as_mut() {
@@ -183,14 +194,28 @@ impl TransactionalJobProcessor {
                         );
                     }
                     Err(e) => {
-                        error!(
+                        warn!(
                             "Job '{}': Failed to write {} records to sink: {:?}",
                             job_name,
                             batch_result.output_records.len(),
                             e
                         );
-                        // This will cause transaction abort in step 6
-                        return Err(format!("Sink write failed: {:?}", e).into());
+
+                        // Apply backoff and return error to trigger retry at batch level
+                        if matches!(
+                            self.config.failure_strategy,
+                            FailureStrategy::RetryWithBackoff
+                        ) {
+                            warn!(
+                                "Job '{}': Applying retry backoff of {:?} before retrying batch",
+                                job_name, self.config.retry_backoff
+                            );
+                            tokio::time::sleep(self.config.retry_backoff).await;
+                            return Err(format!("Sink write failed, will retry: {}", e).into());
+                        } else {
+                            // This will cause transaction abort in step 6
+                            return Err(format!("Sink write failed: {:?}", e).into());
+                        }
                     }
                 }
             }
@@ -201,15 +226,8 @@ impl TransactionalJobProcessor {
             self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
 
-            // Convert to regular BatchProcessingResult for stats update
-            let stats_result = BatchProcessingResult {
-                records_processed: batch_result.records_processed,
-                records_failed: batch_result.records_failed,
-                processing_time: batch_result.processing_time,
-                batch_size: batch_result.batch_size,
-                error_details: batch_result.error_details,
-            };
-            stats.update_from_batch(&stats_result);
+            // Update stats from batch result
+            update_stats_from_batch_result(stats, &batch_result);
 
             if batch_result.records_failed > 0
                 && self.config.failure_strategy == FailureStrategy::LogAndContinue
@@ -222,11 +240,31 @@ impl TransactionalJobProcessor {
         } else {
             self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-            warn!(
-                "Job '{}': Aborted batch due to {} failures",
-                job_name, batch_result.records_failed
-            );
-            stats.batches_failed += 1;
+
+            // Handle different failure scenarios with appropriate messaging
+            match self.config.failure_strategy {
+                FailureStrategy::RetryWithBackoff => {
+                    warn!(
+                        "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
+                        job_name, batch_result.records_failed
+                    );
+                    stats.batches_failed += 1;
+                    // Return error to trigger retry at the calling level
+                    return Err(format!(
+                        "Batch processing failed with {} record failures - will retry with backoff",
+                        batch_result.records_failed
+                    )
+                    .into());
+                }
+                _ => {
+                    // FailBatch strategy - don't commit, just log
+                    warn!(
+                        "Job '{}': Aborted batch due to {} record failures",
+                        job_name, batch_result.records_failed
+                    );
+                    stats.batches_failed += 1;
+                }
+            }
         }
 
         Ok(())

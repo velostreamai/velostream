@@ -6,8 +6,8 @@
 
 use crate::ferris::datasource::DataWriter;
 use crate::ferris::server::processors::{
-    create_datasource_reader, process_datasource_records, DataSourceConfig, FailureStrategy,
-    JobProcessingConfig,
+    create_datasource_reader, create_datasource_writer, process_datasource_records, DataSinkConfig,
+    DataSourceConfig, FailureStrategy, JobProcessingConfig,
 };
 use crate::ferris::sql::{
     ast::StreamingQuery, execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer,
@@ -305,6 +305,41 @@ impl StreamJobServer {
                 match create_datasource_reader(&datasource_config).await {
                     Ok(reader) => {
                         info!("Job '{}' successfully created datasource reader", job_name);
+
+                        // Create writer if sink is specified in SQL
+                        let writer = if let Some(sink_requirement) = analysis.required_sinks.first()
+                        {
+                            let sink_config = DataSinkConfig {
+                                requirement: sink_requirement.clone(),
+                                job_name: job_name.clone(),
+                            };
+                            match create_datasource_writer(&sink_config).await {
+                                Ok(writer) => {
+                                    info!(
+                                        "Job '{}' successfully created datasink writer",
+                                        job_name
+                                    );
+                                    Some(writer)
+                                }
+                                Err(e) => {
+                                    warn!("Job '{}' failed to create sink writer: {}, defaulting to stdout", job_name, e);
+                                    Some(Box::new(
+                                        crate::ferris::datasource::StdoutWriter::new_pretty(),
+                                    )
+                                        as Box<dyn DataWriter>)
+                                }
+                            }
+                        } else {
+                            warn!(
+                                "Job '{}': No sink specified, defaulting to stdout.",
+                                job_name
+                            );
+                            Some(
+                                Box::new(crate::ferris::datasource::StdoutWriter::new_pretty())
+                                    as Box<dyn DataWriter>,
+                            )
+                        };
+
                         let job_name_clone = job_name.clone();
                         // Extract job processing configuration from query properties
                         let config = Self::extract_job_config_from_query(&parsed_query);
@@ -321,7 +356,7 @@ impl StreamJobServer {
                         );
                         match process_datasource_records(
                             reader,
-                            None, // No sink writer for basic server
+                            writer,
                             execution_engine,
                             parsed_query,
                             job_name_clone,

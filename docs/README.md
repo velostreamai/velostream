@@ -14,6 +14,10 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[Streaming Kafka API](developer/STREAMING_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](developer/HEADERS_GUIDE.md)** - Working with Kafka message headers
 
+### Configuration Management
+- **[YAML Configuration Guide](YAML_CONFIGURATION_GUIDE.md)** - Complete guide to YAML configuration with inheritance using `extends:`
+- **[Kafka Schema Configuration](KAFKA_SCHEMA_CONFIGURATION.md)** - Schema configuration for Kafka data sources
+
 ### Serialization System
 - **[Serialization Guide](developer/SERIALIZATION_GUIDE.md)** - Complete guide to serialization formats (JSON, Avro, Protobuf)
 - **[Serialization Quick Reference](developer/SERIALIZATION_QUICK_REFERENCE.md)** - Quick reference for serialization patterns

@@ -2216,12 +2216,11 @@ impl<'a> TokenParser<'a> {
 
             // Categorize configuration properties
             match key.as_str() {
-                "base_source_config" => config.base_source_config = Some(value),
                 "source_config" => config.source_config = Some(value),
-                "base_sink_config" => config.base_sink_config = Some(value),
                 "sink_config" => config.sink_config = Some(value),
                 "monitoring_config" => config.monitoring_config = Some(value),
                 "security_config" => config.security_config = Some(value),
+                // Removed: base_source_config and base_sink_config no longer supported
                 _ => {
                     // All other properties go into inline_properties for backward compatibility
                     config.inline_properties.insert(key, value);

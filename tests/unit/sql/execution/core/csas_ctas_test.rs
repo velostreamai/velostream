@@ -571,10 +571,8 @@ mod tests {
             GROUP BY date_trunc('hour', timestamp)
             INTO postgres_sink
             WITH (
-                "base_source_config" = "configs/base_kafka.yaml",
                 "source_config" = "configs/kafka_perf.yaml",
-                "base_sink_config" = "configs/base_postgres.yaml",
-                "sink_config" = "configs/postgres_analytics.yaml",
+                "sink_config" = "configs/postgres_analytics.yaml", 
                 "monitoring_config" = "configs/monitoring.yaml"
             )
         "#,
@@ -593,16 +591,8 @@ mod tests {
                 assert_eq!(name, "aggregated_metrics");
                 assert_eq!(into_clause.sink_name, "postgres_sink");
                 assert_eq!(
-                    properties.base_source_config,
-                    Some("configs/base_kafka.yaml".to_string())
-                );
-                assert_eq!(
                     properties.source_config,
                     Some("configs/kafka_perf.yaml".to_string())
-                );
-                assert_eq!(
-                    properties.base_sink_config,
-                    Some("configs/base_postgres.yaml".to_string())
                 );
                 assert_eq!(
                     properties.sink_config,
