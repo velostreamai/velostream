@@ -27,8 +27,12 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
 9. [JSON Processing](#json-processing)
 10. [System Columns](#system-columns)
 11. [Window Operations](#window-operations)
-12. [Type Conversion](#type-conversion)
-13. [Examples](#examples)
+12. [Performance Configuration](#performance-configuration)
+   - [Batch Processing Configuration](#batch-processing-configuration)
+   - [Compression Configuration](#compression-configuration)
+   - [Buffer Configuration](#buffer-configuration)
+13. [Type Conversion](#type-conversion)
+14. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -3559,6 +3563,224 @@ FROM events;
 - **Header Functions:** 5 functions for message metadata
 - **Set Operations:** 2 operators for list membership testing
 - **System Columns:** 3 columns for Kafka metadata
+
+## Performance Configuration
+
+### Overview
+
+FerrisStreams provides comprehensive performance configuration through its unified configuration management system. This includes batch processing strategies, buffer configurations, compression settings, and performance optimizations that can be applied at the stream, job, or application level.
+
+### Batch Processing Strategies
+
+#### 1. FixedSize Strategy
+Processes records in fixed-size batches for predictable memory usage and consistent processing latency.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: FixedSize
+  batch_size: 1000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Consistent memory usage patterns
+- Predictable processing times
+- High-throughput scenarios with uniform data
+
+#### 2. TimeWindow Strategy  
+Processes records within specified time windows, optimal for real-time analytics and time-based aggregations.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: TimeWindow
+  window_duration_ms: 5000
+  max_batch_size: 10000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Real-time dashboards
+- Time-based analytics
+- Latency-sensitive applications
+
+#### 3. AdaptiveSize Strategy
+Dynamically adjusts batch sizes based on processing performance and system load.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: AdaptiveSize  
+  initial_batch_size: 1000
+  max_batch_size: 10000
+  adaptation_factor: 1.5
+  enable_batching: true
+```
+
+**Use Cases:**
+- Variable data volumes
+- Dynamic system loads
+- Performance optimization scenarios
+
+#### 4. MemoryBased Strategy
+Adjusts batch processing based on available memory and memory pressure indicators.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: MemoryBased
+  target_memory_usage: 0.8
+  min_batch_size: 100
+  max_batch_size: 5000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Memory-constrained environments
+- Large record processing
+- Resource optimization
+
+#### 5. LowLatency Strategy
+Minimizes processing latency with small batches and immediate processing.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: LowLatency
+  max_latency_ms: 100
+  batch_size: 10
+  enable_batching: true
+```
+
+**Use Cases:**
+- Real-time trading systems
+- Alert processing
+- Interactive applications
+
+### Configuration Precedence
+
+The unified configuration system follows a strict precedence order that ensures user settings are never overridden:
+
+1. **User Settings** (Highest Priority)
+2. **Batch Strategy Suggestions** 
+3. **System Defaults** (Lowest Priority)
+
+**Example Configuration Flow:**
+```yaml
+# User explicitly sets compression
+kafka:
+  compression.type: "lz4"
+  batch.size: 32768
+
+# Batch strategy suggests different values (will be ignored for user-set properties)
+batch:
+  strategy: FixedSize
+  # This suggestion won't override user's compression.type
+```
+
+**Logging Output:**
+```
+INFO [ConfigFactory] User property 'compression.type'='lz4' preserved (not overridden by batch strategy)
+INFO [ConfigFactory] User property 'batch.size'='32768' preserved (not overridden by batch strategy)
+INFO [ConfigFactory] Batch strategy 'FixedSize' applied buffer.memory=67108864 (no user override)
+```
+
+### Compression Configuration
+
+#### Available Compression Types
+- **none** - No compression (fastest, largest size)
+- **gzip** - Good compression ratio, moderate CPU usage
+- **snappy** - Fast compression/decompression, moderate ratio
+- **lz4** - Fastest compression, good for high-throughput
+- **zstd** - Best compression ratio, higher CPU usage
+
+#### Configuration Examples
+
+**High Throughput (Low Latency):**
+```yaml
+kafka:
+  compression.type: "lz4"
+  batch.size: 16384
+  linger.ms: 5
+
+batch:
+  strategy: LowLatency
+  max_latency_ms: 50
+```
+
+**High Compression (Storage Efficiency):**
+```yaml
+kafka:
+  compression.type: "zstd"
+  compression.level: 6
+  batch.size: 131072
+  linger.ms: 100
+
+batch:
+  strategy: MemoryBased
+  target_memory_usage: 0.7
+```
+
+### Buffer Configuration
+
+#### Producer Buffer Settings
+```yaml
+kafka:
+  buffer.memory: 67108864        # 64MB total buffer
+  batch.size: 32768              # 32KB per batch
+  max.request.size: 1048576      # 1MB max request
+  linger.ms: 10                  # Wait up to 10ms
+```
+
+#### Consumer Buffer Settings
+```yaml
+kafka:
+  receive.buffer.bytes: 65536    # 64KB receive buffer  
+  send.buffer.bytes: 131072      # 128KB send buffer
+  fetch.min.bytes: 1024          # Min 1KB fetch
+  fetch.max.wait.ms: 500         # Max 500ms wait
+```
+
+### Performance Monitoring
+
+#### Key Metrics Tracked
+- **Records/second processed**
+- **Batch processing latency (P50, P95, P99)**
+- **Memory usage and allocation rates**  
+- **Compression ratios and throughput**
+- **Configuration override tracking**
+
+#### Configuration Logging
+```yaml
+logging:
+  level: INFO
+  loggers:
+    config_factory: DEBUG     # Log configuration decisions
+    batch_processor: INFO     # Log batch processing metrics
+    compression: INFO         # Log compression statistics
+```
+
+### Best Practices
+
+#### Strategy Selection Guidelines
+- **FixedSize**: Use for consistent workloads with predictable data volumes
+- **TimeWindow**: Choose for time-sensitive analytics and real-time dashboards  
+- **AdaptiveSize**: Apply for variable workloads requiring dynamic optimization
+- **MemoryBased**: Select for resource-constrained environments
+- **LowLatency**: Use for interactive applications requiring immediate responses
+
+#### Configuration Tips
+1. **Start with defaults** and measure baseline performance
+2. **Test different strategies** with representative data volumes
+3. **Monitor memory usage** when using large batch sizes
+4. **Consider network bandwidth** when selecting compression types
+5. **Preserve user settings** - never override explicit user configuration
+
+### Related Documentation
+- [Performance Guide](PERFORMANCE_GUIDE.md) - Comprehensive performance optimization
+- [Kafka Configuration](KAFKA_TRANSACTION_CONFIGURATION.md) - Transaction and reliability settings
+- [Development Guide](../CLAUDE.md) - Implementation guidelines
 
 ## Type Conversion
 
