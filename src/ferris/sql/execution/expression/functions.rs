@@ -21,6 +21,7 @@ use super::super::types::{FieldValue, StreamRecord};
 use super::evaluator::ExpressionEvaluator;
 use crate::ferris::sql::ast::{Expr, LiteralValue};
 use crate::ferris::sql::error::SqlError;
+use chrono::Utc;
 use serde_json;
 use std::collections::HashMap;
 
@@ -130,6 +131,8 @@ impl BuiltinFunctions {
             "NOW" => Self::now_function(args, record),
             "CURRENT_TIMESTAMP" => Self::current_timestamp_function(args, record),
             "DATE_FORMAT" => Self::date_format_function(args, record),
+            "FROM_UNIXTIME" => Self::from_unixtime_function(args, record),
+            "UNIX_TIMESTAMP" => Self::unix_timestamp_function(args, record),
 
             // Search functions
             "POSITION" => Self::position_function(args, record),
@@ -146,10 +149,7 @@ impl BuiltinFunctions {
             "STRING_AGG" => Self::string_agg_function(args, record),
             "COUNT_DISTINCT" => Self::count_distinct_function(args, record),
 
-            _ => Err(SqlError::ExecutionError {
-                message: format!("Unknown function: {}", name),
-                query: None,
-            }),
+            _ => Err(SqlError::unknown_function_error(name)),
         }
     }
 
@@ -2031,6 +2031,75 @@ impl BuiltinFunctions {
             _ => Err(SqlError::ExecutionError {
                 message: "DATE_FORMAT requires timestamp (integer) and format (string) arguments"
                     .to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn from_unixtime_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: "FROM_UNIXTIME requires exactly 1 argument: FROM_UNIXTIME(unix_timestamp)".to_string(),
+                query: None,
+            });
+        }
+
+        let timestamp_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        
+        match timestamp_val {
+            FieldValue::Integer(unix_seconds) => {
+                match chrono::DateTime::from_timestamp(unix_seconds, 0) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt.naive_utc())),
+                    None => Err(SqlError::ExecutionError {
+                        message: format!("Invalid Unix timestamp: {}", unix_seconds),
+                        query: None,
+                    }),
+                }
+            }
+            FieldValue::Float(unix_seconds) => {
+                let seconds = unix_seconds as i64;
+                let nanos = ((unix_seconds - seconds as f64) * 1_000_000_000.0) as u32;
+                match chrono::DateTime::from_timestamp(seconds, nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt.naive_utc())),
+                    None => Err(SqlError::ExecutionError {
+                        message: format!("Invalid Unix timestamp: {}", unix_seconds),
+                        query: None,
+                    }),
+                }
+            }
+            FieldValue::Null => Ok(FieldValue::Null),
+            _ => Err(SqlError::ExecutionError {
+                message: "FROM_UNIXTIME requires a numeric Unix timestamp".to_string(),
+                query: None,
+            }),
+        }
+    }
+
+    fn unix_timestamp_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        match args.len() {
+            0 => {
+                // Return current Unix timestamp
+                let now = Utc::now().naive_utc();
+                let timestamp = now.and_utc().timestamp();
+                Ok(FieldValue::Integer(timestamp))
+            }
+            1 => {
+                // Convert given datetime to Unix timestamp
+                let datetime_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+                match datetime_val {
+                    FieldValue::Timestamp(dt) => {
+                        let timestamp = dt.and_utc().timestamp();
+                        Ok(FieldValue::Integer(timestamp))
+                    }
+                    FieldValue::Null => Ok(FieldValue::Null),
+                    _ => Err(SqlError::ExecutionError {
+                        message: "UNIX_TIMESTAMP with argument requires a timestamp value".to_string(),
+                        query: None,
+                    }),
+                }
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "UNIX_TIMESTAMP requires 0 or 1 arguments: UNIX_TIMESTAMP() or UNIX_TIMESTAMP(datetime)".to_string(),
                 query: None,
             }),
         }

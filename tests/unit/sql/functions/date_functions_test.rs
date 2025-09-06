@@ -401,3 +401,398 @@ async fn test_negative_time_differences() {
         diff
     );
 }
+
+// ==================== FROM_UNIXTIME() and UNIX_TIMESTAMP() Tests ====================
+
+fn create_test_record_for_timestamp_functions() -> StreamRecord {
+    let mut fields = HashMap::new();
+    
+    // Test Unix timestamps
+    fields.insert("unix_timestamp".to_string(), FieldValue::Integer(1672575045)); // 2023-01-01 12:30:45 UTC
+    fields.insert("unix_timestamp_float".to_string(), FieldValue::Float(1672575045.123)); // With fractional seconds
+    fields.insert("invalid_timestamp".to_string(), FieldValue::Integer(-1)); // Invalid timestamp
+    fields.insert("null_timestamp".to_string(), FieldValue::Null);
+    fields.insert("string_field".to_string(), FieldValue::String("not_a_timestamp".to_string()));
+    
+    // Pre-converted timestamps for testing UNIX_TIMESTAMP conversion back
+    use chrono::{NaiveDate, NaiveTime};
+    let naive_dt = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap()
+        .and_time(NaiveTime::from_hms_opt(12, 30, 45).unwrap());
+    fields.insert("datetime_field".to_string(), FieldValue::Timestamp(naive_dt));
+
+    let mut headers = HashMap::new();
+    headers.insert("test_source".to_string(), "timestamp_functions_test".to_string());
+
+    StreamRecord {
+        fields,
+        headers,
+        timestamp: 1672575045000, // 2023-01-01 12:30:45 UTC in milliseconds
+        offset: 1001,
+        partition: 0,
+    }
+}
+
+#[tokio::test]
+async fn test_from_unixtime_basic() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT FROM_UNIXTIME(unix_timestamp) AS transaction_time FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Check that we got a timestamp back
+    match results[0].fields.get("transaction_time") {
+        Some(FieldValue::Timestamp(dt)) => {
+            // Should be 2023-01-01 12:30:45
+            assert_eq!(dt.year(), 2023);
+            assert_eq!(dt.month(), 1);
+            assert_eq!(dt.day(), 1);
+            assert_eq!(dt.hour(), 12);
+            assert_eq!(dt.minute(), 30);
+            assert_eq!(dt.second(), 45);
+        }
+        other => panic!("Expected Timestamp, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_from_unixtime_float() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT FROM_UNIXTIME(unix_timestamp_float) AS precise_time FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Check that we got a timestamp back with nanosecond precision
+    match results[0].fields.get("precise_time") {
+        Some(FieldValue::Timestamp(dt)) => {
+            // Should be 2023-01-01 12:30:45.123
+            assert_eq!(dt.year(), 2023);
+            assert_eq!(dt.month(), 1);
+            assert_eq!(dt.day(), 1);
+            assert_eq!(dt.hour(), 12);
+            assert_eq!(dt.minute(), 30);
+            assert_eq!(dt.second(), 45);
+            // Check nanoseconds (123ms = 123,000,000ns)
+            assert_eq!(dt.nanosecond(), 123_000_000);
+        }
+        other => panic!("Expected Timestamp, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_from_unixtime_null_handling() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT FROM_UNIXTIME(null_timestamp) AS null_result FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].fields.get("null_result"), Some(&FieldValue::Null));
+}
+
+#[tokio::test]
+async fn test_from_unixtime_invalid_type() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT FROM_UNIXTIME(string_field) AS error_result FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    // This should result in an error
+    let result = engine.execute_with_record(&parsed_query, record).await;
+    assert!(result.is_err(), "Should fail with non-numeric input");
+}
+
+#[tokio::test]
+async fn test_unix_timestamp_no_args() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT UNIX_TIMESTAMP() AS current_timestamp FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Should get a current Unix timestamp (integer)
+    match results[0].fields.get("current_timestamp") {
+        Some(FieldValue::Integer(ts)) => {
+            // Should be reasonable current timestamp (after 2020, before 2030)
+            assert!(*ts > 1577836800, "Timestamp should be after 2020"); // 2020-01-01
+            assert!(*ts < 1893456000, "Timestamp should be before 2030"); // 2030-01-01
+        }
+        other => panic!("Expected Integer timestamp, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_unix_timestamp_with_datetime() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT UNIX_TIMESTAMP(datetime_field) AS converted_timestamp FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Should convert back to Unix timestamp (2023-01-01 12:30:45 = 1672575045)
+    assert_eq!(
+        results[0].fields.get("converted_timestamp"),
+        Some(&FieldValue::Integer(1672575045))
+    );
+}
+
+#[tokio::test]
+async fn test_unix_timestamp_null_handling() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT UNIX_TIMESTAMP(null_timestamp) AS null_result FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].fields.get("null_result"), Some(&FieldValue::Null));
+}
+
+#[tokio::test]
+async fn test_unix_timestamp_invalid_type() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "SELECT UNIX_TIMESTAMP(string_field) AS error_result FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    // This should result in an error
+    let result = engine.execute_with_record(&parsed_query, record).await;
+    assert!(result.is_err(), "Should fail with non-timestamp input");
+}
+
+#[tokio::test]
+async fn test_roundtrip_conversion() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    // Test roundtrip: unix timestamp -> datetime -> unix timestamp
+    let query = "SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(unix_timestamp)) AS roundtrip FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Should get back the original timestamp
+    assert_eq!(
+        results[0].fields.get("roundtrip"),
+        Some(&FieldValue::Integer(1672575045))
+    );
+}
+
+#[tokio::test]
+async fn test_practical_usage_example() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    // Test the exact usage from the original request
+    let query = "SELECT FROM_UNIXTIME(unix_timestamp) AS transaction_time, 'exported_' || UNIX_TIMESTAMP() AS export_id FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Check transaction_time is a proper timestamp
+    match results[0].fields.get("transaction_time") {
+        Some(FieldValue::Timestamp(dt)) => {
+            assert_eq!(dt.year(), 2023);
+            assert_eq!(dt.month(), 1);
+            assert_eq!(dt.day(), 1);
+        }
+        other => panic!("Expected Timestamp for transaction_time, got {:?}", other),
+    }
+    
+    // Check export_id is a string starting with 'exported_'
+    match results[0].fields.get("export_id") {
+        Some(FieldValue::String(s)) => {
+            assert!(s.starts_with("exported_"), "export_id should start with 'exported_', got '{}'", s);
+            // Extract the timestamp part and verify it's a valid number
+            let timestamp_part = &s[9..]; // Remove 'exported_' prefix
+            let timestamp: i64 = timestamp_part.parse().expect("Should be a valid timestamp");
+            assert!(timestamp > 1577836800, "Timestamp should be reasonable");
+        }
+        other => panic!("Expected String for export_id, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_multiple_timestamp_functions_in_query() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    let query = "
+        SELECT 
+            FROM_UNIXTIME(unix_timestamp) AS converted_time,
+            UNIX_TIMESTAMP() AS current_time,
+            UNIX_TIMESTAMP(datetime_field) AS back_converted,
+            FROM_UNIXTIME(unix_timestamp_float) AS precise_time
+        FROM test_stream
+    ";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Verify all functions worked
+    assert!(matches!(results[0].fields.get("converted_time"), Some(FieldValue::Timestamp(_))));
+    assert!(matches!(results[0].fields.get("current_time"), Some(FieldValue::Integer(_))));
+    assert_eq!(results[0].fields.get("back_converted"), Some(&FieldValue::Integer(1672575045)));
+    assert!(matches!(results[0].fields.get("precise_time"), Some(FieldValue::Timestamp(_))));
+}
+
+#[tokio::test]
+async fn test_from_unixtime_wrong_arg_count() {
+    let (tx, mut _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    // Test with no arguments
+    let query = "SELECT FROM_UNIXTIME() AS error FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    let result = engine.execute_with_record(&parsed_query, record).await;
+    assert!(result.is_err(), "Should fail with no arguments");
+}
+
+#[tokio::test]
+async fn test_unix_timestamp_wrong_arg_count() {
+    let (tx, mut _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    // Test with too many arguments
+    let query = "SELECT UNIX_TIMESTAMP(datetime_field, unix_timestamp) AS error FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    let result = engine.execute_with_record(&parsed_query, record).await;
+    assert!(result.is_err(), "Should fail with too many arguments");
+}
+
+#[tokio::test]
+async fn test_edge_case_timestamps() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    let parser = StreamingSqlParser::new();
+
+    // Test with epoch (0)
+    let query = "SELECT FROM_UNIXTIME(0) AS epoch_time FROM test_stream";
+    let parsed_query = parser.parse(query).unwrap();
+    let record = create_test_record_for_timestamp_functions();
+
+    engine.execute_with_record(&parsed_query, record).await.unwrap();
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+
+    assert_eq!(results.len(), 1);
+    
+    // Should be 1970-01-01 00:00:00
+    match results[0].fields.get("epoch_time") {
+        Some(FieldValue::Timestamp(dt)) => {
+            assert_eq!(dt.year(), 1970);
+            assert_eq!(dt.month(), 1);
+            assert_eq!(dt.day(), 1);
+            assert_eq!(dt.hour(), 0);
+            assert_eq!(dt.minute(), 0);
+            assert_eq!(dt.second(), 0);
+        }
+        other => panic!("Expected Timestamp, got {:?}", other),
+    }
+}
