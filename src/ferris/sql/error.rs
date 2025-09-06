@@ -472,6 +472,161 @@ impl SqlError {
             message: message.into(),
         }
     }
+
+    /// Create an execution error with function suggestions for unknown functions
+    pub fn unknown_function_error(function_name: impl Into<String>) -> Self {
+        let func_name = function_name.into();
+        let suggestions = Self::suggest_similar_functions(&func_name);
+
+        let mut message = format!("Unknown function: {}", func_name);
+        if !suggestions.is_empty() {
+            message.push_str(&format!(
+                "\n\nDid you mean one of these?\n{}",
+                suggestions.join(", ")
+            ));
+        }
+
+        SqlError::ExecutionError {
+            message,
+            query: None,
+        }
+    }
+
+    /// Suggest similar function names using fuzzy string matching
+    fn suggest_similar_functions(unknown_func: &str) -> Vec<String> {
+        let available_functions = vec![
+            // Aggregate functions
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "APPROX_COUNT_DISTINCT",
+            "FIRST_VALUE",
+            "LAST_VALUE",
+            "LISTAGG",
+            "STRING_AGG",
+            "COUNT_DISTINCT",
+            "MEDIAN",
+            "STDDEV",
+            "STDDEV_SAMP",
+            "STDDEV_POP",
+            "VARIANCE",
+            "VAR_SAMP",
+            "VAR_POP",
+            // Header functions
+            "HEADER",
+            "HEADER_KEYS",
+            "HAS_HEADER",
+            "SET_HEADER",
+            "REMOVE_HEADER",
+            // Math functions
+            "ABS",
+            "ROUND",
+            "CEIL",
+            "CEILING",
+            "FLOOR",
+            "SQRT",
+            "POWER",
+            "POW",
+            "MOD",
+            // String functions
+            "UPPER",
+            "LOWER",
+            "SUBSTRING",
+            "REPLACE",
+            "TRIM",
+            "LTRIM",
+            "RTRIM",
+            "LENGTH",
+            "LEN",
+            "SPLIT",
+            "JOIN",
+            "LEFT",
+            "RIGHT",
+            "POSITION",
+            "CONCAT",
+            // JSON functions
+            "JSON_EXTRACT",
+            "JSON_VALUE",
+            // Conversion functions
+            "CAST",
+            "COALESCE",
+            "NULLIF",
+            // System functions
+            "TIMESTAMP",
+            "NOW",
+            "CURRENT_TIMESTAMP",
+            // Date/Time functions
+            "DATE_FORMAT",
+            "DATEDIFF",
+            "EXTRACT",
+            // Comparison functions
+            "LEAST",
+            "GREATEST",
+            // Advanced type functions
+            "ARRAY",
+            "STRUCT",
+            "MAP",
+            "ARRAY_LENGTH",
+            "ARRAY_CONTAINS",
+            "MAP_KEYS",
+            "MAP_VALUES",
+        ];
+
+        let unknown_lower = unknown_func.to_lowercase();
+        let mut suggestions = Vec::new();
+
+        // Find functions with similar names using multiple strategies
+        for &func in &available_functions {
+            let func_lower = func.to_lowercase();
+
+            // Strategy 1: Check for exact prefix/suffix matches
+            if func_lower.starts_with(&unknown_lower) || func_lower.ends_with(&unknown_lower) {
+                suggestions.push(func.to_string());
+                continue;
+            }
+
+            // Strategy 2: Check if unknown function is contained in available function
+            if func_lower.contains(&unknown_lower) {
+                suggestions.push(func.to_string());
+                continue;
+            }
+
+            // Strategy 3: Check for simple edit distance (Levenshtein-like)
+            if Self::is_similar_string(&unknown_lower, &func_lower) {
+                suggestions.push(func.to_string());
+            }
+        }
+
+        // Limit suggestions to avoid overwhelming output
+        suggestions.truncate(5);
+        suggestions
+    }
+
+    /// Simple similarity check based on character overlap and length difference
+    fn is_similar_string(s1: &str, s2: &str) -> bool {
+        // Only suggest if strings are reasonably similar in length
+        let len_diff = (s1.len() as i32 - s2.len() as i32).abs();
+        if len_diff > 3 {
+            return false;
+        }
+
+        // Count matching characters (simple overlap check)
+        let mut matches = 0;
+        let chars1: Vec<char> = s1.chars().collect();
+        let chars2: Vec<char> = s2.chars().collect();
+
+        for &c1 in &chars1 {
+            if chars2.contains(&c1) {
+                matches += 1;
+            }
+        }
+
+        // Require at least 60% character overlap
+        let overlap_ratio = matches as f64 / s1.len().max(s2.len()) as f64;
+        overlap_ratio >= 0.6
+    }
 }
 
 /// Result type for SQL operations

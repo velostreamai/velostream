@@ -406,22 +406,38 @@ async fn test_negative_time_differences() {
 
 fn create_test_record_for_timestamp_functions() -> StreamRecord {
     let mut fields = HashMap::new();
-    
+
     // Test Unix timestamps
-    fields.insert("unix_timestamp".to_string(), FieldValue::Integer(1672575045)); // 2023-01-01 12:30:45 UTC
-    fields.insert("unix_timestamp_float".to_string(), FieldValue::Float(1672575045.123)); // With fractional seconds
+    fields.insert(
+        "unix_timestamp".to_string(),
+        FieldValue::Integer(1672575045),
+    ); // 2023-01-01 12:30:45 UTC
+    fields.insert(
+        "unix_timestamp_float".to_string(),
+        FieldValue::Float(1672575045.123),
+    ); // With fractional seconds
     fields.insert("invalid_timestamp".to_string(), FieldValue::Integer(-1)); // Invalid timestamp
     fields.insert("null_timestamp".to_string(), FieldValue::Null);
-    fields.insert("string_field".to_string(), FieldValue::String("not_a_timestamp".to_string()));
-    
+    fields.insert(
+        "string_field".to_string(),
+        FieldValue::String("not_a_timestamp".to_string()),
+    );
+
     // Pre-converted timestamps for testing UNIX_TIMESTAMP conversion back
     use chrono::{NaiveDate, NaiveTime};
-    let naive_dt = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap()
+    let naive_dt = NaiveDate::from_ymd_opt(2023, 1, 1)
+        .unwrap()
         .and_time(NaiveTime::from_hms_opt(12, 30, 45).unwrap());
-    fields.insert("datetime_field".to_string(), FieldValue::Timestamp(naive_dt));
+    fields.insert(
+        "datetime_field".to_string(),
+        FieldValue::Timestamp(naive_dt),
+    );
 
     let mut headers = HashMap::new();
-    headers.insert("test_source".to_string(), "timestamp_functions_test".to_string());
+    headers.insert(
+        "test_source".to_string(),
+        "timestamp_functions_test".to_string(),
+    );
 
     StreamRecord {
         fields,
@@ -442,7 +458,10 @@ async fn test_from_unixtime_basic() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -450,7 +469,7 @@ async fn test_from_unixtime_basic() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Check that we got a timestamp back
     match results[0].fields.get("transaction_time") {
         Some(FieldValue::Timestamp(dt)) => {
@@ -476,7 +495,10 @@ async fn test_from_unixtime_float() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -484,7 +506,7 @@ async fn test_from_unixtime_float() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Check that we got a timestamp back with nanosecond precision
     match results[0].fields.get("precise_time") {
         Some(FieldValue::Timestamp(dt)) => {
@@ -512,7 +534,10 @@ async fn test_from_unixtime_null_handling() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -520,7 +545,10 @@ async fn test_from_unixtime_null_handling() {
     }
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("null_result"), Some(&FieldValue::Null));
+    assert_eq!(
+        results[0].fields.get("null_result"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]
@@ -548,7 +576,10 @@ async fn test_unix_timestamp_no_args() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -556,7 +587,7 @@ async fn test_unix_timestamp_no_args() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Should get a current Unix timestamp (integer)
     match results[0].fields.get("current_timestamp") {
         Some(FieldValue::Integer(ts)) => {
@@ -578,7 +609,10 @@ async fn test_unix_timestamp_with_datetime() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -586,7 +620,7 @@ async fn test_unix_timestamp_with_datetime() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Should convert back to Unix timestamp (2023-01-01 12:30:45 = 1672575045)
     assert_eq!(
         results[0].fields.get("converted_timestamp"),
@@ -604,7 +638,10 @@ async fn test_unix_timestamp_null_handling() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -612,7 +649,10 @@ async fn test_unix_timestamp_null_handling() {
     }
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].fields.get("null_result"), Some(&FieldValue::Null));
+    assert_eq!(
+        results[0].fields.get("null_result"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]
@@ -637,11 +677,15 @@ async fn test_roundtrip_conversion() {
     let parser = StreamingSqlParser::new();
 
     // Test roundtrip: unix timestamp -> datetime -> unix timestamp
-    let query = "SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(unix_timestamp)) AS roundtrip FROM test_stream";
+    let query =
+        "SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(unix_timestamp)) AS roundtrip FROM test_stream";
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -649,7 +693,7 @@ async fn test_roundtrip_conversion() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Should get back the original timestamp
     assert_eq!(
         results[0].fields.get("roundtrip"),
@@ -668,7 +712,10 @@ async fn test_practical_usage_example() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -676,7 +723,7 @@ async fn test_practical_usage_example() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Check transaction_time is a proper timestamp
     match results[0].fields.get("transaction_time") {
         Some(FieldValue::Timestamp(dt)) => {
@@ -686,11 +733,15 @@ async fn test_practical_usage_example() {
         }
         other => panic!("Expected Timestamp for transaction_time, got {:?}", other),
     }
-    
+
     // Check export_id is a string starting with 'exported_'
     match results[0].fields.get("export_id") {
         Some(FieldValue::String(s)) => {
-            assert!(s.starts_with("exported_"), "export_id should start with 'exported_', got '{}'", s);
+            assert!(
+                s.starts_with("exported_"),
+                "export_id should start with 'exported_', got '{}'",
+                s
+            );
             // Extract the timestamp part and verify it's a valid number
             let timestamp_part = &s[9..]; // Remove 'exported_' prefix
             let timestamp: i64 = timestamp_part.parse().expect("Should be a valid timestamp");
@@ -717,7 +768,10 @@ async fn test_multiple_timestamp_functions_in_query() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -725,12 +779,24 @@ async fn test_multiple_timestamp_functions_in_query() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Verify all functions worked
-    assert!(matches!(results[0].fields.get("converted_time"), Some(FieldValue::Timestamp(_))));
-    assert!(matches!(results[0].fields.get("current_time"), Some(FieldValue::Integer(_))));
-    assert_eq!(results[0].fields.get("back_converted"), Some(&FieldValue::Integer(1672575045)));
-    assert!(matches!(results[0].fields.get("precise_time"), Some(FieldValue::Timestamp(_))));
+    assert!(matches!(
+        results[0].fields.get("converted_time"),
+        Some(FieldValue::Timestamp(_))
+    ));
+    assert!(matches!(
+        results[0].fields.get("current_time"),
+        Some(FieldValue::Integer(_))
+    ));
+    assert_eq!(
+        results[0].fields.get("back_converted"),
+        Some(&FieldValue::Integer(1672575045))
+    );
+    assert!(matches!(
+        results[0].fields.get("precise_time"),
+        Some(FieldValue::Timestamp(_))
+    ));
 }
 
 #[tokio::test]
@@ -774,7 +840,10 @@ async fn test_edge_case_timestamps() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    engine.execute_with_record(&parsed_query, record).await.unwrap();
+    engine
+        .execute_with_record(&parsed_query, record)
+        .await
+        .unwrap();
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -782,7 +851,7 @@ async fn test_edge_case_timestamps() {
     }
 
     assert_eq!(results.len(), 1);
-    
+
     // Should be 1970-01-01 00:00:00
     match results[0].fields.get("epoch_time") {
         Some(FieldValue::Timestamp(dt)) => {

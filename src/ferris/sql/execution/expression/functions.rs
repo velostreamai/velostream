@@ -2036,16 +2036,20 @@ impl BuiltinFunctions {
         }
     }
 
-    fn from_unixtime_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    fn from_unixtime_function(
+        args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
-                message: "FROM_UNIXTIME requires exactly 1 argument: FROM_UNIXTIME(unix_timestamp)".to_string(),
+                message: "FROM_UNIXTIME requires exactly 1 argument: FROM_UNIXTIME(unix_timestamp)"
+                    .to_string(),
                 query: None,
             });
         }
 
         let timestamp_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
-        
+
         match timestamp_val {
             FieldValue::Integer(unix_seconds) => {
                 match chrono::DateTime::from_timestamp(unix_seconds, 0) {
@@ -2075,7 +2079,10 @@ impl BuiltinFunctions {
         }
     }
 
-    fn unix_timestamp_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    fn unix_timestamp_function(
+        args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
         match args.len() {
             0 => {
                 // Return current Unix timestamp
