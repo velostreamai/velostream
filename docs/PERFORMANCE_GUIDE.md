@@ -239,9 +239,9 @@ SELECT * FROM kafka_source
 WITH (
     'kafka.bootstrap.servers' = 'localhost:9092',
     'kafka.topic' = 'orders',
-    'source.batch.strategy' = 'TimeWindow',
-    'source.batch.window_duration_ms' = '5000',
-    'source.batch.max_batch_size' = '10000'
+    'batch.strategy' = 'time_window',
+    'batch.window' = '5s',
+    'batch.enable' = 'true'
 );
 ```
 
@@ -253,9 +253,9 @@ SELECT * FROM processed_orders
 WITH (
     'kafka.bootstrap.servers' = 'localhost:9092',
     'kafka.topic' = 'processed_orders',
-    'sink.batch.strategy' = 'MemoryBased',
-    'sink.batch.target_memory_usage' = '0.8',
-    'sink.batch.max_batch_size' = '5000'
+    'batch.strategy' = 'memory_based',
+    'batch.memory_size' = '2097152',
+    'batch.enable' = 'true'
 );
 ```
 
@@ -316,10 +316,10 @@ CREATE STREAM fixed_batch_stream AS
 SELECT customer_id, amount, timestamp 
 FROM orders
 WITH (
-    'batch.strategy' = 'FixedSize',
-    'batch.batch_size' = '100',
-    'batch.enable_batching' = 'true',
-    'batch.timeout_ms' = '1000',
+    'batch.strategy' = 'fixed_size',
+    'batch.size' = '100',
+    'batch.enable' = 'true',
+    'batch.timeout' = '1000ms',
     'source.fetch.min.bytes' = '1',
     'source.max.poll.records' = '500',
     'sink.batch.size' = '16384',
@@ -386,10 +386,10 @@ SELECT customer_id, COUNT(*) as order_count,
 FROM orders
 GROUP BY customer_id, TUMBLE(timestamp, INTERVAL '5' SECONDS)
 WITH (
-    'batch.strategy' = 'TimeWindow',
-    'batch.window_duration_ms' = '5000',
-    'batch.max_batch_size' = '1000',
-    'batch.timeout_ms' = '1000',
+    'batch.strategy' = 'time_window',
+    'batch.window' = '5s',
+    'batch.enable' = 'true',
+    'batch.timeout' = '1000ms',
     'source.fetch.max.wait.ms' = '500',
     'sink.linger.ms' = '5000',
     'sink.compression.type' = 'lz4'
@@ -453,12 +453,12 @@ Dynamically adjusts batch sizes based on processing performance and system load.
 CREATE STREAM adaptive_stream AS
 SELECT * FROM high_volume_orders
 WITH (
-    'batch.strategy' = 'AdaptiveSize',
+    'batch.strategy' = 'adaptive_size',
     'batch.min_size' = '50',
-    'batch.max_size' = '1000',
-    'batch.target_latency_ms' = '100',
-    'batch.max_batch_size' = '1000',
-    'batch.timeout_ms' = '1000',
+    'batch.adaptive_max_size' = '1000',
+    'batch.target_latency' = '100ms',
+    'batch.enable' = 'true',
+    'batch.timeout' = '1000ms',
     'source.fetch.max.wait.ms' = '500',
     'sink.batch.size' = '32768',
     'sink.compression.type' = 'snappy'
@@ -520,10 +520,10 @@ Adjusts batch processing based on available memory and memory pressure indicator
 CREATE STREAM memory_aware_stream AS
 SELECT * FROM large_records_stream
 WITH (
-    'batch.strategy' = 'MemoryBased',
-    'batch.target_memory_bytes' = '1048576',
-    'batch.max_batch_size' = '1000',
-    'batch.timeout_ms' = '1000',
+    'batch.strategy' = 'memory_based',
+    'batch.memory_size' = '1048576',
+    'batch.enable' = 'true',
+    'batch.timeout' = '1000ms',
     'source.fetch.max.wait.ms' = '500',
     'sink.batch.size' = '16384',
     'sink.compression.type' = 'gzip'
@@ -590,10 +590,11 @@ SELECT alert_id, severity, timestamp
 FROM critical_alerts
 WHERE severity = 'CRITICAL'
 WITH (
-    'batch.strategy' = 'LowLatency',
-    'batch.max_batch_size' = '10',
-    'batch.max_wait_time_ms' = '5',
+    'batch.strategy' = 'low_latency',
+    'batch.low_latency_max_size' = '10',
+    'batch.low_latency_wait' = '5ms',
     'batch.eager_processing' = 'true',
+    'batch.enable' = 'true',
     'source.fetch.max.wait.ms' = '1',
     'sink.batch.size' = '1024',
     'sink.linger.ms' = '5',
