@@ -18,7 +18,7 @@ pub use ast::{DataType, StreamingQuery};
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 pub use parser::StreamingSqlParser;
-pub use validator::{SqlValidator, ApplicationValidationResult, ValidationError};
+pub use validator::{ApplicationValidationResult, SqlValidator, ValidationError};
 
 // Version and feature info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

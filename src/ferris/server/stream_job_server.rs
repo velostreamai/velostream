@@ -12,7 +12,7 @@ use crate::ferris::server::processors::{
 use crate::ferris::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
-    SqlError, StreamExecutionEngine, StreamingSqlParser, SqlValidator,
+    SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -590,43 +590,64 @@ impl StreamJobServer {
         // Pre-deployment SQL validation to prevent runtime failures
         info!("Validating SQL application before deployment...");
         let validator = SqlValidator::new();
-        
+
         // Reconstruct the SQL content from the application statements for validation
-        let sql_content = app.statements
+        let sql_content = app
+            .statements
             .iter()
             .map(|stmt| stmt.sql.clone())
             .collect::<Vec<String>>()
             .join(";\n");
-        
+
         let validation_result = validator.validate_sql_content(&sql_content);
-        
+
         if !validation_result.is_valid {
-            error!("SQL validation failed for application '{}':", app.metadata.name);
+            error!(
+                "SQL validation failed for application '{}':",
+                app.metadata.name
+            );
             for query_result in &validation_result.query_results {
-                if !query_result.parsing_errors.is_empty() || !query_result.configuration_errors.is_empty() {
-                    error!("Query {} (line {}): {}", 
-                           query_result.query_index + 1, 
-                           query_result.start_line,
-                           query_result.query_text.chars().take(100).collect::<String>());
-                    
+                if !query_result.parsing_errors.is_empty()
+                    || !query_result.configuration_errors.is_empty()
+                {
+                    error!(
+                        "Query {} (line {}): {}",
+                        query_result.query_index + 1,
+                        query_result.start_line,
+                        query_result
+                            .query_text
+                            .chars()
+                            .take(100)
+                            .collect::<String>()
+                    );
+
                     for error in &query_result.parsing_errors {
-                        error!("  Parsing Error: {} (line: {:?})", error.message, error.line);
+                        error!(
+                            "  Parsing Error: {} (line: {:?})",
+                            error.message, error.line
+                        );
                     }
-                    
+
                     for error in &query_result.configuration_errors {
-                        error!("  Configuration Error: {} (line: {:?})", error.message, error.line);
+                        error!(
+                            "  Configuration Error: {} (line: {:?})",
+                            error.message, error.line
+                        );
                     }
                 }
             }
-            
+
             for global_error in &validation_result.global_errors {
                 error!("  Global Error: {}", global_error);
             }
-            
-            for missing_config in &validation_result.configuration_summary.missing_configurations {
+
+            for missing_config in &validation_result
+                .configuration_summary
+                .missing_configurations
+            {
                 error!("  Configuration Issue: {}", missing_config);
             }
-            
+
             return Err(SqlError::parse_error(
                 format!(
                     "SQL validation failed for application '{}'. Found {} invalid queries out of {} total queries. Deployment aborted to prevent runtime failures.",
@@ -637,7 +658,7 @@ impl StreamJobServer {
                 None
             ));
         }
-        
+
         info!(
             "SQL validation passed: {}/{} queries validated successfully",
             validation_result.valid_queries, validation_result.total_queries
@@ -714,19 +735,25 @@ impl StreamJobServer {
                                 "Failed to deploy job '{}' from application '{}': {:?}",
                                 job_name, app.metadata.name, e
                             );
-                            
+
                             // CLEANUP: Stop any jobs that were already deployed to prevent partial state
                             if !deployed_jobs.is_empty() {
                                 error!("Cleaning up {} already-deployed jobs to prevent partial deployment state", deployed_jobs.len());
                                 for cleanup_job in &deployed_jobs {
                                     if let Err(cleanup_err) = self.stop_job(cleanup_job).await {
-                                        warn!("Failed to cleanup job '{}' during rollback: {:?}", cleanup_job, cleanup_err);
+                                        warn!(
+                                            "Failed to cleanup job '{}' during rollback: {:?}",
+                                            cleanup_job, cleanup_err
+                                        );
                                     } else {
-                                        info!("Successfully cleaned up job '{}' during rollback", cleanup_job);
+                                        info!(
+                                            "Successfully cleaned up job '{}' during rollback",
+                                            cleanup_job
+                                        );
                                     }
                                 }
                             }
-                            
+
                             // ABORT ENTIRE DEPLOYMENT - any single job failure should stop everything
                             return Err(SqlError::execution_error(
                                 format!(

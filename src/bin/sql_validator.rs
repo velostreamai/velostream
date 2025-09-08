@@ -9,16 +9,18 @@
 //! - Performance warnings
 
 use ferrisstreams::ferris::sql::{
-    ast::{StreamingQuery, SelectField, StreamSource, IntoClause},
-    query_analyzer::{QueryAnalyzer, DataSourceRequirement, DataSinkRequirement, DataSourceType, DataSinkType},
+    ast::{IntoClause, SelectField, StreamSource, StreamingQuery},
     config::with_clause_parser::WithClauseParser,
-    StreamingSqlParser, SqlError
+    query_analyzer::{
+        DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,
+    },
+    SqlError, StreamingSqlParser,
 };
+use log::info;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use log::info;
-use serde::{Serialize, Deserialize};
 
 /// Detailed parsing error with location information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +127,13 @@ impl SqlValidator {
     }
 
     /// Validate a single SQL query string
-    pub fn validate_query(&self, query: &str, query_index: usize, start_line: usize, full_content: &str) -> QueryValidationResult {
+    pub fn validate_query(
+        &self,
+        query: &str,
+        query_index: usize,
+        start_line: usize,
+        full_content: &str,
+    ) -> QueryValidationResult {
         let mut result = QueryValidationResult {
             query_text: query.to_string(),
             query_index,
@@ -146,7 +154,8 @@ impl SqlValidator {
         let parsed_query = match self.parser.parse(query) {
             Ok(q) => q,
             Err(e) => {
-                let parsing_error = self.create_parsing_error(&e.to_string(), query, start_line, full_content);
+                let parsing_error =
+                    self.create_parsing_error(&e.to_string(), query, start_line, full_content);
                 result.parsing_errors.push(parsing_error);
                 result.is_valid = false;
                 return result;
@@ -169,7 +178,9 @@ impl SqlValidator {
                 self.validate_sink_configurations(&analysis.required_sinks, &mut result);
             }
             Err(e) => {
-                result.configuration_errors.push(format!("Query analysis failed: {}", e));
+                result
+                    .configuration_errors
+                    .push(format!("Query analysis failed: {}", e));
                 result.is_valid = false;
             }
         }
@@ -187,7 +198,9 @@ impl SqlValidator {
             result.is_valid = false;
         }
 
-        if self.strict_mode && (!result.warnings.is_empty() || !result.performance_warnings.is_empty()) {
+        if self.strict_mode
+            && (!result.warnings.is_empty() || !result.performance_warnings.is_empty())
+        {
             result.is_valid = false;
         }
 
@@ -195,12 +208,19 @@ impl SqlValidator {
     }
 
     /// Create a detailed parsing error with location information
-    fn create_parsing_error(&self, error_msg: &str, query: &str, query_start_line: usize, full_content: &str) -> ParsingError {
+    fn create_parsing_error(
+        &self,
+        error_msg: &str,
+        query: &str,
+        query_start_line: usize,
+        full_content: &str,
+    ) -> ParsingError {
         let position = self.extract_position(error_msg).unwrap_or(0);
         let (line, column) = self.position_to_line_column(query, position);
         let absolute_line = query_start_line + line;
-        
-        let context_lines = self.get_error_context(full_content, absolute_line, column, position, query);
+
+        let context_lines =
+            self.get_error_context(full_content, absolute_line, column, position, query);
         let error_indicator = self.create_error_indicator(query, position, column);
 
         ParsingError {
@@ -250,13 +270,20 @@ impl SqlValidator {
     }
 
     /// Get context lines around the error
-    fn get_error_context(&self, content: &str, error_line: usize, error_column: usize, _position: usize, _query: &str) -> Vec<String> {
+    fn get_error_context(
+        &self,
+        content: &str,
+        error_line: usize,
+        error_column: usize,
+        _position: usize,
+        _query: &str,
+    ) -> Vec<String> {
         let lines: Vec<&str> = content.lines().collect();
         let start_line = if error_line >= 2 { error_line - 2 } else { 0 };
         let end_line = std::cmp::min(error_line + 3, lines.len());
 
         let mut context = Vec::new();
-        
+
         for (i, line_content) in lines[start_line..end_line].iter().enumerate() {
             let line_number = start_line + i + 1;
             let prefix = if line_number == error_line + 1 {
@@ -264,7 +291,7 @@ impl SqlValidator {
             } else {
                 format!(" {:4} ", line_number)
             };
-            
+
             context.push(format!("{}{}", prefix, line_content));
         }
 
@@ -287,7 +314,11 @@ impl SqlValidator {
 
         let error_char = chars.get(position).unwrap_or(&' ');
         let start = if position >= 20 { position - 20 } else { 0 };
-        let end = if position + 20 < chars.len() { position + 20 } else { chars.len() };
+        let end = if position + 20 < chars.len() {
+            position + 20
+        } else {
+            chars.len()
+        };
 
         let before: String = chars[start..position].iter().collect();
         let after: String = chars[position + 1..end].iter().collect();
@@ -296,7 +327,11 @@ impl SqlValidator {
     }
 
     /// Validate source configurations
-    fn validate_source_configurations(&self, sources: &[DataSourceRequirement], result: &mut QueryValidationResult) {
+    fn validate_source_configurations(
+        &self,
+        sources: &[DataSourceRequirement],
+        result: &mut QueryValidationResult,
+    ) {
         for source in sources {
             match source.source_type {
                 DataSourceType::Kafka => {
@@ -306,17 +341,26 @@ impl SqlValidator {
                     self.validate_file_source_config(&source.properties, &source.name, result);
                 }
                 DataSourceType::S3 => {
-                    result.warnings.push(format!("S3 source '{}' is not fully supported yet", source.name));
+                    result.warnings.push(format!(
+                        "S3 source '{}' is not fully supported yet",
+                        source.name
+                    ));
                 }
                 _ => {
-                    result.configuration_errors.push(format!("Unknown source type for '{}'", source.name));
+                    result
+                        .configuration_errors
+                        .push(format!("Unknown source type for '{}'", source.name));
                 }
             }
         }
     }
 
     /// Validate sink configurations
-    fn validate_sink_configurations(&self, sinks: &[DataSinkRequirement], result: &mut QueryValidationResult) {
+    fn validate_sink_configurations(
+        &self,
+        sinks: &[DataSinkRequirement],
+        result: &mut QueryValidationResult,
+    ) {
         for sink in sinks {
             match sink.sink_type {
                 DataSinkType::Kafka => {
@@ -329,63 +373,98 @@ impl SqlValidator {
                     // Stdout doesn't require configuration
                 }
                 _ => {
-                    result.configuration_errors.push(format!("Unknown sink type for '{}'", sink.name));
+                    result
+                        .configuration_errors
+                        .push(format!("Unknown sink type for '{}'", sink.name));
                 }
             }
         }
     }
 
     /// Validate Kafka source configuration
-    fn validate_kafka_source_config(&self, properties: &HashMap<String, String>, name: &str, result: &mut QueryValidationResult) {
+    fn validate_kafka_source_config(
+        &self,
+        properties: &HashMap<String, String>,
+        name: &str,
+        result: &mut QueryValidationResult,
+    ) {
         let required_keys = vec!["bootstrap.servers", "topic"];
         let recommended_keys = vec!["value.format", "group.id", "failure_strategy"];
 
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                result.missing_source_configs.push(format!("Kafka source '{}' missing required config: {}", name, key));
+                result.missing_source_configs.push(format!(
+                    "Kafka source '{}' missing required config: {}",
+                    name, key
+                ));
                 result.is_valid = false;
             }
         }
 
         for key in &recommended_keys {
             if !properties.contains_key(*key) {
-                result.warnings.push(format!("Kafka source '{}' missing recommended config: {}", name, key));
+                result.warnings.push(format!(
+                    "Kafka source '{}' missing recommended config: {}",
+                    name, key
+                ));
             }
         }
 
         // Check for batch configuration
         if self.has_batch_config(properties) {
-            result.warnings.push(format!("Kafka source '{}' has batch configuration - ensure this is intended", name));
+            result.warnings.push(format!(
+                "Kafka source '{}' has batch configuration - ensure this is intended",
+                name
+            ));
         }
     }
 
     /// Validate Kafka sink configuration
-    fn validate_kafka_sink_config(&self, properties: &HashMap<String, String>, name: &str, result: &mut QueryValidationResult) {
+    fn validate_kafka_sink_config(
+        &self,
+        properties: &HashMap<String, String>,
+        name: &str,
+        result: &mut QueryValidationResult,
+    ) {
         let required_keys = vec!["bootstrap.servers", "topic"];
         let recommended_keys = vec!["value.format", "failure_strategy"];
 
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!("Kafka sink '{}' missing required config: {}", name, key));
+                result.missing_sink_configs.push(format!(
+                    "Kafka sink '{}' missing required config: {}",
+                    name, key
+                ));
                 result.is_valid = false;
             }
         }
 
         for key in &recommended_keys {
             if !properties.contains_key(*key) {
-                result.warnings.push(format!("Kafka sink '{}' missing recommended config: {}", name, key));
+                result.warnings.push(format!(
+                    "Kafka sink '{}' missing recommended config: {}",
+                    name, key
+                ));
             }
         }
     }
 
     /// Validate File source configuration
-    fn validate_file_source_config(&self, properties: &HashMap<String, String>, name: &str, result: &mut QueryValidationResult) {
+    fn validate_file_source_config(
+        &self,
+        properties: &HashMap<String, String>,
+        name: &str,
+        result: &mut QueryValidationResult,
+    ) {
         let required_keys = vec!["path", "format"];
         let _optional_keys = vec!["has_headers", "watching", "failure_strategy"];
 
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                result.missing_source_configs.push(format!("File source '{}' missing required config: {}", name, key));
+                result.missing_source_configs.push(format!(
+                    "File source '{}' missing required config: {}",
+                    name, key
+                ));
                 result.is_valid = false;
             }
         }
@@ -393,18 +472,29 @@ impl SqlValidator {
         // Check if file exists (if path is provided)
         if let Some(path) = properties.get("path") {
             if !Path::new(path).exists() {
-                result.warnings.push(format!("File source '{}' path does not exist: {}", name, path));
+                result.warnings.push(format!(
+                    "File source '{}' path does not exist: {}",
+                    name, path
+                ));
             }
         }
     }
 
     /// Validate File sink configuration  
-    fn validate_file_sink_config(&self, properties: &HashMap<String, String>, name: &str, result: &mut QueryValidationResult) {
+    fn validate_file_sink_config(
+        &self,
+        properties: &HashMap<String, String>,
+        name: &str,
+        result: &mut QueryValidationResult,
+    ) {
         let required_keys = vec!["path", "format"];
 
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!("File sink '{}' missing required config: {}", name, key));
+                result.missing_sink_configs.push(format!(
+                    "File sink '{}' missing required config: {}",
+                    name, key
+                ));
                 result.is_valid = false;
             }
         }
@@ -413,7 +503,11 @@ impl SqlValidator {
         if let Some(path) = properties.get("path") {
             if let Some(parent) = Path::new(path).parent() {
                 if !parent.exists() {
-                    result.warnings.push(format!("File sink '{}' output directory does not exist: {}", name, parent.display()));
+                    result.warnings.push(format!(
+                        "File sink '{}' output directory does not exist: {}",
+                        name,
+                        parent.display()
+                    ));
                 }
             }
         }
@@ -421,11 +515,17 @@ impl SqlValidator {
 
     /// Check if configuration has batch settings
     fn has_batch_config(&self, properties: &HashMap<String, String>) -> bool {
-        properties.keys().any(|k| k.contains("batch.strategy") || k.contains("batch.size") || k.contains("batch.timeout"))
+        properties.keys().any(|k| {
+            k.contains("batch.strategy") || k.contains("batch.size") || k.contains("batch.timeout")
+        })
     }
 
     /// Check for syntax compatibility issues
-    fn check_syntax_compatibility(&self, _query: &StreamingQuery, result: &mut QueryValidationResult) {
+    fn check_syntax_compatibility(
+        &self,
+        _query: &StreamingQuery,
+        result: &mut QueryValidationResult,
+    ) {
         // Check for unsupported window syntax
         let query_text = &result.query_text;
         if query_text.contains("WINDOW TUMBLING") || query_text.contains("WINDOW SLIDING") {
@@ -433,40 +533,61 @@ impl SqlValidator {
         }
 
         if query_text.contains("SESSION(") {
-            result.syntax_issues.push("SESSION windows may have limited support - test thoroughly".to_string());
+            result
+                .syntax_issues
+                .push("SESSION windows may have limited support - test thoroughly".to_string());
         }
 
         // Check for potentially problematic subqueries
         if query_text.contains("SELECT") && query_text.matches("SELECT").count() > 1 {
-            result.warnings.push("Complex subqueries detected - ensure they are supported in streaming context".to_string());
+            result.warnings.push(
+                "Complex subqueries detected - ensure they are supported in streaming context"
+                    .to_string(),
+            );
         }
 
         // Check for ORDER BY without LIMIT
         if query_text.contains("ORDER BY") && !query_text.contains("LIMIT") {
-            result.performance_warnings.push("ORDER BY without LIMIT can cause memory issues in streaming queries".to_string());
+            result.performance_warnings.push(
+                "ORDER BY without LIMIT can cause memory issues in streaming queries".to_string(),
+            );
         }
     }
 
     /// Analyze performance implications
-    fn analyze_performance_implications(&self, _query: &StreamingQuery, result: &mut QueryValidationResult) {
+    fn analyze_performance_implications(
+        &self,
+        _query: &StreamingQuery,
+        result: &mut QueryValidationResult,
+    ) {
         let query_text = &result.query_text;
 
         // Check for expensive operations
         if query_text.contains("JOIN") && !query_text.contains("WINDOW") {
-            result.performance_warnings.push("Stream-to-stream JOINs without time windows can be expensive".to_string());
+            result
+                .performance_warnings
+                .push("Stream-to-stream JOINs without time windows can be expensive".to_string());
         }
 
         if query_text.contains("GROUP BY") && query_text.contains("DISTINCT") {
-            result.performance_warnings.push("GROUP BY with DISTINCT operations can be memory-intensive".to_string());
+            result
+                .performance_warnings
+                .push("GROUP BY with DISTINCT operations can be memory-intensive".to_string());
         }
 
         if query_text.contains("LAG(") || query_text.contains("LEAD(") {
-            result.performance_warnings.push("Window functions like LAG/LEAD require state management - ensure proper windowing".to_string());
+            result.performance_warnings.push(
+                "Window functions like LAG/LEAD require state management - ensure proper windowing"
+                    .to_string(),
+            );
         }
 
         // Check for missing batch configuration on high-throughput scenarios
         if result.sources_found.len() > 1 && !query_text.contains("batch.strategy") {
-            result.performance_warnings.push("Multi-source query without batch configuration may have suboptimal throughput".to_string());
+            result.performance_warnings.push(
+                "Multi-source query without batch configuration may have suboptimal throughput"
+                    .to_string(),
+            );
         }
     }
 
@@ -493,7 +614,9 @@ impl SqlValidator {
         let content = match fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(e) => {
-                result.global_errors.push(format!("Failed to read file: {}", e));
+                result
+                    .global_errors
+                    .push(format!("Failed to read file: {}", e));
                 result.is_valid = false;
                 return result;
             }
@@ -550,7 +673,7 @@ impl SqlValidator {
         for line in content.lines() {
             current_line += 1;
             let trimmed = line.trim();
-            
+
             // Skip empty lines and full-line comments
             if trimmed.is_empty() || trimmed.starts_with("--") {
                 continue;
@@ -592,7 +715,11 @@ impl SqlValidator {
     }
 
     /// Build configuration summary from all queries
-    fn build_configuration_summary(&self, query_results: &[QueryValidationResult], summary: &mut ConfigurationSummary) {
+    fn build_configuration_summary(
+        &self,
+        query_results: &[QueryValidationResult],
+        summary: &mut ConfigurationSummary,
+    ) {
         let mut source_names = HashSet::new();
         let mut sink_names = HashSet::new();
 
@@ -600,25 +727,37 @@ impl SqlValidator {
             // Track source names for duplicates
             for source in &query_result.sources_found {
                 if !source_names.insert(source.clone()) {
-                    summary.duplicate_names.push(format!("Source '{}' defined multiple times", source));
+                    summary
+                        .duplicate_names
+                        .push(format!("Source '{}' defined multiple times", source));
                 }
             }
 
-            // Track sink names for duplicates  
+            // Track sink names for duplicates
             for sink in &query_result.sinks_found {
                 if !sink_names.insert(sink.clone()) {
-                    summary.duplicate_names.push(format!("Sink '{}' defined multiple times", sink));
+                    summary
+                        .duplicate_names
+                        .push(format!("Sink '{}' defined multiple times", sink));
                 }
             }
 
             // Collect missing configurations
-            summary.missing_configurations.extend(query_result.missing_source_configs.clone());
-            summary.missing_configurations.extend(query_result.missing_sink_configs.clone());
+            summary
+                .missing_configurations
+                .extend(query_result.missing_source_configs.clone());
+            summary
+                .missing_configurations
+                .extend(query_result.missing_sink_configs.clone());
         }
     }
 
     /// Generate recommendations based on validation results
-    fn generate_recommendations(&self, query_results: &[QueryValidationResult], recommendations: &mut Vec<String>) {
+    fn generate_recommendations(
+        &self,
+        query_results: &[QueryValidationResult],
+        recommendations: &mut Vec<String>,
+    ) {
         let mut has_performance_issues = false;
         let mut has_missing_configs = false;
         let mut has_syntax_issues = false;
@@ -627,7 +766,9 @@ impl SqlValidator {
             if !query_result.performance_warnings.is_empty() {
                 has_performance_issues = true;
             }
-            if !query_result.missing_source_configs.is_empty() || !query_result.missing_sink_configs.is_empty() {
+            if !query_result.missing_source_configs.is_empty()
+                || !query_result.missing_sink_configs.is_empty()
+            {
                 has_missing_configs = true;
             }
             if !query_result.syntax_issues.is_empty() {
@@ -636,16 +777,24 @@ impl SqlValidator {
         }
 
         if has_missing_configs {
-            recommendations.push("Add missing source and sink configurations to ensure proper operation".to_string());
+            recommendations.push(
+                "Add missing source and sink configurations to ensure proper operation".to_string(),
+            );
         }
 
         if has_performance_issues {
-            recommendations.push("Consider adding batch processing configuration for better throughput".to_string());
-            recommendations.push("Review window specifications and JOIN conditions for performance optimization".to_string());
+            recommendations.push(
+                "Consider adding batch processing configuration for better throughput".to_string(),
+            );
+            recommendations.push(
+                "Review window specifications and JOIN conditions for performance optimization"
+                    .to_string(),
+            );
         }
 
         if has_syntax_issues {
-            recommendations.push("Update SQL syntax to use FerrisStreams-compatible constructs".to_string());
+            recommendations
+                .push("Update SQL syntax to use FerrisStreams-compatible constructs".to_string());
         }
 
         if query_results.len() > 5 {
@@ -675,7 +824,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <sql_file_or_directory> [--strict] [--no-performance]", args[0]);
+        eprintln!(
+            "Usage: {} <sql_file_or_directory> [--strict] [--no-performance]",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -697,7 +849,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Validate single file
         let result = validator.validate_application(path);
         print_validation_result(&result);
-        
+
         if !result.is_valid {
             std::process::exit(1);
         }
@@ -705,7 +857,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Validate directory
         let results = validator.validate_directory(path);
         let mut all_valid = true;
-        
+
         for result in &results {
             print_validation_result(result);
             if !result.is_valid {
@@ -713,11 +865,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("{}", "=".repeat(80));
         }
-        
+
         println!("\nSUMMARY: Validated {} SQL files", results.len());
         let valid_count = results.iter().filter(|r| r.is_valid).count();
-        println!("Valid: {}, Invalid: {}", valid_count, results.len() - valid_count);
-        
+        println!(
+            "Valid: {}, Invalid: {}",
+            valid_count,
+            results.len() - valid_count
+        );
+
         if !all_valid {
             std::process::exit(1);
         }
@@ -735,13 +891,23 @@ fn print_validation_result(result: &ApplicationValidationResult) {
     println!("║ SQL APPLICATION VALIDATION REPORT");
     println!("╠══════════════════════════════════════════════════════════════════════");
     println!("║ File: {}", result.file_path);
-    
+
     if let Some(app_name) = &result.application_name {
         println!("║ Application: {}", app_name);
     }
-    
-    println!("║ Status: {}", if result.is_valid { "✅ VALID" } else { "❌ INVALID" });
-    println!("║ Queries: {}/{} valid", result.valid_queries, result.total_queries);
+
+    println!(
+        "║ Status: {}",
+        if result.is_valid {
+            "✅ VALID"
+        } else {
+            "❌ INVALID"
+        }
+    );
+    println!(
+        "║ Queries: {}/{} valid",
+        result.valid_queries, result.total_queries
+    );
     println!("╚══════════════════════════════════════════════════════════════════════");
 
     // Global errors
@@ -755,16 +921,32 @@ fn print_validation_result(result: &ApplicationValidationResult) {
     // Query-level results
     for (index, query_result) in result.query_results.iter().enumerate() {
         if !query_result.is_valid || !query_result.warnings.is_empty() {
-            println!("\n📝 Query #{} ({}): {}", 
-                index + 1, 
-                if query_result.is_valid { "✅ Valid" } else { "❌ Invalid" },
-                query_result.query_text.lines().next().unwrap_or("").trim_start_matches("--").trim()
+            println!(
+                "\n📝 Query #{} ({}): {}",
+                index + 1,
+                if query_result.is_valid {
+                    "✅ Valid"
+                } else {
+                    "❌ Invalid"
+                },
+                query_result
+                    .query_text
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim_start_matches("--")
+                    .trim()
             );
 
             if !query_result.parsing_errors.is_empty() {
                 println!("  🚫 Parsing Errors:");
                 for error in &query_result.parsing_errors {
-                    println!("    • {} (Line {}, Column {})", error.message, error.line + 1, error.column + 1);
+                    println!(
+                        "    • {} (Line {}, Column {})",
+                        error.message,
+                        error.line + 1,
+                        error.column + 1
+                    );
                     println!("      📍 Location in file:");
                     for context_line in &error.context_lines {
                         println!("        {}", context_line);
@@ -819,17 +1001,25 @@ fn print_validation_result(result: &ApplicationValidationResult) {
     }
 
     // Configuration summary
-    if !result.configuration_summary.missing_configurations.is_empty() || 
-       !result.configuration_summary.duplicate_names.is_empty() {
+    if !result
+        .configuration_summary
+        .missing_configurations
+        .is_empty()
+        || !result.configuration_summary.duplicate_names.is_empty()
+    {
         println!("\n📊 CONFIGURATION SUMMARY:");
-        
-        if !result.configuration_summary.missing_configurations.is_empty() {
+
+        if !result
+            .configuration_summary
+            .missing_configurations
+            .is_empty()
+        {
             println!("  Missing Configurations:");
             for missing in &result.configuration_summary.missing_configurations {
                 println!("    • {}", missing);
             }
         }
-        
+
         if !result.configuration_summary.duplicate_names.is_empty() {
             println!("  Duplicate Names:");
             for dup in &result.configuration_summary.duplicate_names {

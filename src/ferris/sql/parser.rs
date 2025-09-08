@@ -668,7 +668,9 @@ impl StreamingSqlParser {
                         position += 1;
                     } else {
                         return Err(SqlError::ParseError {
-                            message: "Unexpected character '|' - did you mean '||' for concatenation?".to_string(),
+                            message:
+                                "Unexpected character '|' - did you mean '||' for concatenation?"
+                                    .to_string(),
                             position: Some(position - 1),
                         });
                     }

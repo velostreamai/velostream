@@ -349,7 +349,7 @@ impl ExpressionEvaluator {
                     BinaryOperator::Subtract => left_val.subtract(&right_val),
                     BinaryOperator::Multiply => left_val.multiply(&right_val),
                     BinaryOperator::Divide => left_val.divide(&right_val),
-                    
+
                     // String concatenation operator
                     BinaryOperator::Concat => match (&left_val, &right_val) {
                         (FieldValue::String(s1), FieldValue::String(s2)) => {
@@ -368,7 +368,11 @@ impl ExpressionEvaluator {
                                     if divisor == 1 {
                                         value.to_string()
                                     } else {
-                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                        format!(
+                                            "{:.prec$}",
+                                            *value as f64 / divisor as f64,
+                                            prec = *scale as usize
+                                        )
                                     }
                                 }
                                 FieldValue::Timestamp(ts) => ts.to_string(),
@@ -377,7 +381,9 @@ impl ExpressionEvaluator {
                                 FieldValue::Array(arr) => format!("{:?}", arr),
                                 FieldValue::Map(map) => format!("{:?}", map),
                                 FieldValue::Struct(s) => format!("{:?}", s),
-                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Interval { value, unit } => {
+                                    format!("{} {:?}", value, unit)
+                                }
                                 FieldValue::Null => "".to_string(), // SQL standard: concat with NULL gives NULL, but we'll use empty string
                             };
                             if left_val == *other {
@@ -402,7 +408,11 @@ impl ExpressionEvaluator {
                                     if divisor == 1 {
                                         value.to_string()
                                     } else {
-                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                        format!(
+                                            "{:.prec$}",
+                                            *value as f64 / divisor as f64,
+                                            prec = *scale as usize
+                                        )
                                     }
                                 }
                                 FieldValue::Timestamp(ts) => ts.to_string(),
@@ -411,7 +421,9 @@ impl ExpressionEvaluator {
                                 FieldValue::Array(arr) => format!("{:?}", arr),
                                 FieldValue::Map(map) => format!("{:?}", map),
                                 FieldValue::Struct(s) => format!("{:?}", s),
-                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Interval { value, unit } => {
+                                    format!("{} {:?}", value, unit)
+                                }
                                 FieldValue::Null => "".to_string(),
                             };
                             let right_str = match right {
@@ -424,7 +436,11 @@ impl ExpressionEvaluator {
                                     if divisor == 1 {
                                         value.to_string()
                                     } else {
-                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                        format!(
+                                            "{:.prec$}",
+                                            *value as f64 / divisor as f64,
+                                            prec = *scale as usize
+                                        )
                                     }
                                 }
                                 FieldValue::Timestamp(ts) => ts.to_string(),
@@ -433,7 +449,9 @@ impl ExpressionEvaluator {
                                 FieldValue::Array(arr) => format!("{:?}", arr),
                                 FieldValue::Map(map) => format!("{:?}", map),
                                 FieldValue::Struct(s) => format!("{:?}", s),
-                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Interval { value, unit } => {
+                                    format!("{} {:?}", value, unit)
+                                }
                                 FieldValue::Null => "".to_string(),
                             };
                             Ok(FieldValue::String(format!("{}{}", left_str, right_str)))
@@ -1034,7 +1052,11 @@ impl ExpressionEvaluator {
                                             if divisor == 1 {
                                                 value.to_string()
                                             } else {
-                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                                format!(
+                                                    "{:.prec$}",
+                                                    *value as f64 / divisor as f64,
+                                                    prec = *scale as usize
+                                                )
                                             }
                                         }
                                         FieldValue::Timestamp(ts) => ts.to_string(),
@@ -1043,7 +1065,9 @@ impl ExpressionEvaluator {
                                         FieldValue::Array(arr) => format!("{:?}", arr),
                                         FieldValue::Map(map) => format!("{:?}", map),
                                         FieldValue::Struct(s) => format!("{:?}", s),
-                                        FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                        FieldValue::Interval { value, unit } => {
+                                            format!("{} {:?}", value, unit)
+                                        }
                                         FieldValue::Null => return Ok(FieldValue::Null),
                                     };
                                     if left_val == *other {
@@ -1052,7 +1076,9 @@ impl ExpressionEvaluator {
                                         Ok(FieldValue::String(format!("{}{}", s, other_str)))
                                     }
                                 }
-                                (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Null)
+                                }
                                 (left, right) => {
                                     // Convert both to strings and concatenate
                                     let left_str = match left {
@@ -1065,7 +1091,11 @@ impl ExpressionEvaluator {
                                             if divisor == 1 {
                                                 value.to_string()
                                             } else {
-                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                                format!(
+                                                    "{:.prec$}",
+                                                    *value as f64 / divisor as f64,
+                                                    prec = *scale as usize
+                                                )
                                             }
                                         }
                                         FieldValue::Timestamp(ts) => ts.to_string(),
@@ -1089,7 +1119,11 @@ impl ExpressionEvaluator {
                                             if divisor == 1 {
                                                 value.to_string()
                                             } else {
-                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                                format!(
+                                                    "{:.prec$}",
+                                                    *value as f64 / divisor as f64,
+                                                    prec = *scale as usize
+                                                )
                                             }
                                         }
                                         FieldValue::Timestamp(ts) => ts.to_string(),

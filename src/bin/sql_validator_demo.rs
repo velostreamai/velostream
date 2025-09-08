@@ -2,10 +2,7 @@
 //!
 //! This demo program shows the internal workings of SQL validation step by step.
 
-use ferrisstreams::ferris::sql::{
-    query_analyzer::QueryAnalyzer,
-    StreamingSqlParser,
-};
+use ferrisstreams::ferris::sql::{query_analyzer::QueryAnalyzer, StreamingSqlParser};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 SQL Validator Internal Process Demo");
@@ -19,23 +16,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let test_queries = vec![
         ("Simple SELECT", "SELECT id, name FROM users"),
         ("SELECT with semicolon", "SELECT id, name FROM users;"),
-        ("CREATE STREAM", "CREATE STREAM test AS SELECT id FROM source"),
-        ("Complex WITH clause", "CREATE STREAM test AS SELECT id FROM source WITH ('type' = 'kafka')"),
+        (
+            "CREATE STREAM",
+            "CREATE STREAM test AS SELECT id FROM source",
+        ),
+        (
+            "Complex WITH clause",
+            "CREATE STREAM test AS SELECT id FROM source WITH ('type' = 'kafka')",
+        ),
     ];
 
     for (name, query) in test_queries {
         println!("📝 Testing: {}", name);
         println!("Query: {}", query);
         println!("Results:");
-        
+
         // Step 1: SQL Parsing
         print!("  1️⃣ Parsing... ");
         match parser.parse(query) {
             Ok(parsed) => {
                 println!("✅ SUCCESS");
-                println!("     Parsed query type: {:?}", std::mem::discriminant(&parsed));
-                
-                // Step 2: Query Analysis  
+                println!(
+                    "     Parsed query type: {:?}",
+                    std::mem::discriminant(&parsed)
+                );
+
+                // Step 2: Query Analysis
                 print!("  2️⃣ Analyzing... ");
                 match analyzer.analyze(&parsed) {
                     Ok(analysis) => {
@@ -43,15 +49,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("     Sources found: {}", analysis.required_sources.len());
                         println!("     Sinks found: {}", analysis.required_sinks.len());
                         println!("     Configurations: {}", analysis.configuration.len());
-                        
+
                         // Show details
                         for source in &analysis.required_sources {
-                            println!("     📥 Source: {} (type: {:?})", source.name, source.source_type);
+                            println!(
+                                "     📥 Source: {} (type: {:?})",
+                                source.name, source.source_type
+                            );
                             for (key, value) in &source.properties {
                                 println!("        - {}: {}", key, value);
                             }
                         }
-                        
+
                         for sink in &analysis.required_sinks {
                             println!("     📤 Sink: {} (type: {:?})", sink.name, sink.sink_type);
                             for (key, value) in &sink.properties {
@@ -68,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => {
                 println!("❌ FAILED");
                 println!("     Parse error: {}", e);
-                
+
                 // Show where the error occurred
                 if let Some(pos) = extract_position(&e.to_string()) {
                     println!("     Error position: {}", pos);
@@ -76,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        
+
         println!(""); // Blank line between tests
     }
 
@@ -124,15 +133,19 @@ fn extract_position(error_msg: &str) -> Option<usize> {
 
 fn show_error_context(query: &str, position: usize) {
     println!("     Context:");
-    
+
     let chars: Vec<char> = query.chars().collect();
     let start = if position >= 10 { position - 10 } else { 0 };
-    let end = if position + 10 < chars.len() { position + 10 } else { chars.len() };
-    
+    let end = if position + 10 < chars.len() {
+        position + 10
+    } else {
+        chars.len()
+    };
+
     let before: String = chars[start..position].iter().collect();
     let at_pos = chars.get(position).unwrap_or(&' ');
     let after: String = chars[position + 1..end].iter().collect();
-    
+
     println!("        {}<[{}]>{}", before, at_pos, after);
     println!("        {}^", " ".repeat(before.len() + 1));
 }

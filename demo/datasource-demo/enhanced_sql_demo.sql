@@ -1,9 +1,10 @@
 -- SQL Application: enhanced file processing financial_transaction_processing_demo
--- Description: Enhanced Financial Transaction Processing Demo
+-- Description: Enhanced Financial Transaction Processing Demo  
 -- Description: Demonstrates FerrisStreams advanced SQL capabilities with file data sources
--- Version: 4.0.0
+-- Version: 4.1.0
 -- Author: Quantitative Trading Team
--- Data Sources: Named sources with configuration-based approach
+-- Data Sources: Named sources with configuration-based approach using kafka_config.yml
+-- Config File: demo/datasource-demo/kafka_config.yml
 -- Tag: latency:ultra-low
 -- Tag: compliance:regulatory
 
@@ -23,15 +24,8 @@ SELECT
     description
 FROM transactions_source
 WITH (
-    'transactions_source.type'='file_source',
-    'transactions_source.path'='demo/datasource-demo/demo_data/financial_transactions.csv',
-    'transactions_source.format'='csv',
-    'transactions_source.has_headers'='true',
-    'transactions_source.watching'='true',
-    'transactions_source.use_transactions'='false',
-    'transactions_source.failure_strategy'='RetryWithBackoff',
-    'transactions_source.retry_backoff'='1000',
-    'transactions_source.max_retries'='3'
+    'config.file' = 'demo/datasource-demo/kafka_config.yml',
+    'config.source' = 'transactions_source'
 );
 
 -- Basic transaction enrichment with financial metadata
