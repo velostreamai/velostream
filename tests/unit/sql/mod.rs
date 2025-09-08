@@ -30,3 +30,6 @@ pub mod context_test;
 pub mod lifecycle_test;
 
 pub mod select_statement_matching_test;
+
+// Concatenation operator tests
+pub mod concat_operator_test;

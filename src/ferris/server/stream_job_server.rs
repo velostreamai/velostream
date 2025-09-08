@@ -12,7 +12,7 @@ use crate::ferris::server::processors::{
 use crate::ferris::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
-    SqlError, StreamExecutionEngine, StreamingSqlParser,
+    SqlError, StreamExecutionEngine, StreamingSqlParser, SqlValidator,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -587,6 +587,62 @@ impl StreamJobServer {
             app.metadata.name, app.metadata.version
         );
 
+        // Pre-deployment SQL validation to prevent runtime failures
+        info!("Validating SQL application before deployment...");
+        let validator = SqlValidator::new();
+        
+        // Reconstruct the SQL content from the application statements for validation
+        let sql_content = app.statements
+            .iter()
+            .map(|stmt| stmt.sql.clone())
+            .collect::<Vec<String>>()
+            .join(";\n");
+        
+        let validation_result = validator.validate_sql_content(&sql_content);
+        
+        if !validation_result.is_valid {
+            error!("SQL validation failed for application '{}':", app.metadata.name);
+            for query_result in &validation_result.query_results {
+                if !query_result.parsing_errors.is_empty() || !query_result.configuration_errors.is_empty() {
+                    error!("Query {} (line {}): {}", 
+                           query_result.query_index + 1, 
+                           query_result.start_line,
+                           query_result.query_text.chars().take(100).collect::<String>());
+                    
+                    for error in &query_result.parsing_errors {
+                        error!("  Parsing Error: {} (line: {:?})", error.message, error.line);
+                    }
+                    
+                    for error in &query_result.configuration_errors {
+                        error!("  Configuration Error: {} (line: {:?})", error.message, error.line);
+                    }
+                }
+            }
+            
+            for global_error in &validation_result.global_errors {
+                error!("  Global Error: {}", global_error);
+            }
+            
+            for missing_config in &validation_result.configuration_summary.missing_configurations {
+                error!("  Configuration Issue: {}", missing_config);
+            }
+            
+            return Err(SqlError::parse_error(
+                format!(
+                    "SQL validation failed for application '{}'. Found {} invalid queries out of {} total queries. Deployment aborted to prevent runtime failures.",
+                    app.metadata.name,
+                    validation_result.total_queries - validation_result.valid_queries,
+                    validation_result.total_queries
+                ),
+                None
+            ));
+        }
+        
+        info!(
+            "SQL validation passed: {}/{} queries validated successfully",
+            validation_result.valid_queries, validation_result.total_queries
+        );
+
         let mut deployed_jobs = Vec::new();
 
         // Deploy statements in order
@@ -639,7 +695,7 @@ impl StreamJobServer {
                         format!("processed_data_{}", job_name) // Auto-generate topic for SELECT statements
                     };
 
-                    // Deploy the job
+                    // Deploy the job - fail entire deployment if any single job fails
                     match self
                         .deploy_job(
                             job_name.clone(),
@@ -654,11 +710,31 @@ impl StreamJobServer {
                             deployed_jobs.push(job_name);
                         }
                         Err(e) => {
-                            warn!(
-                                "Failed to deploy job '{}' from application: {:?}",
-                                job_name, e
+                            error!(
+                                "Failed to deploy job '{}' from application '{}': {:?}",
+                                job_name, app.metadata.name, e
                             );
-                            // Continue with other jobs - don't fail the entire application
+                            
+                            // CLEANUP: Stop any jobs that were already deployed to prevent partial state
+                            if !deployed_jobs.is_empty() {
+                                error!("Cleaning up {} already-deployed jobs to prevent partial deployment state", deployed_jobs.len());
+                                for cleanup_job in &deployed_jobs {
+                                    if let Err(cleanup_err) = self.stop_job(cleanup_job).await {
+                                        warn!("Failed to cleanup job '{}' during rollback: {:?}", cleanup_job, cleanup_err);
+                                    } else {
+                                        info!("Successfully cleaned up job '{}' during rollback", cleanup_job);
+                                    }
+                                }
+                            }
+                            
+                            // ABORT ENTIRE DEPLOYMENT - any single job failure should stop everything
+                            return Err(SqlError::execution_error(
+                                format!(
+                                    "Deployment of application '{}' aborted: Job '{}' failed to deploy: {}. {} previously deployed jobs were stopped to prevent partial deployment state.",
+                                    app.metadata.name, job_name, e, deployed_jobs.len()
+                                ),
+                                Some(stmt.sql.clone())
+                            ));
                         }
                     }
                 }

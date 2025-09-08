@@ -1,6 +1,11 @@
--- SQL Application: enhanced financial_transaction_processing_demo
--- Enhanced Financial Transaction Processing Demo
--- Demonstrates FerrisStreams advanced SQL capabilities with file data sources
+-- SQL Application: enhanced file processing financial_transaction_processing_demo
+-- Description: Enhanced Financial Transaction Processing Demo
+-- Description: Demonstrates FerrisStreams advanced SQL capabilities with file data sources
+-- Version: 4.0.0
+-- Author: Quantitative Trading Team
+-- Data Sources: Named sources with configuration-based approach
+-- Tag: latency:ultra-low
+-- Tag: compliance:regulatory
 
 -- =====================================================
 -- Part 1: Basic File Processing with Decimal Precision  

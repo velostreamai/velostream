@@ -1,0 +1,3 @@
+CREATE STREAM test AS
+SELECT id, name FROM users
+EMIT CHANGES;

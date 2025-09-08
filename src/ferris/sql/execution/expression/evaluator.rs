@@ -349,6 +349,96 @@ impl ExpressionEvaluator {
                     BinaryOperator::Subtract => left_val.subtract(&right_val),
                     BinaryOperator::Multiply => left_val.multiply(&right_val),
                     BinaryOperator::Divide => left_val.divide(&right_val),
+                    
+                    // String concatenation operator
+                    BinaryOperator::Concat => match (&left_val, &right_val) {
+                        (FieldValue::String(s1), FieldValue::String(s2)) => {
+                            Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                        }
+                        (FieldValue::String(s), other) | (other, FieldValue::String(s)) => {
+                            // Convert non-string to string representation and concatenate
+                            let other_str = match other {
+                                FieldValue::String(s) => s.clone(),
+                                FieldValue::Integer(i) => i.to_string(),
+                                FieldValue::Float(f) => f.to_string(),
+                                FieldValue::Boolean(b) => b.to_string(),
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    // Format scaled integer as decimal
+                                    let divisor = 10_i64.pow(*scale as u32);
+                                    if divisor == 1 {
+                                        value.to_string()
+                                    } else {
+                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                    }
+                                }
+                                FieldValue::Timestamp(ts) => ts.to_string(),
+                                FieldValue::Date(d) => d.to_string(),
+                                FieldValue::Decimal(d) => d.to_string(),
+                                FieldValue::Array(arr) => format!("{:?}", arr),
+                                FieldValue::Map(map) => format!("{:?}", map),
+                                FieldValue::Struct(s) => format!("{:?}", s),
+                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Null => "".to_string(), // SQL standard: concat with NULL gives NULL, but we'll use empty string
+                            };
+                            if left_val == *other {
+                                Ok(FieldValue::String(format!("{}{}", other_str, s)))
+                            } else {
+                                Ok(FieldValue::String(format!("{}{}", s, other_str)))
+                            }
+                        }
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                            // SQL standard: concatenation with NULL returns NULL
+                            Ok(FieldValue::Null)
+                        }
+                        (left, right) => {
+                            // Convert both non-string values to strings and concatenate
+                            let left_str = match left {
+                                FieldValue::String(s) => s.clone(),
+                                FieldValue::Integer(i) => i.to_string(),
+                                FieldValue::Float(f) => f.to_string(),
+                                FieldValue::Boolean(b) => b.to_string(),
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    let divisor = 10_i64.pow(*scale as u32);
+                                    if divisor == 1 {
+                                        value.to_string()
+                                    } else {
+                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                    }
+                                }
+                                FieldValue::Timestamp(ts) => ts.to_string(),
+                                FieldValue::Date(d) => d.to_string(),
+                                FieldValue::Decimal(d) => d.to_string(),
+                                FieldValue::Array(arr) => format!("{:?}", arr),
+                                FieldValue::Map(map) => format!("{:?}", map),
+                                FieldValue::Struct(s) => format!("{:?}", s),
+                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Null => "".to_string(),
+                            };
+                            let right_str = match right {
+                                FieldValue::String(s) => s.clone(),
+                                FieldValue::Integer(i) => i.to_string(),
+                                FieldValue::Float(f) => f.to_string(),
+                                FieldValue::Boolean(b) => b.to_string(),
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    let divisor = 10_i64.pow(*scale as u32);
+                                    if divisor == 1 {
+                                        value.to_string()
+                                    } else {
+                                        format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                    }
+                                }
+                                FieldValue::Timestamp(ts) => ts.to_string(),
+                                FieldValue::Date(d) => d.to_string(),
+                                FieldValue::Decimal(d) => d.to_string(),
+                                FieldValue::Array(arr) => format!("{:?}", arr),
+                                FieldValue::Map(map) => format!("{:?}", map),
+                                FieldValue::Struct(s) => format!("{:?}", s),
+                                FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                FieldValue::Null => "".to_string(),
+                            };
+                            Ok(FieldValue::String(format!("{}{}", left_str, right_str)))
+                        }
+                    },
 
                     // Comparison operators - return boolean values
                     BinaryOperator::Equal => Ok(FieldValue::Boolean(Self::values_equal(
@@ -928,6 +1018,94 @@ impl ExpressionEvaluator {
                             BinaryOperator::Subtract => left_val.subtract(&right_val),
                             BinaryOperator::Multiply => left_val.multiply(&right_val),
                             BinaryOperator::Divide => left_val.divide(&right_val),
+                            BinaryOperator::Concat => match (&left_val, &right_val) {
+                                (FieldValue::String(s1), FieldValue::String(s2)) => {
+                                    Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                                }
+                                (FieldValue::String(s), other) | (other, FieldValue::String(s)) => {
+                                    // Convert non-string to string and concatenate
+                                    let other_str = match other {
+                                        FieldValue::String(s) => s.clone(),
+                                        FieldValue::Integer(i) => i.to_string(),
+                                        FieldValue::Float(f) => f.to_string(),
+                                        FieldValue::Boolean(b) => b.to_string(),
+                                        FieldValue::ScaledInteger(value, scale) => {
+                                            let divisor = 10_i64.pow(*scale as u32);
+                                            if divisor == 1 {
+                                                value.to_string()
+                                            } else {
+                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                            }
+                                        }
+                                        FieldValue::Timestamp(ts) => ts.to_string(),
+                                        FieldValue::Date(d) => d.to_string(),
+                                        FieldValue::Decimal(d) => d.to_string(),
+                                        FieldValue::Array(arr) => format!("{:?}", arr),
+                                        FieldValue::Map(map) => format!("{:?}", map),
+                                        FieldValue::Struct(s) => format!("{:?}", s),
+                                        FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+                                        FieldValue::Null => return Ok(FieldValue::Null),
+                                    };
+                                    if left_val == *other {
+                                        Ok(FieldValue::String(format!("{}{}", other_str, s)))
+                                    } else {
+                                        Ok(FieldValue::String(format!("{}{}", s, other_str)))
+                                    }
+                                }
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                                (left, right) => {
+                                    // Convert both to strings and concatenate
+                                    let left_str = match left {
+                                        FieldValue::String(s) => s.clone(),
+                                        FieldValue::Integer(i) => i.to_string(),
+                                        FieldValue::Float(f) => f.to_string(),
+                                        FieldValue::Boolean(b) => b.to_string(),
+                                        FieldValue::ScaledInteger(value, scale) => {
+                                            let divisor = 10_i64.pow(*scale as u32);
+                                            if divisor == 1 {
+                                                value.to_string()
+                                            } else {
+                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                            }
+                                        }
+                                        FieldValue::Timestamp(ts) => ts.to_string(),
+                                        FieldValue::Date(d) => d.to_string(),
+                                        FieldValue::Decimal(d) => d.to_string(),
+                                        FieldValue::Array(arr) => format!("{:?}", arr),
+                                        FieldValue::Map(map) => format!("{:?}", map),
+                                        FieldValue::Struct(fields) => format!("{:?}", fields),
+                                        FieldValue::Interval { value, unit } => {
+                                            format!("{} {:?}", value, unit)
+                                        }
+                                        FieldValue::Null => "".to_string(),
+                                    };
+                                    let right_str = match right {
+                                        FieldValue::String(s) => s.clone(),
+                                        FieldValue::Integer(i) => i.to_string(),
+                                        FieldValue::Float(f) => f.to_string(),
+                                        FieldValue::Boolean(b) => b.to_string(),
+                                        FieldValue::ScaledInteger(value, scale) => {
+                                            let divisor = 10_i64.pow(*scale as u32);
+                                            if divisor == 1 {
+                                                value.to_string()
+                                            } else {
+                                                format!("{:.prec$}", *value as f64 / divisor as f64, prec = *scale as usize)
+                                            }
+                                        }
+                                        FieldValue::Timestamp(ts) => ts.to_string(),
+                                        FieldValue::Date(d) => d.to_string(),
+                                        FieldValue::Decimal(d) => d.to_string(),
+                                        FieldValue::Array(arr) => format!("{:?}", arr),
+                                        FieldValue::Map(map) => format!("{:?}", map),
+                                        FieldValue::Struct(fields) => format!("{:?}", fields),
+                                        FieldValue::Interval { value, unit } => {
+                                            format!("{} {:?}", value, unit)
+                                        }
+                                        FieldValue::Null => "".to_string(),
+                                    };
+                                    Ok(FieldValue::String(format!("{}{}", left_str, right_str)))
+                                }
+                            },
                             _ => Err(SqlError::ExecutionError {
                                 message: format!(
                                     "Binary operator {:?} not supported in value context",

@@ -143,6 +143,8 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Stream properties (replication factor, partitions, etc.)
         properties: HashMap<String, String>,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE STREAM AS SELECT ... INTO statement for source-to-sink streaming.
     ///
@@ -159,6 +161,8 @@ pub enum StreamingQuery {
         into_clause: IntoClause,
         /// Enhanced configuration properties with multi-config support
         properties: ConfigProperties,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
@@ -174,6 +178,8 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Table properties (retention, compaction, etc.)
         properties: HashMap<String, String>,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE TABLE AS SELECT ... INTO statement for source-to-sink table creation.
     ///
@@ -191,6 +197,8 @@ pub enum StreamingQuery {
         into_clause: IntoClause,
         /// Enhanced configuration properties with multi-config support
         properties: ConfigProperties,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// SHOW/LIST commands for discovering available resources.
     ///
@@ -632,6 +640,7 @@ pub enum BinaryOperator {
     // String operations
     Like,
     NotLike,
+    Concat, // || concatenation operator
 
     // Set operations
     In,

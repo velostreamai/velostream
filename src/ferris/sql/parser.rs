@@ -215,6 +215,7 @@ enum TokenType {
     #[allow(dead_code)]
     Multiply, // * (when used as operator)
     Divide, // /
+    Concat, // || (string concatenation)
 
     // Comparison Operators
     Equal,              // =
@@ -264,7 +265,8 @@ enum TokenType {
     Over,      // OVER
 
     // Special
-    Eof, // End of input
+    Eof,       // End of input
+    Semicolon, // ; (statement terminator)
 }
 
 /// A token with its type, value, and position information.
@@ -482,6 +484,15 @@ impl StreamingSqlParser {
                     chars.next();
                     position += 1;
                 }
+                ';' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Semicolon,
+                        value: ";".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
                 '*' => {
                     // We need to determine context - for now, always treat as asterisk
                     // The parser will handle multiplication vs wildcard contexts
@@ -640,6 +651,24 @@ impl StreamingSqlParser {
                     } else {
                         return Err(SqlError::ParseError {
                             message: "Unexpected character '!' - did you mean '!='?".to_string(),
+                            position: Some(position - 1),
+                        });
+                    }
+                }
+                '|' => {
+                    chars.next();
+                    position += 1;
+                    if let Some(&'|') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::Concat,
+                            value: "||".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Unexpected character '|' - did you mean '||' for concatenation?".to_string(),
                             position: Some(position - 1),
                         });
                     }
@@ -969,6 +998,9 @@ impl<'a> TokenParser<'a> {
             StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
+        // Consume optional semicolon
+        self.consume_semicolon();
+
         Ok(StreamingQuery::Select {
             fields,
             from: from_source,
@@ -1155,7 +1187,7 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, SqlError> {
-        let mut left = self.parse_additive()?;
+        let mut left = self.parse_concatenative()?;
 
         while matches!(
             self.current_token().token_type,
@@ -1321,6 +1353,22 @@ impl<'a> TokenParser<'a> {
                     right: Box::new(right),
                 };
             }
+        }
+
+        Ok(left)
+    }
+
+    fn parse_concatenative(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_additive()?;
+
+        while self.current_token().token_type == TokenType::Concat {
+            self.advance(); // consume ||
+            let right = self.parse_additive()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Concat,
+                right: Box::new(right),
+            };
         }
 
         Ok(left)
@@ -1999,12 +2047,19 @@ impl<'a> TokenParser<'a> {
                 ConfigProperties::default()
             };
 
+            // Parse optional EMIT clause for CREATE STREAM INTO
+            let emit_mode = self.parse_emit_clause()?;
+
+            // Consume optional semicolon
+            self.consume_semicolon();
+
             return Ok(StreamingQuery::CreateStreamInto {
                 name,
                 columns,
                 as_select,
                 into_clause,
                 properties,
+                emit_mode,
             });
         }
 
@@ -2015,11 +2070,18 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
+        // Parse optional EMIT clause for CREATE STREAM
+        let emit_mode = self.parse_emit_clause()?;
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
             as_select,
             properties,
+            emit_mode,
         })
     }
 
@@ -2048,12 +2110,19 @@ impl<'a> TokenParser<'a> {
                 ConfigProperties::default()
             };
 
+            // Parse optional EMIT clause for CREATE TABLE INTO
+            let emit_mode = self.parse_emit_clause()?;
+
+            // Consume optional semicolon
+            self.consume_semicolon();
+
             return Ok(StreamingQuery::CreateTableInto {
                 name,
                 columns,
                 as_select,
                 into_clause,
                 properties,
+                emit_mode,
             });
         }
 
@@ -2064,11 +2133,18 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
+        // Parse optional EMIT clause for CREATE TABLE
+        let emit_mode = self.parse_emit_clause()?;
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
         Ok(StreamingQuery::CreateTable {
             name,
             columns,
             as_select,
             properties,
+            emit_mode,
         })
     }
 
@@ -2291,12 +2367,47 @@ impl<'a> TokenParser<'a> {
         Ok(result)
     }
 
+    /// Parse optional EMIT clause (EMIT CHANGES or EMIT FINAL)
+    fn parse_emit_clause(&mut self) -> Result<Option<crate::ferris::sql::ast::EmitMode>, SqlError> {
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+
+            let emit_token = self.current_token().clone();
+
+            match emit_token.token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    Ok(Some(crate::ferris::sql::ast::EmitMode::Changes))
+                }
+                TokenType::Final => {
+                    self.advance();
+                    Ok(Some(crate::ferris::sql::ast::EmitMode::Final))
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(emit_token.position),
+                    });
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     fn consume_if_matches(&mut self, expected: &str) -> bool {
         if self.current_token().value.to_uppercase() == expected.to_uppercase() {
             self.advance();
             true
         } else {
             false
+        }
+    }
+
+    /// Consume an optional semicolon at the end of a statement
+    fn consume_semicolon(&mut self) {
+        if self.current_token().token_type == TokenType::Semicolon {
+            self.advance();
         }
     }
 

@@ -1,0 +1,2 @@
+SELECT id, name FROM users
+EMIT CHANGES;
