@@ -22,6 +22,7 @@ pub mod config;
 pub mod datasource;
 
 // Query analysis tests
+pub mod query_analyzer_explicit_type_test;
 pub mod query_analyzer_test;
 
 // General SQL tests

@@ -421,3 +421,79 @@ fn test_batch_configuration_with_file_sink() {
     assert_eq!(config.raw_config.get("sink.path").unwrap(), "/tmp/output.json");
     assert_eq!(config.raw_config.get("sink.format").unwrap(), "json");
 }
+
+#[test] 
+fn test_sink_failure_strategy_configuration() {
+    let parser = WithClauseParser::new();
+    
+    let with_clause = r#"
+        'sink.bootstrap.servers' = 'localhost:9092',
+        'sink.topic' = 'test-topic',
+        'sink.failure_strategy' = 'LogAndContinue',
+        'sink.batch.enable' = 'true',
+        'sink.batch.strategy' = 'fixed_size',
+        'sink.batch.size' = '100'
+    "#;
+
+    let config = parser.parse_with_clause(with_clause).unwrap();
+    
+    // Validate that failure_strategy is parsed and available in raw config
+    assert_eq!(config.raw_config.get("sink.failure_strategy").unwrap(), "LogAndContinue");
+    
+    // Validate that other sink properties are also available
+    assert_eq!(config.raw_config.get("sink.bootstrap.servers").unwrap(), "localhost:9092");
+    assert_eq!(config.raw_config.get("sink.topic").unwrap(), "test-topic");
+    
+    // Validate that batch config is still parsed correctly alongside failure strategy
+    let batch_config = config.batch_config.unwrap();
+    assert_eq!(batch_config.enable_batching, true);
+    match batch_config.strategy {
+        BatchStrategy::FixedSize(size) => assert_eq!(size, 100),
+        _ => panic!("Expected FixedSize strategy"),
+    }
+}
+
+#[test]
+fn test_all_failure_strategy_variants() {
+    let parser = WithClauseParser::new();
+    
+    let failure_strategies = vec![
+        "LogAndContinue",
+        "SendToDLQ", 
+        "FailBatch",
+        "RetryWithBackoff"
+    ];
+    
+    for strategy in failure_strategies {
+        let with_clause = format!(r#"
+            'sink.bootstrap.servers' = 'localhost:9092',
+            'sink.topic' = 'test-topic',
+            'sink.failure_strategy' = '{}'
+        "#, strategy);
+
+        let config = parser.parse_with_clause(&with_clause).unwrap();
+        
+        // Should parse successfully and be available in raw config
+        assert_eq!(config.raw_config.get("sink.failure_strategy").unwrap(), strategy);
+    }
+}
+
+#[test]
+fn test_source_failure_strategy_configuration() {
+    let parser = WithClauseParser::new();
+    
+    let with_clause = r#"
+        'source.format' = 'csv',
+        'source.failure_strategy' = 'RetryWithBackoff',
+        'source.retry_backoff' = '1000ms',
+        'source.max_retries' = '3'
+    "#;
+
+    let config = parser.parse_with_clause(with_clause).unwrap();
+    
+    // Validate source failure strategy configuration 
+    assert_eq!(config.raw_config.get("source.failure_strategy").unwrap(), "RetryWithBackoff");
+    assert_eq!(config.raw_config.get("source.retry_backoff").unwrap(), "1000ms");
+    assert_eq!(config.raw_config.get("source.max_retries").unwrap(), "3");
+    assert_eq!(config.raw_config.get("source.format").unwrap(), "csv");
+}
