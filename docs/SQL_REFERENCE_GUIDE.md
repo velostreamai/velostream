@@ -24,6 +24,7 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
    - [CASE WHEN Expressions](#case-when-expressions)
    - [INTERVAL Arithmetic](#interval-arithmetic)
    - [Set Operations (IN/NOT IN)](#set-operations-in-not-in)
+   - [Binary Operators](#binary-operators)
 9. [JSON Processing](#json-processing)
 10. [System Columns](#system-columns)
 11. [Window Operations](#window-operations)
@@ -1681,6 +1682,8 @@ FROM products;
 SELECT 
     customer_id,
     CONCAT('Customer: ', first_name, ' ', last_name) as full_name,
+    'exported_' || UNIX_TIMESTAMP() as export_id,         -- || concatenation operator
+    first_name || ' ' || last_name as concatenated_name,  -- Chaining || operators
     LENGTH(description) as desc_length,
     LEN(product_code) as code_length
 FROM customers;
@@ -3488,8 +3491,9 @@ FROM events;
 - `POWER(base, exponent)`, `POW(base, exponent)` - Exponentiation
 - `SQRT(number)` - Square root
 
-### String Functions (12 functions)
+### String Functions (13 functions)
 - `CONCAT(str1, str2, ...)` - Concatenate strings
+- `||` (concatenation operator) - Concatenate two strings or values
 - `LENGTH(string)`, `LEN(string)` - String length in characters
 - `TRIM(string)` - Remove leading and trailing whitespace
 - `LTRIM(string)` - Remove leading whitespace
@@ -3541,24 +3545,46 @@ FROM events;
 - `IN (value1, value2, ...)` - Test if value exists in list
 - `NOT IN (value1, value2, ...)` - Test if value does not exist in list
 
+### Binary Operators (1 operator)
+- `||` (concatenation) - Concatenate strings or convert values to strings and concatenate
+
+**Usage Examples:**
+```sql
+-- String concatenation
+SELECT 'Hello' || ' World' as greeting;                    -- Result: 'Hello World'
+
+-- Mixed type concatenation (automatic type conversion)
+SELECT 'Order #' || order_id || ' - $' || amount as description;
+
+-- NULL handling (concatenation with NULL returns NULL)
+SELECT 'Value: ' || null_column as result;                 -- Result: NULL
+
+-- Chained concatenation
+SELECT first_name || ' ' || middle_name || ' ' || last_name as full_name;
+
+-- User's example pattern
+SELECT 'exported_' || UNIX_TIMESTAMP() as export_id;
+```
+
 ### System Columns (3 columns)
 - `_timestamp` - Kafka message timestamp
 - `_offset` - Kafka message offset
 - `_partition` - Kafka partition number
 
-**Total: 67 functions/operators + 3 system columns**
+**Total: 68 functions/operators + 3 system columns**
 
 ### Function Categories Summary
 - **Window Functions:** 11 functions for row-by-row analysis
 - **Statistical Functions:** 7 functions for advanced analytics  
 - **Math Functions:** 7 functions for numeric operations
-- **String Functions:** 12 functions for text processing
+- **String Functions:** 13 functions for text processing
 - **Date/Time Functions:** 5 functions for temporal operations
 - **Utility Functions:** 6 functions for data manipulation
 - **Aggregate Functions:** 7 functions for group operations
 - **JSON Functions:** 2 functions for JSON processing
 - **Header Functions:** 5 functions for message metadata
 - **Set Operations:** 2 operators for list membership testing
+- **Binary Operators:** 1 operator for string concatenation
 - **System Columns:** 3 columns for Kafka metadata
 
 ## Performance Configuration
