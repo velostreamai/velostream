@@ -7,6 +7,7 @@ use crate::ferris::datasource::{DataReader, DataWriter};
 use crate::ferris::server::processors::common::*;
 use crate::ferris::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -24,6 +25,102 @@ impl SimpleJobProcessor {
     /// Get reference to the job processing configuration
     pub fn get_config(&self) -> &JobProcessingConfig {
         &self.config
+    }
+
+    /// Process records from multiple datasources with multiple sinks (multi-source/sink processing)
+    pub async fn process_multi_job(
+        &self,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
+        engine: Arc<Mutex<StreamExecutionEngine>>,
+        query: StreamingQuery,
+        job_name: String,
+        mut shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stats = JobExecutionStats::new();
+
+        info!(
+            "Job '{}' starting multi-source simple processing with {} sources and {} sinks",
+            job_name,
+            readers.len(),
+            writers.len()
+        );
+
+        // Log comprehensive configuration details
+        log_job_configuration(&job_name, &self.config);
+
+        // Create enhanced context with multiple sources and sinks
+        let mut context =
+            crate::ferris::sql::execution::processors::ProcessorContext::new_with_sources(
+                &job_name, readers, writers,
+            );
+
+        // Copy engine state to context
+        {
+            let engine_lock = engine.lock().await;
+            // Context is already prepared by engine.prepare_context() above
+        }
+
+        loop {
+            // Check for shutdown signal
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Job '{}' received shutdown signal", job_name);
+                break;
+            }
+
+            // Process from all sources
+            match self
+                .process_multi_source_batch(&mut context, &engine, &query, &job_name, &mut stats)
+                .await
+            {
+                Ok(()) => {
+                    if self.config.log_progress
+                        && stats.batches_processed % self.config.progress_interval == 0
+                    {
+                        log_job_progress(&job_name, &stats);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Job '{}' multi-source batch processing failed: {:?}",
+                        job_name, e
+                    );
+                    stats.batches_failed += 1;
+
+                    // Apply retry backoff
+                    tokio::time::sleep(self.config.retry_backoff).await;
+                }
+            }
+        }
+
+        // Commit all sources and flush all sinks
+        info!(
+            "Job '{}' shutting down, committing sources and flushing sinks",
+            job_name
+        );
+
+        for source_name in context.list_sources() {
+            if let Err(e) = context.commit_source(&source_name).await {
+                warn!(
+                    "Job '{}': Failed to commit source '{}': {:?}",
+                    job_name, source_name, e
+                );
+            } else {
+                info!(
+                    "Job '{}': Successfully committed source '{}'",
+                    job_name, source_name
+                );
+            }
+        }
+
+        if let Err(e) = context.flush_all().await {
+            warn!("Job '{}': Failed to flush all sinks: {:?}", job_name, e);
+        } else {
+            info!("Job '{}': Successfully flushed all sinks", job_name);
+        }
+
+        log_final_stats(&job_name, &stats);
+        Ok(stats)
     }
 
     /// Process records from a datasource with best-effort semantics
@@ -283,6 +380,154 @@ impl SimpleJobProcessor {
                 error!("Job '{}': Source commit failed: {:?}", job_name, e);
                 return Err(format!("Source commit failed: {:?}", e).into());
             }
+        }
+
+        Ok(())
+    }
+
+    /// Process a batch from multiple sources using StreamExecutionEngine's multi-source support
+    async fn process_multi_source_batch(
+        &self,
+        context: &mut crate::ferris::sql::execution::processors::ProcessorContext,
+        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        query: &StreamingQuery,
+        job_name: &str,
+        stats: &mut JobExecutionStats,
+    ) -> DataSourceResult<()> {
+        debug!(
+            "Job '{}': Starting multi-source batch processing cycle",
+            job_name
+        );
+
+        let source_names = context.list_sources();
+        if source_names.is_empty() {
+            warn!("Job '{}': No sources available for processing", job_name);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            return Ok(());
+        }
+
+        let mut total_records_processed = 0;
+        let mut total_records_failed = 0;
+        let mut all_output_records: Vec<crate::ferris::sql::execution::StreamRecord> = Vec::new();
+
+        // Process records from each source
+        for source_name in &source_names {
+            context.set_active_reader(source_name)?;
+
+            // Read batch from current source
+            let batch = context.read().await?;
+            if batch.is_empty() {
+                debug!(
+                    "Job '{}': No data from source '{}', skipping",
+                    job_name, source_name
+                );
+                continue;
+            }
+
+            debug!(
+                "Job '{}': Read {} records from source '{}'",
+                job_name,
+                batch.len(),
+                source_name
+            );
+
+            // Process batch through SQL engine using execute_with_sources
+            {
+                let mut engine_lock = engine.lock().await;
+
+                for record in batch {
+                    match engine_lock.execute_with_record(query, record).await {
+                        Ok(()) => {
+                            total_records_processed += 1;
+                        }
+                        Err(e) => {
+                            total_records_failed += 1;
+                            match self.config.failure_strategy {
+                                FailureStrategy::LogAndContinue => {
+                                    warn!(
+                                        "Job '{}': Record processing failed (continuing): {:?}",
+                                        job_name, e
+                                    );
+                                }
+                                FailureStrategy::FailBatch => {
+                                    error!(
+                                        "Job '{}': Record processing failed (failing batch): {:?}",
+                                        job_name, e
+                                    );
+                                    return Err(format!(
+                                        "Batch failed due to record processing error: {:?}",
+                                        e
+                                    )
+                                    .into());
+                                }
+                                FailureStrategy::RetryWithBackoff => {
+                                    error!(
+                                        "Job '{}': Record processing failed (will retry): {:?}",
+                                        job_name, e
+                                    );
+                                    return Err(format!(
+                                        "Record processing failed, will retry: {:?}",
+                                        e
+                                    )
+                                    .into());
+                                }
+                                FailureStrategy::SendToDLQ => {
+                                    warn!("Job '{}': Record processing failed, would send to DLQ (not implemented): {:?}", job_name, e);
+                                    // TODO: Implement DLQ functionality
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sync state back to context
+                // Context state already updated by engine.execute_batch() above
+            }
+        }
+
+        // Determine if batch should be committed
+        let should_commit =
+            should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
+
+        if should_commit {
+            // Commit all sources
+            for source_name in &source_names {
+                if let Err(e) = context.commit_source(source_name).await {
+                    warn!(
+                        "Job '{}': Failed to commit source '{}': {:?}",
+                        job_name, source_name, e
+                    );
+                    if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                        return Err(
+                            format!("Failed to commit source '{}': {:?}", source_name, e).into(),
+                        );
+                    }
+                }
+            }
+
+            // Flush all sinks
+            if let Err(e) = context.flush_all().await {
+                warn!("Job '{}': Failed to flush sinks: {:?}", job_name, e);
+                if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                    return Err(format!("Failed to flush sinks: {:?}", e).into());
+                }
+            }
+
+            // Update stats
+            stats.batches_processed += 1;
+            stats.records_processed += total_records_processed as u64;
+            stats.records_failed += total_records_failed as u64;
+
+            debug!(
+                "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed",
+                job_name, total_records_processed, total_records_failed
+            );
+        } else {
+            stats.batches_failed += 1;
+            warn!(
+                "Job '{}': Skipping commit due to {} failures",
+                job_name, total_records_failed
+            );
         }
 
         Ok(())

@@ -217,6 +217,15 @@ pub enum SqlError {
         /// Name of the table that was not found
         table_name: String,
     },
+
+    /// Configuration errors for source/sink setup.
+    ///
+    /// Occurs when source or sink configurations are missing, invalid,
+    /// or incompatible with the required type specifications.
+    ConfigurationError {
+        /// Description of the configuration error
+        message: String,
+    },
 }
 
 impl fmt::Display for SqlError {
@@ -279,6 +288,9 @@ impl fmt::Display for SqlError {
             }
             SqlError::TableNotFound { table_name } => {
                 write!(f, "Table '{}' not found", table_name)
+            }
+            SqlError::ConfigurationError { message } => {
+                write!(f, "Configuration error: {}", message)
             }
         }
     }

@@ -4,8 +4,7 @@
 //! directly accessible via WITH clauses in SQL.
 
 use ferrisstreams::ferris::{
-    datasource::BatchStrategy,
-    sql::config::with_clause_parser::WithClauseParser,
+    datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
 };
 use std::time::Duration;
 
@@ -42,7 +41,7 @@ async fn test_basic_fixed_size_batch() -> Result<(), Box<dyn std::error::Error +
     println!("🚀 Test 1: Basic Fixed Size Batch Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -54,14 +53,14 @@ async fn test_basic_fixed_size_batch() -> Result<(), Box<dyn std::error::Error +
     "#;
 
     let config = parser.parse_with_clause(with_clause)?;
-    
+
     assert!(config.batch_config.is_some());
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1000);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(500));
-    
+
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => {
             assert_eq!(size, 250);
@@ -81,7 +80,7 @@ async fn test_time_window_batch() -> Result<(), Box<dyn std::error::Error + Send
     println!("🚀 Test 2: Time Window Batch Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'time-window-topic',
@@ -92,7 +91,7 @@ async fn test_time_window_batch() -> Result<(), Box<dyn std::error::Error + Send
 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
         BatchStrategy::TimeWindow(duration) => {
             assert_eq!(duration, Duration::from_secs(2));
@@ -100,7 +99,7 @@ async fn test_time_window_batch() -> Result<(), Box<dyn std::error::Error + Send
         }
         _ => return Err("Expected TimeWindow strategy".into()),
     }
-    
+
     assert_eq!(batch_config.max_batch_size, 500);
     println!("  ✅ Max batch size: {}\n", batch_config.max_batch_size);
 
@@ -111,7 +110,7 @@ async fn test_low_latency_batch() -> Result<(), Box<dyn std::error::Error + Send
     println!("🚀 Test 3: Low Latency Batch Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'low-latency-topic',
@@ -123,9 +122,13 @@ async fn test_low_latency_batch() -> Result<(), Box<dyn std::error::Error + Send
 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
-        BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing } => {
+        BatchStrategy::LowLatency {
+            max_batch_size,
+            max_wait_time,
+            eager_processing,
+        } => {
             assert_eq!(max_batch_size, 3);
             assert_eq!(max_wait_time, Duration::from_millis(1));
             assert_eq!(eager_processing, true);
@@ -144,7 +147,7 @@ async fn test_memory_based_batch() -> Result<(), Box<dyn std::error::Error + Sen
     println!("🚀 Test 4: Memory-Based Batch Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'memory-based-topic',
@@ -154,11 +157,15 @@ async fn test_memory_based_batch() -> Result<(), Box<dyn std::error::Error + Sen
 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
         BatchStrategy::MemoryBased(size) => {
             assert_eq!(size, 2097152); // 2MB
-            println!("  ✅ Memory-based batch size: {} bytes ({}MB)", size, size / (1024 * 1024));
+            println!(
+                "  ✅ Memory-based batch size: {} bytes ({}MB)",
+                size,
+                size / (1024 * 1024)
+            );
         }
         _ => return Err("Expected MemoryBased strategy".into()),
     }
@@ -171,7 +178,7 @@ async fn test_adaptive_size_batch() -> Result<(), Box<dyn std::error::Error + Se
     println!("🚀 Test 5: Adaptive Size Batch Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'adaptive-topic',
@@ -183,9 +190,13 @@ async fn test_adaptive_size_batch() -> Result<(), Box<dyn std::error::Error + Se
 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
-        BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
+        BatchStrategy::AdaptiveSize {
+            min_size,
+            max_size,
+            target_latency,
+        } => {
             assert_eq!(min_size, 25);
             assert_eq!(max_size, 800);
             assert_eq!(target_latency, Duration::from_millis(120));
@@ -204,7 +215,7 @@ async fn test_batch_disabled() -> Result<(), Box<dyn std::error::Error + Send + 
     println!("🚀 Test 6: Batch Disabled Configuration");
 
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'disabled-batch-topic',
@@ -213,9 +224,12 @@ async fn test_batch_disabled() -> Result<(), Box<dyn std::error::Error + Send + 
 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, false);
-    println!("  ✅ Batching disabled: {}\n", !batch_config.enable_batching);
+    println!(
+        "  ✅ Batching disabled: {}\n",
+        !batch_config.enable_batching
+    );
 
     Ok(())
 }
@@ -224,7 +238,7 @@ async fn test_invalid_configuration() -> Result<(), Box<dyn std::error::Error + 
     println!("🚀 Test 7: Invalid Configuration Error Handling");
 
     let parser = WithClauseParser::new();
-    
+
     // Test invalid batch strategy
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',

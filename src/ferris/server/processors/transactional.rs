@@ -7,6 +7,7 @@ use crate::ferris::datasource::{DataReader, DataWriter};
 use crate::ferris::server::processors::common::*;
 use crate::ferris::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -24,6 +25,125 @@ impl TransactionalJobProcessor {
     /// Get reference to the job processing configuration
     pub fn get_config(&self) -> &JobProcessingConfig {
         &self.config
+    }
+
+    /// Process records from multiple datasources with multiple sinks (transactional multi-source processing)
+    pub async fn process_multi_job(
+        &self,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
+        engine: Arc<Mutex<StreamExecutionEngine>>,
+        query: StreamingQuery,
+        job_name: String,
+        mut shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        let mut stats = JobExecutionStats::new();
+
+        info!(
+            "Job '{}' starting multi-source transactional processing with {} sources and {} sinks",
+            job_name,
+            readers.len(),
+            writers.len()
+        );
+
+        // Check transaction support for all readers and writers
+        let readers_support_tx: HashMap<String, bool> = readers
+            .iter()
+            .map(|(name, reader)| (name.clone(), reader.supports_transactions()))
+            .collect();
+        let writers_support_tx: HashMap<String, bool> = writers
+            .iter()
+            .map(|(name, writer)| (name.clone(), writer.supports_transactions()))
+            .collect();
+
+        info!(
+            "Job '{}': Transaction support - Sources: {:?}, Sinks: {:?}",
+            job_name, readers_support_tx, writers_support_tx
+        );
+
+        // Log comprehensive configuration details
+        log_job_configuration(&job_name, &self.config);
+
+        // Create enhanced context with multiple sources and sinks
+        let mut context =
+            crate::ferris::sql::execution::processors::ProcessorContext::new_with_sources(
+                &job_name, readers, writers,
+            );
+
+        // Copy engine state to context
+        {
+            let engine_lock = engine.lock().await;
+            // Context is already prepared by engine.prepare_context() above
+        }
+
+        loop {
+            // Check for shutdown signal
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Job '{}' received shutdown signal", job_name);
+                break;
+            }
+
+            // Process transactional batch from all sources
+            match self
+                .process_multi_source_transactional_batch(
+                    &mut context,
+                    &engine,
+                    &query,
+                    &job_name,
+                    &readers_support_tx,
+                    &writers_support_tx,
+                    &mut stats,
+                )
+                .await
+            {
+                Ok(()) => {
+                    if self.config.log_progress
+                        && stats.batches_processed % self.config.progress_interval == 0
+                    {
+                        log_job_progress(&job_name, &stats);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Job '{}' transactional multi-source batch processing failed: {:?}",
+                        job_name, e
+                    );
+                    stats.batches_failed += 1;
+
+                    // Apply retry backoff
+                    tokio::time::sleep(self.config.retry_backoff).await;
+                }
+            }
+        }
+
+        // Final commit all sources and flush all sinks
+        info!(
+            "Job '{}' shutting down, committing sources and flushing sinks",
+            job_name
+        );
+
+        for source_name in context.list_sources() {
+            if let Err(e) = context.commit_source(&source_name).await {
+                warn!(
+                    "Job '{}': Failed to commit source '{}': {:?}",
+                    job_name, source_name, e
+                );
+            } else {
+                info!(
+                    "Job '{}': Successfully committed source '{}'",
+                    job_name, source_name
+                );
+            }
+        }
+
+        if let Err(e) = context.flush_all().await {
+            warn!("Job '{}': Failed to flush all sinks: {:?}", job_name, e);
+        } else {
+            info!("Job '{}': Successfully flushed all sinks", job_name);
+        }
+
+        log_final_stats(&job_name, &stats);
+        Ok(stats)
     }
 
     /// Process records from a datasource with transactional guarantees
@@ -375,6 +495,368 @@ impl TransactionalJobProcessor {
             }
         }
 
+        Ok(())
+    }
+
+    /// Process a batch from multiple sources with full transactional semantics
+    async fn process_multi_source_transactional_batch(
+        &self,
+        context: &mut crate::ferris::sql::execution::processors::ProcessorContext,
+        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        query: &StreamingQuery,
+        job_name: &str,
+        readers_support_tx: &HashMap<String, bool>,
+        writers_support_tx: &HashMap<String, bool>,
+        stats: &mut JobExecutionStats,
+    ) -> DataSourceResult<()> {
+        debug!(
+            "Job '{}': Starting multi-source transactional batch processing cycle",
+            job_name
+        );
+
+        let source_names = context.list_sources();
+        if source_names.is_empty() {
+            warn!("Job '{}': No sources available for processing", job_name);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            return Ok(());
+        }
+
+        // Begin transactions for all supported sources and sinks
+        let mut active_reader_transactions = HashMap::new();
+        let mut active_writer_transactions = HashMap::new();
+
+        // Begin reader transactions
+        for source_name in &source_names {
+            if *readers_support_tx.get(source_name).unwrap_or(&false) {
+                context.set_active_reader(source_name)?;
+                match context.begin_reader_transaction().await {
+                    Ok(true) => {
+                        debug!(
+                            "Job '{}': Started transaction for source '{}'",
+                            job_name, source_name
+                        );
+                        active_reader_transactions.insert(source_name.clone(), true);
+                    }
+                    Ok(false) => {
+                        warn!("Job '{}': Source '{}' claimed transaction support but begin_transaction returned false", 
+                              job_name, source_name);
+                        active_reader_transactions.insert(source_name.clone(), false);
+                    }
+                    Err(e) => {
+                        error!(
+                            "Job '{}': Failed to start transaction for source '{}': {:?}",
+                            job_name, source_name, e
+                        );
+                        // Abort all transactions started so far
+                        self.abort_multi_source_transactions(
+                            context,
+                            &active_reader_transactions,
+                            &active_writer_transactions,
+                            job_name,
+                        )
+                        .await?;
+                        return Err(format!(
+                            "Failed to start transaction for source '{}': {:?}",
+                            source_name, e
+                        )
+                        .into());
+                    }
+                }
+            } else {
+                active_reader_transactions.insert(source_name.clone(), false);
+            }
+        }
+
+        // Begin writer transactions
+        let sink_names = context.list_sinks();
+        for sink_name in &sink_names {
+            if *writers_support_tx.get(sink_name).unwrap_or(&false) {
+                context.set_active_writer(sink_name)?;
+                match context.begin_writer_transaction().await {
+                    Ok(true) => {
+                        debug!(
+                            "Job '{}': Started transaction for sink '{}'",
+                            job_name, sink_name
+                        );
+                        active_writer_transactions.insert(sink_name.clone(), true);
+                    }
+                    Ok(false) => {
+                        warn!("Job '{}': Sink '{}' claimed transaction support but begin_transaction returned false", 
+                              job_name, sink_name);
+                        active_writer_transactions.insert(sink_name.clone(), false);
+                    }
+                    Err(e) => {
+                        error!(
+                            "Job '{}': Failed to start transaction for sink '{}': {:?}",
+                            job_name, sink_name, e
+                        );
+                        // Abort all transactions
+                        self.abort_multi_source_transactions(
+                            context,
+                            &active_reader_transactions,
+                            &active_writer_transactions,
+                            job_name,
+                        )
+                        .await?;
+                        return Err(format!(
+                            "Failed to start transaction for sink '{}': {:?}",
+                            sink_name, e
+                        )
+                        .into());
+                    }
+                }
+            } else {
+                active_writer_transactions.insert(sink_name.clone(), false);
+            }
+        }
+
+        let mut total_records_processed = 0;
+        let mut total_records_failed = 0;
+        let mut processing_successful = true;
+
+        // Process records from all sources within the transaction
+        for source_name in &source_names {
+            context.set_active_reader(source_name)?;
+
+            let batch = context.read().await?;
+            if batch.is_empty() {
+                debug!(
+                    "Job '{}': No data from source '{}', skipping",
+                    job_name, source_name
+                );
+                continue;
+            }
+
+            debug!(
+                "Job '{}': Read {} records from source '{}' within transaction",
+                job_name,
+                batch.len(),
+                source_name
+            );
+
+            // Process batch through SQL engine
+            {
+                let mut engine_lock = engine.lock().await;
+
+                for record in batch {
+                    match engine_lock.execute_with_record(query, record).await {
+                        Ok(()) => {
+                            total_records_processed += 1;
+                        }
+                        Err(e) => {
+                            total_records_failed += 1;
+                            error!(
+                                "Job '{}': Record processing failed within transaction: {:?}",
+                                job_name, e
+                            );
+
+                            match self.config.failure_strategy {
+                                FailureStrategy::FailBatch => {
+                                    processing_successful = false;
+                                    break; // Exit record processing loop
+                                }
+                                FailureStrategy::LogAndContinue => {
+                                    warn!(
+                                        "Job '{}': Record failed but continuing within transaction",
+                                        job_name
+                                    );
+                                }
+                                FailureStrategy::RetryWithBackoff => {
+                                    processing_successful = false;
+                                    break; // Exit to retry
+                                }
+                                FailureStrategy::SendToDLQ => {
+                                    warn!("Job '{}': Record failed, would send to DLQ (not implemented)", job_name);
+                                    // TODO: Implement DLQ functionality
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sync state
+                // Context state already updated by engine.execute_batch() above
+            }
+
+            if !processing_successful {
+                break; // Exit source processing loop
+            }
+        }
+
+        // Determine transaction outcome
+        let should_commit = processing_successful
+            && should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
+
+        if should_commit {
+            // Commit all transactions
+            match self
+                .commit_multi_source_transactions(
+                    context,
+                    &active_reader_transactions,
+                    &active_writer_transactions,
+                    job_name,
+                )
+                .await
+            {
+                Ok(()) => {
+                    stats.batches_processed += 1;
+                    stats.records_processed += total_records_processed as u64;
+                    stats.records_failed += total_records_failed as u64;
+
+                    info!(
+                        "Job '{}': Successfully committed multi-source transactional batch - {} records processed, {} failed",
+                        job_name, total_records_processed, total_records_failed
+                    );
+                }
+                Err(e) => {
+                    error!("Job '{}': Failed to commit transactions: {:?}", job_name, e);
+                    // Attempt abort
+                    let _ = self
+                        .abort_multi_source_transactions(
+                            context,
+                            &active_reader_transactions,
+                            &active_writer_transactions,
+                            job_name,
+                        )
+                        .await;
+                    stats.batches_failed += 1;
+                    return Err(e);
+                }
+            }
+        } else {
+            // Abort all transactions
+            warn!(
+                "Job '{}': Aborting multi-source transaction due to processing failures - {} records failed",
+                job_name, total_records_failed
+            );
+
+            self.abort_multi_source_transactions(
+                context,
+                &active_reader_transactions,
+                &active_writer_transactions,
+                job_name,
+            )
+            .await?;
+
+            stats.batches_failed += 1;
+
+            if matches!(
+                self.config.failure_strategy,
+                FailureStrategy::RetryWithBackoff
+            ) {
+                return Err(format!(
+                    "Transactional batch failed with {} record failures - will retry",
+                    total_records_failed
+                )
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Commit transactions for all active sources and sinks
+    async fn commit_multi_source_transactions(
+        &self,
+        context: &mut crate::ferris::sql::execution::processors::ProcessorContext,
+        reader_transactions: &HashMap<String, bool>,
+        writer_transactions: &HashMap<String, bool>,
+        job_name: &str,
+    ) -> DataSourceResult<()> {
+        // Commit sinks first (write transactions)
+        for (sink_name, is_active) in writer_transactions {
+            if *is_active {
+                context.set_active_writer(sink_name)?;
+                context
+                    .commit_writer()
+                    .await
+                    .map_err(|e| format!("Failed to commit sink '{}': {:?}", sink_name, e))?;
+                debug!(
+                    "Job '{}': Committed transaction for sink '{}'",
+                    job_name, sink_name
+                );
+            }
+        }
+
+        // Then commit sources (read transactions)
+        for (source_name, is_active) in reader_transactions {
+            if *is_active {
+                context.set_active_reader(source_name)?;
+                context
+                    .commit_source(source_name)
+                    .await
+                    .map_err(|e| format!("Failed to commit source '{}': {:?}", source_name, e))?;
+                debug!(
+                    "Job '{}': Committed transaction for source '{}'",
+                    job_name, source_name
+                );
+            }
+        }
+
+        info!(
+            "Job '{}': Successfully committed all multi-source transactions",
+            job_name
+        );
+        Ok(())
+    }
+
+    /// Abort transactions for all active sources and sinks
+    async fn abort_multi_source_transactions(
+        &self,
+        context: &mut crate::ferris::sql::execution::processors::ProcessorContext,
+        reader_transactions: &HashMap<String, bool>,
+        writer_transactions: &HashMap<String, bool>,
+        job_name: &str,
+    ) -> DataSourceResult<()> {
+        // Abort sink transactions first
+        for (sink_name, is_active) in writer_transactions {
+            if *is_active {
+                if let Err(e) = context.set_active_writer(sink_name) {
+                    warn!(
+                        "Job '{}': Failed to set active writer '{}' for abort: {:?}",
+                        job_name, sink_name, e
+                    );
+                    continue;
+                }
+
+                match context.abort_writer().await {
+                    Ok(()) => debug!(
+                        "Job '{}': Aborted transaction for sink '{}'",
+                        job_name, sink_name
+                    ),
+                    Err(e) => error!(
+                        "Job '{}': Failed to abort transaction for sink '{}': {:?}",
+                        job_name, sink_name, e
+                    ),
+                }
+            }
+        }
+
+        // Then abort source transactions
+        for (source_name, is_active) in reader_transactions {
+            if *is_active {
+                if let Err(e) = context.set_active_reader(source_name) {
+                    warn!(
+                        "Job '{}': Failed to set active reader '{}' for abort: {:?}",
+                        job_name, source_name, e
+                    );
+                    continue;
+                }
+
+                match context.abort_reader().await {
+                    Ok(()) => debug!(
+                        "Job '{}': Aborted transaction for source '{}'",
+                        job_name, source_name
+                    ),
+                    Err(e) => error!(
+                        "Job '{}': Failed to abort transaction for source '{}': {:?}",
+                        job_name, source_name, e
+                    ),
+                }
+            }
+        }
+
+        warn!("Job '{}': Aborted all multi-source transactions", job_name);
         Ok(())
     }
 

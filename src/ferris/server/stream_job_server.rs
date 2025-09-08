@@ -6,12 +6,13 @@
 
 use crate::ferris::datasource::DataWriter;
 use crate::ferris::server::processors::{
-    create_datasource_reader, create_datasource_writer, process_datasource_records, DataSinkConfig,
-    DataSourceConfig, FailureStrategy, JobProcessingConfig,
+    create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
+    SimpleJobProcessor, TransactionalJobProcessor,
 };
 use crate::ferris::sql::{
-    ast::StreamingQuery, execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer,
-    SqlApplication, SqlError, StreamExecutionEngine, StreamingSqlParser,
+    ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
+    execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
+    SqlError, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -239,6 +240,9 @@ impl StreamJobServer {
         let analyzer = QueryAnalyzer::new(self.base_group_id.clone());
         let analysis = analyzer.analyze(&parsed_query)?;
 
+        // Extract batch configuration from WITH clauses
+        let batch_config = Self::extract_batch_config_from_query(&parsed_query)?;
+
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
         *counter += 1;
@@ -262,6 +266,7 @@ impl StreamJobServer {
         // Clone data for the job task
         let job_name = name.clone();
         let topic_clone = topic.clone();
+        let batch_config_clone = batch_config.clone();
 
         // Spawn output handler task to consume from SQL engine output channel
         let output_job_name = job_name.clone();
@@ -292,99 +297,176 @@ impl StreamJobServer {
 
         // Spawn the job execution task using modern datasource approach
         let execution_handle = tokio::spawn(async move {
-            info!("Starting job '{}' execution task", job_name);
+            info!(
+                "Starting job '{}' execution task with {} sources and {} sinks",
+                job_name,
+                analysis.required_sources.len(),
+                analysis.required_sinks.len()
+            );
 
-            // Create datasource and process records using helper functions
-            if let Some(requirement) = analysis.required_sources.first() {
-                let datasource_config = DataSourceConfig {
-                    requirement: requirement.clone(),
-                    default_topic: topic_clone,
-                    job_name: job_name.clone(),
-                };
+            // Use multi-source processing for all jobs (handles single-source as special case)
+            match create_multi_source_readers(
+                &analysis.required_sources,
+                &topic_clone,
+                &job_name,
+                &batch_config_clone,
+            )
+            .await
+            {
+                Ok(readers) => {
+                    info!(
+                        "Job '{}' successfully created {} data sources",
+                        job_name,
+                        readers.len()
+                    );
 
-                match create_datasource_reader(&datasource_config).await {
-                    Ok(reader) => {
-                        info!("Job '{}' successfully created datasource reader", job_name);
+                    // Create all sinks
+                    match create_multi_sink_writers(
+                        &analysis.required_sinks,
+                        &job_name,
+                        &batch_config_clone,
+                    )
+                    .await
+                    {
+                        Ok(mut writers) => {
+                            info!(
+                                "Job '{}' successfully created {} data sinks",
+                                job_name,
+                                writers.len()
+                            );
 
-                        // Create writer if sink is specified in SQL
-                        let writer = if let Some(sink_requirement) = analysis.required_sinks.first()
-                        {
-                            let sink_config = DataSinkConfig {
-                                requirement: sink_requirement.clone(),
-                                job_name: job_name.clone(),
-                            };
-                            match create_datasource_writer(&sink_config).await {
-                                Ok(writer) => {
-                                    info!(
-                                        "Job '{}' successfully created datasink writer",
-                                        job_name
-                                    );
-                                    Some(writer)
-                                }
-                                Err(e) => {
-                                    warn!("Job '{}' failed to create sink writer: {}, defaulting to stdout", job_name, e);
-                                    Some(Box::new(
-                                        crate::ferris::datasource::StdoutWriter::new_pretty(),
+                            // Add stdout as fallback if no sinks were created
+                            if writers.is_empty() {
+                                info!(
+                                    "Job '{}' no sinks created, adding stdout as default",
+                                    job_name
+                                );
+                                writers.insert(
+                                    "stdout_default".to_string(),
+                                    Box::new(crate::ferris::datasource::StdoutWriter::new_pretty())
+                                        as Box<dyn DataWriter>,
+                                );
+                            }
+
+                            // Determine processing mode and create appropriate processor
+                            let config = Self::extract_job_config_from_query(&parsed_query);
+                            let use_transactions = config.use_transactions;
+
+                            info!(
+                                "Job '{}' processing configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, log_progress={}",
+                                job_name,
+                                config.use_transactions,
+                                config.failure_strategy,
+                                config.max_batch_size,
+                                config.batch_timeout.as_millis(),
+                                config.max_retries,
+                                config.retry_backoff.as_millis(),
+                                config.log_progress
+                            );
+
+                            if use_transactions {
+                                info!("Job '{}' using transactional processor for multi-source processing", job_name);
+                                let processor = TransactionalJobProcessor::new(config);
+
+                                match processor
+                                    .process_multi_job(
+                                        readers,
+                                        writers,
+                                        execution_engine,
+                                        parsed_query,
+                                        job_name.clone(),
+                                        shutdown_receiver,
                                     )
-                                        as Box<dyn DataWriter>)
+                                    .await
+                                {
+                                    Ok(stats) => {
+                                        info!(
+                                            "Job '{}' completed successfully (transactional): {:?}",
+                                            job_name, stats
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Job '{}' failed (transactional): {:?}",
+                                            job_name, e
+                                        );
+                                    }
+                                }
+                            } else {
+                                info!(
+                                    "Job '{}' using simple processor for multi-source processing",
+                                    job_name
+                                );
+                                let processor = SimpleJobProcessor::new(config);
+
+                                match processor
+                                    .process_multi_job(
+                                        readers,
+                                        writers,
+                                        execution_engine,
+                                        parsed_query,
+                                        job_name.clone(),
+                                        shutdown_receiver,
+                                    )
+                                    .await
+                                {
+                                    Ok(stats) => {
+                                        info!(
+                                            "Job '{}' completed successfully (simple): {:?}",
+                                            job_name, stats
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!("Job '{}' failed (simple): {:?}", job_name, e);
+                                    }
                                 }
                             }
-                        } else {
+                        }
+                        Err(e) => {
                             warn!(
-                                "Job '{}': No sink specified, defaulting to stdout.",
-                                job_name
+                                "Job '{}' failed to create sinks: {}, using stdout only",
+                                job_name, e
                             );
-                            Some(
+
+                            // Create stdout-only writers map for fallback
+                            let mut fallback_writers = std::collections::HashMap::new();
+                            fallback_writers.insert(
+                                "stdout_fallback".to_string(),
                                 Box::new(crate::ferris::datasource::StdoutWriter::new_pretty())
                                     as Box<dyn DataWriter>,
-                            )
-                        };
+                            );
 
-                        let job_name_clone = job_name.clone();
-                        // Extract job processing configuration from query properties
-                        let config = Self::extract_job_config_from_query(&parsed_query);
-                        info!(
-                            "Job '{}' processing configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, log_progress={}",
-                            job_name,
-                            config.use_transactions,
-                            config.failure_strategy,
-                            config.max_batch_size,
-                            config.batch_timeout.as_millis(),
-                            config.max_retries,
-                            config.retry_backoff.as_millis(),
-                            config.log_progress
-                        );
-                        match process_datasource_records(
-                            reader,
-                            writer,
-                            execution_engine,
-                            parsed_query,
-                            job_name_clone,
-                            shutdown_receiver,
-                            config,
-                        )
-                        .await
-                        {
-                            Ok(stats) => {
-                                info!("Job '{}' completed successfully: {:?}", job_name, stats);
-                            }
-                            Err(e) => {
-                                error!("Job '{}' processing failed: {:?}", job_name, e);
+                            // Still proceed with processing using simple processor
+                            let config = Self::extract_job_config_from_query(&parsed_query);
+                            let processor = SimpleJobProcessor::new(config);
+
+                            match processor
+                                .process_multi_job(
+                                    readers,
+                                    fallback_writers,
+                                    execution_engine,
+                                    parsed_query,
+                                    job_name.clone(),
+                                    shutdown_receiver,
+                                )
+                                .await
+                            {
+                                Ok(stats) => {
+                                    info!(
+                                        "Job '{}' completed successfully (fallback): {:?}",
+                                        job_name, stats
+                                    );
+                                }
+                                Err(e) => {
+                                    error!("Job '{}' failed (fallback): {:?}", job_name, e);
+                                }
                             }
                         }
                     }
-                    Err(e) => {
-                        error!(
-                            "Job '{}' failed to create datasource reader: {}",
-                            job_name, e
-                        );
-                    }
                 }
-            } else {
-                error!(
-                    "No supported datasource found in query analysis for job '{}'",
-                    job_name
-                );
+                Err(e) => {
+                    error!("Job '{}' failed to create data sources: {}", job_name, e);
+                }
             }
         });
 
@@ -679,7 +761,57 @@ impl StreamJobServer {
             StreamingQuery::CreateStream { properties, .. } => properties.clone(),
             StreamingQuery::CreateTable { properties, .. } => properties.clone(),
             StreamingQuery::StartJob { properties, .. } => properties.clone(),
+            StreamingQuery::CreateStreamInto { properties, .. } => {
+                properties.clone().into_legacy_format()
+            }
+            StreamingQuery::CreateTableInto { properties, .. } => {
+                properties.clone().into_legacy_format()
+            }
             _ => HashMap::new(),
+        }
+    }
+
+    /// Extract batch configuration from SQL WITH clauses
+    fn extract_batch_config_from_query(
+        query: &StreamingQuery,
+    ) -> Result<Option<crate::ferris::datasource::BatchConfig>, SqlError> {
+        let properties = Self::get_query_properties(query);
+
+        if properties.is_empty() {
+            return Ok(None);
+        }
+
+        // Convert properties to WITH clause format
+        let with_clause = properties
+            .iter()
+            .map(|(k, v)| format!("'{}' = '{}'", k, v))
+            .collect::<Vec<_>>()
+            .join(",\n    ");
+
+        let with_clause_text = format!("WITH (\n    {}\n)", with_clause);
+
+        info!(
+            "Parsing WITH clause for batch configuration: {}",
+            with_clause_text
+        );
+
+        // Parse WITH clause using our batch configuration parser
+        let parser = WithClauseParser::new();
+        match parser.parse_with_clause(&with_clause_text) {
+            Ok(config) => {
+                if config.batch_config.is_some() {
+                    info!("Successfully extracted batch configuration from WITH clause");
+                    Ok(config.batch_config)
+                } else {
+                    debug!("No batch configuration found in WITH clause");
+                    Ok(None)
+                }
+            }
+            Err(e) => {
+                warn!("Failed to parse WITH clause for batch configuration: {}", e);
+                // Don't fail the job, just log and continue without batch config
+                Ok(None)
+            }
         }
     }
 }

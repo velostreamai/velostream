@@ -574,7 +574,9 @@ impl WithClauseParser {
 
     /// Check if configuration contains batch settings
     fn has_batch_config(&self, config: &HashMap<String, String>) -> bool {
-        config.keys().any(|k| k.starts_with("sink.batch.") || k.starts_with("batch."))
+        config
+            .keys()
+            .any(|k| k.starts_with("sink.batch.") || k.starts_with("batch."))
     }
 
     /// Parse schema registry configuration from validated config
@@ -698,35 +700,54 @@ impl WithClauseParser {
         let mut batch_config = BatchConfig::default();
 
         // Parse batch strategy
-        if let Some(strategy_str) = config.get("sink.batch.strategy").or(config.get("batch.strategy")) {
+        if let Some(strategy_str) = config
+            .get("sink.batch.strategy")
+            .or(config.get("batch.strategy"))
+        {
             batch_config.strategy = self.parse_batch_strategy(strategy_str, config)?;
         }
 
         // Parse max batch size
-        if let Some(max_size) = config.get("sink.batch.max_size").or(config.get("batch.max_size")) {
-            batch_config.max_batch_size = max_size.parse().map_err(|_| WithClauseError::InvalidValue {
-                key: "sink.batch.max_size".to_string(),
-                value: max_size.clone(),
-                expected: ConfigValueType::Integer,
-            })?;
+        if let Some(max_size) = config
+            .get("sink.batch.max_size")
+            .or(config.get("batch.max_size"))
+        {
+            batch_config.max_batch_size =
+                max_size
+                    .parse()
+                    .map_err(|_| WithClauseError::InvalidValue {
+                        key: "sink.batch.max_size".to_string(),
+                        value: max_size.clone(),
+                        expected: ConfigValueType::Integer,
+                    })?;
         }
 
         // Parse batch timeout
-        if let Some(timeout) = config.get("sink.batch.timeout").or(config.get("batch.timeout")) {
-            batch_config.batch_timeout = self.parse_duration(timeout).map_err(|_| WithClauseError::InvalidValue {
-                key: "sink.batch.timeout".to_string(), 
-                value: timeout.clone(),
-                expected: ConfigValueType::Duration,
-            })?;
+        if let Some(timeout) = config
+            .get("sink.batch.timeout")
+            .or(config.get("batch.timeout"))
+        {
+            batch_config.batch_timeout =
+                self.parse_duration(timeout)
+                    .map_err(|_| WithClauseError::InvalidValue {
+                        key: "sink.batch.timeout".to_string(),
+                        value: timeout.clone(),
+                        expected: ConfigValueType::Duration,
+                    })?;
         }
 
         // Parse enable batching flag
-        if let Some(enable_str) = config.get("sink.batch.enable").or(config.get("batch.enable")) {
-            batch_config.enable_batching = self.try_parse_boolean(enable_str).map_err(|_| WithClauseError::InvalidValue {
-                key: "sink.batch.enable".to_string(),
-                value: enable_str.clone(),
-                expected: ConfigValueType::Boolean,
-            })?;
+        if let Some(enable_str) = config
+            .get("sink.batch.enable")
+            .or(config.get("batch.enable"))
+        {
+            batch_config.enable_batching =
+                self.try_parse_boolean(enable_str)
+                    .map_err(|_| WithClauseError::InvalidValue {
+                        key: "sink.batch.enable".to_string(),
+                        value: enable_str.clone(),
+                        expected: ConfigValueType::Boolean,
+                    })?;
         }
 
         Ok(batch_config)
@@ -1237,9 +1258,88 @@ impl WithClauseParser {
             },
         ];
 
+        // Failure strategy configurations
+        let failure_strategy_configs = vec![
+            ConfigKeySchema {
+                key: "sink.failure_strategy".to_string(),
+                value_type: ConfigValueType::Enum(vec![
+                    "LogAndContinue".to_string(),
+                    "SendToDLQ".to_string(),
+                    "FailBatch".to_string(),
+                    "RetryWithBackoff".to_string(),
+                ]),
+                required: false,
+                default_value: Some("LogAndContinue".to_string()),
+                validation_pattern: None,
+                description: "Strategy for handling sink failures".to_string(),
+                allowed_values: Some(vec![
+                    "LogAndContinue".to_string(),
+                    "SendToDLQ".to_string(),
+                    "FailBatch".to_string(),
+                    "RetryWithBackoff".to_string(),
+                ]),
+            },
+            ConfigKeySchema {
+                key: "source.failure_strategy".to_string(),
+                value_type: ConfigValueType::Enum(vec![
+                    "LogAndContinue".to_string(),
+                    "SendToDLQ".to_string(),
+                    "FailBatch".to_string(),
+                    "RetryWithBackoff".to_string(),
+                ]),
+                required: false,
+                default_value: Some("RetryWithBackoff".to_string()),
+                validation_pattern: None,
+                description: "Strategy for handling source failures".to_string(),
+                allowed_values: Some(vec![
+                    "LogAndContinue".to_string(),
+                    "SendToDLQ".to_string(),
+                    "FailBatch".to_string(),
+                    "RetryWithBackoff".to_string(),
+                ]),
+            },
+            ConfigKeySchema {
+                key: "source.retry_backoff".to_string(),
+                value_type: ConfigValueType::Duration,
+                required: false,
+                default_value: Some("1000ms".to_string()),
+                validation_pattern: None,
+                description: "Backoff duration for retry failure strategy".to_string(),
+                allowed_values: None,
+            },
+            ConfigKeySchema {
+                key: "source.max_retries".to_string(),
+                value_type: ConfigValueType::Integer,
+                required: false,
+                default_value: Some("3".to_string()),
+                validation_pattern: None,
+                description: "Maximum number of retry attempts".to_string(),
+                allowed_values: None,
+            },
+            ConfigKeySchema {
+                key: "sink.max_retries".to_string(),
+                value_type: ConfigValueType::Integer,
+                required: false,
+                default_value: Some("3".to_string()),
+                validation_pattern: None,
+                description: "Maximum number of retry attempts for sink".to_string(),
+                allowed_values: None,
+            },
+            ConfigKeySchema {
+                key: "sink.retry_backoff".to_string(),
+                value_type: ConfigValueType::Duration,
+                required: false,
+                default_value: Some("1000ms".to_string()),
+                validation_pattern: None,
+                description: "Backoff duration for sink retry failure strategy".to_string(),
+                allowed_values: None,
+            },
+        ];
+
         self.register_config_schema("", schema_registry_configs);
         self.register_config_schema("", cache_configs);
         self.register_config_schema("", batch_configs);
+        self.register_config_schema("", failure_strategy_configs);
     }
 }
 

@@ -304,12 +304,14 @@ pub struct DataSourceConfig {
     pub requirement: DataSourceRequirement,
     pub default_topic: String,
     pub job_name: String,
+    pub batch_config: Option<crate::ferris::datasource::BatchConfig>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DataSinkConfig {
     pub requirement: DataSinkRequirement,
     pub job_name: String,
+    pub batch_config: Option<crate::ferris::datasource::BatchConfig>,
 }
 
 /// Result of datasource creation
@@ -317,6 +319,10 @@ pub type DataSourceCreationResult = Result<Box<dyn DataReader>, String>;
 
 /// Result of datasink creation
 pub type DataSinkCreationResult = Result<Box<dyn DataWriter>, String>;
+
+/// Multi-source/sink creation results
+pub type MultiSourceCreationResult = Result<HashMap<String, Box<dyn DataReader>>, String>;
+pub type MultiSinkCreationResult = Result<HashMap<String, Box<dyn DataWriter>>, String>;
 
 /// Helper to check if a reader supports transactions
 pub fn check_transaction_support(reader: &dyn DataReader, job_name: &str) -> bool {
@@ -396,10 +402,13 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 &requirement.properties,
                 &config.default_topic,
                 &config.job_name,
+                &config.batch_config,
             )
             .await
         }
-        DataSourceType::File => create_file_reader(&requirement.properties).await,
+        DataSourceType::File => {
+            create_file_reader(&requirement.properties, &config.batch_config).await
+        }
         _ => Err(format!(
             "Unsupported datasource type '{:?}'",
             requirement.source_type
@@ -412,6 +421,7 @@ async fn create_kafka_reader(
     props: &HashMap<String, String>,
     default_topic: &str,
     job_name: &str,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
 ) -> DataSourceCreationResult {
     // Let KafkaDataSource handle its own configuration extraction
     let mut datasource = KafkaDataSource::from_properties(props, default_topic, job_name);
@@ -422,14 +432,33 @@ async fn create_kafka_reader(
         .await
         .map_err(|e| format!("Failed to initialize Kafka datasource: {}", e))?;
 
-    datasource
-        .create_reader()
-        .await
-        .map_err(|e| format!("Failed to create Kafka reader: {}", e))
+    // Create reader with batch configuration if available
+    match batch_config {
+        Some(batch_config) => {
+            info!(
+                "Creating Kafka reader with batch configuration: {:?}",
+                batch_config
+            );
+            datasource
+                .create_reader_with_batch_config(batch_config.clone())
+                .await
+                .map_err(|e| format!("Failed to create Kafka reader with batch config: {}", e))
+        }
+        None => {
+            debug!("Creating Kafka reader without batch configuration");
+            datasource
+                .create_reader()
+                .await
+                .map_err(|e| format!("Failed to create Kafka reader: {}", e))
+        }
+    }
 }
 
 /// Create a file datasource reader
-async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceCreationResult {
+async fn create_file_reader(
+    props: &HashMap<String, String>,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
+) -> DataSourceCreationResult {
     // Let FileDataSource handle its own configuration extraction
     let mut datasource = FileDataSource::from_properties(props);
 
@@ -439,10 +468,26 @@ async fn create_file_reader(props: &HashMap<String, String>) -> DataSourceCreati
         .await
         .map_err(|e| format!("Failed to initialize File datasource: {}", e))?;
 
-    datasource
-        .create_reader()
-        .await
-        .map_err(|e| format!("Failed to create File reader: {}", e))
+    // Create reader with batch configuration if available
+    match batch_config {
+        Some(batch_config) => {
+            info!(
+                "Creating File reader with batch configuration: {:?}",
+                batch_config
+            );
+            datasource
+                .create_reader_with_batch_config(batch_config.clone())
+                .await
+                .map_err(|e| format!("Failed to create File reader with batch config: {}", e))
+        }
+        None => {
+            debug!("Creating File reader without batch configuration");
+            datasource
+                .create_reader()
+                .await
+                .map_err(|e| format!("Failed to create File reader: {}", e))
+        }
+    }
 }
 
 /// Create a datasink writer based on configuration
@@ -450,8 +495,17 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
     let requirement = &config.requirement;
 
     match requirement.sink_type {
-        DataSinkType::Kafka => create_kafka_writer(&requirement.properties, &config.job_name).await,
-        DataSinkType::File => create_file_writer(&requirement.properties).await,
+        DataSinkType::Kafka => {
+            create_kafka_writer(
+                &requirement.properties,
+                &config.job_name,
+                &config.batch_config,
+            )
+            .await
+        }
+        DataSinkType::File => {
+            create_file_writer(&requirement.properties, &config.batch_config).await
+        }
         _ => Err(format!(
             "Unsupported datasink type '{:?}'",
             requirement.sink_type
@@ -463,6 +517,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
 async fn create_kafka_writer(
     props: &HashMap<String, String>,
     job_name: &str,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
     // Let KafkaDataSink handle its own configuration extraction
     let mut datasink = KafkaDataSink::from_properties(props, job_name);
@@ -478,14 +533,33 @@ async fn create_kafka_writer(
         .await
         .map_err(|e| format!("Failed to initialize Kafka datasink: {}", e))?;
 
-    datasink
-        .create_writer()
-        .await
-        .map_err(|e| format!("Failed to create Kafka writer: {}", e))
+    // Create writer with batch configuration if available
+    match batch_config {
+        Some(batch_config) => {
+            info!(
+                "Creating Kafka writer with batch configuration: {:?}",
+                batch_config
+            );
+            datasink
+                .create_writer_with_batch_config(batch_config.clone())
+                .await
+                .map_err(|e| format!("Failed to create Kafka writer with batch config: {}", e))
+        }
+        None => {
+            debug!("Creating Kafka writer without batch configuration");
+            datasink
+                .create_writer()
+                .await
+                .map_err(|e| format!("Failed to create Kafka writer: {}", e))
+        }
+    }
 }
 
 /// Create a file datasink writer
-async fn create_file_writer(props: &HashMap<String, String>) -> DataSinkCreationResult {
+async fn create_file_writer(
+    props: &HashMap<String, String>,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
+) -> DataSinkCreationResult {
     // Let FileSink handle its own configuration extraction
     let mut datasink = FileSink::from_properties(props);
 
@@ -501,10 +575,138 @@ async fn create_file_writer(props: &HashMap<String, String>) -> DataSinkCreation
         .await
         .map_err(|e| format!("Failed to initialize File datasink: {}", e))?;
 
-    datasink
-        .create_writer()
-        .await
-        .map_err(|e| format!("Failed to create File writer: {}", e))
+    // Create writer with batch configuration if available
+    match batch_config {
+        Some(batch_config) => {
+            info!(
+                "Creating File writer with batch configuration: {:?}",
+                batch_config
+            );
+            datasink
+                .create_writer_with_batch_config(batch_config.clone())
+                .await
+                .map_err(|e| format!("Failed to create File writer with batch config: {}", e))
+        }
+        None => {
+            debug!("Creating File writer without batch configuration");
+            datasink
+                .create_writer()
+                .await
+                .map_err(|e| format!("Failed to create File writer: {}", e))
+        }
+    }
+}
+
+/// Create multiple datasource readers from analysis requirements
+pub async fn create_multi_source_readers(
+    sources: &[DataSourceRequirement],
+    default_topic: &str,
+    job_name: &str,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
+) -> MultiSourceCreationResult {
+    let mut readers = HashMap::new();
+
+    info!(
+        "Creating {} data sources for job '{}'",
+        sources.len(),
+        job_name
+    );
+
+    for (idx, requirement) in sources.iter().enumerate() {
+        let source_name = format!("source_{}_{}", idx, requirement.name);
+        info!(
+            "Creating source '{}' of type {:?}",
+            source_name, requirement.source_type
+        );
+
+        let source_config = DataSourceConfig {
+            requirement: requirement.clone(),
+            default_topic: default_topic.to_string(),
+            job_name: job_name.to_string(),
+            batch_config: batch_config.clone(),
+        };
+
+        match create_datasource_reader(&source_config).await {
+            Ok(reader) => {
+                info!(
+                    "Successfully created source '{}' for job '{}'",
+                    source_name, job_name
+                );
+                readers.insert(source_name, reader);
+            }
+            Err(e) => {
+                error!(
+                    "Failed to create source '{}' for job '{}': {}",
+                    source_name, job_name, e
+                );
+                return Err(format!("Failed to create source '{}': {}", source_name, e));
+            }
+        }
+    }
+
+    info!(
+        "Successfully created {} data sources for job '{}'",
+        readers.len(),
+        job_name
+    );
+    Ok(readers)
+}
+
+/// Create multiple datasink writers from analysis requirements
+pub async fn create_multi_sink_writers(
+    sinks: &[DataSinkRequirement],
+    job_name: &str,
+    batch_config: &Option<crate::ferris::datasource::BatchConfig>,
+) -> MultiSinkCreationResult {
+    let mut writers = HashMap::new();
+
+    if sinks.is_empty() {
+        info!(
+            "No sinks specified for job '{}', will use stdout as default",
+            job_name
+        );
+        return Ok(writers);
+    }
+
+    info!("Creating {} data sinks for job '{}'", sinks.len(), job_name);
+
+    for (idx, requirement) in sinks.iter().enumerate() {
+        let sink_name = format!("sink_{}_{}", idx, requirement.name);
+        info!(
+            "Creating sink '{}' of type {:?}",
+            sink_name, requirement.sink_type
+        );
+
+        let sink_config = DataSinkConfig {
+            requirement: requirement.clone(),
+            job_name: job_name.to_string(),
+            batch_config: batch_config.clone(),
+        };
+
+        match create_datasource_writer(&sink_config).await {
+            Ok(writer) => {
+                info!(
+                    "Successfully created sink '{}' for job '{}'",
+                    sink_name, job_name
+                );
+                writers.insert(sink_name, writer);
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create sink '{}' for job '{}': {}, skipping",
+                    sink_name, job_name, e
+                );
+                // Don't fail job creation for sink failures, just log and continue
+            }
+        }
+    }
+
+    info!(
+        "Successfully created {} data sinks for job '{}'",
+        writers.len(),
+        job_name
+    );
+    Ok(writers)
 }
 
 /// Log comprehensive configuration details for a job
