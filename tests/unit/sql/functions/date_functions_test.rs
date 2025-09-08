@@ -6,6 +6,7 @@ Tests EPOCH, WEEK, QUARTER, MILLISECOND, MICROSECOND, NANOSECOND for EXTRACT,
 and weeks, months, quarters, years for DATEDIFF.
 */
 
+use chrono::{Datelike, Timelike};
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
