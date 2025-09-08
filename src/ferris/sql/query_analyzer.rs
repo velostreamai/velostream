@@ -6,6 +6,7 @@
 use crate::ferris::kafka::serialization_format::SerializationConfig;
 use crate::ferris::sql::{
     ast::{IntoClause, StreamSource, StreamingQuery},
+    config::load_yaml_config,
     SqlError,
 };
 use std::collections::HashMap;
@@ -116,9 +117,13 @@ impl QueryAnalyzer {
             } => {
                 // Extract configuration from properties (convert to legacy format)
                 let legacy_props = properties.clone().into_legacy_format();
+
+                // CRITICAL: Add configuration BEFORE analyzing nested SELECT
+                // so that URI + WITH clause integration can access the properties
                 for (key, value) in &legacy_props {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
+
                 // Recursively analyze the nested SELECT
                 let nested_analysis = self.analyze(as_select)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
@@ -193,55 +198,114 @@ impl QueryAnalyzer {
     }
 
     /// Analyze a source table to determine datasource requirements
-    fn analyze_source(
+    pub fn analyze_source(
         &self,
         table_name: &str,
         config: &HashMap<String, String>,
         _serialization_config: &SerializationConfig,
         analysis: &mut QueryAnalysis,
     ) -> Result<(), SqlError> {
-        // Determine source type from config or table name pattern
+        // Determine source type - EXPLICIT ONLY (no autodetection)
+        // Uses simple compound type format: {name}.type = '{type}_source'
+        // Examples: 'kafka_source', 'file_source', 's3_source'
         let source_type_str = config
-            .get("source.type")
+            .get(&format!("{}.type", table_name))
             .map(|s| s.as_str())
-            .unwrap_or_else(|| self.infer_source_type(table_name));
+            .ok_or_else(|| SqlError::ConfigurationError {
+                message: format!(
+                    "Source type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_source', 'file_source', 's3_source', 'database_source'",
+                    table_name, table_name
+                ),
+            })?;
 
         let source_type = match source_type_str {
-            "kafka" => DataSourceType::Kafka,
-            "file" => DataSourceType::File,
-            "s3" => DataSourceType::S3,
-            "database" => DataSourceType::Database,
-            other => DataSourceType::Generic(other.to_string()),
+            "kafka_source" => DataSourceType::Kafka,
+            "file_source" => DataSourceType::File,
+            "s3_source" => DataSourceType::S3,
+            "database_source" => DataSourceType::Database,
+            other => return Err(SqlError::ConfigurationError {
+                message: format!(
+                    "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
+                    other, table_name
+                ),
+            }),
         };
 
-        // Build properties map including all source config
+        // Build properties map from named source configuration
         let mut properties = HashMap::new();
+        let source_prefix = format!("{}.", table_name);
 
-        // Add all source.* properties
+        // Check for config_file and load YAML configuration
+        let config_file_key = format!("{}.config_file", table_name);
+        if let Some(config_file_path) = config.get(&config_file_key) {
+            match load_yaml_config(config_file_path) {
+                Ok(yaml_config) => {
+                    // Convert YAML config to properties map
+                    if let Some(mapping) = yaml_config.config.as_mapping() {
+                        for (key, value) in mapping {
+                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
+                            {
+                                properties.insert(key_str.to_string(), value_str.to_string());
+                            } else if let Some(key_str) = key.as_str() {
+                                // Handle non-string values (convert to string)
+                                let value_str = match value {
+                                    serde_yaml::Value::Number(n) => n.to_string(),
+                                    serde_yaml::Value::Bool(b) => b.to_string(),
+                                    serde_yaml::Value::Null => "null".to_string(),
+                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
+                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
+                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
+                                    serde_yaml::Value::String(s) => s.clone(),
+                                };
+                                properties.insert(key_str.to_string(), value_str);
+                            }
+                        }
+                    }
+                    println!(
+                        "✅ Loaded config from {}: {} properties",
+                        config_file_path,
+                        properties.len()
+                    );
+                }
+                Err(e) => {
+                    return Err(SqlError::ConfigurationError {
+                        message: format!(
+                            "Failed to load config file '{}' for source '{}': {}",
+                            config_file_path, table_name, e
+                        ),
+                    });
+                }
+            }
+        }
+
+        // Add all source-specific properties (e.g., "kafka_source.bootstrap.servers")
         for (key, value) in config {
-            if key.starts_with("source.") {
+            if key.starts_with(&source_prefix) {
+                // Convert to standard property format (remove source name prefix)
+                let standard_key = key[source_prefix.len()..].to_string();
+                properties.insert(standard_key, value.clone());
+
+                // Also preserve original key for legacy compatibility during transition
                 properties.insert(key.clone(), value.clone());
             }
         }
 
-        // Add serialization properties if Kafka
+        // Add default Kafka properties if missing
         if source_type == DataSourceType::Kafka {
             // Ensure we have broker and topic info
-            if !properties.contains_key("source.brokers") {
+            if !properties.contains_key("bootstrap.servers") && !properties.contains_key("brokers")
+            {
                 properties.insert(
-                    "source.brokers".to_string(),
-                    config
-                        .get("brokers")
-                        .cloned()
-                        .unwrap_or_else(|| "localhost:9092".to_string()),
+                    "bootstrap.servers".to_string(),
+                    "localhost:9092".to_string(),
                 );
             }
-            if !properties.contains_key("source.topic") {
-                properties.insert("source.topic".to_string(), table_name.to_string());
+            if !properties.contains_key("topic") {
+                properties.insert("topic".to_string(), table_name.to_string());
             }
-            if !properties.contains_key("source.group.id") {
+            if !properties.contains_key("group.id") {
                 properties.insert(
-                    "source.group.id".to_string(),
+                    "group.id".to_string(),
                     format!("{}-{}", self.default_group_id, table_name),
                 );
             }
@@ -266,52 +330,111 @@ impl QueryAnalyzer {
     }
 
     /// Analyze a sink table to determine datasink requirements
-    fn analyze_sink(
+    pub fn analyze_sink(
         &self,
         table_name: &str,
         config: &HashMap<String, String>,
         _serialization_config: &SerializationConfig,
         analysis: &mut QueryAnalysis,
     ) -> Result<(), SqlError> {
-        // Determine sink type from config or table name pattern
+        // Determine sink type - EXPLICIT ONLY (no autodetection)
+        // Uses simple compound type format: {name}.type = '{type}_sink'
+        // Examples: 'kafka_sink', 'file_sink', 's3_sink'
         let sink_type_str = config
-            .get("sink.type")
+            .get(&format!("{}.type", table_name))
             .map(|s| s.as_str())
-            .unwrap_or_else(|| self.infer_sink_type(table_name));
+            .ok_or_else(|| SqlError::ConfigurationError {
+                message: format!(
+                    "Sink type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
+                    table_name, table_name
+                ),
+            })?;
 
         let sink_type = match sink_type_str {
-            "kafka" => DataSinkType::Kafka,
-            "file" => DataSinkType::File,
-            "s3" => DataSinkType::S3,
-            "database" => DataSinkType::Database,
-            "iceberg" => DataSinkType::Iceberg,
-            other => DataSinkType::Generic(other.to_string()),
+            "kafka_sink" => DataSinkType::Kafka,
+            "file_sink" => DataSinkType::File,
+            "s3_sink" => DataSinkType::S3,
+            "database_sink" => DataSinkType::Database,
+            "iceberg_sink" => DataSinkType::Iceberg,
+            other => return Err(SqlError::ConfigurationError {
+                message: format!(
+                    "Invalid sink type '{}' for '{}'. Supported values: 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
+                    other, table_name
+                ),
+            }),
         };
 
-        // Build properties map including all sink config
+        // Build properties map from named sink configuration
         let mut properties = HashMap::new();
+        let sink_prefix = format!("{}.", table_name);
 
-        // Add all sink.* properties
+        // Check for config_file and load YAML configuration
+        let config_file_key = format!("{}.config_file", table_name);
+        if let Some(config_file_path) = config.get(&config_file_key) {
+            match load_yaml_config(config_file_path) {
+                Ok(yaml_config) => {
+                    // Convert YAML config to properties map
+                    if let Some(mapping) = yaml_config.config.as_mapping() {
+                        for (key, value) in mapping {
+                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
+                            {
+                                properties.insert(key_str.to_string(), value_str.to_string());
+                            } else if let Some(key_str) = key.as_str() {
+                                // Handle non-string values (convert to string)
+                                let value_str = match value {
+                                    serde_yaml::Value::Number(n) => n.to_string(),
+                                    serde_yaml::Value::Bool(b) => b.to_string(),
+                                    serde_yaml::Value::Null => "null".to_string(),
+                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
+                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
+                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
+                                    serde_yaml::Value::String(s) => s.clone(),
+                                };
+                                properties.insert(key_str.to_string(), value_str);
+                            }
+                        }
+                    }
+                    println!(
+                        "✅ Loaded sink config from {}: {} properties",
+                        config_file_path,
+                        properties.len()
+                    );
+                }
+                Err(e) => {
+                    return Err(SqlError::ConfigurationError {
+                        message: format!(
+                            "Failed to load config file '{}' for sink '{}': {}",
+                            config_file_path, table_name, e
+                        ),
+                    });
+                }
+            }
+        }
+
+        // Add all sink-specific properties (e.g., "kafka_sink.bootstrap.servers")
         for (key, value) in config {
-            if key.starts_with("sink.") {
+            if key.starts_with(&sink_prefix) {
+                // Convert to standard property format (remove sink name prefix)
+                let standard_key = key[sink_prefix.len()..].to_string();
+                properties.insert(standard_key, value.clone());
+
+                // Also preserve original key for legacy compatibility during transition
                 properties.insert(key.clone(), value.clone());
             }
         }
 
-        // Add serialization properties if Kafka
+        // Add default Kafka properties if missing
         if sink_type == DataSinkType::Kafka {
             // Ensure we have broker and topic info
-            if !properties.contains_key("sink.brokers") {
+            if !properties.contains_key("bootstrap.servers") && !properties.contains_key("brokers")
+            {
                 properties.insert(
-                    "sink.brokers".to_string(),
-                    config
-                        .get("brokers")
-                        .cloned()
-                        .unwrap_or_else(|| "localhost:9092".to_string()),
+                    "bootstrap.servers".to_string(),
+                    "localhost:9092".to_string(),
                 );
             }
-            if !properties.contains_key("sink.topic") {
-                properties.insert("sink.topic".to_string(), table_name.to_string());
+            if !properties.contains_key("topic") {
+                properties.insert("topic".to_string(), table_name.to_string());
             }
 
             // Add serialization formats
@@ -370,7 +493,7 @@ impl QueryAnalyzer {
 
     /// Analyze URI-based data source (FR-047)
     fn analyze_uri_source(&self, uri: &str, analysis: &mut QueryAnalysis) -> Result<(), SqlError> {
-        // Parse URI to determine source type and properties
+        // Parse URI to determine source type and base properties
         let (source_type, properties) = self.parse_data_source_uri(uri)?;
 
         let requirement = DataSourceRequirement {
@@ -476,7 +599,7 @@ impl QueryAnalyzer {
 
     /// Analyze URI-based data sink (FR-047)
     fn analyze_uri_sink(&self, uri: &str, analysis: &mut QueryAnalysis) -> Result<(), SqlError> {
-        // Parse URI to determine sink type and properties
+        // Parse URI to determine sink type and base properties
         let (sink_type, properties) = self.parse_data_sink_uri(uri)?;
 
         let requirement = DataSinkRequirement {
@@ -559,34 +682,6 @@ impl QueryAnalyzer {
         // Merge configuration, with target taking precedence
         for (key, value) in source.configuration {
             target.configuration.entry(key).or_insert(value);
-        }
-    }
-
-    /// Infer source type from table name patterns
-    fn infer_source_type(&self, table_name: &str) -> &str {
-        if table_name.contains("kafka") || table_name.ends_with("_topic") {
-            "kafka"
-        } else if table_name.contains("file")
-            || table_name.contains(".csv")
-            || table_name.contains(".json")
-        {
-            "file"
-        } else {
-            "kafka" // Default to Kafka
-        }
-    }
-
-    /// Infer sink type from table name patterns
-    fn infer_sink_type(&self, table_name: &str) -> &str {
-        if table_name.contains("kafka") || table_name.ends_with("_topic") {
-            "kafka"
-        } else if table_name.contains("file")
-            || table_name.contains(".csv")
-            || table_name.contains(".json")
-        {
-            "file"
-        } else {
-            "kafka" // Default to Kafka
         }
     }
 

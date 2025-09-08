@@ -501,57 +501,54 @@ This approach replaces the deprecated `base_source_config` and `base_sink_config
 
 #### Configuration Pattern Examples
 
-**Pattern 1: Configuration Files Only**
+**Pattern 1: Named Sources/Sinks with Configuration Files**
 ```sql
 CREATE STREAM processing AS 
-SELECT * FROM kafka_source INTO file_sink
+SELECT * FROM kafka_orders_source 
+INTO file_export_sink
 WITH (
-    "source_config" = "configs/kafka_orders.yaml",
-    "sink_config" = "configs/file_export.yaml"
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.config_file' = 'configs/kafka_orders.yaml',
+    'file_export_sink.type' = 'file_sink',
+    'file_export_sink.config_file' = 'configs/file_export.yaml'
 );
 ```
 
-**Pattern 2: Inline Configuration Only**  
+**Pattern 2: Named Sources/Sinks with Inline Configuration**  
 ```sql
 CREATE STREAM file_processing AS
-SELECT * FROM 'file://data/input.csv'
-INTO file_sink
+SELECT * FROM csv_input_source
+INTO json_output_sink
 WITH (
-    "source.format" = "csv",
-    "source.has_headers" = "true",
-    "source.watching" = "true",
-    "sink.path" = "output/results.json",
-    "sink.format" = "json",
-    "sink.append" = "true"
+    'csv_input_source.type' = 'file_source',
+    'csv_input_source.path' = 'data/input.csv',
+    'csv_input_source.format' = 'csv',
+    'csv_input_source.has_headers' = 'true',
+    'csv_input_source.watching' = 'true',
+    'json_output_sink.type' = 'file_sink',
+    'json_output_sink.path' = 'output/results.json',
+    'json_output_sink.format' = 'json',
+    'json_output_sink.append' = 'true'
 );
 ```
 
-**Pattern 3: Mixed Configuration (File + Inline Overrides)**
+**Pattern 3: Mixed Configuration (Config File + Inline Overrides)**
 ```sql
 CREATE STREAM kafka_processing AS
-SELECT * FROM kafka_source INTO kafka_sink  
+SELECT * FROM kafka_source 
+INTO kafka_sink  
 WITH (
-    "source_config" = "configs/kafka_base.yaml",
-    "sink_config" = "configs/kafka_sink.yaml",
+    'kafka_source.type' = 'kafka_source',
+    'kafka_source.config_file' = 'configs/kafka_base.yaml',
+    'kafka_sink.type' = 'kafka_sink', 
+    'kafka_sink.config_file' = 'configs/kafka_sink.yaml',
     -- Inline overrides for specific job requirements
-    "source.group_id" = "special_processor_${ENVIRONMENT}",
-    "sink.topic" = "processed_${JOB_TYPE}",
-    "sink.failure_strategy" = "RetryWithBackoff"
+    'kafka_source.group.id' = 'special_processor_${ENVIRONMENT}',
+    'kafka_sink.topic' = 'processed_${JOB_TYPE}',
+    'failure_strategy' = 'RetryWithBackoff'
 );
 ```
 
-**Pattern 4: URI with Inline Parameters**
-```sql
-CREATE STREAM orders AS
-SELECT * FROM 'kafka://broker1:9092,broker2:9092/orders'
-INTO 'file://output/processed_orders.json'
-WITH (
-    "source.group_id" = "orders_analytics",
-    "source.value.format" = "avro",
-    "sink.format" = "json",
-    "sink.append" = "true"
-);
-```
 
 #### Environment Variable Resolution
 
@@ -3570,15 +3567,45 @@ FROM events;
 
 FerrisStreams provides comprehensive performance configuration through its unified configuration management system. This includes batch processing strategies, buffer configurations, compression settings, and performance optimizations that can be applied at the stream, job, or application level.
 
-### SQL Configuration Limitations
+### SQL Batch Configuration
 
-**Important Note**: Batch processing strategies are currently configured at the **application/code level** only and are **not configurable via SQL WITH clauses**. The examples below show what SQL configuration **is actually supported**.
+**New Feature**: Batch processing strategies are now **fully configurable via SQL WITH clauses**. FerrisStreams supports comprehensive batch configuration through SQL, enabling performance optimization directly in your stream definitions.
+
+📖 **See the complete [Batch Configuration Guide](./BATCH_CONFIGURATION_GUIDE.md) for detailed documentation and examples.**
 
 #### Supported SQL Configuration
-SQL WITH clauses currently support Kafka and file connector properties only:
+SQL WITH clauses now support comprehensive batch processing, failure strategies, and connector properties:
 
 ```sql
--- Kafka source and sink configuration (ACTUALLY SUPPORTED)
+-- Batch processing configuration with failure strategies (NEW!)
+CREATE STREAM optimized_orders AS
+SELECT * FROM kafka_source
+WITH (
+    -- Global Batch Configuration (applies to all sources/sinks)
+    'batch.strategy' = 'fixed_size',
+    'batch.enable' = 'true',
+    'batch.size' = '100',
+    'batch.timeout' = '5000ms',
+    
+    -- Job-Level Failure Handling
+    'failure_strategy' = 'RetryWithBackoff',
+    'max_retries' = '5',
+    'retry_backoff' = '2000ms'
+);
+
+-- Adaptive Size Batch Configuration Example
+CREATE STREAM adaptive_orders AS
+SELECT * FROM kafka_source  
+WITH (
+    -- Global Batch Configuration
+    'batch.strategy' = 'adaptive_size',
+    'batch.enable' = 'true',
+    'batch.min_size' = '50', 
+    'batch.adaptive_max_size' = '2000',
+    'batch.target_latency' = '100ms'
+);
+
+-- Kafka source and sink configuration (ALSO SUPPORTED)
 CREATE STREAM orders AS
 SELECT * FROM kafka_source
 WITH (
