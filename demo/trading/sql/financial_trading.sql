@@ -12,7 +12,7 @@
 -- Detects significant price movements (>5%) and generates alerts
 -- Uses ScaledInteger for exact financial precision (42x faster than f64)
 
-INSERT INTO price_alerts
+CREATE STREAM price_movement_alerts AS
 SELECT 
     symbol,
     price,
@@ -22,9 +22,12 @@ SELECT
     EXTRACT(EPOCH FROM NOW()) * 1000 as detection_time
 FROM market_data_stream
 WHERE ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp)) / LAG(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp) * 100) > 5.0
+INTO price_alerts_sink
 WITH (
-    source_config = 'configs/market_data_topic.yaml',
-    sink_config = 'configs/price_alerts_topic.yaml'
+    'market_data_stream.type' = 'kafka_source',
+    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'price_alerts_sink.type' = 'kafka_sink',
+    'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml'
 );
 
 -- ====================================================================================
@@ -32,7 +35,7 @@ WITH (
 -- ====================================================================================
 -- Identifies volume spikes 3x above 20-period moving average
 
-INSERT INTO volume_spikes
+CREATE STREAM volume_spike_detection AS
 SELECT 
     symbol,
     volume,
@@ -42,16 +45,19 @@ SELECT
     EXTRACT(EPOCH FROM NOW()) * 1000 as spike_time
 FROM market_data_stream
 WHERE volume > 3 * AVG(volume) OVER (PARTITION BY symbol ORDER BY timestamp ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING)
+INTO volume_spikes_sink
 WITH (
-    source_config = 'configs/market_data_topic.yaml',
-    sink_config = 'configs/volume_spikes_topic.yaml'
+    'market_data_stream.type' = 'kafka_source',
+    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'volume_spikes_sink.type' = 'kafka_sink',
+    'volume_spikes_sink.config_file' = 'configs/volume_spikes_sink.yaml'
 );
 
 -- ====================================================================================
 -- RISK MANAGEMENT MONITOR: Real-time position and loss monitoring (FR-047)
 -- ====================================================================================
 
-INSERT INTO risk_alerts
+CREATE STREAM risk_management_monitor AS
 SELECT 
     p.trader_id,
     p.symbol,
@@ -70,16 +76,21 @@ SELECT
 FROM trading_positions_stream p
 JOIN market_data_stream m ON p.symbol = m.symbol
 WHERE ABS(p.position_size * m.price) > 100000 OR p.current_pnl < -10000
+INTO risk_alerts_sink
 WITH (
-    source_config = 'configs/multi_source_risk_monitoring.yaml',
-    sink_config = 'configs/risk_alerts_topic.yaml'
+    'trading_positions_stream.type' = 'kafka_source',
+    'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
+    'market_data_stream.type' = 'kafka_source',
+    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'risk_alerts_sink.type' = 'kafka_sink',
+    'risk_alerts_sink.config_file' = 'configs/risk_alerts_sink.yaml'
 );
 
 -- ====================================================================================
 -- ORDER FLOW IMBALANCE: Detects institutional trading patterns (FR-047)
 -- ====================================================================================
 
-INSERT INTO order_imbalance_alerts
+CREATE STREAM order_flow_imbalance_detection AS
 SELECT 
     symbol,
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) as buy_volume,
@@ -94,16 +105,19 @@ GROUP BY symbol
 HAVING SUM(quantity) > 10000 
     AND (SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7 
          OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7)
+INTO order_imbalance_sink
 WITH (
-    source_config = 'configs/order_book_topic.yaml',
-    sink_config = 'configs/order_imbalance_topic.yaml'
+    'order_book_stream.type' = 'kafka_source',
+    'order_book_stream.config_file' = 'configs/order_book_source.yaml',
+    'order_imbalance_sink.type' = 'kafka_sink',
+    'order_imbalance_sink.config_file' = 'configs/order_imbalance_sink.yaml'
 );
 
 -- ====================================================================================
 -- ARBITRAGE OPPORTUNITIES: Cross-exchange price discrepancy detection (FR-047)
 -- ====================================================================================
 
-INSERT INTO arbitrage_opportunities
+CREATE STREAM arbitrage_opportunities_detection AS
 SELECT 
     a.symbol,
     a.exchange as exchange_a,
@@ -115,12 +129,17 @@ SELECT
     LEAST(a.bid_size, b.ask_size) as available_volume,
     (a.bid_price - b.ask_price) * LEAST(a.bid_size, b.ask_size) as potential_profit,
     timestamp() as opportunity_time
-FROM market_data_stream a
-JOIN market_data_stream b ON a.symbol = b.symbol AND a.exchange != b.exchange
+FROM market_data_stream_a a
+JOIN market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price 
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
     AND LEAST(a.bid_size, b.ask_size) > 50000
+INTO arbitrage_sink
 WITH (
-    source_config = 'configs/market_data_topic.yaml',
-    sink_config = 'configs/arbitrage_opportunities_topic.yaml'
+    'market_data_stream_a.type' = 'kafka_source',
+    'market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
+    'market_data_stream_b.type' = 'kafka_source',
+    'market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
+    'arbitrage_sink.type' = 'kafka_sink',
+    'arbitrage_sink.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
 );
