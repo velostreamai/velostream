@@ -4,12 +4,12 @@
 //! including discovery, caching, evolution, and provider capabilities.
 
 use ferrisstreams::ferris::schema::{
-    *, 
     client::{
-        providers::create_default_registry,
         cache::{CacheConfig, CacheLookupResult, SchemaCache},
+        providers::create_default_registry,
     },
     evolution::SchemaEvolution,
+    *,
 };
 use ferrisstreams::ferris::sql::ast::DataType;
 use std::time::Duration;

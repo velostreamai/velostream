@@ -14,7 +14,10 @@ use ferrisstreams::ferris::{
     serialization::JsonFormat,
     sql::{
         ast::StreamingQuery,
-        execution::{types::{FieldValue, StreamRecord}, StreamExecutionEngine},
+        execution::{
+            types::{FieldValue, StreamRecord},
+            StreamExecutionEngine,
+        },
         StreamingSqlParser,
     },
 };

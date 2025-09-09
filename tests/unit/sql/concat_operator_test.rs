@@ -128,7 +128,10 @@ fn test_evaluate_float_concatenation() {
     };
 
     let result = ExpressionEvaluator::evaluate_expression_value(&expr, &record).unwrap();
-    assert_eq!(result, FieldValue::String("Pi is 3.141592653589793".to_string()));
+    assert_eq!(
+        result,
+        FieldValue::String("Pi is 3.141592653589793".to_string())
+    );
 }
 
 #[test]
