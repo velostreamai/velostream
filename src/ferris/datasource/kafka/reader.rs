@@ -431,7 +431,7 @@ impl KafkaDataReader {
         let timeout = self.batch_config.batch_timeout;
 
         match self.consumer.poll(timeout).await {
-            Ok(mut message) => {
+            Ok(message) => {
                 let record = self.create_stream_record(message)?;
                 Ok(vec![record])
             }
@@ -449,7 +449,7 @@ impl KafkaDataReader {
 
         for _ in 0..size.min(self.batch_config.max_batch_size) {
             match self.consumer.poll(timeout).await {
-                Ok(mut message) => {
+                Ok(message) => {
                     let record = self.create_stream_record(message)?;
                     records.push(record);
                 }
@@ -481,7 +481,7 @@ impl KafkaDataReader {
 
         while start_time.elapsed() < duration && records.len() < self.batch_config.max_batch_size {
             match self.consumer.poll(timeout).await {
-                Ok(mut message) => {
+                Ok(message) => {
                     let record = self.create_stream_record(message)?;
                     records.push(record);
                 }
@@ -553,7 +553,7 @@ impl KafkaDataReader {
 
         while estimated_size < max_bytes && records.len() < self.batch_config.max_batch_size {
             match self.consumer.poll(timeout).await {
-                Ok(mut message) => {
+                Ok(message) => {
                     let record = self.create_stream_record(message)?;
 
                     // Rough estimate: 24 bytes overhead + field data

@@ -168,9 +168,8 @@ async fn execute_sql_file(
             }
         }
 
-        match output_format_clone.as_str() {
-            "json" => println!("}}]}}"),
-            _ => {}
+        if output_format_clone.as_str() == "json" {
+            println!("}}]}}")
         }
 
         result_count
@@ -185,7 +184,7 @@ async fn execute_sql_file(
         );
 
         // Generate sample data based on the query type
-        let sample_records = generate_sample_data_for_query(&parsed_query, max_records).await;
+        let sample_records = generate_sample_data_for_query(parsed_query, max_records).await;
 
         for record in sample_records {
             if processed_count >= max_records {
@@ -196,7 +195,7 @@ async fn execute_sql_file(
 
             // Execute the query with the record directly - no conversion needed!
             if let Err(e) = execution_engine
-                .execute_with_record(&parsed_query, record)
+                .execute_with_record(parsed_query, record)
                 .await
             {
                 warn!("⚠️ Failed to process record: {:?}", e);

@@ -45,28 +45,14 @@ pub mod evolution;
 pub mod registry;
 
 // Re-export commonly used types
-pub use types::{
-    CompatibilityMode, FieldDefinition, PartitionMetadata, Schema, SchemaMetadata, StreamHandle,
-    StreamMetadata,
-};
+pub use types::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata, StreamHandle};
 
 pub use error::{SchemaError, SchemaResult};
 
 // Re-export client components
-pub use client::{
-    EnhancedSchemaCache, ProviderMetadata, RegistryClientConfig, SchemaCache, SchemaProvider,
-    SchemaReferenceResolver, SchemaRegistryClient, UnifiedSchemaRegistryClient,
-};
 
 // Re-export client sub-components for convenience
-pub use client::cache::{CacheConfig, CacheLookupResult};
-pub use client::providers::create_default_registry;
 
 // Re-export server components
-pub use server::{
-    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
-    SchemaRegistryBackendFactory, SchemaRegistryServer, SchemaResponse,
-};
 
 // Re-export evolution components
-pub use evolution::{EvolutionConfig, FieldModification, SchemaDiff, SchemaEvolution};

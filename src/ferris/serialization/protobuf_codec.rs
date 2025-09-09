@@ -327,7 +327,7 @@ impl ProtobufCodec {
             }
             FieldValue::Decimal(decimal) => {
                 // Convert rust_decimal::Decimal to our DecimalMessage
-                let scale = decimal.scale() as u32;
+                let scale = decimal.scale();
                 let mantissa = decimal.mantissa();
                 // Convert i128 to i64, handling potential overflow
                 let units = if mantissa > i64::MAX as i128 || mantissa < i64::MIN as i128 {

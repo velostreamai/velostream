@@ -4,7 +4,8 @@
 //! to files with various formats and rotation strategies.
 
 use ferrisstreams::ferris::datasource::file::{
-    CompressionType, FileFormat, FileSink, FileSinkConfig,
+    config::{CompressionType, FileFormat, FileSinkConfig},
+    FileSink,
 };
 use ferrisstreams::ferris::datasource::traits::DataSink;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};

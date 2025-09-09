@@ -4,7 +4,6 @@
 //! directly accessible via WITH clauses in SQL.
 
 use ferrisstreams::ferris::sql::config::with_clause_parser::WithClauseParser;
-use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -75,7 +74,7 @@ async fn test_sink_failure_strategy() -> Result<(), Box<dyn std::error::Error + 
 
     // Validate that batch config is still parsed correctly alongside failure strategy
     let batch_config = config.batch_config.unwrap();
-    assert_eq!(batch_config.enable_batching, true);
+    assert!(batch_config.enable_batching);
     println!("  ✅ Batch enabled: {}", batch_config.enable_batching);
     println!("  ✅ Batch strategy: fixed_size");
     println!(
@@ -200,7 +199,7 @@ async fn test_combined_batch_and_failure_config(
 
     // Validate batch configuration
     let batch_config = config.batch_config.unwrap();
-    assert_eq!(batch_config.enable_batching, true);
+    assert!(batch_config.enable_batching);
 
     // Validate low latency batch strategy
     match batch_config.strategy {
@@ -210,7 +209,7 @@ async fn test_combined_batch_and_failure_config(
             ..
         } => {
             assert_eq!(max_batch_size, 5);
-            assert_eq!(eager_processing, true);
+            assert!(eager_processing);
             println!("  ✅ Low latency max batch size: {}", max_batch_size);
             println!("  ✅ Eager processing: {}", eager_processing);
         }

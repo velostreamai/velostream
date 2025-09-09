@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::datasource::{
-    file::{config::FileSourceConfig, data_source::FileDataSource},
+    file::data_source::FileDataSource,
     traits::{DataReader, DataSource},
     BatchConfig, BatchStrategy,
 };

@@ -16,10 +16,7 @@ pub use registry_backend::{
 };
 
 // Re-export backend implementations
-pub use backends::{
-    AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,
-    FileSystemSchemaRegistryBackend, InMemorySchemaRegistryBackend, PulsarSchemaRegistryBackend,
-};
+pub use backends::ConfluentAuth;
 
 // Server type alias for consistency
 pub type SchemaRegistryServer = dyn SchemaRegistryBackend;

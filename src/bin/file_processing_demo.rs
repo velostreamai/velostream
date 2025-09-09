@@ -12,7 +12,8 @@
 
 use ferrisstreams::ferris::datasource::file::config::FileFormat;
 use ferrisstreams::ferris::datasource::file::{
-    CompressionType, FileDataSource, FileSink, FileSinkConfig, FileSourceConfig,
+    config::{CompressionType, FileSinkConfig, FileSourceConfig},
+    FileDataSource, FileSink,
 };
 use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
@@ -23,7 +24,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio;
 
 // Demo configuration
 const DEMO_DATA_DIR: &str = "./demo_data";

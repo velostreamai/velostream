@@ -76,27 +76,6 @@ pub mod ferris;
 
 // Re-export main API at crate root for easy access
 pub use ferris::kafka::{
-    BytesSerializer,
-    ConsumerBuilder,
-
-    ConsumerError,
-
-    Headers,
-    // Serializers
-    JsonSerializer,
-    KTable,
-    KafkaAdminClient,
-
-    // Traits
-    KafkaConsumable,
-    KafkaConsumer,
-    // Core types
-    KafkaProducer,
-    Message,
-    // Builders
+    Headers, JsonSerializer, KTable, KafkaAdminClient, KafkaConsumer, KafkaProducer, Message,
     ProducerBuilder,
-    // Errors
-    ProducerError,
-    SerializationError,
-    Serializer,
 };

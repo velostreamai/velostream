@@ -57,7 +57,7 @@ async fn test_basic_fixed_size_batch() -> Result<(), Box<dyn std::error::Error +
     assert!(config.batch_config.is_some());
     let batch_config = config.batch_config.unwrap();
 
-    assert_eq!(batch_config.enable_batching, true);
+    assert!(batch_config.enable_batching);
     assert_eq!(batch_config.max_batch_size, 1000);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(500));
 
@@ -131,7 +131,7 @@ async fn test_low_latency_batch() -> Result<(), Box<dyn std::error::Error + Send
         } => {
             assert_eq!(max_batch_size, 3);
             assert_eq!(max_wait_time, Duration::from_millis(1));
-            assert_eq!(eager_processing, true);
+            assert!(eager_processing);
             println!("  ✅ Low latency max batch size: {}", max_batch_size);
             println!("  ✅ Low latency wait time: {:?}", max_wait_time);
             println!("  ✅ Eager processing: {}", eager_processing);
@@ -225,7 +225,7 @@ async fn test_batch_disabled() -> Result<(), Box<dyn std::error::Error + Send + 
     let config = parser.parse_with_clause(with_clause)?;
     let batch_config = config.batch_config.unwrap();
 
-    assert_eq!(batch_config.enable_batching, false);
+    assert!(!batch_config.enable_batching);
     println!(
         "  ✅ Batching disabled: {}\n",
         !batch_config.enable_batching

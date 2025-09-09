@@ -6,11 +6,10 @@
 
 use std::sync::Arc;
 use std::time::Instant;
-use tokio;
 
 use ferrisstreams::ferris::schema::client::registry_client::SchemaReference;
-use ferrisstreams::ferris::schema::{
-    BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory, UnifiedSchemaRegistryClient,
+use ferrisstreams::ferris::schema::server::{
+    BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory,
 };
 
 #[tokio::main]

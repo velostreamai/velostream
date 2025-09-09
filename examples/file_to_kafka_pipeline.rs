@@ -13,7 +13,7 @@
 use clap::Parser;
 use ferrisstreams::ferris::datasource::config::SourceConfig;
 use ferrisstreams::ferris::datasource::{
-    create_sink, create_source, registry::register_global_source, FileDataSource,
+    create_sink, create_source, file::FileDataSource, registry::register_global_source,
 };
 use std::error::Error;
 

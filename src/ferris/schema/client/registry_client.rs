@@ -870,10 +870,10 @@ impl DependencyGraph {
         let mut path = Vec::new();
 
         for node in self.nodes.keys() {
-            if !visited.contains(node) {
-                if self.has_cycle_dfs(*node, &mut visited, &mut rec_stack, &mut path) {
-                    return Some(path);
-                }
+            if !visited.contains(node)
+                && self.has_cycle_dfs(*node, &mut visited, &mut rec_stack, &mut path)
+            {
+                return Some(path);
             }
         }
 

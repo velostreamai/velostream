@@ -461,8 +461,7 @@ impl WithClauseParser {
         let duration_str = duration_str.trim();
 
         // Handle various duration formats: ms, s, m, h, d
-        if duration_str.ends_with("ms") {
-            let value_str = &duration_str[..duration_str.len() - 2];
+        if let Some(value_str) = duration_str.strip_suffix("ms") {
             let value: u64 = value_str.parse()?;
             return Ok(Duration::from_millis(value));
         }
@@ -473,8 +472,7 @@ impl WithClauseParser {
             return Ok(Duration::from_micros(value));
         }
 
-        if duration_str.ends_with("ns") {
-            let value_str = &duration_str[..duration_str.len() - 2];
+        if let Some(value_str) = duration_str.strip_suffix("ns") {
             let value: u64 = value_str.parse()?;
             return Ok(Duration::from_nanos(value));
         }

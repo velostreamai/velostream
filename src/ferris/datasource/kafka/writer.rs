@@ -326,12 +326,8 @@ impl KafkaDataWriter {
 
     /// Parse serialization format string
     fn parse_serialization_format(format_str: &str) -> SerializationFormat {
-        match format_str.to_lowercase().as_str() {
-            _ => {
-                use std::str::FromStr;
-                SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::Json)
-            }
-        }
+        use std::str::FromStr;
+        SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::Json)
     }
 
     /// Get default Avro schema for generic StreamRecord

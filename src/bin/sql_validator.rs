@@ -9,18 +9,18 @@
 //! - Performance warnings
 
 use ferrisstreams::ferris::sql::{
-    ast::{IntoClause, SelectField, StreamSource, StreamingQuery},
+    ast::StreamingQuery,
     config::with_clause_parser::WithClauseParser,
     query_analyzer::{
         DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,
     },
-    SqlError, StreamingSqlParser,
+    StreamingSqlParser,
 };
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Detailed parsing error with location information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +101,12 @@ pub struct SqlValidator {
     with_clause_parser: WithClauseParser,
     strict_mode: bool,
     check_performance: bool,
+}
+
+impl Default for SqlValidator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SqlValidator {
@@ -279,7 +285,7 @@ impl SqlValidator {
         _query: &str,
     ) -> Vec<String> {
         let lines: Vec<&str> = content.lines().collect();
-        let start_line = if error_line >= 2 { error_line - 2 } else { 0 };
+        let start_line = error_line.saturating_sub(2);
         let end_line = std::cmp::min(error_line + 3, lines.len());
 
         let mut context = Vec::new();
@@ -313,7 +319,7 @@ impl SqlValidator {
         }
 
         let error_char = chars.get(position).unwrap_or(&' ');
-        let start = if position >= 20 { position - 20 } else { 0 };
+        let start = position.saturating_sub(20);
         let end = if position + 20 < chars.len() {
             position + 20
         } else {
@@ -457,7 +463,7 @@ impl SqlValidator {
         result: &mut QueryValidationResult,
     ) {
         let required_keys = vec!["path", "format"];
-        let _optional_keys = vec!["has_headers", "watching", "failure_strategy"];
+        let _optional_keys = ["has_headers", "watching", "failure_strategy"];
 
         for key in &required_keys {
             if !properties.contains_key(*key) {

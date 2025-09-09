@@ -41,15 +41,13 @@ impl DataSourceRegistry {
 
     /// Create a registry with default implementations
     pub fn with_defaults() -> Self {
-        let registry = Self::new();
-
         // TODO: Register default implementations when available
         // registry.register_source("kafka", |config| { ... });
         // registry.register_source("file", |config| { ... });
         // registry.register_sink("kafka", |config| { ... });
         // registry.register_sink("file", |config| { ... });
 
-        registry
+        Self::new()
     }
 
     /// Register a source factory for a specific scheme

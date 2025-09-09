@@ -702,9 +702,7 @@ impl FileReader {
 
         // Calculate optimal read buffer size based on batch size and estimated line length
         let estimated_line_length = self.adaptive_state.bytes_per_record_estimate.unwrap_or(256);
-        let buffer_size = (batch_size * estimated_line_length)
-            .max(8192)
-            .min(1024 * 1024); // 8KB to 1MB
+        let buffer_size = (batch_size * estimated_line_length).clamp(8192, 1024 * 1024); // 8KB to 1MB
 
         let mut lines_buffer = Vec::with_capacity(batch_size);
         let mut total_bytes_read = 0;
@@ -728,7 +726,7 @@ impl FileReader {
             };
 
             // Read a chunk of lines
-            let mut chunk_buffer = String::with_capacity(buffer_size);
+            let chunk_buffer = String::with_capacity(buffer_size);
             let mut lines_in_chunk = 0;
 
             while lines_in_chunk < batch_size && chunk_buffer.len() < buffer_size {
@@ -769,7 +767,7 @@ impl FileReader {
             }
 
             // Update bytes per record estimate for adaptive batching
-            if records.len() > 0 && total_bytes_read > 0 {
+            if !records.is_empty() && total_bytes_read > 0 {
                 let bytes_per_record = total_bytes_read / records.len();
                 self.adaptive_state.bytes_per_record_estimate = Some(
                     self.adaptive_state
@@ -784,10 +782,12 @@ impl FileReader {
             }
 
             // Check for new data if watching
-            if self.eof_reached && records.is_empty() && self.config.watch_for_changes {
-                if !self.check_for_new_data().await? {
-                    break;
-                }
+            if self.eof_reached
+                && records.is_empty()
+                && self.config.watch_for_changes
+                && !self.check_for_new_data().await?
+            {
+                break;
             }
         }
 
@@ -817,10 +817,11 @@ impl FileReader {
                 records.push(record);
             } else {
                 // No more data, check if we should wait for new data
-                if self.config.watch_for_changes && !self.finished {
-                    if self.check_for_new_data().await? {
-                        continue;
-                    }
+                if self.config.watch_for_changes
+                    && !self.finished
+                    && self.check_for_new_data().await?
+                {
+                    continue;
                 }
                 break;
             }
@@ -946,10 +947,11 @@ impl FileReader {
                 );
             } else {
                 // No more data available
-                if self.config.watch_for_changes && !self.finished {
-                    if self.check_for_new_data().await? {
-                        continue;
-                    }
+                if self.config.watch_for_changes
+                    && !self.finished
+                    && self.check_for_new_data().await?
+                {
+                    continue;
                 }
                 break;
             }
@@ -1015,10 +1017,10 @@ impl FileReader {
                 if self.config.watch_for_changes && !self.finished {
                     // Brief check for new data
                     let remaining_time = max_wait_time.saturating_sub(start_time.elapsed());
-                    if remaining_time > Duration::from_millis(0) {
-                        if self.check_for_new_data().await? {
-                            continue; // Try reading again
-                        }
+                    if remaining_time > Duration::from_millis(0)
+                        && self.check_for_new_data().await?
+                    {
+                        continue; // Try reading again
                     }
                 }
                 break;
@@ -1058,11 +1060,9 @@ impl FileReader {
         match self.config.format {
             FileFormat::Csv | FileFormat::CsvNoHeader => self.parse_csv_line_batch(line).await,
             FileFormat::JsonLines => self.parse_jsonl_line_batch(line).await,
-            FileFormat::Json => {
-                return Err(Box::new(FileDataSourceError::UnsupportedFormat(
-                    "JSON array format not supported in batch line parsing".to_string(),
-                )));
-            }
+            FileFormat::Json => Err(Box::new(FileDataSourceError::UnsupportedFormat(
+                "JSON array format not supported in batch line parsing".to_string(),
+            ))),
         }
     }
 

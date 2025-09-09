@@ -397,16 +397,16 @@ impl SchemaReferenceResolver {
         }
 
         for node in graph.nodes.keys() {
-            if color[node] == Color::White {
-                if self.dfs_cycle_detection(*node, graph, &mut color, &mut parent)? {
-                    // Found a cycle, build the cycle path
-                    let cycle_path = self.build_cycle_path(&parent);
-                    return Err(SchemaError::Evolution {
-                        from: graph.root.to_string(),
-                        to: "resolved".to_string(),
-                        reason: format!("Circular reference detected: {:?}", cycle_path),
-                    });
-                }
+            if color[node] == Color::White
+                && self.dfs_cycle_detection(*node, graph, &mut color, &mut parent)?
+            {
+                // Found a cycle, build the cycle path
+                let cycle_path = self.build_cycle_path(&parent);
+                return Err(SchemaError::Evolution {
+                    from: graph.root.to_string(),
+                    to: "resolved".to_string(),
+                    reason: format!("Circular reference detected: {:?}", cycle_path),
+                });
             }
         }
 

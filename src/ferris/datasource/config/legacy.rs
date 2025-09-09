@@ -216,9 +216,10 @@ pub enum SinkConfig {
 }
 
 /// Supported file formats
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum FileFormat {
     /// JSON format (single JSON object)
+    #[default]
     Json,
     /// JSON Lines format (one JSON object per line)
     JsonLines,
@@ -272,12 +273,6 @@ pub enum CdcFormat {
         format_name: String,
         properties: HashMap<String, String>,
     },
-}
-
-impl Default for FileFormat {
-    fn default() -> Self {
-        FileFormat::Json
-    }
 }
 
 impl fmt::Display for FileFormat {

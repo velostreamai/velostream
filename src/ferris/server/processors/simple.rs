@@ -57,7 +57,7 @@ impl SimpleJobProcessor {
 
         // Copy engine state to context
         {
-            let engine_lock = engine.lock().await;
+            let _engine_lock = engine.lock().await;
             // Context is already prepared by engine.prepare_context() above
         }
 
@@ -253,7 +253,7 @@ impl SimpleJobProcessor {
         let should_commit = should_commit_batch(
             self.config.failure_strategy,
             batch_result.records_failed,
-            &job_name,
+            job_name,
         );
 
         // Step 4: Write processed data to sink if we have one
@@ -304,8 +304,7 @@ impl SimpleJobProcessor {
 
         // Step 5: Commit with simple semantics (no rollback if sink fails)
         if should_commit {
-            self.commit_simple(reader, writer.as_deref_mut(), job_name)
-                .await?;
+            self.commit_simple(reader, writer, job_name).await?;
 
             // Update stats from batch result
             update_stats_from_batch_result(stats, &batch_result);
@@ -408,7 +407,7 @@ impl SimpleJobProcessor {
 
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
-        let mut all_output_records: Vec<crate::ferris::sql::execution::StreamRecord> = Vec::new();
+        let _all_output_records: Vec<crate::ferris::sql::execution::StreamRecord> = Vec::new();
 
         // Process records from each source
         for source_name in &source_names {

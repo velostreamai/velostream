@@ -13,12 +13,12 @@ pub mod query_analyzer;
 pub mod validator;
 
 // Re-export main API
-pub use app_parser::{SqlApplication, SqlApplicationParser};
-pub use ast::{DataType, StreamingQuery};
+pub use app_parser::SqlApplication;
+pub use ast::StreamingQuery;
 pub use error::SqlError;
-pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+pub use execution::{FieldValue, StreamExecutionEngine};
 pub use parser::StreamingSqlParser;
-pub use validator::{ApplicationValidationResult, SqlValidator, ValidationError};
+pub use validator::SqlValidator;
 
 // Version and feature info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

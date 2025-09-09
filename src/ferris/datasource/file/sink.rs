@@ -207,14 +207,14 @@ impl FileSink {
                     optimized_config.buffer_size_bytes = buffer_size as u64;
                 }
             }
-            BatchStrategy::TimeWindow(duration) => {
+            BatchStrategy::TimeWindow(_duration) => {
                 // Suggest larger buffer for time-based batching (only if using default buffer size)
                 if optimized_config.buffer_size_bytes == 65536 {
                     // Default buffer size
                     optimized_config.buffer_size_bytes = 1024 * 1024; // 1MB buffer for time-based batching
                 }
             }
-            BatchStrategy::AdaptiveSize { target_latency, .. } => {
+            BatchStrategy::AdaptiveSize { .. } => {
                 // Suggest moderate buffer for adaptive sizing (only if using default buffer size)
                 if optimized_config.buffer_size_bytes == 65536 {
                     // Default buffer size
@@ -236,9 +236,7 @@ impl FileSink {
                 }
             }
             BatchStrategy::LowLatency {
-                max_wait_time,
-                eager_processing,
-                ..
+                eager_processing, ..
             } => {
                 // Suggest optimizations for low latency (only if using default buffer size)
                 if optimized_config.buffer_size_bytes == 65536 {

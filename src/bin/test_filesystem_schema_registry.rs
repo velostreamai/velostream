@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::schema::client::registry_client::SchemaReference;
-use ferrisstreams::ferris::schema::{BackendConfig, SchemaRegistryBackendFactory};
+use ferrisstreams::ferris::schema::server::{BackendConfig, SchemaRegistryBackendFactory};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -72,7 +72,7 @@ impl TransactionalJobProcessor {
 
         // Copy engine state to context
         {
-            let engine_lock = engine.lock().await;
+            let _engine_lock = engine.lock().await;
             // Context is already prepared by engine.prepare_context() above
         }
 
@@ -294,7 +294,7 @@ impl TransactionalJobProcessor {
         let should_commit = should_commit_batch(
             self.config.failure_strategy,
             batch_result.records_failed,
-            &job_name,
+            job_name,
         );
 
         // Step 5: Write processed data to sink if we have one

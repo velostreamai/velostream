@@ -43,17 +43,12 @@ pub mod traits;
 pub mod types;
 
 // Re-export core types from config.rs
-pub use config::{
-    BatchConfig, BatchStrategy, CdcFormat, CompressionType, ConnectionString, FileFormat,
-    SinkConfig, SourceConfig, WriteMode,
-};
+pub use config::{BatchConfig, BatchStrategy, FileFormat, SinkConfig, SourceConfig};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 
 // Re-export specific implementations
-pub use file::{FileDataSource, FileSink};
-pub use kafka::{KafkaDataSink, KafkaDataSource};
 pub use stdout_writer::StdoutWriter;
 
 // Re-export registry functions
-pub use registry::{create_sink, create_source, DataSourceRegistry};
+pub use registry::{create_sink, create_source};

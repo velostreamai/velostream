@@ -23,7 +23,8 @@
 
 use ferrisstreams::ferris::datasource::file::config::FileFormat;
 use ferrisstreams::ferris::datasource::file::{
-    CompressionType, FileDataSource, FileSink, FileSinkConfig, FileSourceConfig,
+    config::{CompressionType, FileSinkConfig, FileSourceConfig},
+    FileDataSource, FileSink,
 };
 use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
@@ -428,10 +429,8 @@ fn stream_record_to_json_value(record: &StreamRecord) -> serde_json::Value {
             FieldValue::Timestamp(ts) => serde_json::Value::String(ts.to_string()),
             FieldValue::Decimal(d) => serde_json::Value::String(d.to_string()),
             FieldValue::Array(arr) => {
-                let json_arr: Vec<serde_json::Value> = arr
-                    .iter()
-                    .map(|fv| stream_record_field_to_json_value(fv))
-                    .collect();
+                let json_arr: Vec<serde_json::Value> =
+                    arr.iter().map(stream_record_field_to_json_value).collect();
                 serde_json::Value::Array(json_arr)
             }
             FieldValue::Map(map) => {

@@ -4,9 +4,10 @@ use crate::ferris::datasource::config::{BatchConfig, SourceConfig};
 use serde::{Deserialize, Serialize};
 
 /// Supported file formats for file data sources
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FileFormat {
     /// CSV files with header row
+    #[default]
     Csv,
     /// CSV files without header row (schema must be provided)
     CsvNoHeader,
@@ -14,12 +15,6 @@ pub enum FileFormat {
     JsonLines,
     /// Single JSON array file
     Json,
-}
-
-impl Default for FileFormat {
-    fn default() -> Self {
-        FileFormat::Csv
-    }
 }
 
 impl std::fmt::Display for FileFormat {

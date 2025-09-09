@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 use ferrisstreams::ferris::kafka::serialization::Serializer;
 use ferrisstreams::ferris::serialization::avro_codec::create_avro_serializer;
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
@@ -288,7 +288,7 @@ async fn test_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
     // Check specific edge cases are preserved
     match deserialized.get("empty_string") {
         Some(FieldValue::String(s)) if s.is_empty() => {}
-        Some(FieldValue::String(s)) if s == "0" || s == "" => {} // String representation may vary
+        Some(FieldValue::String(s)) if s == "0" || s.is_empty() => {} // String representation may vary
         other => return Err(format!("Empty string not preserved correctly: {:?}", other).into()),
     }
 
@@ -335,8 +335,7 @@ async fn test_null_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn test_float_to_scaled_integer_conversion() -> Result<(), Box<dyn std::error::Error>> {
     use apache_avro::types::Value as AvroValue;
-    use apache_avro::{Reader, Schema, Writer};
-    use std::io::Cursor;
+    use apache_avro::{Schema, Writer};
 
     // Test schema with float and double fields
     let schema_json = r#"

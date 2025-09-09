@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::datasource::{
-    config::{CompressionType, FileFormat, SinkConfig},
+    config::{FileFormat, SinkConfig},
     file::sink::FileSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,

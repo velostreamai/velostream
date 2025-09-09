@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        println!(""); // Blank line between tests
+        println!(); // Blank line between tests
     }
 
     println!("\n🎯 Validation Process Explained:");
@@ -94,22 +94,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("1️⃣ **SQL Parsing**: Uses StreamingSqlParser to convert SQL text into AST");
     println!("   - Success: Query is syntactically valid");
     println!("   - Failure: SQL syntax error with position");
-    println!("");
+    println!();
     println!("2️⃣ **Query Analysis**: Uses QueryAnalyzer to extract resources needed");
     println!("   - Identifies data sources (FROM clauses)");
     println!("   - Identifies data sinks (INTO clauses)");
     println!("   - Extracts configurations (WITH clauses)");
-    println!("");
+    println!();
     println!("3️⃣ **Configuration Validation**: Checks required configs for each resource");
     println!("   - Kafka: bootstrap.servers, topic, group.id");
     println!("   - File: path, format");
     println!("   - Validates file existence and directory access");
-    println!("");
+    println!();
     println!("4️⃣ **Performance Analysis**: Identifies potential performance issues");
     println!("   - JOINs without time windows");
     println!("   - ORDER BY without LIMIT");
     println!("   - Complex subqueries in streaming context");
-    println!("");
+    println!();
     println!("5️⃣ **Syntax Compatibility**: Flags unsupported constructs");
     println!("   - WINDOW clauses that may not be supported");
     println!("   - Complex SQL features not implemented");
@@ -135,7 +135,7 @@ fn show_error_context(query: &str, position: usize) {
     println!("     Context:");
 
     let chars: Vec<char> = query.chars().collect();
-    let start = if position >= 10 { position - 10 } else { 0 };
+    let start = position.saturating_sub(10);
     let end = if position + 10 < chars.len() {
         position + 10
     } else {

@@ -2457,12 +2457,10 @@ impl<'a> TokenParser<'a> {
                     self.advance();
                     Ok(Some(crate::ferris::sql::ast::EmitMode::Final))
                 }
-                _ => {
-                    return Err(SqlError::ParseError {
-                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
-                        position: Some(emit_token.position),
-                    });
-                }
+                _ => Err(SqlError::ParseError {
+                    message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                    position: Some(emit_token.position),
+                }),
             }
         } else {
             Ok(None)

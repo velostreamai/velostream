@@ -73,7 +73,7 @@
 //! ```
 
 // Re-export from SQL module for convenience
-pub use crate::ferris::sql::{FieldValue, SqlError};
+pub use crate::ferris::sql::FieldValue;
 
 // Core types and traits
 mod error;
@@ -99,22 +99,12 @@ pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
 // Re-export format implementations
-pub use json::JsonFormat;
 
-pub use avro::AvroFormat;
+pub use avro_codec::AvroCodec;
 
-pub use avro_codec::{create_avro_serializer, deserialize_from_avro, serialize_to_avro, AvroCodec};
-
-pub use protobuf::ProtobufFormat;
-
-pub use protobuf_codec::{
-    create_protobuf_serializer, deserialize_from_protobuf, serialize_to_protobuf, DecimalMessage,
-    FieldMessage, ProtobufCodec, RecordMessage,
-};
+pub use protobuf_codec::ProtobufCodec;
 
 pub use json_codec::JsonCodec;
-
-pub use traits::UnifiedCodec;
 
 // Serialization codec enum for Kafka integration
 use crate::ferris::kafka::serialization::Serializer;
@@ -161,8 +151,3 @@ impl SerializationCodec {
 }
 
 // Re-export conversion helpers (used by external modules like kafka reader/writer)
-pub use helpers::{field_value_to_json, json_to_field_value};
-
-pub use helpers::{avro_value_to_field_value, field_value_to_avro};
-
-pub use helpers::protobuf_bytes_to_field_value;

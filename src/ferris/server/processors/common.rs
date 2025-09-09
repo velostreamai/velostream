@@ -732,9 +732,7 @@ pub fn log_datasource_info(
     writer: Option<&dyn DataWriter>,
 ) {
     let reader_type = std::any::type_name_of_val(reader);
-    let writer_type = writer
-        .map(|w| std::any::type_name_of_val(w))
-        .unwrap_or("None");
+    let writer_type = writer.map(std::any::type_name_of_val).unwrap_or("None");
     let reader_has_tx = reader.supports_transactions();
     let writer_has_tx = writer.map(|w| w.supports_transactions()).unwrap_or(false);
 

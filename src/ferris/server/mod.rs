@@ -34,4 +34,4 @@ pub mod processors;
 
 // Re-exports for convenience
 pub use processors::{JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor};
-pub use stream_job_server::{JobStatus, StreamJobServer};
+pub use stream_job_server::StreamJobServer;

@@ -192,7 +192,7 @@ impl SqlValidator {
         query: &str,
         query_index: usize,
         start_line: usize,
-        full_content: &str,
+        _full_content: &str,
     ) -> QueryValidationResult {
         let mut result = QueryValidationResult {
             query_text: query.to_string(),
@@ -585,7 +585,7 @@ impl SqlValidator {
     fn generate_error_context(
         &self,
         query: &str,
-        position: usize,
+        _position: usize,
         line_offset: usize,
         column: usize,
     ) -> String {
