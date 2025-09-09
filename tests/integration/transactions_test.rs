@@ -344,6 +344,7 @@ async fn test_transaction_timeout() {
     let config = ProducerConfig::new("localhost:9092", &topic)
         .transactional(transaction_id.clone())
         .transaction_timeout(Duration::from_secs(5))
+        .message_timeout(Duration::from_secs(4)) // Must be <= transaction timeout
         .idempotence(true)
         .acks(AckMode::All);
 

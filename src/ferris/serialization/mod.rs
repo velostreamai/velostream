@@ -100,9 +100,9 @@ pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
 // Re-export format implementations
-
+pub use avro::AvroFormat;
 pub use avro_codec::AvroCodec;
-
+pub use protobuf::ProtobufFormat;
 pub use protobuf_codec::ProtobufCodec;
 
 pub use json_codec::JsonCodec;

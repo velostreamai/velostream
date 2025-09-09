@@ -41,8 +41,8 @@ pub mod with_clause_parser;
 pub mod yaml_loader;
 
 // Re-export main types for convenience
-pub use connection_string::ConnectionString;
-pub use environment::ConfigSource;
-pub use types::{ConfigError, DataSourceConfig};
+pub use connection_string::{ConnectionString, ParseError};
+pub use environment::{ConfigSource, EnvironmentConfig};
+pub use types::{ConfigError, DataSourceConfig, ValidationStats};
 pub use validation::ValidationError;
-pub use yaml_loader::load_yaml_config;
+pub use yaml_loader::{load_yaml_config, YamlConfigError, YamlConfigLoader};

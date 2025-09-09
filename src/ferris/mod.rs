@@ -7,3 +7,4 @@ pub mod server;
 pub mod sql;
 
 // Re-export server types
+pub use server::StreamJobServer;

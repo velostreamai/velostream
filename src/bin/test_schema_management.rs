@@ -7,8 +7,7 @@ use ferrisstreams::ferris::schema::{
     *, 
     client::{
         providers::create_default_registry,
-        cache::{CacheConfig, CacheLookupResult},
-        registry_client::SchemaCache,
+        cache::{CacheConfig, CacheLookupResult, SchemaCache},
     },
     evolution::SchemaEvolution,
 };
@@ -84,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         enable_statistics: true,
         ..Default::default()
     };
-    let cache = SchemaCache::new();
+    let cache = SchemaCache::with_config(cache_config);
 
     // Cache some schemas
     cache

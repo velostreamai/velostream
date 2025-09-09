@@ -25,11 +25,15 @@ pub mod kafka_error;
 pub mod performance_presets;
 
 // Re-export main API
-pub use kafka_consumer::KafkaConsumer;
+pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+pub use kafka_producer_def_context::LoggingProducerContext;
 
 // Re-export Phase 2 Enhanced APIs
-pub use serialization::JsonSerializer;
+pub use serialization::{
+    AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError,
+    Serializer, StringSerializer,
+};
 
 // Feature-gated exports
 pub use utils::convert_kafka_log_level;
@@ -45,5 +49,6 @@ pub use admin_client::KafkaAdminClient;
 pub use ktable::KTable;
 
 // Re-export errors
+pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 
 // Conditional exports for feature-gated serializers
