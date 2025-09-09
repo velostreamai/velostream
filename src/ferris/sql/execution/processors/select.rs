@@ -872,7 +872,9 @@ impl SelectProcessor {
                     Self::collect_header_mutations_from_expr(arg, record, mutations)?;
                 }
             }
-            Expr::Between { expr, low, high, .. } => {
+            Expr::Between {
+                expr, low, high, ..
+            } => {
                 Self::collect_header_mutations_from_expr(expr, record, mutations)?;
                 Self::collect_header_mutations_from_expr(low, record, mutations)?;
                 Self::collect_header_mutations_from_expr(high, record, mutations)?;

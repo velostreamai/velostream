@@ -3,8 +3,9 @@
 -- Description: Demonstrates FerrisStreams advanced SQL capabilities with file data sources
 -- Version: 4.1.0
 -- Author: Quantitative Trading Team
--- Data Sources: Named sources with configuration-based approach using kafka_config.yml
--- Config File: demo/datasource-demo/kafka_config.yml
+-- Data Sources: Named sources and sinks with individual config files
+-- Config Directory: demo/datasource-demo/configs/
+-- Schema: JSON Schema validation available at ferrisstreams-config.schema.json
 -- Tag: latency:ultra-low
 -- Tag: compliance:regulatory
 
@@ -24,8 +25,8 @@ SELECT
     description
 FROM transactions_source
 WITH (
-    'config.file' = 'demo/datasource-demo/kafka_config.yml',
-    'config.source' = 'transactions_source'
+    'transactions_source.type' = 'file_source',
+    'transactions_source.config_file' = 'demo/datasource-demo/configs/transactions_source.yaml'
 );
 
 -- Basic transaction enrichment with financial metadata
@@ -51,14 +52,15 @@ SELECT
     CURRENT_TIMESTAMP AS processed_at,
     'enhanced_sql_demo_v1.0' AS pipeline_version
 FROM raw_transactions
+WITH (
+    'raw_transactions.type' = 'kafka_source',
+    'raw_transactions.config_file' = 'demo/datasource-demo/configs/raw_transactions.yaml'
+)
 WHERE amount > 0  -- Filter out invalid amounts
 INTO enriched_kafka_sink
 WITH (
     'enriched_kafka_sink.type' = 'kafka_sink',
-    'enriched_kafka_sink.bootstrap.servers' = 'localhost:9092',
-    'enriched_kafka_sink.topic' = 'enriched-transactions',
-    'enriched_kafka_sink.value.format' = 'json',
-    'enriched_kafka_sink.failure_strategy' = 'LogAndContinue'
+    'enriched_kafka_sink.config_file' = 'demo/datasource-demo/configs/enriched_kafka_sink.yaml'
 )
 EMIT CHANGES;
 
@@ -80,15 +82,16 @@ SELECT
     SUM(CASE WHEN is_high_value THEN 1 ELSE 0 END) AS high_value_count,
     SUM(CASE WHEN is_high_value THEN amount ELSE 0 END) AS high_value_total
 FROM enriched_transactions
+WITH (
+    'enriched_transactions.type' = 'kafka_source',
+    'enriched_transactions.config_file' = 'demo/datasource-demo/configs/enriched_transactions.yaml'
+)
 GROUP BY merchant_category
 -- WINDOW TUMBLING(1m)  -- Fixed: Commented out unsupported syntax
 INTO merchant_kafka_sink
 WITH (
     'merchant_kafka_sink.type' = 'kafka_sink',
-    'merchant_kafka_sink.bootstrap.servers' = 'localhost:9092',
-    'merchant_kafka_sink.topic' = 'merchant-analytics',
-    'merchant_kafka_sink.value.format' = 'json',
-    'merchant_kafka_sink.failure_strategy' = 'LogAndContinue'
+    'merchant_kafka_sink.config_file' = 'demo/datasource-demo/configs/merchant_kafka_sink.yaml'
 )
 EMIT CHANGES;
 
@@ -104,15 +107,16 @@ SELECT
     COUNT_DISTINCT(merchant_category) AS merchant_diversity,
     STDDEV(amount) AS spending_volatility
 FROM enriched_transactions  
+WITH (
+    'enriched_transactions.type' = 'kafka_source',
+    'enriched_transactions.config_file' = 'demo/datasource-demo/configs/enriched_transactions.yaml'
+)
 GROUP BY customer_id
 WINDOW SLIDING(5m, 1m)
 INTO customer_kafka_sink
 WITH (
     'customer_kafka_sink.type' = 'kafka_sink',
-    'customer_kafka_sink.bootstrap.servers' = 'localhost:9092',
-    'customer_kafka_sink.topic' = 'customer-spending-patterns',
-    'customer_kafka_sink.value.format' = 'json',
-    'customer_kafka_sink.failure_strategy' = 'LogAndContinue'
+    'customer_kafka_sink.config_file' = 'demo/datasource-demo/configs/customer_kafka_sink.yaml'
 )
 EMIT CHANGES;
 
@@ -177,6 +181,10 @@ SELECT
     SUM(CASE WHEN LENGTH(transaction_id) != 8 THEN 1 ELSE 0 END) AS invalid_ids,
     SUM(CASE WHEN currency != 'USD' THEN 1 ELSE 0 END) AS non_usd_transactions
 FROM raw_transactions
+WITH (
+    'raw_transactions.type' = 'kafka_source',
+    'raw_transactions.config_file' = 'demo/datasource-demo/configs/raw_transactions.yaml'
+)
 GROUP BY 1
 -- WINDOW TUMBLING(30s)  -- Fixed: Commented out unsupported syntax
 INTO metrics_kafka_sink
@@ -209,9 +217,7 @@ WHERE is_high_value = TRUE
 INTO file_sink
 WITH (
     'file_sink.type' = 'file_sink',
-    'file_sink.path' = 'demo/datasource-demo/output/high_value_transactions.json',
-    'file_sink.format' = 'json',
-    'file_sink.append' = 'true'
+    'file_sink.config_file' = 'demo/datasource-demo/configs/file_sink.yaml'
 )
 EMIT CHANGES;
 
@@ -230,10 +236,7 @@ FROM merchant_analytics
 INTO csv_sink
 WITH (
     'csv_sink.type' = 'file_sink',
-    'csv_sink.path' = 'demo/datasource-demo/output/merchant_analytics.csv',
-    'csv_sink.format' = 'csv',
-    'csv_sink.has_headers' = 'true',
-    'csv_sink.append' = 'false'
+    'csv_sink.config_file' = 'demo/datasource-demo/configs/csv_sink.yaml'
 )
 EMIT CHANGES;
 

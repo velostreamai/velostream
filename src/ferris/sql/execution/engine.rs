@@ -700,7 +700,7 @@ impl StreamExecutionEngine {
             }
             StreamingQuery::Union { left, right, .. } => {
                 // UNION matches if either side matches the stream
-                self.query_matches_stream(left, stream_name) 
+                self.query_matches_stream(left, stream_name)
                     || self.query_matches_stream(right, stream_name)
             }
         }

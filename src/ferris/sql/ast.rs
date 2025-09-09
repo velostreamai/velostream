@@ -985,7 +985,9 @@ impl Expr {
                 // For now, we'll include columns from the subquery itself
                 query.get_columns()
             }
-            Expr::Between { expr, low, high, .. } => {
+            Expr::Between {
+                expr, low, high, ..
+            } => {
                 let mut columns = expr.get_columns();
                 columns.extend(low.get_columns());
                 columns.extend(high.get_columns());

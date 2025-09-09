@@ -1,8 +1,5 @@
 // Simple test binary for UNION operator parsing
-use ferrisstreams::ferris::sql::{
-    parser::StreamingSqlParser,
-    ast::StreamingQuery,
-};
+use ferrisstreams::ferris::sql::{ast::StreamingQuery, parser::StreamingSqlParser};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing UNION operator parsing...");
@@ -48,12 +45,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(query) => {
             println!("✓ Successfully parsed chained UNION");
             match query {
-                StreamingQuery::Union { left, .. } => {
-                    match left.as_ref() {
-                        StreamingQuery::Union { .. } => println!("  - Left side is also UNION (left-associative)"),
-                        _ => println!("  - Left side is not UNION"),
+                StreamingQuery::Union { left, .. } => match left.as_ref() {
+                    StreamingQuery::Union { .. } => {
+                        println!("  - Left side is also UNION (left-associative)")
                     }
-                }
+                    _ => println!("  - Left side is not UNION"),
+                },
                 _ => println!("  - Not a UNION query"),
             }
         }
@@ -74,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 5: Error cases
     println!("\n5. Testing error cases:");
-    
+
     // Missing right side
     let sql_error1 = "SELECT name FROM customers UNION";
     match parser.parse(sql_error1) {
@@ -90,13 +87,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\n✅ UNION operator parsing tests completed!");
-    
+
     // Show some examples of what UNION does conceptually
     println!("\n📝 UNION operator semantics:");
     println!("  - UNION combines rows from multiple SELECT queries");
     println!("  - UNION removes duplicate rows (like SQL DISTINCT)");
     println!("  - UNION ALL preserves all rows including duplicates");
     println!("  - Both sides must have compatible column types and counts");
-    
+
     Ok(())
 }

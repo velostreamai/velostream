@@ -79,7 +79,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 6: String lexicographic comparison
     println!("\n6. Testing BETWEEN with string values:");
     let mut string_fields = HashMap::new();
-    string_fields.insert("name".to_string(), FieldValue::String("Charlie".to_string()));
+    string_fields.insert(
+        "name".to_string(),
+        FieldValue::String("Charlie".to_string()),
+    );
     let string_record = StreamRecord::new(string_fields);
 
     let string_expr = Expr::Between {

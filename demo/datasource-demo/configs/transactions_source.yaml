@@ -1,0 +1,26 @@
+# File source configuration for raw transaction data
+# Flat structure with dot-notation properties as expected by FerrisStreams
+
+# Source type (required)
+type: "file_source"
+
+# File source properties
+path: "demo/datasource-demo/demo_data/financial_transactions.csv"
+format: "csv"
+has_headers: true
+watching: true
+
+# Processing settings
+use_transactions: false
+failure_strategy: "RetryWithBackoff"
+retry_backoff: 1000
+max_retries: 3
+
+# CSV-specific settings
+delimiter: ","
+encoding: "UTF-8"
+skip_empty_lines: true
+
+# Schema inference
+infer_schema: true
+sample_size: 1000

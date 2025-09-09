@@ -690,9 +690,10 @@ impl ExpressionEvaluator {
                 let high_val = Self::evaluate_expression_value(high, record)?;
 
                 // Handle NULL values according to SQL standards
-                if matches!(expr_val, FieldValue::Null) 
-                    || matches!(low_val, FieldValue::Null) 
-                    || matches!(high_val, FieldValue::Null) {
+                if matches!(expr_val, FieldValue::Null)
+                    || matches!(low_val, FieldValue::Null)
+                    || matches!(high_val, FieldValue::Null)
+                {
                     return Ok(FieldValue::Boolean(false));
                 }
 
@@ -709,14 +710,14 @@ impl ExpressionEvaluator {
                     (
                         FieldValue::ScaledInteger(e_val, e_scale),
                         FieldValue::ScaledInteger(l_val, l_scale),
-                        FieldValue::ScaledInteger(h_val, h_scale)
+                        FieldValue::ScaledInteger(h_val, h_scale),
                     ) => {
                         // Normalize scales for proper comparison
                         let max_scale = (*e_scale).max(*l_scale).max(*h_scale);
                         let e_normalized = *e_val * 10_i64.pow((max_scale - e_scale) as u32);
                         let l_normalized = *l_val * 10_i64.pow((max_scale - l_scale) as u32);
                         let h_normalized = *h_val * 10_i64.pow((max_scale - h_scale) as u32);
-                        
+
                         e_normalized >= l_normalized && e_normalized <= h_normalized
                     }
                     // String comparisons (lexicographic)
@@ -729,7 +730,7 @@ impl ExpressionEvaluator {
                         let e_float = Self::to_comparable_float(&expr_val)?;
                         let l_float = Self::to_comparable_float(&low_val)?;
                         let h_float = Self::to_comparable_float(&high_val)?;
-                        
+
                         e_float >= l_float && e_float <= h_float
                     }
                 };
@@ -1236,12 +1237,13 @@ impl ExpressionEvaluator {
                 let divisor = 10_f64.powi(*scale as i32);
                 Ok(*val as f64 / divisor)
             }
-            FieldValue::String(s) => {
-                s.parse::<f64>().map_err(|_| SqlError::ExecutionError {
-                    message: format!("Cannot convert string '{}' to number for BETWEEN comparison", s),
-                    query: None,
-                })
-            }
+            FieldValue::String(s) => s.parse::<f64>().map_err(|_| SqlError::ExecutionError {
+                message: format!(
+                    "Cannot convert string '{}' to number for BETWEEN comparison",
+                    s
+                ),
+                query: None,
+            }),
             _ => Err(SqlError::ExecutionError {
                 message: format!("Cannot compare type {:?} in BETWEEN expression", value),
                 query: None,

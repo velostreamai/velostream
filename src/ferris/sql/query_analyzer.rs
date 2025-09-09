@@ -196,7 +196,7 @@ impl QueryAnalyzer {
                 // Analyze both sides of the UNION
                 let left_analysis = self.analyze(left)?;
                 self.merge_analysis(&mut analysis, left_analysis);
-                
+
                 let right_analysis = self.analyze(right)?;
                 self.merge_analysis(&mut analysis, right_analysis);
             }

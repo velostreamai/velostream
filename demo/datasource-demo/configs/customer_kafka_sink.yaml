@@ -1,0 +1,25 @@
+# Kafka sink configuration for customer spending patterns
+# Flat structure with dot-notation properties
+
+# Sink type (required)
+type: "kafka_sink"
+
+# Kafka connection properties
+bootstrap.servers: "localhost:9092"
+topic: "customer-spending-patterns"
+
+# Producer settings
+value.format: "json"
+key.format: "string"
+batch.size: 8192
+linger.ms: 10
+compression.type: "lz4"
+acks: "all"
+retries: 3
+retry.backoff.ms: 100
+enable.idempotence: true
+
+# Error handling
+failure_strategy: "LogAndContinue"
+max_retries: 3
+timeout_ms: 30000

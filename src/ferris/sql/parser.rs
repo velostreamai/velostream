@@ -239,19 +239,19 @@ enum TokenType {
     Interval, // INTERVAL
 
     // Conditional Keywords
-    Case,   // CASE
-    When,   // WHEN
-    Then,   // THEN
-    Else,   // ELSE
-    End,    // END
-    Is,     // IS (for IS NULL, IS NOT NULL)
-    In,     // IN (for IN operator)
-    Not,    // NOT (for NOT IN, IS NOT NULL, etc.)
+    Case,    // CASE
+    When,    // WHEN
+    Then,    // THEN
+    Else,    // ELSE
+    End,     // END
+    Is,      // IS (for IS NULL, IS NOT NULL)
+    In,      // IN (for IN operator)
+    Not,     // NOT (for NOT IN, IS NOT NULL, etc.)
     Between, // BETWEEN (for range queries)
-    Exists, // EXISTS (for EXISTS subqueries)
-    Any,    // ANY (for ANY subqueries)
-    All,    // ALL (for ALL subqueries)
-    Union,  // UNION (for combining result sets)
+    Exists,  // EXISTS (for EXISTS subqueries)
+    Any,     // ANY (for ANY subqueries)
+    All,     // ALL (for ALL subqueries)
+    Union,   // UNION (for combining result sets)
 
     // Window Frame Keywords
     Rows,      // ROWS
@@ -1022,8 +1022,8 @@ impl<'a> TokenParser<'a> {
         // Check for UNION after SELECT
         if self.current_token().token_type == TokenType::Union {
             self.advance(); // consume UNION
-            
-            // Check for ALL keyword  
+
+            // Check for ALL keyword
             let all = if self.current_token().token_type == TokenType::All {
                 self.advance(); // consume ALL
                 true
@@ -1313,59 +1313,59 @@ impl<'a> TokenParser<'a> {
                 // Handle NOT IN or NOT BETWEEN operators
                 if self.current_token().token_type == TokenType::In {
                     // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
-                self.advance(); // consume 'IN'
+                    self.advance(); // consume 'IN'
 
-                if self.current_token().token_type != TokenType::LeftParen {
-                    return Err(SqlError::ParseError {
-                        message: "Expected '(' after NOT IN".to_string(),
-                        position: Some(self.current_token().position),
-                    });
-                }
-                self.advance(); // consume '('
-
-                // Check if this is a subquery
-                if self.current_token().token_type == TokenType::Select {
-                    let subquery = self.parse_select()?;
-                    self.expect(TokenType::RightParen)?;
-                    left = Expr::BinaryOp {
-                        left: Box::new(left),
-                        op: BinaryOperator::NotIn,
-                        right: Box::new(Expr::Subquery {
-                            query: Box::new(subquery),
-                            subquery_type: crate::ferris::sql::ast::SubqueryType::NotIn,
-                        }),
-                    };
-                } else {
-                    // Regular NOT IN list
-                    let mut list_items = Vec::new();
-                    loop {
-                        list_items.push(self.parse_additive()?);
-
-                        if self.current_token().token_type == TokenType::Comma {
-                            self.advance(); // consume ','
-                        } else if self.current_token().token_type == TokenType::RightParen {
-                            self.advance(); // consume ')'
-                            break;
-                        } else {
-                            return Err(SqlError::ParseError {
-                                message: "Expected ',' or ')' in NOT IN list".to_string(),
-                                position: Some(self.current_token().position),
-                            });
-                        }
+                    if self.current_token().token_type != TokenType::LeftParen {
+                        return Err(SqlError::ParseError {
+                            message: "Expected '(' after NOT IN".to_string(),
+                            position: Some(self.current_token().position),
+                        });
                     }
+                    self.advance(); // consume '('
 
-                    left = Expr::BinaryOp {
-                        left: Box::new(left),
-                        op: BinaryOperator::NotIn,
-                        right: Box::new(Expr::List(list_items)),
-                    };
-                }
+                    // Check if this is a subquery
+                    if self.current_token().token_type == TokenType::Select {
+                        let subquery = self.parse_select()?;
+                        self.expect(TokenType::RightParen)?;
+                        left = Expr::BinaryOp {
+                            left: Box::new(left),
+                            op: BinaryOperator::NotIn,
+                            right: Box::new(Expr::Subquery {
+                                query: Box::new(subquery),
+                                subquery_type: crate::ferris::sql::ast::SubqueryType::NotIn,
+                            }),
+                        };
+                    } else {
+                        // Regular NOT IN list
+                        let mut list_items = Vec::new();
+                        loop {
+                            list_items.push(self.parse_additive()?);
+
+                            if self.current_token().token_type == TokenType::Comma {
+                                self.advance(); // consume ','
+                            } else if self.current_token().token_type == TokenType::RightParen {
+                                self.advance(); // consume ')'
+                                break;
+                            } else {
+                                return Err(SqlError::ParseError {
+                                    message: "Expected ',' or ')' in NOT IN list".to_string(),
+                                    position: Some(self.current_token().position),
+                                });
+                            }
+                        }
+
+                        left = Expr::BinaryOp {
+                            left: Box::new(left),
+                            op: BinaryOperator::NotIn,
+                            right: Box::new(Expr::List(list_items)),
+                        };
+                    }
                 } else if self.current_token().token_type == TokenType::Between {
                     // Handle NOT BETWEEN operator: expr NOT BETWEEN low AND high
                     self.advance(); // consume 'BETWEEN'
-                    
+
                     let low = self.parse_additive()?;
-                    
+
                     if self.current_token().token_type != TokenType::And {
                         return Err(SqlError::ParseError {
                             message: "Expected 'AND' after NOT BETWEEN expression".to_string(),
@@ -1373,9 +1373,9 @@ impl<'a> TokenParser<'a> {
                         });
                     }
                     self.advance(); // consume 'AND'
-                    
+
                     let high = self.parse_additive()?;
-                    
+
                     left = Expr::Between {
                         expr: Box::new(left),
                         low: Box::new(low),
@@ -1391,7 +1391,7 @@ impl<'a> TokenParser<'a> {
             } else if op_token.token_type == TokenType::Between {
                 // Handle BETWEEN operator: expr BETWEEN low AND high
                 let low = self.parse_additive()?;
-                
+
                 if self.current_token().token_type != TokenType::And {
                     return Err(SqlError::ParseError {
                         message: "Expected 'AND' after BETWEEN expression".to_string(),
@@ -1399,9 +1399,9 @@ impl<'a> TokenParser<'a> {
                     });
                 }
                 self.advance(); // consume 'AND'
-                
+
                 let high = self.parse_additive()?;
-                
+
                 left = Expr::Between {
                     expr: Box::new(left),
                     low: Box::new(low),
