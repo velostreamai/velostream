@@ -216,124 +216,124 @@ impl QueryAnalyzer {
         // Determine source type - EXPLICIT ONLY (no autodetection)
         // Uses simple compound type format: {name}.type = '{type}_source'
         // Examples: 'kafka_source', 'file_source', 's3_source'
-        let source_type_str = config
-            .get(&format!("{}.type", table_name))
-            .map(|s| s.as_str())
-            .ok_or_else(|| SqlError::ConfigurationError {
-                message: format!(
-                    "Source type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_source', 'file_source', 's3_source', 'database_source'",
-                    table_name, table_name
-                ),
-            })?;
-
-        let source_type = match source_type_str {
-            "kafka_source" => DataSourceType::Kafka,
-            "file_source" => DataSourceType::File,
-            "s3_source" => DataSourceType::S3,
-            "database_source" => DataSourceType::Database,
-            other => return Err(SqlError::ConfigurationError {
-                message: format!(
-                    "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
-                    other, table_name
-                ),
-            }),
-        };
-
-        // Build properties map from named source configuration
-        let mut properties = HashMap::new();
-        let source_prefix = format!("{}.", table_name);
-
-        // Check for config_file and load YAML configuration
-        let config_file_key = format!("{}.config_file", table_name);
-        if let Some(config_file_path) = config.get(&config_file_key) {
-            match load_yaml_config(config_file_path) {
-                Ok(yaml_config) => {
-                    // Convert YAML config to properties map
-                    if let Some(mapping) = yaml_config.config.as_mapping() {
-                        for (key, value) in mapping {
-                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
-                            {
-                                properties.insert(key_str.to_string(), value_str.to_string());
-                            } else if let Some(key_str) = key.as_str() {
-                                // Handle non-string values (convert to string)
-                                let value_str = match value {
-                                    serde_yaml::Value::Number(n) => n.to_string(),
-                                    serde_yaml::Value::Bool(b) => b.to_string(),
-                                    serde_yaml::Value::Null => "null".to_string(),
-                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
-                                    serde_yaml::Value::String(s) => s.clone(),
-                                };
-                                properties.insert(key_str.to_string(), value_str);
-                            }
-                        }
-                    }
-                    println!(
-                        "✅ Loaded config from {}: {} properties",
-                        config_file_path,
-                        properties.len()
-                    );
-                }
-                Err(e) => {
-                    return Err(SqlError::ConfigurationError {
-                        message: format!(
-                            "Failed to load config file '{}' for source '{}': {}",
-                            config_file_path, table_name, e
-                        ),
-                    });
-                }
-            }
-        }
-
-        // Add all source-specific properties (e.g., "kafka_source.bootstrap.servers")
-        for (key, value) in config {
-            if key.starts_with(&source_prefix) {
-                // Convert to standard property format (remove source name prefix)
-                let standard_key = key[source_prefix.len()..].to_string();
-                properties.insert(standard_key, value.clone());
-
-                // Also preserve original key for legacy compatibility during transition
-                properties.insert(key.clone(), value.clone());
-            }
-        }
-
-        // Add default Kafka properties if missing
-        if source_type == DataSourceType::Kafka {
-            // Ensure we have broker and topic info
-            if !properties.contains_key("bootstrap.servers") && !properties.contains_key("brokers")
-            {
-                properties.insert(
-                    "bootstrap.servers".to_string(),
-                    "localhost:9092".to_string(),
-                );
-            }
-            if !properties.contains_key("topic") {
-                properties.insert("topic".to_string(), table_name.to_string());
-            }
-            if !properties.contains_key("group.id") {
-                properties.insert(
-                    "group.id".to_string(),
-                    format!("{}-{}", self.default_group_id, table_name),
-                );
-            }
-
-            // Add serialization formats
-            if let Some(key_fmt) = config.get("key.serializer") {
-                properties.insert("key.serializer".to_string(), key_fmt.clone());
-            }
-            if let Some(val_fmt) = config.get("value.serializer") {
-                properties.insert("value.serializer".to_string(), val_fmt.clone());
-            }
-        }
-
-        let source_req = DataSourceRequirement {
-            name: table_name.to_string(),
-            source_type,
-            properties,
-        };
-
-        analysis.required_sources.push(source_req);
+        // let source_type_str = config
+        //     .get(&format!("{}.type", table_name))
+        //     .map(|s| s.as_str())
+        //     .ok_or_else(|| SqlError::ConfigurationError {
+        //         message: format!(
+        //             "Source type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_source', 'file_source', 's3_source', 'database_source'",
+        //             table_name, table_name
+        //         ),
+        //     })?;
+        //
+        // let source_type = match source_type_str {
+        //     "kafka_source" => DataSourceType::Kafka,
+        //     "file_source" => DataSourceType::File,
+        //     "s3_source" => DataSourceType::S3,
+        //     "database_source" => DataSourceType::Database,
+        //     other => return Err(SqlError::ConfigurationError {
+        //         message: format!(
+        //             "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
+        //             other, table_name
+        //         ),
+        //     }),
+        // };
+        //
+        // // Build properties map from named source configuration
+        // let mut properties = HashMap::new();
+        // let source_prefix = format!("{}.", table_name);
+        //
+        // // Check for config_file and load YAML configuration
+        // let config_file_key = format!("{}.config_file", table_name);
+        // if let Some(config_file_path) = config.get(&config_file_key) {
+        //     match load_yaml_config(config_file_path) {
+        //         Ok(yaml_config) => {
+        //             // Convert YAML config to properties map
+        //             if let Some(mapping) = yaml_config.config.as_mapping() {
+        //                 for (key, value) in mapping {
+        //                     if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
+        //                     {
+        //                         properties.insert(key_str.to_string(), value_str.to_string());
+        //                     } else if let Some(key_str) = key.as_str() {
+        //                         // Handle non-string values (convert to string)
+        //                         let value_str = match value {
+        //                             serde_yaml::Value::Number(n) => n.to_string(),
+        //                             serde_yaml::Value::Bool(b) => b.to_string(),
+        //                             serde_yaml::Value::Null => "null".to_string(),
+        //                             serde_yaml::Value::Sequence(_) => format!("{:?}", value),
+        //                             serde_yaml::Value::Mapping(_) => format!("{:?}", value),
+        //                             serde_yaml::Value::Tagged(_) => format!("{:?}", value),
+        //                             serde_yaml::Value::String(s) => s.clone(),
+        //                         };
+        //                         properties.insert(key_str.to_string(), value_str);
+        //                     }
+        //                 }
+        //             }
+        //             println!(
+        //                 "✅ Loaded config from {}: {} properties",
+        //                 config_file_path,
+        //                 properties.len()
+        //             );
+        //         }
+        //         Err(e) => {
+        //             return Err(SqlError::ConfigurationError {
+        //                 message: format!(
+        //                     "Failed to load config file '{}' for source '{}': {}",
+        //                     config_file_path, table_name, e
+        //                 ),
+        //             });
+        //         }
+        //     }
+        // }
+        //
+        // // Add all source-specific properties (e.g., "kafka_source.bootstrap.servers")
+        // for (key, value) in config {
+        //     if key.starts_with(&source_prefix) {
+        //         // Convert to standard property format (remove source name prefix)
+        //         let standard_key = key[source_prefix.len()..].to_string();
+        //         properties.insert(standard_key, value.clone());
+        //
+        //         // Also preserve original key for legacy compatibility during transition
+        //         properties.insert(key.clone(), value.clone());
+        //     }
+        // }
+        //
+        // // Add default Kafka properties if missing
+        // if source_type == DataSourceType::Kafka {
+        //     // Ensure we have broker and topic info
+        //     if !properties.contains_key("bootstrap.servers") && !properties.contains_key("brokers")
+        //     {
+        //         properties.insert(
+        //             "bootstrap.servers".to_string(),
+        //             "localhost:9092".to_string(),
+        //         );
+        //     }
+        //     if !properties.contains_key("topic") {
+        //         properties.insert("topic".to_string(), table_name.to_string());
+        //     }
+        //     if !properties.contains_key("group.id") {
+        //         properties.insert(
+        //             "group.id".to_string(),
+        //             format!("{}-{}", self.default_group_id, table_name),
+        //         );
+        //     }
+        //
+        //     // Add serialization formats
+        //     if let Some(key_fmt) = config.get("key.serializer") {
+        //         properties.insert("key.serializer".to_string(), key_fmt.clone());
+        //     }
+        //     if let Some(val_fmt) = config.get("value.serializer") {
+        //         properties.insert("value.serializer".to_string(), val_fmt.clone());
+        //     }
+        // }
+        //
+        // let source_req = DataSourceRequirement {
+        //     name: table_name.to_string(),
+        //     source_type,
+        //     properties,
+        // };
+        //
+        // analysis.required_sources.push(source_req);
         Ok(())
     }
 

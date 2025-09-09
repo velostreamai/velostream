@@ -363,6 +363,8 @@ impl ExpressionEvaluator {
 
                     // String concatenation operator
                     BinaryOperator::Concat => match (&left_val, &right_val) {
+                        // Handle NULL values first (SQL standard: concatenation with NULL returns NULL)
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
                         (FieldValue::String(s1), FieldValue::String(s2)) => {
                             Ok(FieldValue::String(format!("{}{}", s1, s2)))
                         }
@@ -395,17 +397,13 @@ impl ExpressionEvaluator {
                                 FieldValue::Interval { value, unit } => {
                                     format!("{} {:?}", value, unit)
                                 }
-                                FieldValue::Null => "".to_string(), // SQL standard: concat with NULL gives NULL, but we'll use empty string
+                                FieldValue::Null => unreachable!("NULL values handled above"),
                             };
                             if left_val == *other {
                                 Ok(FieldValue::String(format!("{}{}", other_str, s)))
                             } else {
                                 Ok(FieldValue::String(format!("{}{}", s, other_str)))
                             }
-                        }
-                        (FieldValue::Null, _) | (_, FieldValue::Null) => {
-                            // SQL standard: concatenation with NULL returns NULL
-                            Ok(FieldValue::Null)
                         }
                         (left, right) => {
                             // Convert both non-string values to strings and concatenate

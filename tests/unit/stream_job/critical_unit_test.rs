@@ -28,7 +28,13 @@ async fn deploy_test_job(
         .deploy_job(
             name.to_string(),
             version.to_string(),
-            "SELECT * FROM test_topic".to_string(),
+            r#"SELECT * FROM test_topic_source
+                WITH (
+                    'test_topic_source.type' = 'kafka_source',
+                    'test_topic_source.bootstrap.servers' = 'localhost:9092',
+                    'test_topic_source.topic' = 'test_topic'
+                )"#
+            .to_string(),
             "test_topic".to_string(),
         )
         .await
@@ -277,7 +283,13 @@ async fn test_input_validation_empty_name() {
         .deploy_job(
             "".to_string(), // Empty name
             "1.0".to_string(),
-            "SELECT * FROM test_topic".to_string(),
+            r#"SELECT * FROM test_topic_input
+                WITH (
+                    'test_topic_input.type' = 'kafka_source',
+                    'test_topic_input.bootstrap.servers' = 'localhost:9092',
+                    'test_topic_input.topic' = 'test_topic'
+                )"#
+            .to_string(),
             "test_topic".to_string(),
         )
         .await;
@@ -303,7 +315,13 @@ async fn test_input_validation_empty_version() {
         .deploy_job(
             "test_job".to_string(),
             "".to_string(), // Empty version
-            "SELECT * FROM test_topic".to_string(),
+            r#"SELECT * FROM test_topic
+                WITH (
+                    'test_topic.type' = 'kafka_source',
+                    'test_topic.bootstrap.servers' = 'localhost:9092',
+                    'test_topic.topic' = 'test_topic'
+                )"#
+            .to_string(),
             "test_topic".to_string(),
         )
         .await;
@@ -355,7 +373,13 @@ async fn test_input_validation_empty_topic() {
         .deploy_job(
             "test_job".to_string(),
             "1.0".to_string(),
-            "SELECT * FROM test_topic".to_string(),
+            r#"SELECT * FROM test_topic
+                WITH (
+                    'test_topic.type' = 'kafka_source',
+                    'test_topic.bootstrap.servers' = 'localhost:9092',
+                    'test_topic.topic' = 'test_topic'
+                )"#
+            .to_string(),
             "".to_string(), // Empty topic
         )
         .await;
@@ -469,11 +493,21 @@ async fn test_deploy_sql_application() {
 
 START JOB job1 AS
 SELECT * FROM test_topic1
-WITH ('output.topic' = 'output1');
+WITH (
+    'test_topic1.type' = 'kafka_source',
+    'test_topic1.bootstrap.servers' = 'localhost:9092',
+    'test_topic1.topic' = 'test_topic1',
+    'output.topic' = 'output1'
+);
 
 START JOB job2 AS  
 SELECT * FROM test_topic2
-WITH ('output.topic' = 'output2');
+WITH (
+    'test_topic2.type' = 'kafka_source',
+    'test_topic2.bootstrap.servers' = 'localhost:9092',
+    'test_topic2.topic' = 'test_topic2',
+    'output.topic' = 'output2'
+);
 "#;
 
     // Parse the SQL application string

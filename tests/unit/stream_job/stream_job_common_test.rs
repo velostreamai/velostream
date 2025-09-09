@@ -412,7 +412,13 @@ async fn test_concurrent_operations() {
                 .deploy_job(
                     job_name.clone(),
                     "1.0".to_string(),
-                    "SELECT * FROM test_topic".to_string(),
+                    r#"SELECT * FROM test_topic
+                WITH (
+                    'test_topic.type' = 'kafka_source',
+                    'test_topic.bootstrap.servers' = 'localhost:9092',
+                    'test_topic.topic' = 'test_topic'
+                )"#
+                    .to_string(),
                     "test_topic".to_string(),
                 )
                 .await;
@@ -450,7 +456,13 @@ async fn test_resource_cleanup() {
             .deploy_job(
                 job_name.clone(),
                 "1.0".to_string(),
-                "SELECT * FROM test_topic".to_string(),
+                r#"SELECT * FROM test_topic
+                WITH (
+                    'test_topic.type' = 'kafka_source',
+                    'test_topic.bootstrap.servers' = 'localhost:9092',
+                    'test_topic.topic' = 'test_topic'
+                )"#
+                .to_string(),
                 "test_topic".to_string(),
             )
             .await
@@ -481,7 +493,12 @@ async fn test_job_metrics() {
         .deploy_job(
             job_name.to_string(),
             "1.0".to_string(),
-            "SELECT * FROM test_topic".to_string(),
+            r#"SELECT * FROM test_topic WITH (
+                    'test_topic.type' = 'kafka_source',
+                    'test_topic.bootstrap.servers' = 'localhost:9092',
+                    'test_topic.topic' = 'test_topic'
+                )"#
+            .to_string(),
             "test_topic".to_string(),
         )
         .await
