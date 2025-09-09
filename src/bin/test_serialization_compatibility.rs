@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::serialization::{json::JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::collections::HashMap;
 

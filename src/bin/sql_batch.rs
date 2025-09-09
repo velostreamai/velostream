@@ -14,8 +14,8 @@ use ferrisstreams::ferris::{
     serialization::JsonFormat,
     sql::{
         ast::StreamingQuery,
-        execution::types::{FieldValue, StreamRecord},
-        StreamExecutionEngine, StreamingSqlParser,
+        execution::{types::{FieldValue, StreamRecord}, StreamExecutionEngine},
+        StreamingSqlParser,
     },
 };
 use log::{error, info, warn};

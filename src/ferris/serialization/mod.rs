@@ -80,6 +80,7 @@ mod error;
 mod traits;
 // Format implementations
 mod json;
+pub use json::JsonFormat;
 
 mod avro;
 

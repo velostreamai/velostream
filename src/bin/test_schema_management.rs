@@ -3,7 +3,15 @@
 //! This binary demonstrates the comprehensive schema management functionality
 //! including discovery, caching, evolution, and provider capabilities.
 
-use ferrisstreams::ferris::schema::*;
+use ferrisstreams::ferris::schema::{
+    *, 
+    client::{
+        providers::create_default_registry,
+        cache::{CacheConfig, CacheLookupResult},
+        registry_client::SchemaCache,
+    },
+    evolution::SchemaEvolution,
+};
 use ferrisstreams::ferris::sql::ast::DataType;
 use std::time::Duration;
 
@@ -76,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         enable_statistics: true,
         ..Default::default()
     };
-    let cache = SchemaCache::with_config(cache_config);
+    let cache = SchemaCache::new();
 
     // Cache some schemas
     cache
