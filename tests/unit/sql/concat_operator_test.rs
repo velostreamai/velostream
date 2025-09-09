@@ -124,11 +124,11 @@ fn test_evaluate_float_concatenation() {
     let expr = Expr::BinaryOp {
         left: Box::new(Expr::Literal(LiteralValue::String("Pi is ".to_string()))),
         op: BinaryOperator::Concat,
-        right: Box::new(Expr::Literal(LiteralValue::Float(3.14159))),
+        right: Box::new(Expr::Literal(LiteralValue::Float(std::f64::consts::PI))),
     };
 
     let result = ExpressionEvaluator::evaluate_expression_value(&expr, &record).unwrap();
-    assert_eq!(result, FieldValue::String("Pi is 3.14159".to_string()));
+    assert_eq!(result, FieldValue::String("Pi is 3.141592653589793".to_string()));
 }
 
 #[test]
