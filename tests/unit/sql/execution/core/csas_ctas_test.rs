@@ -42,6 +42,7 @@ mod tests {
                 columns,
                 as_select,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "high_value_orders");
                 assert!(columns.is_none());
@@ -138,6 +139,7 @@ mod tests {
                 columns,
                 as_select,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "customer_totals");
                 assert!(columns.is_none());
@@ -460,6 +462,7 @@ mod tests {
                 as_select,
                 into_clause,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "enriched_orders");
                 assert!(columns.is_none());
@@ -498,6 +501,7 @@ mod tests {
                 as_select,
                 into_clause,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "analytics_summary");
                 assert!(columns.is_none());

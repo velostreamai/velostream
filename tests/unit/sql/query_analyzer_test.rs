@@ -90,6 +90,7 @@ fn test_create_stream_analysis() {
         columns: None,
         as_select: Box::new(select_query),
         properties,
+        emit_mode: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
@@ -145,6 +146,7 @@ fn test_create_stream_into_analysis() {
         as_select: Box::new(select_query),
         into_clause,
         properties: config_props,
+        emit_mode: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
