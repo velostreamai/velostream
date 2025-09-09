@@ -18,9 +18,6 @@ pub mod types;
 // SQL configuration tests
 pub mod config;
 
-// SQL datasource tests
-pub mod datasource;
-
 // Query analysis tests
 pub mod query_analyzer_explicit_type_test;
 pub mod query_analyzer_test;
