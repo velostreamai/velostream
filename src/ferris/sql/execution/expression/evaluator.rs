@@ -268,6 +268,17 @@ impl ExpressionEvaluator {
                     }),
                 }
             }
+            Expr::Between { .. } => {
+                // BETWEEN expressions always evaluate to boolean
+                let result = Self::evaluate_expression_value(expr, record)?;
+                match result {
+                    FieldValue::Boolean(b) => Ok(b),
+                    _ => Err(SqlError::ExecutionError {
+                        message: "BETWEEN expression should return boolean".to_string(),
+                        query: None,
+                    }),
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression for boolean evaluation: {:?}", expr),
                 query: None,
@@ -667,6 +678,63 @@ impl ExpressionEvaluator {
                         query: None,
                     }),
                 }
+            }
+            Expr::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => {
+                let expr_val = Self::evaluate_expression_value(expr, record)?;
+                let low_val = Self::evaluate_expression_value(low, record)?;
+                let high_val = Self::evaluate_expression_value(high, record)?;
+
+                // Handle NULL values according to SQL standards
+                if matches!(expr_val, FieldValue::Null) 
+                    || matches!(low_val, FieldValue::Null) 
+                    || matches!(high_val, FieldValue::Null) {
+                    return Ok(FieldValue::Boolean(false));
+                }
+
+                let result = match (&expr_val, &low_val, &high_val) {
+                    // Integer comparisons
+                    (FieldValue::Integer(e), FieldValue::Integer(l), FieldValue::Integer(h)) => {
+                        e >= l && e <= h
+                    }
+                    // Float comparisons
+                    (FieldValue::Float(e), FieldValue::Float(l), FieldValue::Float(h)) => {
+                        e >= l && e <= h
+                    }
+                    // ScaledInteger comparisons (financial precision)
+                    (
+                        FieldValue::ScaledInteger(e_val, e_scale),
+                        FieldValue::ScaledInteger(l_val, l_scale),
+                        FieldValue::ScaledInteger(h_val, h_scale)
+                    ) => {
+                        // Normalize scales for proper comparison
+                        let max_scale = (*e_scale).max(*l_scale).max(*h_scale);
+                        let e_normalized = *e_val * 10_i64.pow((max_scale - e_scale) as u32);
+                        let l_normalized = *l_val * 10_i64.pow((max_scale - l_scale) as u32);
+                        let h_normalized = *h_val * 10_i64.pow((max_scale - h_scale) as u32);
+                        
+                        e_normalized >= l_normalized && e_normalized <= h_normalized
+                    }
+                    // String comparisons (lexicographic)
+                    (FieldValue::String(e), FieldValue::String(l), FieldValue::String(h)) => {
+                        e >= l && e <= h
+                    }
+                    // Mixed type comparisons - convert to common type
+                    _ => {
+                        // Try to convert all to Float for comparison
+                        let e_float = Self::to_comparable_float(&expr_val)?;
+                        let l_float = Self::to_comparable_float(&low_val)?;
+                        let h_float = Self::to_comparable_float(&high_val)?;
+                        
+                        e_float >= l_float && e_float <= h_float
+                    }
+                };
+
+                Ok(FieldValue::Boolean(if *negated { !result } else { result }))
             }
             Expr::Case {
                 when_clauses,
@@ -1156,6 +1224,28 @@ impl ExpressionEvaluator {
                 // since they don't involve subqueries
                 Self::evaluate_expression_value(expr, record)
             }
+        }
+    }
+
+    /// Helper method to convert FieldValue to f64 for comparison purposes
+    fn to_comparable_float(value: &FieldValue) -> Result<f64, SqlError> {
+        match value {
+            FieldValue::Integer(i) => Ok(*i as f64),
+            FieldValue::Float(f) => Ok(*f),
+            FieldValue::ScaledInteger(val, scale) => {
+                let divisor = 10_f64.powi(*scale as i32);
+                Ok(*val as f64 / divisor)
+            }
+            FieldValue::String(s) => {
+                s.parse::<f64>().map_err(|_| SqlError::ExecutionError {
+                    message: format!("Cannot convert string '{}' to number for BETWEEN comparison", s),
+                    query: None,
+                })
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: format!("Cannot compare type {:?} in BETWEEN expression", value),
+                query: None,
+            }),
         }
     }
 }

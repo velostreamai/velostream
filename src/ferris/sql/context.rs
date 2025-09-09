@@ -227,6 +227,13 @@ impl StreamingSqlContext {
                 // - WHERE clause validation
                 Ok(())
             }
+            StreamingQuery::Union { left, right, .. } => {
+                // Validate both sides of the UNION
+                self.validate_query(left)?;
+                self.validate_query(right)?;
+                // TODO: Add schema compatibility validation between left and right
+                Ok(())
+            }
         }
     }
 
@@ -319,6 +326,18 @@ impl StreamingSqlContext {
             StreamingQuery::Delete { table_name, .. } => {
                 // Use the table name as the stream identifier
                 table_name
+            }
+            StreamingQuery::Union { left, .. } => {
+                // For UNION, use the left side's stream name as primary identifier
+                match left.as_ref() {
+                    StreamingQuery::Select { from, .. } => match from {
+                        crate::ferris::sql::ast::StreamSource::Stream(name) => name,
+                        crate::ferris::sql::ast::StreamSource::Table(name) => name,
+                        crate::ferris::sql::ast::StreamSource::Uri(uri) => uri,
+                        crate::ferris::sql::ast::StreamSource::Subquery(_) => "union_subquery",
+                    },
+                    _ => "union_query",
+                }
             }
         };
 

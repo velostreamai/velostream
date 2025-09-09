@@ -247,14 +247,15 @@ enum TokenType {
     Is,     // IS (for IS NULL, IS NOT NULL)
     In,     // IN (for IN operator)
     Not,    // NOT (for NOT IN, IS NOT NULL, etc.)
+    Between, // BETWEEN (for range queries)
     Exists, // EXISTS (for EXISTS subqueries)
     Any,    // ANY (for ANY subqueries)
     All,    // ALL (for ALL subqueries)
+    Union,  // UNION (for combining result sets)
 
     // Window Frame Keywords
     Rows,      // ROWS
     Range,     // RANGE
-    Between,   // BETWEEN
     And,       // AND
     Or,        // OR
     Preceding, // PRECEDING
@@ -367,7 +368,9 @@ impl StreamingSqlParser {
         keywords.insert("IS".to_string(), TokenType::Is);
         keywords.insert("IN".to_string(), TokenType::In);
         keywords.insert("NOT".to_string(), TokenType::Not);
+        keywords.insert("BETWEEN".to_string(), TokenType::Between);
         keywords.insert("EXISTS".to_string(), TokenType::Exists);
+        keywords.insert("UNION".to_string(), TokenType::Union);
         keywords.insert("ANY".to_string(), TokenType::Any);
         keywords.insert("ALL".to_string(), TokenType::All);
         keywords.insert("ROWS".to_string(), TokenType::Rows);
@@ -1003,7 +1006,7 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
-        Ok(StreamingQuery::Select {
+        let select_query = StreamingQuery::Select {
             fields,
             from: from_source,
             joins,
@@ -1014,7 +1017,31 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
-        })
+        };
+
+        // Check for UNION after SELECT
+        if self.current_token().token_type == TokenType::Union {
+            self.advance(); // consume UNION
+            
+            // Check for ALL keyword  
+            let all = if self.current_token().token_type == TokenType::All {
+                self.advance(); // consume ALL
+                true
+            } else {
+                false
+            };
+
+            // Parse the right side of the UNION
+            let right_query = self.parse_select()?;
+
+            Ok(StreamingQuery::Union {
+                left: Box::new(select_query),
+                right: Box::new(right_query),
+                all,
+            })
+        } else {
+            Ok(select_query)
+        }
     }
 
     fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
@@ -1202,6 +1229,7 @@ impl<'a> TokenParser<'a> {
                 | TokenType::Is
                 | TokenType::In
                 | TokenType::Not
+                | TokenType::Between
         ) {
             let op_token = self.current_token().clone();
             self.advance();
@@ -1282,13 +1310,9 @@ impl<'a> TokenParser<'a> {
                     };
                 }
             } else if op_token.token_type == TokenType::Not {
-                // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
-                if self.current_token().token_type != TokenType::In {
-                    return Err(SqlError::ParseError {
-                        message: "Expected 'IN' after 'NOT'".to_string(),
-                        position: Some(self.current_token().position),
-                    });
-                }
+                // Handle NOT IN or NOT BETWEEN operators
+                if self.current_token().token_type == TokenType::In {
+                    // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
                 self.advance(); // consume 'IN'
 
                 if self.current_token().token_type != TokenType::LeftParen {
@@ -1336,6 +1360,54 @@ impl<'a> TokenParser<'a> {
                         right: Box::new(Expr::List(list_items)),
                     };
                 }
+                } else if self.current_token().token_type == TokenType::Between {
+                    // Handle NOT BETWEEN operator: expr NOT BETWEEN low AND high
+                    self.advance(); // consume 'BETWEEN'
+                    
+                    let low = self.parse_additive()?;
+                    
+                    if self.current_token().token_type != TokenType::And {
+                        return Err(SqlError::ParseError {
+                            message: "Expected 'AND' after NOT BETWEEN expression".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                    self.advance(); // consume 'AND'
+                    
+                    let high = self.parse_additive()?;
+                    
+                    left = Expr::Between {
+                        expr: Box::new(left),
+                        low: Box::new(low),
+                        high: Box::new(high),
+                        negated: true,
+                    };
+                } else {
+                    return Err(SqlError::ParseError {
+                        message: "Expected 'IN' or 'BETWEEN' after 'NOT'".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            } else if op_token.token_type == TokenType::Between {
+                // Handle BETWEEN operator: expr BETWEEN low AND high
+                let low = self.parse_additive()?;
+                
+                if self.current_token().token_type != TokenType::And {
+                    return Err(SqlError::ParseError {
+                        message: "Expected 'AND' after BETWEEN expression".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+                self.advance(); // consume 'AND'
+                
+                let high = self.parse_additive()?;
+                
+                left = Expr::Between {
+                    expr: Box::new(left),
+                    low: Box::new(low),
+                    high: Box::new(high),
+                    negated: false,
+                };
             } else {
                 let right = self.parse_additive()?;
 
