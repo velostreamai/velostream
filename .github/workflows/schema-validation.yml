@@ -70,31 +70,29 @@ jobs:
         # Install JSON Schema validator
         pip3 install jsonschema PyYAML
         
-        # Create validation script
-        cat > validate_example.py << 'EOF'
-import json
-import yaml
-import jsonschema
-from jsonschema import validate
-import sys
-
-# Load schema
-with open('ferrisstreams-config.schema.json', 'r') as f:
-    schema = json.load(f)
-
-# Load and validate example YAML config
-with open('ferris-config.example.yaml', 'r') as f:
-    config = yaml.safe_load(f)
-
-try:
-    validate(instance=config, schema=schema)
-    print("✅ Example configuration validates against schema!")
-except jsonschema.exceptions.ValidationError as e:
-    print(f"❌ Example configuration failed validation: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"❌ Validation error: {e}")
-    sys.exit(1)
-EOF
+        # Create and run validation script
+        python3 -c "
+        import json
+        import yaml
+        import jsonschema
+        from jsonschema import validate
+        import sys
         
-        python3 validate_example.py
+        # Load schema
+        with open('ferrisstreams-config.schema.json', 'r') as f:
+            schema = json.load(f)
+        
+        # Load and validate example YAML config
+        with open('ferris-config.example.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+        
+        try:
+            validate(instance=config, schema=schema)
+            print('✅ Example configuration validates against schema!')
+        except jsonschema.exceptions.ValidationError as e:
+            print(f'❌ Example configuration failed validation: {e}')
+            sys.exit(1)
+        except Exception as e:
+            print(f'❌ Validation error: {e}')
+            sys.exit(1)
+        "
