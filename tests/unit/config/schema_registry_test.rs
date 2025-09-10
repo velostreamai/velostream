@@ -1,9 +1,9 @@
 //! Unit tests for the self-registering configuration schema system
 
 use ferrisstreams::ferris::config::{
-    validate_config_file_inheritance, validate_environment_variables, ConfigFileInheritance,
-    ConfigSchemaProvider, ConfigValidationError, EnvironmentVariablePattern, GlobalSchemaContext,
-    HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
+    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
+    ConfigFileInheritance, ConfigSchemaProvider, ConfigValidationError, EnvironmentVariablePattern,
+    GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
 };
 use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
@@ -1508,9 +1508,9 @@ fn test_validate_config_file_inheritance_direct_circular_dependency() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].contains("circular dependency"));
-    assert!(errors[0].contains("app.yaml"));
-    assert!(errors[0].contains("base.yaml"));
+    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("app.yaml"));
+    assert!(errors[0].message.contains("base.yaml"));
 }
 
 #[test]
@@ -1538,8 +1538,8 @@ fn test_validate_config_file_inheritance_indirect_circular_dependency() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].contains("circular dependency"));
-    assert!(errors[0].contains("app.yaml"));
+    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("app.yaml"));
 }
 
 #[test]
@@ -1557,8 +1557,8 @@ fn test_validate_config_file_inheritance_self_reference() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].contains("circular dependency"));
-    assert!(errors[0].contains("app.yaml"));
+    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("app.yaml"));
 }
 
 #[test]
@@ -1579,8 +1579,8 @@ fn test_validate_config_file_inheritance_missing_file_reference() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].contains("references missing file"));
-    assert!(errors[0].contains("missing.yaml"));
+    assert!(errors[0].message.contains("references missing file"));
+    assert!(errors[0].message.contains("missing.yaml"));
 }
 
 #[test]
@@ -1693,7 +1693,7 @@ fn test_validate_environment_variables_pattern_matching() {
     let patterns = vec![EnvironmentVariablePattern::new(
         "PREFIX_*_SUFFIX",
         "config.{}.property",
-        None,
+        None::<&str>,
     )];
 
     let env_vars = std::collections::HashMap::from([
@@ -1750,7 +1750,7 @@ fn test_validate_environment_variables_invalid_template() {
     let patterns = vec![EnvironmentVariablePattern::new(
         "VALID_*_PATTERN",
         "invalid_template_no_placeholder",
-        None,
+        None::<&str>,
     )];
 
     let env_vars =
@@ -1788,7 +1788,7 @@ fn test_validate_environment_variables_empty_env_vars() {
     let patterns = vec![EnvironmentVariablePattern::new(
         "ANY_*_PATTERN",
         "config.{}.value",
-        None,
+        None::<&str>,
     )];
     let env_vars = std::collections::HashMap::new();
 
@@ -1934,7 +1934,7 @@ fn test_phase_2_comprehensive_integration() {
             "kafka.{}.brokers",
             Some("localhost:9092"),
         ),
-        EnvironmentVariablePattern::new("FILE_*_PATH", "file.{}.path", None),
+        EnvironmentVariablePattern::new("FILE_*_PATH", "file.{}.path", None::<&str>),
     ];
 
     let env_vars = std::collections::HashMap::from([
