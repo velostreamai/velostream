@@ -4,7 +4,7 @@ use ferrisstreams::ferris::config::{
     ConfigSchemaProvider, ConfigValidationError, GlobalSchemaContext, HierarchicalSchemaRegistry,
     PropertyDefault, PropertyValidation,
 };
-use ferrisstreams::ferris::datasource::file::FileDataSource;
+use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
 use serde_json::Value;
@@ -967,4 +967,483 @@ fn test_file_data_source_registry_integration() {
 
     let errors = result.unwrap_err();
     assert!(errors.len() >= 2); // Should have at least 2 errors
+}
+
+#[test]
+fn test_file_sink_schema_provider_basic() {
+    let file_sink = FileSink::default();
+
+    // Test config type ID
+    assert_eq!(FileSink::config_type_id(), "file_sink");
+
+    // Test inheritable properties
+    let inheritable = FileSink::inheritable_properties();
+    assert!(inheritable.contains(&"buffer_size_bytes"));
+    assert!(inheritable.contains(&"batch.size"));
+    assert!(inheritable.contains(&"batch.timeout_ms"));
+    assert!(inheritable.contains(&"compression"));
+    assert!(inheritable.contains(&"writer_threads"));
+    assert!(inheritable.contains(&"max_file_size_bytes"));
+
+    // Test required properties
+    let required = FileSink::required_named_properties();
+    assert_eq!(required, vec!["path"]);
+
+    // Test optional properties with defaults
+    let optional = FileSink::optional_properties_with_defaults();
+    assert!(optional.contains_key("format"));
+    assert!(optional.contains_key("append_if_exists"));
+    assert!(optional.contains_key("buffer_size_bytes"));
+    assert!(optional.contains_key("csv_delimiter"));
+    assert!(optional.contains_key("csv_has_header"));
+    assert!(optional.contains_key("writer_threads"));
+
+    // Test supports custom properties
+    assert!(FileSink::supports_custom_properties());
+
+    // Test global schema dependencies
+    let dependencies = FileSink::global_schema_dependencies();
+    assert!(dependencies.contains(&"batch_config"));
+    assert!(dependencies.contains(&"file_global"));
+
+    // Test schema version
+    assert_eq!(FileSink::schema_version(), "2.0.0");
+}
+
+#[test]
+fn test_file_sink_path_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid paths
+    assert!(file_sink.validate_property("path", "./output.json").is_ok());
+    assert!(file_sink
+        .validate_property("path", "/data/output-%Y-%m-%d.csv")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("path", "./logs/app-%H%M.jsonl")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("path", "relative/path.log")
+        .is_ok());
+
+    // Valid paths with strftime patterns containing ".."
+    assert!(file_sink
+        .validate_property("path", "/data/%Y-%m-%d/../archive/log.json")
+        .is_ok()); // ".." allowed in strftime patterns
+
+    // Invalid paths
+    assert!(file_sink.validate_property("path", "").is_err()); // Empty path
+    assert!(file_sink
+        .validate_property("path", "../../../etc/passwd")
+        .is_err()); // Dangerous traversal without strftime
+    assert!(file_sink.validate_property("path", "/data/").is_err()); // Directory without filename
+    assert!(file_sink.validate_property("path", "output\\").is_err()); // Windows path ending in separator
+}
+
+#[test]
+fn test_file_sink_format_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid formats
+    assert!(file_sink.validate_property("format", "json").is_ok());
+    assert!(file_sink.validate_property("format", "jsonlines").is_ok());
+    assert!(file_sink.validate_property("format", "csv").is_ok());
+    assert!(file_sink
+        .validate_property("format", "csv_no_header")
+        .is_ok());
+
+    // Invalid formats
+    assert!(file_sink.validate_property("format", "xml").is_err());
+    assert!(file_sink.validate_property("format", "parquet").is_err());
+    assert!(file_sink.validate_property("format", "").is_err());
+    assert!(file_sink.validate_property("format", "JSON").is_err()); // Case sensitive
+}
+
+#[test]
+fn test_file_sink_boolean_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid boolean values
+    assert!(file_sink
+        .validate_property("append_if_exists", "true")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("append_if_exists", "false")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("csv_has_header", "true")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("csv_has_header", "false")
+        .is_ok());
+
+    // Invalid boolean values
+    assert!(file_sink
+        .validate_property("append_if_exists", "yes")
+        .is_err());
+    assert!(file_sink.validate_property("csv_has_header", "1").is_err());
+    assert!(file_sink.validate_property("append_if_exists", "").is_err());
+    assert!(file_sink
+        .validate_property("csv_has_header", "TRUE")
+        .is_err()); // Case sensitive
+}
+
+#[test]
+fn test_file_sink_numeric_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid buffer sizes
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "1024")
+        .is_ok()); // Minimum
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "65536")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "1073741824")
+        .is_ok()); // 1GB max
+
+    // Invalid buffer sizes
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "1023")
+        .is_err()); // Below minimum
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "1073741825")
+        .is_err()); // Over 1GB
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "invalid")
+        .is_err());
+
+    // Valid max file sizes
+    assert!(file_sink
+        .validate_property("max_file_size_bytes", "1024")
+        .is_ok()); // Minimum
+    assert!(file_sink
+        .validate_property("max_file_size_bytes", "1073741824")
+        .is_ok()); // 1GB
+
+    // Invalid max file sizes
+    assert!(file_sink
+        .validate_property("max_file_size_bytes", "1023")
+        .is_err()); // Below minimum
+    assert!(file_sink
+        .validate_property("max_file_size_bytes", "invalid")
+        .is_err());
+
+    // Valid rotation intervals
+    assert!(file_sink
+        .validate_property("rotation_interval_ms", "1000")
+        .is_ok()); // Minimum
+    assert!(file_sink
+        .validate_property("rotation_interval_ms", "86400000")
+        .is_ok()); // 24 hours max
+
+    // Invalid rotation intervals
+    assert!(file_sink
+        .validate_property("rotation_interval_ms", "999")
+        .is_err()); // Below minimum
+    assert!(file_sink
+        .validate_property("rotation_interval_ms", "86400001")
+        .is_err()); // Over 24 hours
+    assert!(file_sink
+        .validate_property("rotation_interval_ms", "invalid")
+        .is_err());
+
+    // Valid max records per file
+    assert!(file_sink
+        .validate_property("max_records_per_file", "1")
+        .is_ok());
+    assert!(file_sink
+        .validate_property("max_records_per_file", "1000000")
+        .is_ok());
+
+    // Invalid max records per file
+    assert!(file_sink
+        .validate_property("max_records_per_file", "0")
+        .is_err()); // Must be > 0
+    assert!(file_sink
+        .validate_property("max_records_per_file", "invalid")
+        .is_err());
+
+    // Valid writer threads
+    assert!(file_sink.validate_property("writer_threads", "1").is_ok());
+    assert!(file_sink.validate_property("writer_threads", "4").is_ok());
+    assert!(file_sink.validate_property("writer_threads", "64").is_ok()); // Maximum
+
+    // Invalid writer threads
+    assert!(file_sink.validate_property("writer_threads", "0").is_err()); // Must be > 0
+    assert!(file_sink.validate_property("writer_threads", "65").is_err()); // Over maximum
+    assert!(file_sink
+        .validate_property("writer_threads", "invalid")
+        .is_err());
+}
+
+#[test]
+fn test_file_sink_compression_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid compression types
+    assert!(file_sink.validate_property("compression", "none").is_ok());
+    assert!(file_sink.validate_property("compression", "gzip").is_ok());
+    assert!(file_sink.validate_property("compression", "snappy").is_ok());
+    assert!(file_sink.validate_property("compression", "zstd").is_ok());
+
+    // Invalid compression types
+    assert!(file_sink.validate_property("compression", "bzip2").is_err());
+    assert!(file_sink.validate_property("compression", "lz4").is_err());
+    assert!(file_sink.validate_property("compression", "").is_err());
+    assert!(file_sink.validate_property("compression", "GZIP").is_err()); // Case sensitive
+}
+
+#[test]
+fn test_file_sink_csv_delimiter_validation() {
+    let file_sink = FileSink::default();
+
+    // Valid delimiters
+    assert!(file_sink.validate_property("csv_delimiter", ",").is_ok());
+    assert!(file_sink.validate_property("csv_delimiter", ";").is_ok());
+    assert!(file_sink.validate_property("csv_delimiter", "|").is_ok());
+    assert!(file_sink.validate_property("csv_delimiter", "\t").is_ok());
+
+    // Invalid delimiters
+    assert!(file_sink.validate_property("csv_delimiter", "").is_err()); // Empty
+    assert!(file_sink.validate_property("csv_delimiter", ",,").is_err()); // Multiple characters
+    assert!(file_sink.validate_property("csv_delimiter", "a").is_err()); // Alphanumeric
+    assert!(file_sink.validate_property("csv_delimiter", "1").is_err()); // Numeric
+}
+
+#[test]
+fn test_file_sink_property_inheritance() {
+    let file_sink = FileSink::default();
+    let mut global_context = GlobalSchemaContext::default();
+
+    // Test buffer_size_bytes inheritance
+    global_context.global_properties.insert(
+        "file.sink.buffer_size_bytes".to_string(),
+        "131072".to_string(),
+    );
+
+    let result = file_sink
+        .resolve_property_with_inheritance("buffer_size_bytes", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("131072".to_string()));
+
+    // Test local value takes precedence
+    let result = file_sink
+        .resolve_property_with_inheritance("buffer_size_bytes", Some("262144"), &global_context)
+        .unwrap();
+    assert_eq!(result, Some("262144".to_string()));
+
+    // Test default fallback
+    global_context.global_properties.clear();
+    let result = file_sink
+        .resolve_property_with_inheritance("buffer_size_bytes", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("65536".to_string())); // Default 64KB buffer
+}
+
+#[test]
+fn test_file_sink_environment_based_defaults() {
+    let file_sink = FileSink::default();
+    let mut global_context = GlobalSchemaContext::default();
+
+    // Test production environment enables compression by default
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "production".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("compression", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("gzip".to_string()));
+
+    // Test development environment disables compression by default
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "development".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("compression", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("none".to_string()));
+
+    // Test writer threads based on environment
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "production".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("writer_threads", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("4".to_string())); // Production uses 4 threads
+
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "development".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("writer_threads", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("1".to_string())); // Development uses 1 thread
+
+    // Test max file size based on environment
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "production".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("max_file_size_bytes", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("1073741824".to_string())); // 1GB in production
+
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "development".to_string());
+
+    let result = file_sink
+        .resolve_property_with_inheritance("max_file_size_bytes", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("10485760".to_string())); // 10MB in development
+}
+
+#[test]
+fn test_file_sink_json_schema_generation() {
+    let json_schema = FileSink::json_schema();
+
+    // Check schema structure
+    assert_eq!(json_schema["type"], "object");
+    assert_eq!(json_schema["title"], "File Data Sink Configuration Schema");
+
+    // Check required properties
+    let required = json_schema["required"].as_array().unwrap();
+    assert!(required.contains(&serde_json::Value::String("path".to_string())));
+
+    // Check properties exist
+    let properties = json_schema["properties"].as_object().unwrap();
+    assert!(properties.contains_key("path"));
+    assert!(properties.contains_key("format"));
+    assert!(properties.contains_key("append_if_exists"));
+    assert!(properties.contains_key("buffer_size_bytes"));
+    assert!(properties.contains_key("compression"));
+    assert!(properties.contains_key("writer_threads"));
+
+    // Check format enum values
+    let format_enum = properties["format"]["enum"].as_array().unwrap();
+    assert!(format_enum.contains(&serde_json::Value::String("json".to_string())));
+    assert!(format_enum.contains(&serde_json::Value::String("jsonlines".to_string())));
+    assert!(format_enum.contains(&serde_json::Value::String("csv".to_string())));
+
+    // Check compression enum values
+    let compression_enum = properties["compression"]["enum"].as_array().unwrap();
+    assert!(compression_enum.contains(&serde_json::Value::String("none".to_string())));
+    assert!(compression_enum.contains(&serde_json::Value::String("gzip".to_string())));
+    assert!(compression_enum.contains(&serde_json::Value::String("snappy".to_string())));
+    assert!(compression_enum.contains(&serde_json::Value::String("zstd".to_string())));
+
+    // Check numeric constraints
+    assert_eq!(properties["buffer_size_bytes"]["minimum"], 1024);
+    assert_eq!(properties["buffer_size_bytes"]["maximum"], 1073741824);
+    assert_eq!(properties["rotation_interval_ms"]["minimum"], 1000);
+    assert_eq!(properties["rotation_interval_ms"]["maximum"], 86400000);
+    assert_eq!(properties["writer_threads"]["minimum"], 1);
+    assert_eq!(properties["writer_threads"]["maximum"], 64);
+}
+
+#[test]
+fn test_file_sink_property_validations() {
+    let validations = FileSink::property_validations();
+
+    // Should have key property validations
+    assert!(!validations.is_empty());
+
+    // Find path validation
+    let path_validation = validations
+        .iter()
+        .find(|v| v.key == "path")
+        .expect("Should have path validation");
+    assert!(path_validation.required);
+    assert!(path_validation.default.is_none());
+
+    // Find format validation
+    let format_validation = validations
+        .iter()
+        .find(|v| v.key == "format")
+        .expect("Should have format validation");
+    assert!(!format_validation.required);
+    assert!(format_validation.default.is_some());
+    assert!(format_validation
+        .validation_pattern
+        .as_ref()
+        .unwrap()
+        .contains("json"));
+
+    // Find buffer_size_bytes validation
+    let buffer_validation = validations
+        .iter()
+        .find(|v| v.key == "buffer_size_bytes")
+        .expect("Should have buffer_size_bytes validation");
+    assert!(!buffer_validation.required);
+    assert!(buffer_validation.default.is_some());
+
+    // Find compression validation
+    let compression_validation = validations
+        .iter()
+        .find(|v| v.key == "compression")
+        .expect("Should have compression validation");
+    assert!(!compression_validation.required);
+    assert!(compression_validation.default.is_some());
+    assert!(compression_validation
+        .validation_pattern
+        .as_ref()
+        .unwrap()
+        .contains("gzip"));
+}
+
+#[test]
+fn test_file_sink_registry_integration() {
+    let mut registry = HierarchicalSchemaRegistry::new();
+
+    // Register FileSink schema
+    registry.register_sink_schema::<FileSink>();
+
+    // Test basic sink provider functionality without registry validation
+    // (since the current registry implementation is focused on source validation)
+    let file_sink = FileSink::default();
+
+    // Test individual property validations work correctly
+    assert!(file_sink
+        .validate_property("path", "./data/output.json")
+        .is_ok());
+    assert!(file_sink.validate_property("format", "jsonlines").is_ok());
+    assert!(file_sink
+        .validate_property("buffer_size_bytes", "131072")
+        .is_ok());
+    assert!(file_sink.validate_property("compression", "gzip").is_ok());
+
+    // Test validation failures
+    assert!(file_sink.validate_property("path", "").is_err()); // Empty path
+    assert!(file_sink.validate_property("format", "xml").is_err()); // Invalid format
+    assert!(file_sink.validate_property("compression", "bzip2").is_err()); // Invalid compression
+
+    // Test property inheritance
+    let mut global_context = GlobalSchemaContext::default();
+    global_context.global_properties.insert(
+        "file.sink.buffer_size_bytes".to_string(),
+        "131072".to_string(),
+    );
+
+    let result = file_sink
+        .resolve_property_with_inheritance("buffer_size_bytes", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("131072".to_string()));
+
+    // Verify the registry has schemas registered by generating JSON schema
+    let json_schema = registry.generate_complete_json_schema();
+
+    // Check that the schema contains definitions (indicating successful registration)
+    let definitions = json_schema["definitions"].as_object().unwrap();
+
+    // We can't directly verify sink schemas since they're private,
+    // but we can verify the schema provider works correctly
+    assert!(!definitions.is_empty());
 }
