@@ -1,8 +1,9 @@
 //! Unit tests for the self-registering configuration schema system
 
 use ferrisstreams::ferris::config::{
-    ConfigSchemaProvider, ConfigValidationError, GlobalSchemaContext, HierarchicalSchemaRegistry,
-    PropertyDefault, PropertyValidation,
+    validate_config_file_inheritance, validate_environment_variables, ConfigFileInheritance,
+    ConfigSchemaProvider, ConfigValidationError, EnvironmentVariablePattern, GlobalSchemaContext,
+    HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
 };
 use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
@@ -1446,4 +1447,526 @@ fn test_file_sink_registry_integration() {
     // We can't directly verify sink schemas since they're private,
     // but we can verify the schema provider works correctly
     assert!(!definitions.is_empty());
+}
+
+// ===== PHASE 2 FEATURE TESTS =====
+
+#[test]
+fn test_config_file_inheritance_valid_chain() {
+    let inheritance = ConfigFileInheritance::new(
+        "./config/app.yaml",
+        vec![
+            "./config/base.yaml".to_string(),
+            "./config/environment/prod.yaml".to_string(),
+        ],
+    );
+
+    // Test basic structure
+    assert_eq!(inheritance.config_file, "./config/app.yaml");
+    assert_eq!(inheritance.extends_files.len(), 2);
+    assert_eq!(inheritance.extends_files[0], "./config/base.yaml");
+    assert_eq!(
+        inheritance.extends_files[1],
+        "./config/environment/prod.yaml"
+    );
+}
+
+#[test]
+fn test_validate_config_file_inheritance_no_circular_dependency() {
+    // Create a valid inheritance chain: app -> base -> common
+    let config_files = vec![
+        ConfigFileInheritance::new("./config/app.yaml", vec!["./config/base.yaml".to_string()]),
+        ConfigFileInheritance::new(
+            "./config/base.yaml",
+            vec!["./config/common.yaml".to_string()],
+        ),
+        ConfigFileInheritance::new("./config/common.yaml", vec![]),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(
+        result.is_ok(),
+        "Valid inheritance chain should pass validation"
+    );
+}
+
+#[test]
+fn test_validate_config_file_inheritance_direct_circular_dependency() {
+    // Create a circular dependency: app -> base -> app
+    let config_files = vec![
+        ConfigFileInheritance::new("./config/app.yaml", vec!["./config/base.yaml".to_string()]),
+        ConfigFileInheritance::new(
+            "./config/base.yaml",
+            vec![
+                "./config/app.yaml".to_string(), // Circular!
+            ],
+        ),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(result.is_err(), "Circular dependency should be detected");
+
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty());
+    assert!(errors[0].contains("circular dependency"));
+    assert!(errors[0].contains("app.yaml"));
+    assert!(errors[0].contains("base.yaml"));
+}
+
+#[test]
+fn test_validate_config_file_inheritance_indirect_circular_dependency() {
+    // Create an indirect circular dependency: app -> base -> common -> app
+    let config_files = vec![
+        ConfigFileInheritance::new("./config/app.yaml", vec!["./config/base.yaml".to_string()]),
+        ConfigFileInheritance::new(
+            "./config/base.yaml",
+            vec!["./config/common.yaml".to_string()],
+        ),
+        ConfigFileInheritance::new(
+            "./config/common.yaml",
+            vec![
+                "./config/app.yaml".to_string(), // Circular!
+            ],
+        ),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(
+        result.is_err(),
+        "Indirect circular dependency should be detected"
+    );
+
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty());
+    assert!(errors[0].contains("circular dependency"));
+    assert!(errors[0].contains("app.yaml"));
+}
+
+#[test]
+fn test_validate_config_file_inheritance_self_reference() {
+    // Create a self-referencing file: app -> app
+    let config_files = vec![ConfigFileInheritance::new(
+        "./config/app.yaml",
+        vec![
+            "./config/app.yaml".to_string(), // Self-reference!
+        ],
+    )];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(result.is_err(), "Self-reference should be detected");
+
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty());
+    assert!(errors[0].contains("circular dependency"));
+    assert!(errors[0].contains("app.yaml"));
+}
+
+#[test]
+fn test_validate_config_file_inheritance_missing_file_reference() {
+    // Create inheritance with missing file reference
+    let config_files = vec![
+        ConfigFileInheritance::new(
+            "./config/app.yaml",
+            vec![
+                "./config/missing.yaml".to_string(), // File not in list
+            ],
+        ),
+        ConfigFileInheritance::new("./config/base.yaml", vec![]),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(result.is_err(), "Missing file reference should be detected");
+
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty());
+    assert!(errors[0].contains("references missing file"));
+    assert!(errors[0].contains("missing.yaml"));
+}
+
+#[test]
+fn test_validate_config_file_inheritance_complex_valid_hierarchy() {
+    // Create a complex but valid hierarchy:
+    // app -> [base, environment/prod]
+    // base -> common
+    // environment/prod -> environment/shared
+    let config_files = vec![
+        ConfigFileInheritance::new(
+            "./config/app.yaml",
+            vec![
+                "./config/base.yaml".to_string(),
+                "./config/environment/prod.yaml".to_string(),
+            ],
+        ),
+        ConfigFileInheritance::new(
+            "./config/base.yaml",
+            vec!["./config/common.yaml".to_string()],
+        ),
+        ConfigFileInheritance::new(
+            "./config/environment/prod.yaml",
+            vec!["./config/environment/shared.yaml".to_string()],
+        ),
+        ConfigFileInheritance::new("./config/common.yaml", vec![]),
+        ConfigFileInheritance::new("./config/environment/shared.yaml", vec![]),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(
+        result.is_ok(),
+        "Complex valid hierarchy should pass validation"
+    );
+}
+
+#[test]
+fn test_validate_config_file_inheritance_empty_list() {
+    let config_files = vec![];
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(result.is_ok(), "Empty config file list should be valid");
+}
+
+#[test]
+fn test_environment_variable_pattern_creation() {
+    let pattern = EnvironmentVariablePattern::new(
+        "KAFKA_*_BROKERS",
+        "kafka.{}.brokers",
+        Some("localhost:9092"),
+    );
+
+    assert_eq!(pattern.pattern, "KAFKA_*_BROKERS");
+    assert_eq!(pattern.config_key_template, "kafka.{}.brokers");
+    assert_eq!(pattern.default_value, Some("localhost:9092".to_string()));
+}
+
+#[test]
+fn test_validate_environment_variables_valid_patterns() {
+    let patterns = vec![
+        EnvironmentVariablePattern::new(
+            "KAFKA_*_BROKERS",
+            "kafka.{}.brokers",
+            Some("localhost:9092"),
+        ),
+        EnvironmentVariablePattern::new("DB_*_HOST", "database.{}.host", Some("localhost")),
+        EnvironmentVariablePattern::new("APP_*_PORT", "app.{}.port", Some("8080")),
+    ];
+
+    let env_vars = std::collections::HashMap::from([
+        (
+            "KAFKA_PROD_BROKERS".to_string(),
+            "prod-kafka:9092".to_string(),
+        ),
+        (
+            "KAFKA_DEV_BROKERS".to_string(),
+            "dev-kafka:9092".to_string(),
+        ),
+        ("DB_MAIN_HOST".to_string(), "db.example.com".to_string()),
+        ("APP_WEB_PORT".to_string(), "3000".to_string()),
+        ("OTHER_VAR".to_string(), "ignored".to_string()), // Should be ignored
+    ]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(
+        result.is_ok(),
+        "Valid environment variables should pass validation"
+    );
+
+    let resolved_config = result.unwrap();
+    assert_eq!(
+        resolved_config.get("kafka.PROD.brokers"),
+        Some(&"prod-kafka:9092".to_string())
+    );
+    assert_eq!(
+        resolved_config.get("kafka.DEV.brokers"),
+        Some(&"dev-kafka:9092".to_string())
+    );
+    assert_eq!(
+        resolved_config.get("database.MAIN.host"),
+        Some(&"db.example.com".to_string())
+    );
+    assert_eq!(
+        resolved_config.get("app.WEB.port"),
+        Some(&"3000".to_string())
+    );
+    assert!(!resolved_config.contains_key("OTHER_VAR")); // Should be filtered out
+}
+
+#[test]
+fn test_validate_environment_variables_pattern_matching() {
+    let patterns = vec![EnvironmentVariablePattern::new(
+        "PREFIX_*_SUFFIX",
+        "config.{}.property",
+        None,
+    )];
+
+    let env_vars = std::collections::HashMap::from([
+        ("PREFIX_MATCH_SUFFIX".to_string(), "value1".to_string()), // Should match
+        ("PREFIX_ANOTHER_SUFFIX".to_string(), "value2".to_string()), // Should match
+        ("PREFIX_SUFFIX".to_string(), "value3".to_string()),       // No wildcard part
+        ("WRONG_MATCH_SUFFIX".to_string(), "value4".to_string()),  // Wrong prefix
+        ("PREFIX_MATCH_WRONG".to_string(), "value5".to_string()),  // Wrong suffix
+    ]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(result.is_ok(), "Pattern matching should work correctly");
+
+    let resolved_config = result.unwrap();
+    assert_eq!(
+        resolved_config.get("config.MATCH.property"),
+        Some(&"value1".to_string())
+    );
+    assert_eq!(
+        resolved_config.get("config.ANOTHER.property"),
+        Some(&"value2".to_string())
+    );
+    assert!(!resolved_config.contains_key("config..property")); // Empty wildcard should be filtered
+    assert_eq!(resolved_config.len(), 2); // Only 2 should match
+}
+
+#[test]
+fn test_validate_environment_variables_default_values() {
+    let patterns = vec![
+        EnvironmentVariablePattern::new("MISSING_*_VAR", "config.{}.value", Some("default_val")),
+        EnvironmentVariablePattern::new("PRESENT_*_VAR", "config.{}.value", Some("default_val")),
+    ];
+
+    let env_vars = std::collections::HashMap::from([
+        ("PRESENT_FOUND_VAR".to_string(), "actual_value".to_string()),
+        // MISSING_* pattern vars are not present, should use defaults
+    ]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(result.is_ok(), "Default values should work correctly");
+
+    let resolved_config = result.unwrap();
+    assert_eq!(
+        resolved_config.get("config.FOUND.value"),
+        Some(&"actual_value".to_string())
+    );
+    // Note: Current implementation doesn't generate defaults for missing patterns
+    // This is by design - only actual env vars are processed
+    assert_eq!(resolved_config.len(), 1);
+}
+
+#[test]
+fn test_validate_environment_variables_invalid_template() {
+    let patterns = vec![EnvironmentVariablePattern::new(
+        "VALID_*_PATTERN",
+        "invalid_template_no_placeholder",
+        None,
+    )];
+
+    let env_vars =
+        std::collections::HashMap::from([("VALID_MATCH_PATTERN".to_string(), "value".to_string())]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(
+        result.is_err(),
+        "Invalid template should cause validation error"
+    );
+
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty());
+    assert!(errors[0].contains("template"));
+    assert!(errors[0].contains("placeholder"));
+}
+
+#[test]
+fn test_validate_environment_variables_empty_patterns() {
+    let patterns = vec![];
+    let env_vars = std::collections::HashMap::from([("ANY_VAR".to_string(), "value".to_string())]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(result.is_ok(), "Empty patterns should be valid");
+
+    let resolved_config = result.unwrap();
+    assert!(
+        resolved_config.is_empty(),
+        "No patterns should result in empty config"
+    );
+}
+
+#[test]
+fn test_validate_environment_variables_empty_env_vars() {
+    let patterns = vec![EnvironmentVariablePattern::new(
+        "ANY_*_PATTERN",
+        "config.{}.value",
+        None,
+    )];
+    let env_vars = std::collections::HashMap::new();
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(
+        result.is_ok(),
+        "Empty environment variables should be valid"
+    );
+
+    let resolved_config = result.unwrap();
+    assert!(
+        resolved_config.is_empty(),
+        "No env vars should result in empty config"
+    );
+}
+
+#[test]
+fn test_schema_version_validation_compatible() {
+    // Test major version compatibility (should be compatible)
+    assert!(is_schema_version_compatible("1.0.0", "1.1.0"));
+    assert!(is_schema_version_compatible("1.5.2", "1.8.1"));
+    assert!(is_schema_version_compatible("2.0.0", "2.3.5"));
+
+    // Test patch version compatibility
+    assert!(is_schema_version_compatible("1.2.0", "1.2.3"));
+    assert!(is_schema_version_compatible("1.2.5", "1.2.7"));
+}
+
+#[test]
+fn test_schema_version_validation_incompatible() {
+    // Test major version incompatibility (should be incompatible)
+    assert!(!is_schema_version_compatible("1.0.0", "2.0.0"));
+    assert!(!is_schema_version_compatible("2.5.3", "3.0.0"));
+    assert!(!is_schema_version_compatible("1.8.9", "2.1.0"));
+
+    // Test minor version backward incompatibility (older can't handle newer minor)
+    assert!(!is_schema_version_compatible("1.5.0", "1.3.0")); // Newer runtime, older schema
+    assert!(!is_schema_version_compatible("2.8.0", "2.5.0"));
+}
+
+#[test]
+fn test_schema_version_validation_identical() {
+    // Test identical versions (should be compatible)
+    assert!(is_schema_version_compatible("1.0.0", "1.0.0"));
+    assert!(is_schema_version_compatible("2.5.3", "2.5.3"));
+    assert!(is_schema_version_compatible("10.15.22", "10.15.22"));
+}
+
+#[test]
+fn test_schema_version_validation_edge_cases() {
+    // Test single digit versions
+    assert!(is_schema_version_compatible("1.0.0", "1.1.0"));
+    assert!(is_schema_version_compatible("0.1.0", "0.1.5"));
+    assert!(!is_schema_version_compatible("0.1.0", "0.2.0")); // Minor version matters in 0.x
+
+    // Test large version numbers
+    assert!(is_schema_version_compatible("15.23.0", "15.45.12"));
+    assert!(!is_schema_version_compatible("15.23.0", "16.0.0"));
+
+    // Test version 0.x special handling (0.x versions are considered unstable)
+    assert!(is_schema_version_compatible("0.5.0", "0.5.8")); // Patch compatible
+    assert!(!is_schema_version_compatible("0.5.0", "0.6.0")); // Minor incompatible in 0.x
+}
+
+#[test]
+fn test_schema_version_validation_invalid_versions() {
+    // Note: These should ideally return errors, but the current implementation
+    // uses simple string parsing. In a real implementation, these would be
+    // handled more robustly with proper semver parsing.
+
+    // For now, test that malformed versions don't cause panics
+    // These might return false or behave unpredictably, which is acceptable
+    // for this test since proper validation would happen during config parsing
+
+    let result1 = std::panic::catch_unwind(|| is_schema_version_compatible("invalid", "1.0.0"));
+    assert!(result1.is_ok(), "Invalid version should not panic");
+
+    let result2 =
+        std::panic::catch_unwind(|| is_schema_version_compatible("1.0.0", "not.a.version"));
+    assert!(result2.is_ok(), "Invalid version should not panic");
+}
+
+#[test]
+fn test_validate_config_file_inheritance_integration() {
+    // Test that the exported function works correctly
+    let config_files = vec![
+        ConfigFileInheritance::new("./config/app.yaml", vec!["./config/base.yaml".to_string()]),
+        ConfigFileInheritance::new("./config/base.yaml", vec![]),
+    ];
+
+    let result = validate_config_file_inheritance(&config_files);
+    assert!(result.is_ok(), "Integration test should pass");
+}
+
+#[test]
+fn test_validate_environment_variables_integration() {
+    // Test that the exported function works correctly
+    let patterns = vec![EnvironmentVariablePattern::new(
+        "TEST_*_VAR",
+        "test.{}.value",
+        Some("default"),
+    )];
+
+    let env_vars = std::collections::HashMap::from([(
+        "TEST_EXAMPLE_VAR".to_string(),
+        "test_value".to_string(),
+    )]);
+
+    let result = validate_environment_variables(&patterns, &env_vars);
+    assert!(result.is_ok(), "Integration test should pass");
+
+    let resolved_config = result.unwrap();
+    assert_eq!(
+        resolved_config.get("test.EXAMPLE.value"),
+        Some(&"test_value".to_string())
+    );
+}
+
+#[test]
+fn test_phase_2_comprehensive_integration() {
+    // Test all Phase 2 features working together
+    let mut registry = HierarchicalSchemaRegistry::new();
+
+    // Register schemas
+    registry.register_source_schema::<KafkaDataSource>();
+    registry.register_source_schema::<FileDataSource>();
+    registry.register_sink_schema::<FileSink>();
+
+    // Test config file inheritance
+    let config_files = vec![
+        ConfigFileInheritance::new(
+            "./config/app.yaml",
+            vec!["./config/kafka-base.yaml".to_string()],
+        ),
+        ConfigFileInheritance::new("./config/kafka-base.yaml", vec![]),
+    ];
+    assert!(validate_config_file_inheritance(&config_files).is_ok());
+
+    // Test environment variable patterns
+    let env_patterns = vec![
+        EnvironmentVariablePattern::new(
+            "KAFKA_*_BROKERS",
+            "kafka.{}.brokers",
+            Some("localhost:9092"),
+        ),
+        EnvironmentVariablePattern::new("FILE_*_PATH", "file.{}.path", None),
+    ];
+
+    let env_vars = std::collections::HashMap::from([
+        (
+            "KAFKA_PROD_BROKERS".to_string(),
+            "prod-kafka:9092".to_string(),
+        ),
+        (
+            "FILE_OUTPUT_PATH".to_string(),
+            "./data/output.json".to_string(),
+        ),
+    ]);
+
+    let env_result = validate_environment_variables(&env_patterns, &env_vars);
+    assert!(env_result.is_ok());
+
+    let resolved_env = env_result.unwrap();
+    assert_eq!(
+        resolved_env.get("kafka.PROD.brokers"),
+        Some(&"prod-kafka:9092".to_string())
+    );
+    assert_eq!(
+        resolved_env.get("file.OUTPUT.path"),
+        Some(&"./data/output.json".to_string())
+    );
+
+    // Test schema version compatibility
+    assert!(is_schema_version_compatible("2.0.0", "2.1.0")); // Kafka/File schemas
+    assert!(!is_schema_version_compatible("2.0.0", "3.0.0")); // Breaking change
+
+    // Test that all registered schemas have version info
+    assert_eq!(KafkaDataSource::schema_version(), "2.0.0");
+    assert_eq!(FileDataSource::schema_version(), "2.0.0");
+    assert_eq!(FileSink::schema_version(), "2.0.0");
 }

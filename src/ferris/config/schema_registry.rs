@@ -459,6 +459,464 @@ impl HierarchicalSchemaRegistry {
     }
 }
 
+/// Config file inheritance information
+#[derive(Debug, Clone)]
+pub struct ConfigFileInheritance {
+    /// Path to the config file
+    pub config_file: String,
+    /// Files this config extends from (in order)  
+    pub extends_files: Vec<String>,
+    /// Properties defined in this file
+    pub properties: HashMap<String, String>,
+    /// Whether circular dependencies were detected
+    pub has_circular_dependency: bool,
+}
+
+impl ConfigFileInheritance {
+    /// Create a new ConfigFileInheritance instance
+    pub fn new(config_file: impl Into<String>, extends_files: Vec<String>) -> Self {
+        Self {
+            config_file: config_file.into(),
+            extends_files,
+            properties: HashMap::new(),
+            has_circular_dependency: false,
+        }
+    }
+}
+
+/// Environment variable validation pattern
+#[derive(Debug, Clone)]
+pub struct EnvironmentVariablePattern {
+    /// Environment variable name pattern (supports wildcards like KAFKA_*_BROKERS)
+    pub pattern: String,
+    /// Configuration key template (like kafka.{}.brokers where {} is replaced by wildcard)
+    pub config_key_template: String,
+    /// Optional default value when environment variable is not set
+    pub default_value: Option<String>,
+}
+
+impl EnvironmentVariablePattern {
+    /// Create a new EnvironmentVariablePattern
+    pub fn new(
+        pattern: impl Into<String>,
+        config_key_template: impl Into<String>,
+        default_value: Option<impl Into<String>>,
+    ) -> Self {
+        Self {
+            pattern: pattern.into(),
+            config_key_template: config_key_template.into(),
+            default_value: default_value.map(|v| v.into()),
+        }
+    }
+}
+
+impl HierarchicalSchemaRegistry {
+    /// Validate config file inheritance chains for circular dependencies
+    pub fn validate_config_file_inheritance(
+        &self,
+        config_files: &[ConfigFileInheritance],
+    ) -> ConfigValidationResult<()> {
+        let mut errors = Vec::new();
+
+        // Build a complete dependency graph first
+        if let Err(circular_errors) = self.detect_circular_dependencies(config_files) {
+            errors.extend(circular_errors);
+        }
+
+        // Validate extends file references
+        for config_file in config_files {
+            for extends_file in &config_file.extends_files {
+                if let Err(validation_errors) =
+                    self.validate_extends_file_references(extends_file, config_files)
+                {
+                    errors.extend(validation_errors);
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Detect circular dependencies across all config files
+    fn detect_circular_dependencies(
+        &self,
+        config_files: &[ConfigFileInheritance],
+    ) -> ConfigValidationResult<()> {
+        let mut errors = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut rec_stack = std::collections::HashSet::new();
+
+        fn dfs_check_cycle(
+            current: &str,
+            config_files: &[ConfigFileInheritance],
+            visited: &mut std::collections::HashSet<String>,
+            rec_stack: &mut std::collections::HashSet<String>,
+            path: &mut Vec<String>,
+        ) -> Option<Vec<String>> {
+            visited.insert(current.to_string());
+            rec_stack.insert(current.to_string());
+            path.push(current.to_string());
+
+            if let Some(config_file) = config_files.iter().find(|f| f.config_file == current) {
+                for extends_file in &config_file.extends_files {
+                    if rec_stack.contains(extends_file) {
+                        // Found a cycle - return the path
+                        let cycle_start = path.iter().position(|x| x == extends_file).unwrap_or(0);
+                        let mut cycle_path = path[cycle_start..].to_vec();
+                        cycle_path.push(extends_file.clone());
+                        return Some(cycle_path);
+                    }
+                    if !visited.contains(extends_file) {
+                        if let Some(cycle) =
+                            dfs_check_cycle(extends_file, config_files, visited, rec_stack, path)
+                        {
+                            return Some(cycle);
+                        }
+                    }
+                }
+            }
+
+            rec_stack.remove(current);
+            path.pop();
+            None
+        }
+
+        for config_file in config_files {
+            if !visited.contains(&config_file.config_file) {
+                let mut path = Vec::new();
+                if let Some(cycle) = dfs_check_cycle(
+                    &config_file.config_file,
+                    config_files,
+                    &mut visited,
+                    &mut rec_stack,
+                    &mut path,
+                ) {
+                    errors.push(ConfigValidationError {
+                        property: "extends".to_string(),
+                        message: format!(
+                            "Circular dependency detected in config file inheritance: {}",
+                            cycle.join(" -> ")
+                        ),
+                        suggestion: Some(
+                            "Remove circular references from config file inheritance".to_string(),
+                        ),
+                        source_name: Some(config_file.config_file.clone()),
+                        inheritance_path: cycle,
+                    });
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Validate that extended config files are referenced in the config files list
+    fn validate_extends_file_references(
+        &self,
+        extends_file: &str,
+        config_files: &[ConfigFileInheritance],
+    ) -> ConfigValidationResult<()> {
+        // Check if the extended file is in our config files list
+        if !config_files.iter().any(|f| f.config_file == extends_file) {
+            return Err(vec![ConfigValidationError {
+                property: "extends".to_string(),
+                message: format!(
+                    "Config file '{}' references missing file '{}'",
+                    config_files
+                        .iter()
+                        .find(|f| f.extends_files.contains(&extends_file.to_string()))
+                        .map(|f| f.config_file.as_str())
+                        .unwrap_or("unknown"),
+                    extends_file
+                ),
+                suggestion: Some(
+                    "Ensure all referenced config files are included in the inheritance validation"
+                        .to_string(),
+                ),
+                source_name: Some(extends_file.to_string()),
+                inheritance_path: vec![extends_file.to_string()],
+            }]);
+        }
+
+        Ok(())
+    }
+
+    /// Validate that extended config files exist and are accessible
+    fn validate_extends_file_exists(&self, extends_file: &str) -> ConfigValidationResult<()> {
+        // Basic validation - in a real implementation, you'd check file system
+        if extends_file.is_empty() {
+            return Err(vec![ConfigValidationError {
+                property: "extends".to_string(),
+                message: "Extended config file path cannot be empty".to_string(),
+                suggestion: Some("Provide a valid config file path".to_string()),
+                source_name: Some(extends_file.to_string()),
+                inheritance_path: vec!["extends".to_string()],
+            }]);
+        }
+
+        // Check for dangerous paths
+        if extends_file.contains("..") && !extends_file.starts_with("./") {
+            return Err(vec![ConfigValidationError {
+                property: "extends".to_string(),
+                message: format!(
+                    "Extended config file path '{}' contains dangerous path traversal",
+                    extends_file
+                ),
+                suggestion: Some(
+                    "Use relative paths starting with './' or absolute paths".to_string(),
+                ),
+                source_name: Some(extends_file.to_string()),
+                inheritance_path: vec!["extends".to_string()],
+            }]);
+        }
+
+        Ok(())
+    }
+
+    /// Validate property inheritance rules within config files
+    fn validate_property_inheritance_rules(
+        &self,
+        config_file: &ConfigFileInheritance,
+    ) -> ConfigValidationResult<()> {
+        let mut errors = Vec::new();
+
+        // Check for properties that shouldn't be inherited
+        let restricted_properties = ["extends", "version", "schema_version"];
+
+        for (property, _value) in &config_file.properties {
+            if restricted_properties.contains(&property.as_str())
+                && !config_file.extends_files.is_empty()
+            {
+                errors.push(ConfigValidationError {
+                    property: property.clone(),
+                    message: format!(
+                        "Property '{}' should not be inherited from extended config files",
+                        property
+                    ),
+                    suggestion: Some(format!(
+                        "Define '{}' only in the main config file, not in extended files",
+                        property
+                    )),
+                    source_name: Some(config_file.config_file.clone()),
+                    inheritance_path: vec!["file_inheritance".to_string()],
+                });
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Validate environment variable patterns (internal method)
+    pub fn validate_environment_variables(
+        &self,
+        patterns: &[EnvironmentVariablePattern],
+        actual_env_vars: &HashMap<String, String>,
+    ) -> ConfigValidationResult<()> {
+        // Use the standalone function for validation
+        match crate::ferris::config::validate_environment_variables(patterns, actual_env_vars) {
+            Ok(_resolved_config) => Ok(()),
+            Err(errors) => {
+                // Convert string errors to ConfigValidationError
+                let config_errors = errors
+                    .into_iter()
+                    .map(|error| ConfigValidationError {
+                        property: "environment".to_string(),
+                        message: error,
+                        suggestion: Some(
+                            "Check environment variable pattern and template configuration"
+                                .to_string(),
+                        ),
+                        source_name: None,
+                        inheritance_path: vec!["environment".to_string()],
+                    })
+                    .collect();
+                Err(config_errors)
+            }
+        }
+    }
+
+    /// Check if a string matches a pattern (supports simple wildcards)
+    fn matches_pattern(&self, pattern: &str, text: &str) -> bool {
+        if pattern.contains('*') {
+            // Simple wildcard matching
+            let pattern_parts: Vec<&str> = pattern.split('*').collect();
+            if pattern_parts.len() == 2 {
+                let prefix = pattern_parts[0];
+                let suffix = pattern_parts[1];
+                text.starts_with(prefix) && text.ends_with(suffix)
+            } else {
+                // More complex patterns - for now, just exact match
+                pattern == text
+            }
+        } else {
+            pattern == text
+        }
+    }
+
+    /// Validate environment variable value against pattern
+    fn validate_env_var_value(
+        &self,
+        env_name: &str,
+        env_value: &str,
+        value_pattern: &str,
+    ) -> ConfigValidationResult<()> {
+        // Basic pattern validation - in real implementation, use regex
+        match value_pattern {
+            "boolean" => {
+                if !["true", "false", "1", "0", "yes", "no"]
+                    .contains(&env_value.to_lowercase().as_str())
+                {
+                    return Err(vec![ConfigValidationError {
+                        property: env_name.to_string(),
+                        message: format!(
+                            "Environment variable '{}' value '{}' is not a valid boolean",
+                            env_name, env_value
+                        ),
+                        suggestion: Some(
+                            "Use 'true', 'false', '1', '0', 'yes', or 'no'".to_string(),
+                        ),
+                        source_name: None,
+                        inheritance_path: vec!["environment".to_string()],
+                    }]);
+                }
+            }
+            "number" => {
+                if env_value.parse::<f64>().is_err() {
+                    return Err(vec![ConfigValidationError {
+                        property: env_name.to_string(),
+                        message: format!(
+                            "Environment variable '{}' value '{}' is not a valid number",
+                            env_name, env_value
+                        ),
+                        suggestion: Some("Provide a valid numeric value".to_string()),
+                        source_name: None,
+                        inheritance_path: vec!["environment".to_string()],
+                    }]);
+                }
+            }
+            "url" => {
+                if !env_value.starts_with("http://") && !env_value.starts_with("https://") {
+                    return Err(vec![ConfigValidationError {
+                        property: env_name.to_string(),
+                        message: format!(
+                            "Environment variable '{}' value '{}' is not a valid URL",
+                            env_name, env_value
+                        ),
+                        suggestion: Some(
+                            "Provide a URL starting with 'http://' or 'https://'".to_string(),
+                        ),
+                        source_name: None,
+                        inheritance_path: vec!["environment".to_string()],
+                    }]);
+                }
+            }
+            _ => {
+                // Custom regex patterns would go here
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Add schema versioning support
+    pub fn validate_schema_versions(
+        &self,
+        config_schemas: &HashMap<String, String>,
+    ) -> ConfigValidationResult<()> {
+        let mut errors = Vec::new();
+
+        for (config_type, required_version) in config_schemas {
+            // Check if we have a registered schema for this type
+            let current_version = if let Some(_) = self.global_schemas.get(config_type) {
+                // In a real implementation, get version from the provider
+                "2.0.0" // Current schema version
+            } else if let Some(_) = self.source_schemas.get(config_type) {
+                "2.0.0"
+            } else if let Some(_) = self.sink_schemas.get(config_type) {
+                "2.0.0"
+            } else {
+                errors.push(ConfigValidationError {
+                    property: "schema_version".to_string(),
+                    message: format!("Unknown configuration type: '{}'", config_type),
+                    suggestion: Some(
+                        "Check configuration type name or register the schema provider".to_string(),
+                    ),
+                    source_name: Some(config_type.clone()),
+                    inheritance_path: vec!["schema_versioning".to_string()],
+                });
+                continue;
+            };
+
+            // Version compatibility check
+            if !self.is_version_compatible(current_version, required_version) {
+                errors.push(ConfigValidationError {
+                    property: "schema_version".to_string(),
+                    message: format!(
+                        "Configuration schema version mismatch for '{}': required '{}', current '{}'",
+                        config_type, required_version, current_version
+                    ),
+                    suggestion: Some(format!(
+                        "Update configuration to use schema version '{}' or update the application",
+                        current_version
+                    )),
+                    source_name: Some(config_type.clone()),
+                    inheritance_path: vec!["schema_versioning".to_string()],
+                });
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Check if schema versions are compatible (basic semantic versioning)
+    fn is_version_compatible(&self, current: &str, required: &str) -> bool {
+        let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
+        let required_parts: Vec<u32> = required.split('.').filter_map(|s| s.parse().ok()).collect();
+
+        if current_parts.len() != 3 || required_parts.len() != 3 {
+            return false; // Invalid version format
+        }
+
+        let (cur_major, cur_minor, cur_patch) =
+            (current_parts[0], current_parts[1], current_parts[2]);
+        let (req_major, req_minor, req_patch) =
+            (required_parts[0], required_parts[1], required_parts[2]);
+
+        // Major version must match exactly
+        if cur_major != req_major {
+            return false;
+        }
+
+        // Minor version must be >= required
+        if cur_minor < req_minor {
+            return false;
+        }
+
+        // If minor versions match, patch must be >= required
+        if cur_minor == req_minor && cur_patch < req_patch {
+            return false;
+        }
+
+        true
+    }
+}
+
 /// Convenience function to validate configuration using global registry
 pub fn validate_configuration(
     global_config: &HashMap<String, String>,
@@ -477,6 +935,114 @@ pub fn validate_configuration(
     })?;
 
     registry_lock.validate_config_with_inheritance(global_config, named_config, inline_config)
+}
+
+/// Convenience function to validate config file inheritance
+pub fn validate_config_file_inheritance(
+    config_files: &[ConfigFileInheritance],
+) -> ConfigValidationResult<()> {
+    let registry = HierarchicalSchemaRegistry::global();
+    let registry_lock = registry.read().map_err(|_| {
+        vec![ConfigValidationError {
+            property: "system".to_string(),
+            message: "Failed to acquire registry lock".to_string(),
+            suggestion: None,
+            source_name: None,
+            inheritance_path: vec!["system".to_string()],
+        }]
+    })?;
+
+    registry_lock.validate_config_file_inheritance(config_files)
+}
+
+/// Convenience function to validate environment variables and return resolved configuration
+pub fn validate_environment_variables(
+    patterns: &[EnvironmentVariablePattern],
+    actual_env_vars: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, Vec<String>> {
+    let mut resolved_config = HashMap::new();
+    let mut errors = Vec::new();
+
+    for pattern in patterns {
+        // Parse the pattern to extract prefix and suffix
+        if let Some(wildcard_pos) = pattern.pattern.find('*') {
+            let prefix = &pattern.pattern[..wildcard_pos];
+            let suffix = &pattern.pattern[wildcard_pos + 1..];
+
+            // Find matching environment variables
+            for (env_name, env_value) in actual_env_vars {
+                if env_name.starts_with(prefix) && env_name.ends_with(suffix) {
+                    // Extract the wildcard part
+                    let wildcard_part = &env_name[prefix.len()..env_name.len() - suffix.len()];
+
+                    // Skip empty wildcard matches
+                    if wildcard_part.is_empty() {
+                        continue;
+                    }
+
+                    // Check if template has placeholder
+                    if !pattern.config_key_template.contains("{}") {
+                        errors.push(format!(
+                            "Config key template '{}' must contain '{{}}' placeholder for pattern '{}'",
+                            pattern.config_key_template, pattern.pattern
+                        ));
+                        continue;
+                    }
+
+                    // Generate config key by replacing placeholder with wildcard part
+                    let config_key = pattern.config_key_template.replace("{}", wildcard_part);
+                    resolved_config.insert(config_key, env_value.clone());
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(resolved_config)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Check if a schema version is compatible with the runtime version
+pub fn is_schema_version_compatible(runtime_version: &str, schema_version: &str) -> bool {
+    let runtime_parts: Vec<u32> = runtime_version
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    let schema_parts: Vec<u32> = schema_version
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
+
+    if runtime_parts.len() != 3 || schema_parts.len() != 3 {
+        return false; // Invalid version format
+    }
+
+    let (rt_major, rt_minor, rt_patch) = (runtime_parts[0], runtime_parts[1], runtime_parts[2]);
+    let (sc_major, sc_minor, sc_patch) = (schema_parts[0], schema_parts[1], schema_parts[2]);
+
+    // Major version must match exactly
+    if rt_major != sc_major {
+        return false;
+    }
+
+    // For 0.x versions, minor version must match exactly (0.x is considered unstable)
+    if rt_major == 0 {
+        if rt_minor != sc_minor {
+            return false;
+        }
+        // Patch versions can be different in 0.x.y
+        return true;
+    }
+
+    // For stable versions (1.x+), runtime minor version must be >= schema minor version
+    if rt_minor < sc_minor {
+        return false;
+    }
+
+    // If minor versions match, patch compatibility is flexible
+    true
 }
 
 #[cfg(test)]
