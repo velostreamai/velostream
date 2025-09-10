@@ -57,3 +57,18 @@ jobs:
         cargo check --example simple_zero_copy_test
         cargo check --example simple_async_optimization_test
         cargo check --example resource_monitoring_test
+
+    - name: Validate configuration schemas
+      run: |
+        echo "🔧 Generating JSON schemas for validation..."
+        cargo run --bin ferris-schema-generator --no-default-features
+        
+        echo "🔍 Checking schema consistency..."
+        if ! diff -u ferrisstreams-config.schema.json ferrisstreams-config.schema.json.expected; then
+          echo "❌ Schema validation failed - generated schema differs from committed version!"
+          echo "Run: cargo run --bin ferris-schema-generator --no-default-features"
+          echo "Then commit the updated schema files."
+          exit 1
+        fi
+        
+        echo "✅ Schema validation passed!"

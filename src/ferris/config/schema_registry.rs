@@ -264,6 +264,42 @@ impl HierarchicalSchemaRegistry {
             .insert(T::config_type_id().to_string(), provider);
     }
 
+    /// Get all registered source schema providers
+    pub fn get_source_schemas(&self) -> Option<&HashMap<String, Arc<dyn ConfigSchemaProvider>>> {
+        if self.source_schemas.is_empty() {
+            None
+        } else {
+            Some(&self.source_schemas)
+        }
+    }
+
+    /// Get all registered sink schema providers
+    pub fn get_sink_schemas(&self) -> Option<&HashMap<String, Arc<dyn ConfigSchemaProvider>>> {
+        if self.sink_schemas.is_empty() {
+            None
+        } else {
+            Some(&self.sink_schemas)
+        }
+    }
+
+    /// Register a batch schema provider
+    pub fn register_batch_schema<T>(&mut self)
+    where
+        T: ConfigSchemaProvider + Default + 'static,
+    {
+        let provider = Arc::new(T::default());
+        // For now, store in global_schemas until we have dedicated batch_schemas field
+        self.global_schemas
+            .insert(format!("batch_{}", T::config_type_id()), provider);
+    }
+
+    /// Get all registered batch schema providers (placeholder for future batch configs)
+    pub fn get_batch_schemas(&self) -> Option<&HashMap<String, Arc<dyn ConfigSchemaProvider>>> {
+        // Filter global schemas for batch configs
+        // For now returns None - this will be implemented when BatchConfig schema is ready
+        None
+    }
+
     /// Update global context for property resolution
     pub fn update_global_context(&mut self, context: GlobalSchemaContext) {
         self.global_context = context;

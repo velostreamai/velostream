@@ -1,0 +1,100 @@
+name: Schema Validation
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+
+jobs:
+  validate-schema:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Rust Environment  
+      uses: ./.github/actions/setup-rust
+    
+    - name: Generate current schemas
+      run: |
+        echo "🔧 Generating current JSON Schema..."
+        cargo run --bin ferris-schema-generator --no-default-features
+        
+    - name: Check schema consistency
+      run: |
+        echo "🔍 Checking if generated schema matches committed version..."
+        
+        # Compare generated schema with committed version
+        if ! diff -u ferrisstreams-config.schema.json ferrisstreams-config.schema.json.expected 2>/dev/null; then
+          echo "❌ Schema validation failed!"
+          echo "The generated schema doesn't match the committed version."
+          echo ""
+          echo "This indicates either:"
+          echo "  1. ConfigSchemaProvider implementations have changed"
+          echo "  2. The committed schema is out of date"
+          echo ""
+          echo "To fix this:"
+          echo "  1. Run: cargo run --bin ferris-schema-generator --no-default-features"
+          echo "  2. Commit the updated schema files"
+          echo ""
+          echo "Generated vs Expected diff:"
+          diff -u ferrisstreams-config.schema.json ferrisstreams-config.schema.json.expected || true
+          exit 1
+        fi
+        
+        echo "✅ Schema validation passed - schemas are up to date!"
+        
+    - name: Validate schema syntax
+      run: |
+        echo "🔍 Validating JSON Schema syntax..."
+        
+        # Check that the schema is valid JSON
+        if ! python3 -m json.tool ferrisstreams-config.schema.json > /dev/null; then
+          echo "❌ Generated schema is not valid JSON!"
+          exit 1
+        fi
+        
+        # Check VS Code settings file
+        if ! python3 -m json.tool .vscode/ferris-schema-settings.json > /dev/null; then
+          echo "❌ Generated VS Code settings are not valid JSON!"  
+          exit 1
+        fi
+        
+        echo "✅ Schema syntax validation passed!"
+        
+    - name: Test schema with example config
+      run: |
+        echo "🔍 Testing schema with example configuration..."
+        
+        # Install JSON Schema validator
+        pip3 install jsonschema PyYAML
+        
+        # Create validation script
+        cat > validate_example.py << 'EOF'
+import json
+import yaml
+import jsonschema
+from jsonschema import validate
+import sys
+
+# Load schema
+with open('ferrisstreams-config.schema.json', 'r') as f:
+    schema = json.load(f)
+
+# Load and validate example YAML config
+with open('ferris-config.example.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+
+try:
+    validate(instance=config, schema=schema)
+    print("✅ Example configuration validates against schema!")
+except jsonschema.exceptions.ValidationError as e:
+    print(f"❌ Example configuration failed validation: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"❌ Validation error: {e}")
+    sys.exit(1)
+EOF
+        
+        python3 validate_example.py
