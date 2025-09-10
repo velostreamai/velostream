@@ -395,9 +395,14 @@ cargo check
 # CRITICAL: Fix formatting issues (GitHub Actions requirement)
 cargo fmt --all
 
-# MANDATORY: Verify formatting and compilation before commit/push
-cargo fmt --all -- --check && cargo check 
-# Run this exact sequence before every commit to avoid CI failures
+# MANDATORY: Complete pre-commit verification sequence
+cargo fmt --all -- --check && cargo check && cargo test --no-default-features && cargo build --examples --no-default-features && cargo build --bins --no-default-features
+# Run this comprehensive check before every commit to ensure:
+# 1. Code formatting is correct
+# 2. All code compiles successfully  
+# 3. All tests pass (both unit and integration)
+# 4. All examples compile
+# 5. All binaries compile
 ```
 
 ## Architecture Principles

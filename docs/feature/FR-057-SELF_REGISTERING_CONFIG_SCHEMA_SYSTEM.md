@@ -102,11 +102,21 @@
 - [ ] Create CLI tool for config validation (`ferris-config validate`)
 - [ ] Add IDE integration files (VS Code extension support)
 - [ ] Implement configuration documentation auto-generation
+- [ ] **Add build-time automatic schema regeneration**
+  - [ ] Create `build.rs` script to auto-regenerate JSON schemas when ConfigSchemaProvider traits change
+  - [ ] Add `ferris-schema-codegen` binary to detect schema changes and update generated files
+  - [ ] Integrate schema generation into CI/CD pipeline to ensure schemas stay in sync
+  - [ ] Add pre-commit hook to validate schema files are up-to-date with code changes
+  - [ ] **Add CI/CD schema validation checks**
+    - [ ] Create CI job that regenerates schemas and compares with checked-in versions
+    - [ ] Fail CI build if generated schema differs from checked-in schema files
+    - [ ] Add automated schema validation in GitHub Actions workflow
+    - [ ] Include schema drift detection in pull request checks
 
 **Week 13: Quality Assurance**
 - [ ] Performance testing for validation overhead
 - [ ] Integration testing with existing configuration patterns
-- [ ] Documentation updates and examples
+- ✅ Documentation updates and examples
 - [ ] Developer experience testing
 
 **Phase 3 Deliverables:**
@@ -114,6 +124,10 @@
 - CLI validation tool
 - Auto-generated configuration documentation
 - Performance validation (< 50ms validation time)
+- **Automatic schema regeneration system**
+  - Build-time schema generation that stays in sync with code changes
+  - CI/CD integration to prevent schema drift
+  - Pre-commit validation ensuring schemas are always current
 
 ## Executive Summary
 

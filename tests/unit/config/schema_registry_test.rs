@@ -1508,7 +1508,7 @@ fn test_validate_config_file_inheritance_direct_circular_dependency() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("Circular dependency"));
     assert!(errors[0].message.contains("app.yaml"));
     assert!(errors[0].message.contains("base.yaml"));
 }
@@ -1538,7 +1538,7 @@ fn test_validate_config_file_inheritance_indirect_circular_dependency() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("Circular dependency"));
     assert!(errors[0].message.contains("app.yaml"));
 }
 
@@ -1557,7 +1557,7 @@ fn test_validate_config_file_inheritance_self_reference() {
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
-    assert!(errors[0].message.contains("circular dependency"));
+    assert!(errors[0].message.contains("Circular dependency"));
     assert!(errors[0].message.contains("app.yaml"));
 }
 
