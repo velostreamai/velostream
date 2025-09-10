@@ -950,3 +950,15 @@ impl ConfigSchemaProvider for KafkaDataSource {
         "2.0.0" // Updated version with enhanced validation
     }
 }
+
+/// Default implementation for KafkaDataSource (required for schema registry)
+impl Default for KafkaDataSource {
+    fn default() -> Self {
+        Self {
+            brokers: "localhost:9092".to_string(),
+            topic: "default_topic".to_string(),
+            group_id: Some("default_group".to_string()),
+            config: HashMap::new(),
+        }
+    }
+}

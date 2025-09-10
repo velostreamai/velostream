@@ -842,3 +842,14 @@ impl ConfigSchemaProvider for KafkaDataSink {
         "2.0.0" // Updated version with enhanced validation
     }
 }
+
+/// Default implementation for KafkaDataSink (required for schema registry)
+impl Default for KafkaDataSink {
+    fn default() -> Self {
+        Self {
+            brokers: "localhost:9092".to_string(),
+            topic: "default_topic".to_string(),
+            config: HashMap::new(),
+        }
+    }
+}
