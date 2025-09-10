@@ -4,6 +4,7 @@ use ferrisstreams::ferris::config::{
     ConfigSchemaProvider, ConfigValidationError, GlobalSchemaContext, HierarchicalSchemaRegistry,
     PropertyDefault, PropertyValidation,
 };
+use ferrisstreams::ferris::datasource::file::FileDataSource;
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
 use serde_json::Value;
@@ -575,4 +576,395 @@ fn test_timeout_and_interval_validation_patterns() {
     assert!(kafka_source
         .validate_property("heartbeat.interval.ms", "invalid")
         .is_err());
+}
+
+#[test]
+fn test_file_data_source_schema_provider_basic() {
+    let file_source = FileDataSource::default();
+
+    // Test config type ID
+    assert_eq!(FileDataSource::config_type_id(), "file_source");
+
+    // Test inheritable properties
+    let inheritable = FileDataSource::inheritable_properties();
+    assert!(inheritable.contains(&"buffer_size"));
+    assert!(inheritable.contains(&"batch.size"));
+    assert!(inheritable.contains(&"batch.timeout_ms"));
+    assert!(inheritable.contains(&"polling_interval"));
+    assert!(inheritable.contains(&"recursive"));
+
+    // Test required properties
+    let required = FileDataSource::required_named_properties();
+    assert_eq!(required, vec!["path"]);
+
+    // Test optional properties with defaults
+    let optional = FileDataSource::optional_properties_with_defaults();
+    assert!(optional.contains_key("format"));
+    assert!(optional.contains_key("delimiter"));
+    assert!(optional.contains_key("quote"));
+    assert!(optional.contains_key("has_headers"));
+    assert!(optional.contains_key("watching"));
+
+    // Test supports custom properties
+    assert!(FileDataSource::supports_custom_properties());
+
+    // Test global schema dependencies
+    let dependencies = FileDataSource::global_schema_dependencies();
+    assert!(dependencies.contains(&"batch_config"));
+    assert!(dependencies.contains(&"file_global"));
+
+    // Test schema version
+    assert_eq!(FileDataSource::schema_version(), "2.0.0");
+}
+
+#[test]
+fn test_file_data_source_path_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid paths
+    assert!(file_source
+        .validate_property("path", "./data/sample.csv")
+        .is_ok());
+    assert!(file_source
+        .validate_property("path", "/logs/*.json")
+        .is_ok());
+    assert!(file_source
+        .validate_property("path", "./data/**/*.csv")
+        .is_ok());
+    assert!(file_source
+        .validate_property("path", "relative/path.json")
+        .is_ok());
+
+    // Invalid paths
+    assert!(file_source.validate_property("path", "").is_err()); // Empty path
+    assert!(file_source
+        .validate_property("path", "../../../etc/passwd")
+        .is_err()); // Dangerous traversal
+    assert!(file_source.validate_property("path", "/data/*/").is_err()); // Glob ending with /
+}
+
+#[test]
+fn test_file_data_source_format_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid formats
+    assert!(file_source.validate_property("format", "csv").is_ok());
+    assert!(file_source
+        .validate_property("format", "csv_no_header")
+        .is_ok());
+    assert!(file_source.validate_property("format", "json").is_ok());
+    assert!(file_source.validate_property("format", "jsonlines").is_ok());
+    assert!(file_source.validate_property("format", "jsonl").is_ok());
+
+    // Invalid formats
+    assert!(file_source.validate_property("format", "xml").is_err());
+    assert!(file_source.validate_property("format", "parquet").is_err());
+    assert!(file_source.validate_property("format", "").is_err());
+    assert!(file_source.validate_property("format", "CSV").is_err()); // Case sensitive
+}
+
+#[test]
+fn test_file_data_source_delimiter_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid delimiters
+    assert!(file_source.validate_property("delimiter", ",").is_ok());
+    assert!(file_source.validate_property("delimiter", ";").is_ok());
+    assert!(file_source.validate_property("delimiter", "|").is_ok());
+    assert!(file_source.validate_property("delimiter", "\t").is_ok());
+
+    // Invalid delimiters
+    assert!(file_source.validate_property("delimiter", "").is_err()); // Empty
+    assert!(file_source.validate_property("delimiter", ",,").is_err()); // Multiple characters
+    assert!(file_source.validate_property("delimiter", "a").is_err()); // Alphanumeric
+    assert!(file_source.validate_property("delimiter", "1").is_err()); // Numeric
+}
+
+#[test]
+fn test_file_data_source_boolean_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid boolean values
+    assert!(file_source.validate_property("has_headers", "true").is_ok());
+    assert!(file_source
+        .validate_property("has_headers", "false")
+        .is_ok());
+    assert!(file_source.validate_property("watching", "true").is_ok());
+    assert!(file_source.validate_property("watching", "false").is_ok());
+    assert!(file_source.validate_property("recursive", "true").is_ok());
+    assert!(file_source.validate_property("recursive", "false").is_ok());
+
+    // Invalid boolean values
+    assert!(file_source.validate_property("has_headers", "yes").is_err());
+    assert!(file_source.validate_property("watching", "1").is_err());
+    assert!(file_source.validate_property("recursive", "").is_err());
+    assert!(file_source
+        .validate_property("has_headers", "TRUE")
+        .is_err()); // Case sensitive
+}
+
+#[test]
+fn test_file_data_source_numeric_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid polling intervals
+    assert!(file_source
+        .validate_property("polling_interval", "1000")
+        .is_ok());
+    assert!(file_source
+        .validate_property("polling_interval", "5000")
+        .is_ok());
+    assert!(file_source
+        .validate_property("polling_interval", "3600000")
+        .is_ok()); // 1 hour max
+
+    // Invalid polling intervals
+    assert!(file_source
+        .validate_property("polling_interval", "0")
+        .is_err()); // Must be > 0
+    assert!(file_source
+        .validate_property("polling_interval", "3600001")
+        .is_err()); // Over 1 hour
+    assert!(file_source
+        .validate_property("polling_interval", "invalid")
+        .is_err());
+
+    // Valid buffer sizes
+    assert!(file_source.validate_property("buffer_size", "1024").is_ok()); // Minimum
+    assert!(file_source.validate_property("buffer_size", "8192").is_ok());
+    assert!(file_source
+        .validate_property("buffer_size", "104857600")
+        .is_ok()); // 100MB max
+
+    // Invalid buffer sizes
+    assert!(file_source
+        .validate_property("buffer_size", "1023")
+        .is_err()); // Below minimum
+    assert!(file_source
+        .validate_property("buffer_size", "104857601")
+        .is_err()); // Over 100MB
+    assert!(file_source
+        .validate_property("buffer_size", "invalid")
+        .is_err());
+
+    // Valid max records
+    assert!(file_source.validate_property("max_records", "1000").is_ok());
+    assert!(file_source.validate_property("max_records", "1").is_ok());
+
+    // Invalid max records
+    assert!(file_source.validate_property("max_records", "0").is_err()); // Must be > 0
+    assert!(file_source
+        .validate_property("max_records", "invalid")
+        .is_err());
+
+    // Valid skip lines
+    assert!(file_source.validate_property("skip_lines", "0").is_ok());
+    assert!(file_source.validate_property("skip_lines", "5").is_ok());
+
+    // Invalid skip lines
+    assert!(file_source
+        .validate_property("skip_lines", "invalid")
+        .is_err());
+}
+
+#[test]
+fn test_file_data_source_extension_filter_validation() {
+    let file_source = FileDataSource::default();
+
+    // Valid extension filters
+    assert!(file_source
+        .validate_property("extension_filter", "csv")
+        .is_ok());
+    assert!(file_source
+        .validate_property("extension_filter", "json")
+        .is_ok());
+    assert!(file_source
+        .validate_property("extension_filter", "txt")
+        .is_ok());
+    assert!(file_source
+        .validate_property("extension_filter", "log.gz")
+        .is_ok()); // Multiple dots allowed
+
+    // Invalid extension filters
+    assert!(file_source
+        .validate_property("extension_filter", "")
+        .is_err()); // Empty
+    assert!(file_source
+        .validate_property("extension_filter", "csv!")
+        .is_err()); // Special characters
+    assert!(file_source
+        .validate_property("extension_filter", "csv spaces")
+        .is_err()); // Spaces not allowed
+}
+
+#[test]
+fn test_file_data_source_property_inheritance() {
+    let file_source = FileDataSource::default();
+    let mut global_context = GlobalSchemaContext::default();
+
+    // Test buffer_size inheritance
+    global_context
+        .global_properties
+        .insert("file.buffer_size".to_string(), "16384".to_string());
+
+    let result = file_source
+        .resolve_property_with_inheritance("buffer_size", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("16384".to_string()));
+
+    // Test local value takes precedence
+    let result = file_source
+        .resolve_property_with_inheritance("buffer_size", Some("32768"), &global_context)
+        .unwrap();
+    assert_eq!(result, Some("32768".to_string()));
+
+    // Test default fallback
+    global_context.global_properties.clear();
+    let result = file_source
+        .resolve_property_with_inheritance("buffer_size", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("8192".to_string())); // Default 8KB
+}
+
+#[test]
+fn test_file_data_source_environment_based_defaults() {
+    let file_source = FileDataSource::default();
+    let mut global_context = GlobalSchemaContext::default();
+
+    // Test development environment enables recursive by default
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "development".to_string());
+
+    let result = file_source
+        .resolve_property_with_inheritance("recursive", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("true".to_string()));
+
+    // Test production environment disables recursive by default
+    global_context
+        .environment_variables
+        .insert("ENVIRONMENT".to_string(), "production".to_string());
+
+    let result = file_source
+        .resolve_property_with_inheritance("recursive", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("false".to_string()));
+
+    // Test default environment (non-development) disables recursive
+    global_context.environment_variables.clear();
+
+    let result = file_source
+        .resolve_property_with_inheritance("recursive", None, &global_context)
+        .unwrap();
+    assert_eq!(result, Some("false".to_string()));
+}
+
+#[test]
+fn test_file_data_source_json_schema_generation() {
+    let json_schema = FileDataSource::json_schema();
+
+    // Check schema structure
+    assert_eq!(json_schema["type"], "object");
+    assert_eq!(
+        json_schema["title"],
+        "File Data Source Configuration Schema"
+    );
+
+    // Check required properties
+    let required = json_schema["required"].as_array().unwrap();
+    assert!(required.contains(&serde_json::Value::String("path".to_string())));
+
+    // Check properties exist
+    let properties = json_schema["properties"].as_object().unwrap();
+    assert!(properties.contains_key("path"));
+    assert!(properties.contains_key("format"));
+    assert!(properties.contains_key("delimiter"));
+    assert!(properties.contains_key("has_headers"));
+    assert!(properties.contains_key("buffer_size"));
+
+    // Check format enum values
+    let format_enum = properties["format"]["enum"].as_array().unwrap();
+    assert!(format_enum.contains(&serde_json::Value::String("csv".to_string())));
+    assert!(format_enum.contains(&serde_json::Value::String("json".to_string())));
+    assert!(format_enum.contains(&serde_json::Value::String("jsonlines".to_string())));
+
+    // Check numeric constraints
+    assert_eq!(properties["buffer_size"]["minimum"], 1024);
+    assert_eq!(properties["buffer_size"]["maximum"], 104857600);
+    assert_eq!(properties["polling_interval"]["minimum"], 1);
+    assert_eq!(properties["polling_interval"]["maximum"], 3600000);
+}
+
+#[test]
+fn test_file_data_source_property_validations() {
+    let validations = FileDataSource::property_validations();
+
+    // Should have key property validations
+    assert!(!validations.is_empty());
+
+    // Find path validation
+    let path_validation = validations
+        .iter()
+        .find(|v| v.key == "path")
+        .expect("Should have path validation");
+    assert!(path_validation.required);
+    assert!(path_validation.default.is_none());
+
+    // Find format validation
+    let format_validation = validations
+        .iter()
+        .find(|v| v.key == "format")
+        .expect("Should have format validation");
+    assert!(!format_validation.required);
+    assert!(format_validation.default.is_some());
+    assert!(format_validation
+        .validation_pattern
+        .as_ref()
+        .unwrap()
+        .contains("csv"));
+
+    // Find buffer_size validation
+    let buffer_validation = validations
+        .iter()
+        .find(|v| v.key == "buffer_size")
+        .expect("Should have buffer_size validation");
+    assert!(!buffer_validation.required);
+    assert!(buffer_validation.default.is_some());
+}
+
+#[test]
+fn test_file_data_source_registry_integration() {
+    let mut registry = HierarchicalSchemaRegistry::new();
+
+    // Register FileDataSource schema
+    registry.register_source_schema::<FileDataSource>();
+
+    // Test global configuration with file properties
+    let mut global_config = HashMap::new();
+    global_config.insert("file.buffer_size".to_string(), "16384".to_string());
+    global_config.insert("file.polling_interval".to_string(), "2000".to_string());
+
+    // Test named file configuration
+    let mut named_config = HashMap::new();
+    named_config.insert("log_files.path".to_string(), "/logs/*.json".to_string());
+    named_config.insert("log_files.format".to_string(), "json".to_string());
+    named_config.insert("log_files.watching".to_string(), "true".to_string());
+
+    // Test validation - should pass
+    let result =
+        registry.validate_config_with_inheritance(&global_config, &named_config, &HashMap::new());
+    assert!(result.is_ok());
+
+    // Test with invalid configuration
+    let mut invalid_named = HashMap::new();
+    invalid_named.insert("bad_files.path".to_string(), "".to_string()); // Empty path
+    invalid_named.insert("bad_files.format".to_string(), "xml".to_string()); // Invalid format
+
+    let result =
+        registry.validate_config_with_inheritance(&global_config, &invalid_named, &HashMap::new());
+    assert!(result.is_err());
+
+    let errors = result.unwrap_err();
+    assert!(errors.len() >= 2); // Should have at least 2 errors
 }

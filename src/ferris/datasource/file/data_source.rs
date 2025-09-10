@@ -1,10 +1,15 @@
 //! File Data Source Implementation
 
+use crate::ferris::config::{
+    ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
+};
 use crate::ferris::datasource::config::SourceConfig;
 use crate::ferris::datasource::traits::{DataReader, DataSource};
 use crate::ferris::datasource::types::SourceMetadata;
 use crate::ferris::schema::Schema;
 use async_trait::async_trait;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 
@@ -425,5 +430,381 @@ impl DataSource for FileDataSource {
             supports_schema_evolution: false,
             capabilities: vec!["batch_read".to_string()],
         })
+    }
+}
+
+/// ConfigSchemaProvider implementation for FileDataSource
+impl ConfigSchemaProvider for FileDataSource {
+    fn config_type_id() -> &'static str {
+        "file_source"
+    }
+
+    fn inheritable_properties() -> Vec<&'static str> {
+        vec![
+            "buffer_size",
+            "batch.size",
+            "batch.timeout_ms",
+            "polling_interval",
+            "recursive",
+        ]
+    }
+
+    fn required_named_properties() -> Vec<&'static str> {
+        vec!["path"]
+    }
+
+    fn optional_properties_with_defaults() -> HashMap<&'static str, PropertyDefault> {
+        let mut defaults = HashMap::new();
+        defaults.insert("format", PropertyDefault::Static("csv".to_string()));
+        defaults.insert("delimiter", PropertyDefault::Static(",".to_string()));
+        defaults.insert("quote", PropertyDefault::Static("\"".to_string()));
+        defaults.insert("has_headers", PropertyDefault::Static("true".to_string()));
+        defaults.insert("watching", PropertyDefault::Static("false".to_string()));
+        defaults.insert(
+            "polling_interval",
+            PropertyDefault::Static("1000".to_string()),
+        );
+        defaults.insert(
+            "buffer_size",
+            PropertyDefault::GlobalLookup("file.buffer_size".to_string()),
+        );
+        defaults.insert(
+            "max_records",
+            PropertyDefault::GlobalLookup("file.max_records".to_string()),
+        );
+        defaults.insert("recursive", PropertyDefault::Static("false".to_string()));
+        defaults
+    }
+
+    fn validate_property(&self, key: &str, value: &str) -> Result<(), Vec<String>> {
+        match key {
+            "path" => {
+                if value.is_empty() {
+                    return Err(vec!["path cannot be empty".to_string()]);
+                }
+
+                // Basic path validation - check for dangerous patterns
+                if value.contains("..") && !value.contains("*") {
+                    return Err(vec![
+                        "path contains '..' which could be a security risk".to_string()
+                    ]);
+                }
+
+                // Validate glob patterns have proper syntax
+                if value.contains('*') || value.contains('?') {
+                    if value.ends_with('/') {
+                        return Err(vec![
+                            "glob pattern cannot end with '/' - specify file pattern".to_string(),
+                        ]);
+                    }
+                }
+            }
+            "format" => {
+                let valid_formats = ["csv", "csv_no_header", "json", "jsonlines", "jsonl"];
+                if !valid_formats.contains(&value) {
+                    return Err(vec![format!(
+                        "format must be one of: {}. Got: '{}'",
+                        valid_formats.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "delimiter" => {
+                if value.len() != 1 {
+                    return Err(vec!["delimiter must be a single character".to_string()]);
+                }
+                let delimiter_char = value.chars().next().unwrap();
+                if delimiter_char.is_alphabetic() || delimiter_char.is_numeric() {
+                    return Err(vec![
+                        "delimiter should not be alphanumeric (could conflict with data)"
+                            .to_string(),
+                    ]);
+                }
+            }
+            "quote" => {
+                if value.len() != 1 {
+                    return Err(vec!["quote must be a single character".to_string()]);
+                }
+            }
+            "has_headers" | "watching" | "recursive" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec![format!(
+                        "{} must be 'true' or 'false'. Got: '{}'",
+                        key, value
+                    )]);
+                }
+            }
+            "polling_interval" => {
+                if let Ok(interval) = value.parse::<u64>() {
+                    if interval == 0 {
+                        return Err(vec!["polling_interval must be greater than 0".to_string()]);
+                    }
+                    if interval > 3600000 {
+                        // 1 hour max
+                        return Err(vec![
+                            "polling_interval must not exceed 3,600,000ms (1 hour)".to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "polling_interval must be a valid number in milliseconds".to_string(),
+                    ]);
+                }
+            }
+            "buffer_size" => {
+                if let Ok(size) = value.parse::<usize>() {
+                    if size < 1024 {
+                        return Err(vec!["buffer_size must be at least 1024 bytes".to_string()]);
+                    }
+                    if size > 100 * 1024 * 1024 {
+                        // 100MB max
+                        return Err(vec![
+                            "buffer_size must not exceed 100MB (104,857,600 bytes)".to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "buffer_size must be a valid number in bytes".to_string()
+                    ]);
+                }
+            }
+            "max_records" => {
+                if let Ok(max) = value.parse::<usize>() {
+                    if max == 0 {
+                        return Err(vec!["max_records must be greater than 0".to_string()]);
+                    }
+                } else {
+                    return Err(vec![
+                        "max_records must be a valid positive number".to_string()
+                    ]);
+                }
+            }
+            "skip_lines" => {
+                if value.parse::<usize>().is_err() {
+                    return Err(vec![
+                        "skip_lines must be a valid non-negative number".to_string()
+                    ]);
+                }
+            }
+            "extension_filter" => {
+                if value.is_empty() {
+                    return Err(vec!["extension_filter cannot be empty".to_string()]);
+                }
+                // Basic validation - should look like file extensions
+                if !value.chars().all(|c| c.is_alphanumeric() || c == '.') {
+                    return Err(vec![
+                        "extension_filter should only contain alphanumeric characters and '.'"
+                            .to_string(),
+                    ]);
+                }
+            }
+            key if key.starts_with("batch.") => {
+                // Delegate batch property validation to BatchConfig
+                // This will be handled by the batch config schema provider
+            }
+            _ => {
+                // Allow other file-related properties with basic validation
+                if value.is_empty() && !key.starts_with("custom.") {
+                    return Err(vec![format!("Property '{}' cannot be empty", key)]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn json_schema() -> Value {
+        serde_json::json!({
+            "type": "object",
+            "title": "File Data Source Configuration Schema",
+            "description": "Configuration schema for file-based data sources in FerrisStreams",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File path or glob pattern for source files",
+                    "examples": [
+                        "./data/sample.csv",
+                        "/logs/*.json",
+                        "./data/**/*.csv"
+                    ]
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["csv", "csv_no_header", "json", "jsonlines", "jsonl"],
+                    "default": "csv",
+                    "description": "File format to parse"
+                },
+                "delimiter": {
+                    "type": "string",
+                    "maxLength": 1,
+                    "default": ",",
+                    "description": "CSV field delimiter character",
+                    "examples": [",", ";", "|", "\t"]
+                },
+                "quote": {
+                    "type": "string",
+                    "maxLength": 1,
+                    "default": "\"",
+                    "description": "CSV quote character"
+                },
+                "has_headers": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether CSV files have header rows"
+                },
+                "watching": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to watch for file changes and new files"
+                },
+                "polling_interval": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600000,
+                    "default": 1000,
+                    "description": "Polling interval for file watching (milliseconds)"
+                },
+                "buffer_size": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 104857600,
+                    "default": 8192,
+                    "description": "Buffer size for reading files (bytes)"
+                },
+                "max_records": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of records to read (unlimited if not specified)"
+                },
+                "skip_lines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Number of lines to skip at the beginning of files"
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to recursively search directories in glob patterns"
+                },
+                "extension_filter": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9.]+$",
+                    "description": "File extension filter for directory scanning",
+                    "examples": ["csv", "json", "txt"]
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": true
+        })
+    }
+
+    fn property_validations() -> Vec<PropertyValidation> {
+        vec![
+            PropertyValidation {
+                key: "path".to_string(),
+                required: true,
+                default: None,
+                description: "File path or glob pattern for source files".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: None,
+            },
+            PropertyValidation {
+                key: "format".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static("csv".to_string())),
+                description: "File format to parse".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("csv|csv_no_header|json|jsonlines|jsonl".to_string()),
+            },
+            PropertyValidation {
+                key: "delimiter".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static(",".to_string())),
+                description: "CSV field delimiter character".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("^.$".to_string()),
+            },
+            PropertyValidation {
+                key: "buffer_size".to_string(),
+                required: false,
+                default: Some(PropertyDefault::GlobalLookup(
+                    "file.buffer_size".to_string(),
+                )),
+                description: "Buffer size for reading files in bytes".to_string(),
+                json_type: "integer".to_string(),
+                validation_pattern: Some("^(?:102[4-9]|10[3-9][0-9]|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-9][0-9]{4,7}|1048576[0-9]{2})$".to_string()),
+            },
+        ]
+    }
+
+    fn supports_custom_properties() -> bool {
+        true // Allow custom file processing properties
+    }
+
+    fn global_schema_dependencies() -> Vec<&'static str> {
+        vec!["batch_config", "file_global"]
+    }
+
+    fn resolve_property_with_inheritance(
+        &self,
+        key: &str,
+        local_value: Option<&str>,
+        global_context: &GlobalSchemaContext,
+    ) -> Result<Option<String>, String> {
+        // Local value takes precedence
+        if let Some(value) = local_value {
+            return Ok(Some(value.to_string()));
+        }
+
+        // Property-specific inheritance logic
+        match key {
+            "buffer_size" => {
+                if let Some(global_buffer) =
+                    global_context.global_properties.get("file.buffer_size")
+                {
+                    return Ok(Some(global_buffer.clone()));
+                }
+                Ok(Some("8192".to_string())) // Default 8KB buffer
+            }
+            "polling_interval" => {
+                if let Some(global_interval) = global_context
+                    .global_properties
+                    .get("file.polling_interval")
+                {
+                    return Ok(Some(global_interval.clone()));
+                }
+                Ok(Some("1000".to_string())) // Default 1 second
+            }
+            "recursive" => {
+                if let Some(global_recursive) =
+                    global_context.global_properties.get("file.recursive")
+                {
+                    return Ok(Some(global_recursive.clone()));
+                }
+                // Environment-based default
+                let dev_default = "dev".to_string();
+                let env_profile = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                let default_recursive = if env_profile == "development" {
+                    "true"
+                } else {
+                    "false"
+                };
+                Ok(Some(default_recursive.to_string()))
+            }
+            _ => {
+                // Check global properties for other keys
+                if let Some(global_value) = global_context.global_properties.get(key) {
+                    return Ok(Some(global_value.clone()));
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn schema_version() -> &'static str {
+        "2.0.0" // Updated version with comprehensive file validation
     }
 }
