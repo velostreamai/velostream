@@ -10,7 +10,7 @@ use crate::ferris::datasource::kafka::data_sink::KafkaDataSink;
 use crate::ferris::datasource::kafka::data_source::KafkaDataSource;
 use crate::ferris::kafka::serialization_format::SerializationConfig;
 use crate::ferris::sql::{
-    ast::{IntoClause, StreamSource, StreamingQuery},
+    ast::{InsertSource, IntoClause, StreamSource, StreamingQuery},
     config::load_yaml_config,
     SqlError,
 };
@@ -103,15 +103,33 @@ impl QueryAnalyzer {
 
     /// Analyze a parsed SQL query to determine required resources
     pub fn analyze(&self, query: &StreamingQuery) -> Result<QueryAnalysis, SqlError> {
-        let mut analysis = QueryAnalysis {
+        let analysis = QueryAnalysis {
             required_sources: Vec::new(),
             required_sinks: Vec::new(),
             configuration: HashMap::new(),
         };
+        self.analyze_with_context(query, &analysis)
+    }
+
+    /// Analyze a query with inherited context from parent query
+    fn analyze_with_context(
+        &self,
+        query: &StreamingQuery,
+        parent_context: &QueryAnalysis,
+    ) -> Result<QueryAnalysis, SqlError> {
+        // Start with parent context configuration
+        let mut analysis = QueryAnalysis {
+            required_sources: Vec::new(),
+            required_sinks: Vec::new(),
+            configuration: parent_context.configuration.clone(),
+        };
 
         match query {
             StreamingQuery::Select {
-                from, properties, ..
+                from,
+                joins,
+                properties,
+                ..
             } => {
                 // Extract WITH clause properties if present
                 if let Some(props) = properties {
@@ -120,8 +138,15 @@ impl QueryAnalyzer {
                     }
                 }
 
-                // For simple SELECT queries, extract source from FROM clause
+                // Analyze main FROM clause
                 self.analyze_from_clause(from, &mut analysis)?;
+
+                // Analyze JOIN clauses if present
+                if let Some(join_clauses) = joins {
+                    for join_clause in join_clauses {
+                        self.analyze_from_clause(&join_clause.right_source, &mut analysis)?;
+                    }
+                }
             }
             StreamingQuery::CreateStream {
                 as_select,
@@ -132,8 +157,8 @@ impl QueryAnalyzer {
                 for (key, value) in properties {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
-                // Recursively analyze the nested SELECT
-                let nested_analysis = self.analyze(as_select)?;
+                // Recursively analyze the nested SELECT with context
+                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
             }
             StreamingQuery::CreateStreamInto {
@@ -151,8 +176,9 @@ impl QueryAnalyzer {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
 
-                // Recursively analyze the nested SELECT
-                let nested_analysis = self.analyze(as_select)?;
+                // CRITICAL FIX: Pass the current analysis context to nested SELECT analysis
+                // This ensures configuration flows from parent to child queries
+                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
 
                 // Analyze the INTO clause for sink requirements
@@ -167,8 +193,8 @@ impl QueryAnalyzer {
                 for (key, value) in properties {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
-                // Recursively analyze the nested SELECT
-                let nested_analysis = self.analyze(as_select)?;
+                // Recursively analyze the nested SELECT with context
+                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
             }
             StreamingQuery::CreateTableInto {
@@ -182,8 +208,8 @@ impl QueryAnalyzer {
                 for (key, value) in &legacy_props {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
-                // Recursively analyze the nested SELECT
-                let nested_analysis = self.analyze(as_select)?;
+                // Recursively analyze the nested SELECT with context
+                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
 
                 // Analyze the INTO clause for sink requirements
@@ -210,8 +236,40 @@ impl QueryAnalyzer {
             StreamingQuery::RollbackJob { .. } => {
                 // ROLLBACK JOB commands don't require consumers/producers during analysis
             }
-            StreamingQuery::InsertInto { .. } => {
-                // INSERT INTO queries may require producers, but for now skip analysis
+            StreamingQuery::InsertInto {
+                table_name, source, ..
+            } => {
+                // First analyze the source to get configuration properties
+                match source {
+                    InsertSource::Select { query } => {
+                        let nested_analysis = self.analyze_with_context(query, &analysis)?;
+                        self.merge_analysis(&mut analysis, nested_analysis);
+
+                        // Now analyze the INSERT INTO target as a sink using the extracted configuration
+                        let config_clone = analysis.configuration.clone();
+                        self.analyze_into_clause(
+                            &IntoClause {
+                                sink_name: table_name.clone(),
+                                sink_properties: HashMap::new(),
+                            },
+                            &config_clone, // Use the configuration from the nested query
+                            &mut analysis,
+                        )?;
+                    }
+                    InsertSource::Values { .. } => {
+                        // Values don't require additional source analysis
+                        // But still analyze the target as a sink with current configuration
+                        let config_clone = analysis.configuration.clone();
+                        self.analyze_into_clause(
+                            &IntoClause {
+                                sink_name: table_name.clone(),
+                                sink_properties: HashMap::new(),
+                            },
+                            &config_clone,
+                            &mut analysis,
+                        )?;
+                    }
+                }
             }
             StreamingQuery::Update { .. } => {
                 // UPDATE queries may require producers, but for now skip analysis

@@ -996,6 +996,73 @@ impl<'a> TokenParser<'a> {
             }
         }
 
+        // Check for INTO clause (to support SELECT ... INTO syntax)
+        if self.current_token().token_type == TokenType::Into {
+            // This is a SELECT ... INTO statement, parse it as InsertInto
+            self.advance(); // consume INTO
+
+            // Parse the target table/sink name
+            let table_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+                    name
+                }
+                TokenType::String => {
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected table name or sink URI after INTO".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            // Parse optional WITH clause for INSERT INTO statements
+            let _properties = if self.current_token().token_type == TokenType::With {
+                Some(self.parse_with_properties()?)
+            } else {
+                None
+            };
+
+            // Determine if from_stream is a URI or named stream
+            let from_source = if from_stream.contains("://") {
+                StreamSource::Uri(from_stream)
+            } else {
+                StreamSource::Stream(from_stream) // Both scalar queries and named streams
+            };
+
+            // Create the nested SELECT query
+            let select_query = StreamingQuery::Select {
+                fields,
+                from: from_source,
+                joins,
+                where_clause,
+                group_by,
+                having,
+                window,
+                order_by,
+                limit,
+                emit_mode,
+                properties: _properties,
+            };
+
+            // Consume optional semicolon
+            self.consume_semicolon();
+
+            // Return as InsertInto with SELECT source
+            return Ok(StreamingQuery::InsertInto {
+                table_name,
+                columns: None, // SELECT ... INTO doesn't specify column names
+                source: InsertSource::Select {
+                    query: Box::new(select_query),
+                },
+            });
+        }
+
         // Parse optional WITH clause for SELECT statements
         let properties = if self.current_token().token_type == TokenType::With {
             Some(self.parse_with_properties()?)
