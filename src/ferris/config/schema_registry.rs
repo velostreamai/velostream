@@ -1019,8 +1019,8 @@ pub fn is_schema_version_compatible(runtime_version: &str, schema_version: &str)
         return false; // Invalid version format
     }
 
-    let (rt_major, rt_minor, rt_patch) = (runtime_parts[0], runtime_parts[1], runtime_parts[2]);
-    let (sc_major, sc_minor, sc_patch) = (schema_parts[0], schema_parts[1], schema_parts[2]);
+    let (rt_major, rt_minor, _rt_patch) = (runtime_parts[0], runtime_parts[1], runtime_parts[2]);
+    let (sc_major, sc_minor, _sc_patch) = (schema_parts[0], schema_parts[1], schema_parts[2]);
 
     // Major version must match exactly
     if rt_major != sc_major {
