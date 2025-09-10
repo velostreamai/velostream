@@ -331,6 +331,7 @@ fn create_simple_select_query() -> StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: Some(EmitMode::Changes),
+        properties: None,
     }
 }
 
@@ -372,6 +373,7 @@ fn create_aggregation_query() -> StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: Some(EmitMode::Changes),
+        properties: None,
     }
 }
 
@@ -411,6 +413,7 @@ fn create_window_function_query() -> StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: Some(EmitMode::Changes),
+        properties: None,
     }
 }
 

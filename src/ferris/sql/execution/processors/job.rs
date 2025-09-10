@@ -328,6 +328,7 @@ mod tests {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let properties = HashMap::new();

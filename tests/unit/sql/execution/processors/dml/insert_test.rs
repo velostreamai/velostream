@@ -177,6 +177,7 @@ async fn test_insert_select() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let select_source = InsertSource::Select {

@@ -306,6 +306,7 @@ pub fn create_test_query() -> StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     }
 }
 

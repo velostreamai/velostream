@@ -996,6 +996,13 @@ impl<'a> TokenParser<'a> {
             }
         }
 
+        // Parse optional WITH clause for SELECT statements
+        let properties = if self.current_token().token_type == TokenType::With {
+            Some(self.parse_with_properties()?)
+        } else {
+            None
+        };
+
         // Determine if from_stream is a URI or named stream
         let from_source = if from_stream.contains("://") {
             StreamSource::Uri(from_stream)
@@ -1017,6 +1024,7 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
+            properties,
         };
 
         // Check for UNION after SELECT

@@ -4,14 +4,12 @@
 //! A command-line tool for validating FerrisStreams configuration files
 //! against the generated JSON Schema. Supports YAML and JSON config files.
 
-use ferrisstreams::ferris::config::{
-    HierarchicalSchemaRegistry, validate_configuration
-};
-use ferrisstreams::ferris::datasource::kafka::data_source::KafkaDataSource;
-use ferrisstreams::ferris::datasource::kafka::data_sink::KafkaDataSink;
-use ferrisstreams::ferris::datasource::file::data_source::FileDataSource;
-use ferrisstreams::ferris::datasource::file::sink::FileSink;
 use clap::{Arg, Command};
+use ferrisstreams::ferris::config::{validate_configuration, HierarchicalSchemaRegistry};
+use ferrisstreams::ferris::datasource::file::data_sink::FileSink;
+use ferrisstreams::ferris::datasource::file::data_source::FileDataSource;
+use ferrisstreams::ferris::datasource::kafka::data_sink::KafkaDataSink;
+use ferrisstreams::ferris::datasource::kafka::data_source::KafkaDataSource;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -79,10 +77,10 @@ fn main() {
 }
 
 fn validate_config_file(
-    config_path: &str, 
-    schema_path: &str, 
-    verbose: bool, 
-    strict: bool
+    config_path: &str,
+    schema_path: &str,
+    verbose: bool,
+    strict: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Check if files exist
     if !Path::new(config_path).exists() {
@@ -99,14 +97,15 @@ fn validate_config_file(
     }
 
     let config_content = fs::read_to_string(config_path)?;
-    let config: HashMap<String, Value> = if config_path.ends_with(".yaml") || config_path.ends_with(".yml") {
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&config_content)?;
-        serde_json::from_value(serde_json::to_value(yaml_value)?)?
-    } else if config_path.ends_with(".json") {
-        serde_json::from_str(&config_content)?
-    } else {
-        return Err("Unsupported file format. Use .yaml, .yml, or .json".into());
-    };
+    let config: HashMap<String, Value> =
+        if config_path.ends_with(".yaml") || config_path.ends_with(".yml") {
+            let yaml_value: serde_yaml::Value = serde_yaml::from_str(&config_content)?;
+            serde_json::from_value(serde_json::to_value(yaml_value)?)?
+        } else if config_path.ends_with(".json") {
+            serde_json::from_str(&config_content)?
+        } else {
+            return Err("Unsupported file format. Use .yaml, .yml, or .json".into());
+        };
 
     // Step 3: Load and validate JSON Schema syntax
     if verbose {
@@ -114,8 +113,8 @@ fn validate_config_file(
     }
 
     let schema_content = fs::read_to_string(schema_path)?;
-    let _schema: Value = serde_json::from_str(&schema_content)
-        .map_err(|e| format!("Invalid JSON schema: {}", e))?;
+    let _schema: Value =
+        serde_json::from_str(&schema_content).map_err(|e| format!("Invalid JSON schema: {}", e))?;
 
     // Step 4: Prepare configuration for validation
     if verbose {
@@ -130,7 +129,7 @@ fn validate_config_file(
 
     // Prepare configuration maps for validation
     let global_config = HashMap::new(); // Empty global config for CLI validation
-    let named_config = HashMap::new();  // Empty named config for CLI validation
+    let named_config = HashMap::new(); // Empty named config for CLI validation
 
     match validate_configuration(&global_config, &named_config, &string_config) {
         Ok(()) => {
@@ -155,7 +154,6 @@ fn validate_config_file(
 
     Ok(())
 }
-
 
 /// Convert JSON Value to String for validation
 fn value_to_string(value: &Value) -> String {
@@ -190,7 +188,7 @@ fn validate_sections(
         validate_sources_config(sources, strict)?;
     }
 
-    // Validate sinks  
+    // Validate sinks
     if let Some(sinks) = config.get("sinks") {
         if verbose {
             println!("  📤 Validating data sinks...");
@@ -209,7 +207,11 @@ fn validate_global_config(global: &Value, _strict: bool) -> Result<(), Box<dyn s
             if let Some(env_str) = env.as_str() {
                 let valid_envs = ["development", "staging", "production"];
                 if !valid_envs.contains(&env_str) {
-                    return Err(format!("Invalid environment: {}. Must be one of: {:?}", env_str, valid_envs).into());
+                    return Err(format!(
+                        "Invalid environment: {}. Must be one of: {:?}",
+                        env_str, valid_envs
+                    )
+                    .into());
                 }
             }
         }
@@ -219,7 +221,11 @@ fn validate_global_config(global: &Value, _strict: bool) -> Result<(), Box<dyn s
             if let Some(level_str) = log_level.as_str() {
                 let valid_levels = ["error", "warn", "info", "debug", "trace"];
                 if !valid_levels.contains(&level_str) {
-                    return Err(format!("Invalid log_level: {}. Must be one of: {:?}", level_str, valid_levels).into());
+                    return Err(format!(
+                        "Invalid log_level: {}. Must be one of: {:?}",
+                        level_str, valid_levels
+                    )
+                    .into());
                 }
             }
         }
@@ -229,7 +235,10 @@ fn validate_global_config(global: &Value, _strict: bool) -> Result<(), Box<dyn s
 }
 
 /// Validate sources configuration section
-fn validate_sources_config(sources: &Value, _strict: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_sources_config(
+    sources: &Value,
+    _strict: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(obj) = sources.as_object() {
         for (source_name, source_config) in obj {
             if source_name == "kafka_source" {
@@ -284,7 +293,11 @@ fn validate_file_source_config(config: &Value) -> Result<(), Box<dyn std::error:
             if let Some(format_str) = format.as_str() {
                 let valid_formats = ["csv", "json", "jsonlines"];
                 if !valid_formats.contains(&format_str) {
-                    return Err(format!("Invalid file format: {}. Must be one of: {:?}", format_str, valid_formats).into());
+                    return Err(format!(
+                        "Invalid file format: {}. Must be one of: {:?}",
+                        format_str, valid_formats
+                    )
+                    .into());
                 }
             }
         }
@@ -320,7 +333,11 @@ fn validate_file_sink_config(config: &Value) -> Result<(), Box<dyn std::error::E
             if let Some(format_str) = format.as_str() {
                 let valid_formats = ["csv", "json", "jsonlines"];
                 if !valid_formats.contains(&format_str) {
-                    return Err(format!("Invalid file format: {}. Must be one of: {:?}", format_str, valid_formats).into());
+                    return Err(format!(
+                        "Invalid file format: {}. Must be one of: {:?}",
+                        format_str, valid_formats
+                    )
+                    .into());
                 }
             }
         }

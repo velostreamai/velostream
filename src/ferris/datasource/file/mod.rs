@@ -65,13 +65,13 @@
 //! ```
 
 pub mod config;
+pub mod data_sink;
 pub mod data_source;
 pub mod error;
 pub mod reader;
-pub mod sink;
 pub mod watcher;
 
 // Re-export key types for convenient access
 pub use config::{FileFormat, FileSinkConfig, FileSourceConfig};
+pub use data_sink::FileSink;
 pub use data_source::FileDataSource;
-pub use sink::FileSink;

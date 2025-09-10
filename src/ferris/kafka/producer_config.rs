@@ -223,7 +223,11 @@ impl ProducerConfig {
 
         // Ensure message.timeout.ms < transaction.timeout.ms for transactional producers (Kafka requirement)
         if self.message_timeout >= self.transaction_timeout {
-            let timeout_ms = self.transaction_timeout.as_millis().saturating_sub(1000).max(1000) as u64;
+            let timeout_ms = self
+                .transaction_timeout
+                .as_millis()
+                .saturating_sub(1000)
+                .max(1000) as u64;
             self.message_timeout = Duration::from_millis(timeout_ms);
         }
 

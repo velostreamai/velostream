@@ -272,6 +272,7 @@ fn create_benchmark_query() -> StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: Some(EmitMode::Changes),
+        properties: None,
     }
 }
 

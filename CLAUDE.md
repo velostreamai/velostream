@@ -1,5 +1,18 @@
 # FerrisStreams Development Guide for Claude
 
+
+## Behaviour
+Dont make assumptions about the behaviour of the project.
+Always run all of the tests, demos, examples and /bin' and check the documentation.
+Always check the code formatting.
+Always check the code for errors.
+Always check the code for bugs.
+Always check the code for security issues.
+Always check the code for performance issues.
+Always check the code for correctness.
+Always look for opportunities to improve the code. (refactoring, code restructuring, etc.)
+
+
 ## Project Overview
 
 FerrisStreams is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.

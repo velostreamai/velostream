@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::datasource::{
     config::{CompressionType, FileFormat, SinkConfig},
-    file::sink::FileSink,
+    file::data_sink::FileSink,
     kafka::data_sink::KafkaDataSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,
