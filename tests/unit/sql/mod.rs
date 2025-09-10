@@ -18,9 +18,15 @@ pub mod types;
 // SQL configuration tests
 pub mod config;
 
-// SQL datasource tests
-pub mod datasource;
+// Query analysis tests
+pub mod query_analyzer_explicit_type_test;
+pub mod query_analyzer_test;
 
 // General SQL tests
 pub mod context_test;
 pub mod lifecycle_test;
+
+pub mod select_statement_matching_test;
+
+// Concatenation operator tests
+pub mod concat_operator_test;

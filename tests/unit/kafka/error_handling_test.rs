@@ -8,7 +8,9 @@ impl ferrisstreams::ferris::kafka::Serializer<TestMessage> for FailingSerializer
         // Create a JSON error by attempting to serialize an invalid value
         let invalid_json = "\x00\x01\x02invalid_json";
         match serde_json::from_str::<serde_json::Value>(invalid_json) {
-            Err(json_err) => Err(SerializationError::Json(json_err)),
+            Err(json_err) => Err(SerializationError::JsonSerializationFailed(Box::new(
+                json_err,
+            ))),
             Ok(_) => unreachable!("Invalid JSON should have failed"),
         }
     }
@@ -17,7 +19,9 @@ impl ferrisstreams::ferris::kafka::Serializer<TestMessage> for FailingSerializer
         // Create a JSON error by attempting to deserialize invalid JSON
         let invalid_json = "\x00\x01\x02invalid_json";
         match serde_json::from_str::<TestMessage>(invalid_json) {
-            Err(json_err) => Err(SerializationError::Json(json_err)),
+            Err(json_err) => Err(SerializationError::JsonSerializationFailed(Box::new(
+                json_err,
+            ))),
             Ok(_) => unreachable!("Invalid JSON should have failed"),
         }
     }
@@ -28,7 +32,9 @@ impl ferrisstreams::ferris::kafka::Serializer<String> for FailingSerializer {
         // Create a JSON error by attempting to serialize an invalid value
         let invalid_json = "\x00\x01\x02invalid_json";
         match serde_json::from_str::<serde_json::Value>(invalid_json) {
-            Err(json_err) => Err(SerializationError::Json(json_err)),
+            Err(json_err) => Err(SerializationError::JsonSerializationFailed(Box::new(
+                json_err,
+            ))),
             Ok(_) => unreachable!("Invalid JSON should have failed"),
         }
     }
@@ -37,7 +43,9 @@ impl ferrisstreams::ferris::kafka::Serializer<String> for FailingSerializer {
         // Create a JSON error by attempting to deserialize invalid JSON
         let invalid_json = "\x00\x01\x02invalid_json";
         match serde_json::from_str::<String>(invalid_json) {
-            Err(json_err) => Err(SerializationError::Json(json_err)),
+            Err(json_err) => Err(SerializationError::JsonSerializationFailed(Box::new(
+                json_err,
+            ))),
             Ok(_) => unreachable!("Invalid JSON should have failed"),
         }
     }
@@ -91,12 +99,13 @@ async fn test_producer_key_serialization_error() {
         .send(Some(&"test-key".to_string()), &test_message, headers, None)
         .await;
 
-    assert!(result.is_err());
-    if let Err(KafkaClientError::SerializationError(err)) = result {
-        assert!(err.to_string().contains("serialization"));
-    } else {
-        panic!("Expected key SerializationError, got: {:?}", result);
-    }
+    assert!(
+        matches!(&result,
+            Err(KafkaClientError::SerializationError(err))
+            if err.to_string().contains("JSON")),
+        "Expected SerializationError containing 'serialization', but got: {:?}",
+        result
+    );
 }
 
 #[tokio::test]
@@ -379,7 +388,7 @@ mod error_handling_unit_tests {
     fn test_serialization_error_display() {
         let invalid_json = "\x00\x01\x02invalid_json";
         let json_err = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-        let json_error = SerializationError::Json(json_err);
+        let json_error = SerializationError::JsonSerializationFailed(Box::new(json_err));
         assert!(json_error.to_string().contains("JSON serialization error"));
     }
 
@@ -387,7 +396,7 @@ mod error_handling_unit_tests {
     fn test_kafka_client_error_conversion() {
         let invalid_json = "\x00\x01\x02invalid_json";
         let json_err = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-        let serialization_error = SerializationError::Json(json_err);
+        let serialization_error = SerializationError::JsonSerializationFailed(Box::new(json_err));
         let kafka_error: KafkaClientError = serialization_error.into();
 
         match kafka_error {
@@ -400,7 +409,7 @@ mod error_handling_unit_tests {
     fn test_error_chain() {
         let invalid_json = "\x00\x01\x02invalid_json";
         let json_err = serde_json::from_str::<serde_json::Value>(invalid_json).unwrap_err();
-        let serialization_error = SerializationError::Json(json_err);
+        let serialization_error = SerializationError::JsonSerializationFailed(Box::new(json_err));
         let kafka_error: KafkaClientError = serialization_error.into();
 
         // Test error source chain

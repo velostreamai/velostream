@@ -4,27 +4,60 @@
 Tests for SQL operators including LIKE, NOT LIKE, and other specialized operators.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+fn create_test_record(text_field: &str) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "text_field".to_string(),
+        FieldValue::String(text_field.to_string()),
+    );
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
+
+fn create_edge_case_record() -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "text_field".to_string(),
+        FieldValue::String("Hello World".to_string()),
+    );
+    fields.insert("null_field".to_string(), FieldValue::Null);
+    fields.insert(
+        "number_field".to_string(),
+        FieldValue::String("123".to_string()),
+    );
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
 
 #[tokio::test]
 async fn test_like_operator() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
-    let mut record = HashMap::new();
-    record.insert(
-        "text_field".to_string(),
-        InternalValue::String("Hello World".to_string()),
-    );
+    let record = create_test_record("Hello World");
 
     // Test cases for LIKE operator
     let test_cases = vec![
@@ -57,7 +90,7 @@ async fn test_like_operator() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_ok(),
             "LIKE operator evaluation failed for pattern: {}",
@@ -66,9 +99,9 @@ async fn test_like_operator() {
 
         // Check the boolean result value
         let output = rx.try_recv().unwrap();
-        let like_result = output.get("like_result").unwrap();
+        let like_result = output.fields.get("like_result").unwrap();
         match like_result {
-            InternalValue::Boolean(result) => {
+            FieldValue::Boolean(result) => {
                 assert_eq!(*result, expected, "Pattern '{}' failed", pattern);
             }
             _ => panic!("Expected boolean result for LIKE operation"),
@@ -80,14 +113,10 @@ async fn test_like_operator() {
 async fn test_not_like_operator() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
-    let mut record = HashMap::new();
-    record.insert(
-        "text_field".to_string(),
-        InternalValue::String("Hello World".to_string()),
-    );
+    let record = create_test_record("Hello World");
 
     // Test cases for NOT LIKE operator
     let test_cases = vec![
@@ -120,7 +149,7 @@ async fn test_not_like_operator() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_ok(),
             "NOT LIKE operator evaluation failed for pattern: {}",
@@ -129,9 +158,9 @@ async fn test_not_like_operator() {
 
         // Check the boolean result value
         let output = rx.try_recv().unwrap();
-        let not_like_result = output.get("not_like_result").unwrap();
+        let not_like_result = output.fields.get("not_like_result").unwrap();
         match not_like_result {
-            InternalValue::Boolean(result) => {
+            FieldValue::Boolean(result) => {
                 assert_eq!(*result, expected, "NOT LIKE pattern '{}' failed", pattern);
             }
             _ => panic!("Expected boolean result for NOT LIKE operation"),
@@ -143,19 +172,10 @@ async fn test_not_like_operator() {
 async fn test_like_operator_edge_cases() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record with various types
-    let mut record = HashMap::new();
-    record.insert(
-        "text_field".to_string(),
-        InternalValue::String("Hello World".to_string()),
-    );
-    record.insert("null_field".to_string(), InternalValue::Null);
-    record.insert(
-        "number_field".to_string(),
-        InternalValue::String("123".to_string()),
-    );
+    let record = create_edge_case_record();
 
     // Edge cases for text_field
     let test_cases = vec![
@@ -190,7 +210,7 @@ async fn test_like_operator_edge_cases() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_ok(),
             "LIKE operator evaluation failed for pattern: {}",
@@ -199,9 +219,9 @@ async fn test_like_operator_edge_cases() {
 
         // Check the boolean result value
         let output = rx.try_recv().unwrap();
-        let like_result = output.get("like_result").unwrap();
+        let like_result = output.fields.get("like_result").unwrap();
         match like_result {
-            InternalValue::Boolean(result) => {
+            FieldValue::Boolean(result) => {
                 assert_eq!(*result, expected, "Pattern '{}' failed", pattern);
             }
             _ => panic!("Expected boolean result for LIKE operation"),
@@ -229,13 +249,13 @@ async fn test_like_operator_edge_cases() {
         emit_mode: None,
     };
 
-    let result = engine.execute(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, record.clone()).await;
     assert!(result.is_ok());
     // NULL LIKE anything should return false
     let output = rx.try_recv().unwrap();
-    let null_like_result = output.get("null_like_result").unwrap();
+    let null_like_result = output.fields.get("null_like_result").unwrap();
     match null_like_result {
-        InternalValue::Boolean(result) => {
+        FieldValue::Boolean(result) => {
             assert!(!(*result), "NULL LIKE anything should return false");
         }
         _ => panic!("Expected boolean result for NULL LIKE operation"),
@@ -262,13 +282,13 @@ async fn test_like_operator_edge_cases() {
         emit_mode: None,
     };
 
-    let result = engine.execute(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, record.clone()).await;
     assert!(result.is_ok());
     // "123" LIKE "%3" should match
     let output = rx.try_recv().unwrap();
-    let number_like_result = output.get("number_like_result").unwrap();
+    let number_like_result = output.fields.get("number_like_result").unwrap();
     match number_like_result {
-        InternalValue::Boolean(result) => {
+        FieldValue::Boolean(result) => {
             assert!(*result, "\"123\" LIKE \"%3\" should match");
         }
         _ => panic!("Expected boolean result for number LIKE operation"),
@@ -283,16 +303,21 @@ async fn test_like_operator_edge_cases() {
 async fn test_in_operator_basic() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(2));
-    record.insert(
-        "name".to_string(),
-        InternalValue::String("test".to_string()),
-    );
-    record.insert("amount".to_string(), InternalValue::Number(150.0));
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(2));
+    fields.insert("name".to_string(), FieldValue::String("test".to_string()));
+    fields.insert("amount".to_string(), FieldValue::Float(150.0));
+
+    let record = StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
     // Test cases for IN operator
     let test_cases = vec![
@@ -339,7 +364,7 @@ async fn test_in_operator_basic() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_ok(),
             "IN operator evaluation failed for query: {}",
@@ -356,15 +381,20 @@ async fn test_in_operator_basic() {
 async fn test_not_in_operator_basic() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(2));
-    record.insert(
-        "name".to_string(),
-        InternalValue::String("test".to_string()),
-    );
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(2));
+    fields.insert("name".to_string(), FieldValue::String("test".to_string()));
+
+    let record = StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
     // Test NOT IN operator - opposite of IN results
     let test_cases = vec![
@@ -401,7 +431,7 @@ async fn test_not_in_operator_basic() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_ok(),
             "NOT IN operator evaluation failed for query: {}",
@@ -417,12 +447,20 @@ async fn test_not_in_operator_basic() {
 async fn test_in_operator_with_null_values() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record with NULL value
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(1));
-    record.insert("nullable_field".to_string(), InternalValue::Null);
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(1));
+    fields.insert("nullable_field".to_string(), FieldValue::Null);
+
+    let record = StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
     // Test NULL IN list (should never match)
     let query = StreamingQuery::Select {
@@ -449,7 +487,7 @@ async fn test_in_operator_with_null_values() {
         emit_mode: None,
     };
 
-    let result = engine.execute(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, record.clone()).await;
     assert!(result.is_ok());
 
     // NULL IN anything should not match
@@ -480,7 +518,7 @@ async fn test_in_operator_with_null_values() {
         emit_mode: None,
     };
 
-    let result_not_in = engine.execute(&query_not_in, record).await;
+    let result_not_in = engine.execute_with_record(&query_not_in, record).await;
     assert!(result_not_in.is_ok());
 
     // NULL NOT IN anything should also not match
@@ -492,15 +530,20 @@ async fn test_in_operator_with_null_values() {
 async fn test_in_operator_edge_cases() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test record
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(5));
-    record.insert(
-        "name".to_string(),
-        InternalValue::String("hello".to_string()),
-    );
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(5));
+    fields.insert("name".to_string(), FieldValue::String("hello".to_string()));
+
+    let record = StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 0,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
     // Test empty list (should never match)
     // Note: This might not be parseable, but if it is, should never match
@@ -529,7 +572,9 @@ async fn test_in_operator_edge_cases() {
         emit_mode: None,
     };
 
-    let result_large = engine.execute(&query_large, record.clone()).await;
+    let result_large = engine
+        .execute_with_record(&query_large, record.clone())
+        .await;
     assert!(result_large.is_ok());
 
     // Should match since 5 is in 1..=100
@@ -561,7 +606,7 @@ async fn test_in_operator_edge_cases() {
         emit_mode: None,
     };
 
-    let result_duplicates = engine.execute(&query_duplicates, record).await;
+    let result_duplicates = engine.execute_with_record(&query_duplicates, record).await;
     assert!(result_duplicates.is_ok());
 
     // Should match

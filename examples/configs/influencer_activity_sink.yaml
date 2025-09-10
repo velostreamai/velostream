@@ -1,0 +1,18 @@
+# Influencer Activity Output Configuration
+# High-follower user activity monitoring
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "influencer_activity"
+  
+delivery_profile: medium_priority
+
+topic_config:
+  partitions: 6
+  retention_ms: 7776000000  # 90 days retention for influencer tracking
+  
+metadata:
+  description: "Influencer activity monitoring"
+  data_classification: "user_analytics"
+  priority: "medium"

@@ -3,7 +3,7 @@
 //! This binary demonstrates the comprehensive configuration system functionality
 //! including URI parsing, validation, builder patterns, and environment configuration.
 
-use ferrisstreams::ferris::sql::config::*;
+use ferrisstreams::ferris::sql::config::{builder::DataSourceConfigBuilder, *};
 use std::env;
 use std::fs;
 use std::time::{Duration, Instant};

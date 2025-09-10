@@ -1,0 +1,18 @@
+# User Analytics Output Configuration
+# User behavior analytics stream
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "user_analytics_stream"
+  
+delivery_profile: medium_priority
+
+topic_config:
+  partitions: 6
+  retention_ms: 2592000000  # 30 days retention
+  
+metadata:
+  description: "User behavior analytics"
+  data_classification: "analytical_data"
+  priority: "medium"

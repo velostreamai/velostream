@@ -4,11 +4,19 @@ This directory contains comprehensive documentation for FerrisStreams.
 
 ## 📚 Available Documentation
 
+### Architecture Documentation
+- **[SQL Table Architecture](architecture/SQL_TABLE_KTABLE_ARCHITECTURE.md)** - Datasource-agnostic materialized views and stream-table joins
+- **[Schema Registry Architecture](architecture/SCHEMA-REGISTRY-ARCHITECTURE.md)** - Complete schema registry system design
+
 ### Core Guides
 - **[Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md)** - Learn when and how to use the fluent builder APIs
 - **[Type-Safe Kafka](feature/TYPE_SAFE_KAFKA.md)** - Comprehensive guide to type-safe Kafka operations
-- **[Simplified Kafka API](developer/SIMPLIFIED_KAFKA_API.md)** - High-level API documentation and examples
+- **[Streaming Kafka API](developer/STREAMING_KAFKA_API.md)** - High-level API documentation and examples
 - **[Headers Guide](developer/HEADERS_GUIDE.md)** - Working with Kafka message headers
+
+### Configuration Management
+- **[YAML Configuration Guide](YAML_CONFIGURATION_GUIDE.md)** - Complete guide to YAML configuration with inheritance using `extends:`
+- **[Kafka Schema Configuration](KAFKA_SCHEMA_CONFIGURATION.md)** - Schema configuration for Kafka data sources
 
 ### Serialization System
 - **[Serialization Guide](developer/SERIALIZATION_GUIDE.md)** - Complete guide to serialization formats (JSON, Avro, Protobuf)

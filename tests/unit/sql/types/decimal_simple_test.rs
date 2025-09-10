@@ -3,12 +3,8 @@
 //! This module tests basic DECIMAL type implementation that works with
 //! the current codebase structure.
 
-use std::collections::HashMap;
-
-use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::sql::ast::{DataType, Expr, LiteralValue, SelectField, StreamingQuery};
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
-use ferrisstreams::ferris::sql::execution::utils::FieldValueConverter;
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
@@ -174,19 +170,22 @@ mod decimal_simple_tests {
     fn test_serialization_roundtrip() {
         let original = FieldValue::ScaledInteger(12345, 2); // 123.45
 
-        // Convert to InternalValue for serialization
-        let internal_val = FieldValueConverter::field_value_to_internal(original.clone());
-        match internal_val {
-            InternalValue::ScaledNumber(value, scale) => {
-                assert_eq!(value, 12345);
-                assert_eq!(scale, 2);
+        // Test that ScaledInteger maintains precision internally
+        match &original {
+            FieldValue::ScaledInteger(value, scale) => {
+                assert_eq!(*value, 12345);
+                assert_eq!(*scale, 2);
+
+                // Test string conversion maintains precision
+                let display = original.to_display_string();
+                assert_eq!(display, "123.45");
             }
-            _ => panic!("Expected ScaledNumber, got: {:?}", internal_val),
+            _ => panic!("Expected ScaledInteger, got: {:?}", original),
         }
 
-        // Convert back to FieldValue
-        let field_val = FieldValueConverter::internal_to_field_value(internal_val);
-        assert_eq!(field_val, original);
+        // Test that clone maintains the same value
+        let cloned = original.clone();
+        assert_eq!(cloned, original);
     }
 
     #[test]

@@ -112,7 +112,7 @@ pub enum StreamingQuery {
 ```rust
 impl StreamExecutionEngine {
     /// Process a record with the specified aggregation mode
-    pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, InternalValue>) -> Result<(), SqlError>
+    pub async fn execute(&mut self, query: &StreamingQuery, record: HashMap<String, FieldValue>) -> Result<(), SqlError>
     
     /// Manually flush accumulated GROUP BY results (windowed mode)
     pub fn flush_group_by_results(&mut self, query: &StreamingQuery) -> Result<(), SqlError>
@@ -360,13 +360,13 @@ for (i, record) in records.enumerate() {
    SELECT customer_id, COUNT(*) 
    FROM orders 
    GROUP BY customer_id 
-   WINDOW TUMBLING '1 HOUR'
+   WINDOW TUMBLING(1h)
    
    -- Sliding windows  
    SELECT customer_id, COUNT(*) 
    FROM orders 
    GROUP BY customer_id 
-   WINDOW SLIDING '5 MINUTES' EVERY '1 MINUTE'
+   WINDOW SLIDING(5m, 1m)
    ```
 
 3. **Automatic Memory Management**

@@ -3,9 +3,15 @@
 //! This binary demonstrates the comprehensive schema management functionality
 //! including discovery, caching, evolution, and provider capabilities.
 
+use ferrisstreams::ferris::schema::{
+    client::{
+        cache::{CacheConfig, CacheLookupResult, SchemaCache},
+        providers::create_default_registry,
+    },
+    evolution::SchemaEvolution,
+    *,
+};
 use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::schema::cache::CacheLookupResult;
-use ferrisstreams::ferris::sql::schema::*;
 use std::time::Duration;
 
 #[tokio::main]

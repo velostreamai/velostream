@@ -143,6 +143,16 @@ impl AccumulatorManager {
                             }
                         }
                     }
+                    "APPROX_COUNT_DISTINCT" => {
+                        // Use HyperLogLog for probabilistic distinct count estimation
+                        if let Some(arg) = args.first() {
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(arg, record)?;
+                            if !matches!(value, FieldValue::Null) {
+                                accumulator.add_to_approx_set(field_name, value);
+                            }
+                        }
+                    }
                     "FIRST" => {
                         if let Some(arg) = args.first() {
                             let value =
@@ -312,6 +322,7 @@ impl AccumulatorManager {
                         | "STDDEV"
                         | "VARIANCE"
                         | "COUNT_DISTINCT"
+                        | "APPROX_COUNT_DISTINCT"
                         | "FIRST"
                         | "LAST"
                         | "STRING_AGG"

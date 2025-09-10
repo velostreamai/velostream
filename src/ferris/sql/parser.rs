@@ -215,6 +215,7 @@ enum TokenType {
     #[allow(dead_code)]
     Multiply, // * (when used as operator)
     Divide, // /
+    Concat, // || (string concatenation)
 
     // Comparison Operators
     Equal,              // =
@@ -238,22 +239,23 @@ enum TokenType {
     Interval, // INTERVAL
 
     // Conditional Keywords
-    Case,   // CASE
-    When,   // WHEN
-    Then,   // THEN
-    Else,   // ELSE
-    End,    // END
-    Is,     // IS (for IS NULL, IS NOT NULL)
-    In,     // IN (for IN operator)
-    Not,    // NOT (for NOT IN, IS NOT NULL, etc.)
-    Exists, // EXISTS (for EXISTS subqueries)
-    Any,    // ANY (for ANY subqueries)
-    All,    // ALL (for ALL subqueries)
+    Case,    // CASE
+    When,    // WHEN
+    Then,    // THEN
+    Else,    // ELSE
+    End,     // END
+    Is,      // IS (for IS NULL, IS NOT NULL)
+    In,      // IN (for IN operator)
+    Not,     // NOT (for NOT IN, IS NOT NULL, etc.)
+    Between, // BETWEEN (for range queries)
+    Exists,  // EXISTS (for EXISTS subqueries)
+    Any,     // ANY (for ANY subqueries)
+    All,     // ALL (for ALL subqueries)
+    Union,   // UNION (for combining result sets)
 
     // Window Frame Keywords
     Rows,      // ROWS
     Range,     // RANGE
-    Between,   // BETWEEN
     And,       // AND
     Or,        // OR
     Preceding, // PRECEDING
@@ -264,7 +266,8 @@ enum TokenType {
     Over,      // OVER
 
     // Special
-    Eof, // End of input
+    Eof,       // End of input
+    Semicolon, // ; (statement terminator)
 }
 
 /// A token with its type, value, and position information.
@@ -365,7 +368,9 @@ impl StreamingSqlParser {
         keywords.insert("IS".to_string(), TokenType::Is);
         keywords.insert("IN".to_string(), TokenType::In);
         keywords.insert("NOT".to_string(), TokenType::Not);
+        keywords.insert("BETWEEN".to_string(), TokenType::Between);
         keywords.insert("EXISTS".to_string(), TokenType::Exists);
+        keywords.insert("UNION".to_string(), TokenType::Union);
         keywords.insert("ANY".to_string(), TokenType::Any);
         keywords.insert("ALL".to_string(), TokenType::All);
         keywords.insert("ROWS".to_string(), TokenType::Rows);
@@ -477,6 +482,15 @@ impl StreamingSqlParser {
                     tokens.push(Token {
                         token_type: TokenType::Comma,
                         value: ",".to_string(),
+                        position,
+                    });
+                    chars.next();
+                    position += 1;
+                }
+                ';' => {
+                    tokens.push(Token {
+                        token_type: TokenType::Semicolon,
+                        value: ";".to_string(),
                         position,
                     });
                     chars.next();
@@ -640,6 +654,26 @@ impl StreamingSqlParser {
                     } else {
                         return Err(SqlError::ParseError {
                             message: "Unexpected character '!' - did you mean '!='?".to_string(),
+                            position: Some(position - 1),
+                        });
+                    }
+                }
+                '|' => {
+                    chars.next();
+                    position += 1;
+                    if let Some(&'|') = chars.peek() {
+                        tokens.push(Token {
+                            token_type: TokenType::Concat,
+                            value: "||".to_string(),
+                            position: position - 1,
+                        });
+                        chars.next();
+                        position += 1;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message:
+                                "Unexpected character '|' - did you mean '||' for concatenation?"
+                                    .to_string(),
                             position: Some(position - 1),
                         });
                     }
@@ -851,9 +885,29 @@ impl<'a> TokenParser<'a> {
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
-            let stream_name = self.expect(TokenType::Identifier)?.value;
 
-            // Parse optional alias for FROM clause (e.g., "FROM events s")
+            // Support both identifiers and URI strings (FR-047)
+            let stream_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+                    name
+                }
+                TokenType::String => {
+                    // URI string like 'file://path' or 'kafka://broker/topic'
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected stream name or data source URI after FROM".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            // Parse optional alias for FROM clause (e.g., "FROM events s" or "FROM 'file://data.csv' f")
             let _from_alias = if self.current_token().token_type == TokenType::Identifier {
                 let alias = self.current_token().value.clone();
                 self.advance();
@@ -942,9 +996,19 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        Ok(StreamingQuery::Select {
+        // Determine if from_stream is a URI or named stream
+        let from_source = if from_stream.contains("://") {
+            StreamSource::Uri(from_stream)
+        } else {
+            StreamSource::Stream(from_stream) // Both scalar queries and named streams
+        };
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
+        let select_query = StreamingQuery::Select {
             fields,
-            from: StreamSource::Stream(from_stream),
+            from: from_source,
             joins,
             where_clause,
             group_by,
@@ -953,7 +1017,31 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
-        })
+        };
+
+        // Check for UNION after SELECT
+        if self.current_token().token_type == TokenType::Union {
+            self.advance(); // consume UNION
+
+            // Check for ALL keyword
+            let all = if self.current_token().token_type == TokenType::All {
+                self.advance(); // consume ALL
+                true
+            } else {
+                false
+            };
+
+            // Parse the right side of the UNION
+            let right_query = self.parse_select()?;
+
+            Ok(StreamingQuery::Union {
+                left: Box::new(select_query),
+                right: Box::new(right_query),
+                all,
+            })
+        } else {
+            Ok(select_query)
+        }
     }
 
     fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
@@ -1128,7 +1216,7 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, SqlError> {
-        let mut left = self.parse_additive()?;
+        let mut left = self.parse_concatenative()?;
 
         while matches!(
             self.current_token().token_type,
@@ -1141,6 +1229,7 @@ impl<'a> TokenParser<'a> {
                 | TokenType::Is
                 | TokenType::In
                 | TokenType::Not
+                | TokenType::Between
         ) {
             let op_token = self.current_token().clone();
             self.advance();
@@ -1221,60 +1310,104 @@ impl<'a> TokenParser<'a> {
                     };
                 }
             } else if op_token.token_type == TokenType::Not {
-                // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
-                if self.current_token().token_type != TokenType::In {
-                    return Err(SqlError::ParseError {
-                        message: "Expected 'IN' after 'NOT'".to_string(),
-                        position: Some(self.current_token().position),
-                    });
-                }
-                self.advance(); // consume 'IN'
+                // Handle NOT IN or NOT BETWEEN operators
+                if self.current_token().token_type == TokenType::In {
+                    // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
+                    self.advance(); // consume 'IN'
 
-                if self.current_token().token_type != TokenType::LeftParen {
-                    return Err(SqlError::ParseError {
-                        message: "Expected '(' after NOT IN".to_string(),
-                        position: Some(self.current_token().position),
-                    });
-                }
-                self.advance(); // consume '('
+                    if self.current_token().token_type != TokenType::LeftParen {
+                        return Err(SqlError::ParseError {
+                            message: "Expected '(' after NOT IN".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                    self.advance(); // consume '('
 
-                // Check if this is a subquery
-                if self.current_token().token_type == TokenType::Select {
-                    let subquery = self.parse_select()?;
-                    self.expect(TokenType::RightParen)?;
-                    left = Expr::BinaryOp {
-                        left: Box::new(left),
-                        op: BinaryOperator::NotIn,
-                        right: Box::new(Expr::Subquery {
-                            query: Box::new(subquery),
-                            subquery_type: crate::ferris::sql::ast::SubqueryType::NotIn,
-                        }),
+                    // Check if this is a subquery
+                    if self.current_token().token_type == TokenType::Select {
+                        let subquery = self.parse_select()?;
+                        self.expect(TokenType::RightParen)?;
+                        left = Expr::BinaryOp {
+                            left: Box::new(left),
+                            op: BinaryOperator::NotIn,
+                            right: Box::new(Expr::Subquery {
+                                query: Box::new(subquery),
+                                subquery_type: crate::ferris::sql::ast::SubqueryType::NotIn,
+                            }),
+                        };
+                    } else {
+                        // Regular NOT IN list
+                        let mut list_items = Vec::new();
+                        loop {
+                            list_items.push(self.parse_additive()?);
+
+                            if self.current_token().token_type == TokenType::Comma {
+                                self.advance(); // consume ','
+                            } else if self.current_token().token_type == TokenType::RightParen {
+                                self.advance(); // consume ')'
+                                break;
+                            } else {
+                                return Err(SqlError::ParseError {
+                                    message: "Expected ',' or ')' in NOT IN list".to_string(),
+                                    position: Some(self.current_token().position),
+                                });
+                            }
+                        }
+
+                        left = Expr::BinaryOp {
+                            left: Box::new(left),
+                            op: BinaryOperator::NotIn,
+                            right: Box::new(Expr::List(list_items)),
+                        };
+                    }
+                } else if self.current_token().token_type == TokenType::Between {
+                    // Handle NOT BETWEEN operator: expr NOT BETWEEN low AND high
+                    self.advance(); // consume 'BETWEEN'
+
+                    let low = self.parse_additive()?;
+
+                    if self.current_token().token_type != TokenType::And {
+                        return Err(SqlError::ParseError {
+                            message: "Expected 'AND' after NOT BETWEEN expression".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                    self.advance(); // consume 'AND'
+
+                    let high = self.parse_additive()?;
+
+                    left = Expr::Between {
+                        expr: Box::new(left),
+                        low: Box::new(low),
+                        high: Box::new(high),
+                        negated: true,
                     };
                 } else {
-                    // Regular NOT IN list
-                    let mut list_items = Vec::new();
-                    loop {
-                        list_items.push(self.parse_additive()?);
-
-                        if self.current_token().token_type == TokenType::Comma {
-                            self.advance(); // consume ','
-                        } else if self.current_token().token_type == TokenType::RightParen {
-                            self.advance(); // consume ')'
-                            break;
-                        } else {
-                            return Err(SqlError::ParseError {
-                                message: "Expected ',' or ')' in NOT IN list".to_string(),
-                                position: Some(self.current_token().position),
-                            });
-                        }
-                    }
-
-                    left = Expr::BinaryOp {
-                        left: Box::new(left),
-                        op: BinaryOperator::NotIn,
-                        right: Box::new(Expr::List(list_items)),
-                    };
+                    return Err(SqlError::ParseError {
+                        message: "Expected 'IN' or 'BETWEEN' after 'NOT'".to_string(),
+                        position: Some(self.current_token().position),
+                    });
                 }
+            } else if op_token.token_type == TokenType::Between {
+                // Handle BETWEEN operator: expr BETWEEN low AND high
+                let low = self.parse_additive()?;
+
+                if self.current_token().token_type != TokenType::And {
+                    return Err(SqlError::ParseError {
+                        message: "Expected 'AND' after BETWEEN expression".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+                self.advance(); // consume 'AND'
+
+                let high = self.parse_additive()?;
+
+                left = Expr::Between {
+                    expr: Box::new(left),
+                    low: Box::new(low),
+                    high: Box::new(high),
+                    negated: false,
+                };
             } else {
                 let right = self.parse_additive()?;
 
@@ -1294,6 +1427,22 @@ impl<'a> TokenParser<'a> {
                     right: Box::new(right),
                 };
             }
+        }
+
+        Ok(left)
+    }
+
+    fn parse_concatenative(&mut self) -> Result<Expr, SqlError> {
+        let mut left = self.parse_additive()?;
+
+        while self.current_token().token_type == TokenType::Concat {
+            self.advance(); // consume ||
+            let right = self.parse_additive()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Concat,
+                right: Box::new(right),
+            };
         }
 
         Ok(left)
@@ -1972,12 +2121,19 @@ impl<'a> TokenParser<'a> {
                 ConfigProperties::default()
             };
 
+            // Parse optional EMIT clause for CREATE STREAM INTO
+            let emit_mode = self.parse_emit_clause()?;
+
+            // Consume optional semicolon
+            self.consume_semicolon();
+
             return Ok(StreamingQuery::CreateStreamInto {
                 name,
                 columns,
                 as_select,
                 into_clause,
                 properties,
+                emit_mode,
             });
         }
 
@@ -1988,11 +2144,18 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
+        // Parse optional EMIT clause for CREATE STREAM
+        let emit_mode = self.parse_emit_clause()?;
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
             as_select,
             properties,
+            emit_mode,
         })
     }
 
@@ -2021,12 +2184,19 @@ impl<'a> TokenParser<'a> {
                 ConfigProperties::default()
             };
 
+            // Parse optional EMIT clause for CREATE TABLE INTO
+            let emit_mode = self.parse_emit_clause()?;
+
+            // Consume optional semicolon
+            self.consume_semicolon();
+
             return Ok(StreamingQuery::CreateTableInto {
                 name,
                 columns,
                 as_select,
                 into_clause,
                 properties,
+                emit_mode,
             });
         }
 
@@ -2037,11 +2207,18 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
+        // Parse optional EMIT clause for CREATE TABLE
+        let emit_mode = self.parse_emit_clause()?;
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
         Ok(StreamingQuery::CreateTable {
             name,
             columns,
             as_select,
             properties,
+            emit_mode,
         })
     }
 
@@ -2137,7 +2314,27 @@ impl<'a> TokenParser<'a> {
 
     fn parse_into_clause(&mut self) -> Result<IntoClause, SqlError> {
         self.expect(TokenType::Into)?;
-        let sink_name = self.expect(TokenType::Identifier)?.value;
+
+        // Support both identifiers and URI strings (FR-047) for INTO clause
+        let sink_name = match self.current_token().token_type {
+            TokenType::Identifier => {
+                let name = self.current_token().value.clone();
+                self.advance();
+                name
+            }
+            TokenType::String => {
+                // URI string like 'file://path' or 'kafka://broker/topic'
+                let uri = self.current_token().value.clone();
+                self.advance();
+                uri
+            }
+            _ => {
+                return Err(SqlError::ParseError {
+                    message: "Expected sink name or data sink URI after INTO".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        };
 
         Ok(IntoClause {
             sink_name,
@@ -2169,12 +2366,11 @@ impl<'a> TokenParser<'a> {
 
             // Categorize configuration properties
             match key.as_str() {
-                "base_source_config" => config.base_source_config = Some(value),
                 "source_config" => config.source_config = Some(value),
-                "base_sink_config" => config.base_sink_config = Some(value),
                 "sink_config" => config.sink_config = Some(value),
                 "monitoring_config" => config.monitoring_config = Some(value),
                 "security_config" => config.security_config = Some(value),
+                // Removed: base_source_config and base_sink_config no longer supported
                 _ => {
                     // All other properties go into inline_properties for backward compatibility
                     config.inline_properties.insert(key, value);
@@ -2245,12 +2441,45 @@ impl<'a> TokenParser<'a> {
         Ok(result)
     }
 
+    /// Parse optional EMIT clause (EMIT CHANGES or EMIT FINAL)
+    fn parse_emit_clause(&mut self) -> Result<Option<crate::ferris::sql::ast::EmitMode>, SqlError> {
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+
+            let emit_token = self.current_token().clone();
+
+            match emit_token.token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    Ok(Some(crate::ferris::sql::ast::EmitMode::Changes))
+                }
+                TokenType::Final => {
+                    self.advance();
+                    Ok(Some(crate::ferris::sql::ast::EmitMode::Final))
+                }
+                _ => Err(SqlError::ParseError {
+                    message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                    position: Some(emit_token.position),
+                }),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     fn consume_if_matches(&mut self, expected: &str) -> bool {
         if self.current_token().value.to_uppercase() == expected.to_uppercase() {
             self.advance();
             true
         } else {
             false
+        }
+    }
+
+    /// Consume an optional semicolon at the end of a statement
+    fn consume_semicolon(&mut self) {
+        if self.current_token().token_type == TokenType::Semicolon {
+            self.advance();
         }
     }
 

@@ -1,0 +1,23 @@
+# User Events Topic Configuration
+# E-commerce user interaction tracking
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "user_events"
+  
+consumer_group: "ecommerce_analytics_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key_field: user_id
+    
+topic_config:
+  partitions: 6
+  retention_ms: 1209600000  # 14 days retention
+  
+metadata:
+  description: "User interaction events stream"
+  data_classification: "behavioral_data"
+  update_frequency: "real_time"

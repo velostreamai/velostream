@@ -1,0 +1,26 @@
+# Kafka source configuration for enriched transactions stream
+# Flat structure with dot-notation properties
+
+# Source type (required)
+type: "kafka_source"
+
+# Kafka connection properties
+bootstrap.servers: "localhost:9092"
+topic: "enriched-transactions"
+group.id: "enhanced-demo-enriched"
+
+# Consumer settings
+auto.offset.reset: "earliest"
+enable.auto.commit: false
+max.poll.records: 1000
+fetch.min.bytes: 1024
+fetch.max.wait.ms: 500
+
+# Serialization
+value.format: "json"
+key.format: "string"
+
+# Processing settings
+batch_size: 1000
+timeout_ms: 30000
+max_retries: 3

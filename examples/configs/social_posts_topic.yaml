@@ -1,0 +1,23 @@
+# Social Posts Topic Configuration
+# Real-time social media posts stream
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "social_posts"
+  
+consumer_group: "social_analytics_group"
+performance_profile: high_throughput
+
+datasource:
+  schema:
+    key_field: post_id
+    
+topic_config:
+  partitions: 16
+  retention_ms: 604800000  # 7 days retention
+  
+metadata:
+  description: "Social media posts stream"
+  data_classification: "public_content"
+  update_frequency: "real_time"

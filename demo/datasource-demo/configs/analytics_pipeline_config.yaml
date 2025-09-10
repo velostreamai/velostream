@@ -1,0 +1,166 @@
+# Complete Analytics Pipeline Configuration
+# Demonstrates file -> kafka -> analytics -> file pipeline
+
+pipeline:
+  name: "financial_analytics_demo"
+  version: "1.0.0"
+  description: "Complete financial transaction analytics pipeline"
+  
+  # Pipeline stages
+  stages:
+    # Stage 1: Read from CSV files
+    - name: "csv_reader"
+      type: "source"
+      config:
+        datasource:
+          type: "file"
+          config:
+            path: "./demo_data/financial_transactions.csv"
+            format: "csv"
+            watching:
+              enabled: true
+              poll_interval_ms: 1000
+            buffer_size: 8192
+            
+    # Stage 2: Transform and enrich
+    - name: "transaction_enricher" 
+      type: "processor"
+      config:
+        # SQL transformation
+        sql: |
+          SELECT 
+            transaction_id,
+            customer_id,
+            amount,
+            currency,
+            timestamp,
+            merchant_category,
+            description,
+            UNIX_TIMESTAMP() AS processed_at,
+            '1.0.0' AS pipeline_version,
+            CASE WHEN amount > 100.0 THEN true ELSE false END AS is_high_value,
+            amount * 100 AS amount_cents
+          FROM csv_reader
+          WHERE amount > 0  -- Filter invalid amounts
+          
+        # Processing options
+        processing:
+          decimal_precision: 4
+          error_handling: "skip_and_log"
+          
+    # Stage 3: Send to Kafka topic  
+    - name: "kafka_publisher"
+      type: "sink" 
+      config:
+        datasink:
+          type: "kafka"
+          config:
+            bootstrap_servers: "localhost:9092"
+            topic: "enriched-transactions"
+            producer:
+              acks: "all"
+              enable_idempotence: true
+              batch_size: 16384
+              linger_ms: 10
+              
+    # Stage 4: Analytics aggregation (windowed)
+    - name: "transaction_analytics"
+      type: "processor"
+      config:
+        # Windowed analytics SQL
+        sql: |
+          SELECT 
+            merchant_category,
+            TUMBLING_WINDOW('1 MINUTE') AS window_info,
+            COUNT(*) AS transaction_count,
+            SUM(amount) AS total_amount, 
+            AVG(amount) AS average_amount,
+            MIN(amount) AS min_amount,
+            MAX(amount) AS max_amount,
+            COUNT(DISTINCT customer_id) AS unique_customers,
+            SUM(CASE WHEN is_high_value THEN 1 ELSE 0 END) AS high_value_count
+          FROM kafka_publisher
+          GROUP BY merchant_category, TUMBLING_WINDOW('1 MINUTE')
+          EMIT CHANGES
+          
+        processing:
+          window_type: "tumbling"
+          window_duration: "1m"
+          decimal_precision: 4
+          
+    # Stage 5: Write analytics to files
+    - name: "analytics_writer"
+      type: "sink"
+      config:
+        datasink:
+          type: "file"
+          config:
+            path: "./demo_output/transaction_analytics.jsonl"
+            format: "json_lines"
+            rotation:
+              enabled: true
+              max_file_size: 1048576  # 1MB
+              rotation_interval: "5m"
+            compression:
+              enabled: true
+              type: "gzip"
+              
+# Global pipeline settings              
+settings:
+  # Performance tuning
+  performance:
+    parallelism: 4
+    batch_size: 100
+    buffer_size: 8192
+    
+  # Error handling
+  error_handling:
+    strategy: "continue_on_error"
+    max_errors_per_stage: 10
+    error_log_file: "./demo_output/pipeline_errors.log"
+    
+  # Metrics and monitoring
+  monitoring:
+    enabled: true
+    metrics_interval_ms: 10000
+    metrics_file: "./demo_output/pipeline_metrics.jsonl"
+    
+    # Key metrics to track
+    metrics:
+      - "records_processed_per_second"
+      - "total_records_processed" 
+      - "error_rate"
+      - "processing_latency_ms"
+      - "memory_usage_mb"
+      - "cpu_usage_percent"
+      
+  # Schema validation
+  schema_validation:
+    enabled: true
+    strict_mode: false  # Allow schema evolution
+    
+  # Decimal precision handling
+  decimal_handling:
+    default_precision: 19
+    default_scale: 4
+    arithmetic_mode: "scaled_integer"  # Use exact precision ScaledInteger
+    
+# Environment-specific overrides
+environments:
+  development:
+    settings:
+      monitoring:
+        metrics_interval_ms: 5000  # More frequent metrics in dev
+      error_handling:
+        strategy: "fail_fast"      # Fail fast in development
+        
+  production: 
+    settings:
+      performance:
+        parallelism: 8             # More parallelism in prod
+        batch_size: 500
+      monitoring:
+        metrics_interval_ms: 30000 # Less frequent metrics in prod
+      error_handling:
+        strategy: "continue_on_error"
+        max_errors_per_stage: 100  # Higher error tolerance

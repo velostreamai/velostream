@@ -2,18 +2,25 @@
 Integration test for EMIT functionality
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-fn create_test_record(id: i64, amount: f64) -> HashMap<String, InternalValue> {
+fn create_test_record(id: i64, amount: f64) -> StreamRecord {
     let mut fields = HashMap::new();
-    fields.insert("customer_id".to_string(), InternalValue::Integer(id));
-    fields.insert("amount".to_string(), InternalValue::Number(amount));
-    fields
+    fields.insert("customer_id".to_string(), FieldValue::Integer(id));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
 }
 
 #[tokio::main]
@@ -77,7 +84,7 @@ async fn main() {
     println!("\n3️⃣ Testing EMIT CHANGES execution behavior...");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, format);
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // This query should use windowed aggregation (due to WINDOW clause)
     // But EMIT CHANGES should override it to continuous emission
@@ -88,7 +95,7 @@ async fn main() {
             // Execute a few records
             for i in 1..=3 {
                 let record = create_test_record(i % 2, 100.0 * i as f64); // 2 groups: customer_id 0 and 1
-                match engine.execute(&query, record).await {
+                match engine.execute_with_record(&query, record).await {
                     Ok(_) => {}
                     Err(e) => {
                         println!("❌ Record {} execution failed: {:?}", i, e);

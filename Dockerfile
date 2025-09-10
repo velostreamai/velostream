@@ -75,7 +75,7 @@ COPY --from=builder /app/target/release/ferris-sql /usr/local/bin/
 COPY --from=builder /app/target/release/ferris-sql-multi /usr/local/bin/
 
 # Copy configuration files
-COPY sql-config.yaml ./
+COPY configs/ferris-default.yaml ./sql-config.yaml
 COPY examples/*.sql ./examples/
 
 # Create data and logs directories

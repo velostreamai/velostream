@@ -5,18 +5,20 @@ pub mod app_parser;
 pub mod ast;
 pub mod config;
 pub mod context;
-pub mod datasource;
 pub mod error;
 pub mod execution;
+// Legacy multi_job modules removed - functionality moved to src/ferris/server/processors/
 pub mod parser;
-pub mod schema;
+pub mod query_analyzer;
+pub mod validator;
 
 // Re-export main API
 pub use app_parser::{SqlApplication, SqlApplicationParser};
 pub use ast::{DataType, StreamingQuery};
 pub use error::SqlError;
-pub use execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+pub use execution::{FieldValue, StreamExecutionEngine};
 pub use parser::StreamingSqlParser;
+pub use validator::SqlValidator;
 
 // Version and feature info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

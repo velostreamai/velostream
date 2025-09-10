@@ -1,0 +1,18 @@
+# Sentiment Analysis Output Configuration
+# Content sentiment classification
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "sentiment_analysis"
+  
+delivery_profile: medium_priority
+
+topic_config:
+  partitions: 12
+  retention_ms: 2592000000  # 30 days retention
+  
+metadata:
+  description: "Sentiment analysis results"
+  data_classification: "content_analytics"
+  priority: "medium"

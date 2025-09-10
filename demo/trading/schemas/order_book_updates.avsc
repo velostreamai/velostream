@@ -1,0 +1,75 @@
+{
+  "type": "record",
+  "name": "OrderBookUpdate",
+  "namespace": "com.trading.streams",
+  "doc": "Order book updates for institutional flow analysis",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "exchange",
+      "type": "string",
+      "doc": "Exchange identifier"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Order book update timestamp"
+    },
+    {
+      "name": "side",
+      "type": {
+        "type": "enum",
+        "name": "OrderSide",
+        "symbols": ["BUY", "SELL"]
+      },
+      "doc": "Order side"
+    },
+    {
+      "name": "price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Order price with 4 decimal places precision"
+    },
+    {
+      "name": "quantity",
+      "type": "long",
+      "doc": "Order quantity"
+    },
+    {
+      "name": "order_count",
+      "type": "int",
+      "doc": "Number of orders at this price level"
+    },
+    {
+      "name": "update_type",
+      "type": {
+        "type": "enum",
+        "name": "UpdateType",
+        "symbols": ["ADD", "MODIFY", "DELETE", "TRADE"]
+      },
+      "doc": "Type of order book update"
+    },
+    {
+      "name": "level",
+      "type": "int",
+      "doc": "Order book level (1 = best bid/ask, 2 = second best, etc.)"
+    },
+    {
+      "name": "total_volume",
+      "type": "long",
+      "doc": "Total volume at this level"
+    },
+    {
+      "name": "sequence_number",
+      "type": "long",
+      "doc": "Sequence number for ordering updates"
+    }
+  ]
+}

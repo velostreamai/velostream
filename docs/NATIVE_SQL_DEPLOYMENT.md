@@ -119,7 +119,7 @@ Start a persistent SQL service:
 ferris-sql server \
   --brokers kafka-cluster:9092 \
   --port 8080 \
-  --group_id sql_server_prod
+  --group_id ferris_multi_prod
 ```
 
 **Use Cases:**

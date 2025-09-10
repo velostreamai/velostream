@@ -16,7 +16,7 @@ FerrisStreams uses a trait-based serialization system that allows you to plug in
 ### 1. Implement the SerializationFormat Trait
 
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationError, InternalValue};
+use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationError};
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 
@@ -52,20 +52,19 @@ impl SerializationFormat for MyCustomSerializer {
         }
     }
 
+    /// Convert record for SQL execution engine (now handled internally)
+    /// This method is deprecated as FieldValue is used directly in execution
     fn to_execution_format(
         &self,
         record: &HashMap<String, FieldValue>,
-    ) -> Result<HashMap<String, InternalValue>, SerializationError> {
-        // Convert FieldValue to InternalValue for SQL engine
-        field_value_to_internal_value_map(record)
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        // Direct pass-through since FieldValue is used for SQL execution
+        Ok(record.clone())
     }
 
-    fn from_execution_format(
-        &self,
-        data: &HashMap<String, InternalValue>,
-    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        // Convert InternalValue back to FieldValue
-        internal_value_to_field_value_map(data)
+    /// Get format-specific metadata if needed
+    fn get_metadata(&self) -> Option<HashMap<String, String>> {
+        None
     }
 
     fn format_name(&self) -> &'static str {
@@ -144,8 +143,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Process records (engine automatically handles format conversions)
     let mut record = HashMap::new();
-    record.insert("customer_id".to_string(), InternalValue::String("123".to_string()));
-    record.insert("amount".to_string(), InternalValue::Number(150.0));
+    record.insert("customer_id".to_string(), FieldValue::String("123".to_string()));
+    record.insert("amount".to_string(), FieldValue::Float(150.0));
     
     engine.execute(&query, record).await?;
     
@@ -182,42 +181,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Helper Functions for Format Conversion
+## Helper Functions for Type Handling
 
-Use built-in helpers for `FieldValue` ↔ `InternalValue` conversion:
+Use built-in helpers for comprehensive FieldValue type handling:
 
 ```rust
-// Helper function for FieldValue -> InternalValue conversion
-fn field_value_to_internal_value_map(
+// Helper function for comprehensive FieldValue type handling
+fn handle_field_value_types(
     record: &HashMap<String, FieldValue>,
-) -> Result<HashMap<String, InternalValue>, SerializationError> {
+) -> Result<HashMap<String, CustomType>, SerializationError> {
     let mut result = HashMap::new();
     
     for (key, field_value) in record {
-        let internal_value = match field_value {
-            FieldValue::Integer(i) => InternalValue::Integer(*i),
-            FieldValue::Float(f) => InternalValue::Number(*f),
-            FieldValue::String(s) => InternalValue::String(s.clone()),
-            FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-            FieldValue::Null => InternalValue::Null,
+        let custom_value = match field_value {
+            FieldValue::Integer(i) => CustomType::Integer(*i),
+            FieldValue::Float(f) => CustomType::Float(*f),
+            FieldValue::String(s) => CustomType::String(s.clone()),
+            FieldValue::Boolean(b) => CustomType::Boolean(*b),
+            FieldValue::Null => CustomType::Null,
             FieldValue::Array(arr) => {
-                let internal_arr: Result<Vec<_>, _> = arr
+                let custom_arr: Result<Vec<_>, _> = arr
                     .iter()
-                    .map(field_value_to_internal_value)
+                    .map(|v| convert_field_value_to_custom(v))
                     .collect();
-                InternalValue::Array(internal_arr?)
+                CustomType::Array(custom_arr?)
             }
             FieldValue::Map(map) | FieldValue::Struct(map) => {
-                let internal_map = field_value_to_internal_value_map(&map)?;
-                InternalValue::Object(internal_map)
+                let custom_map = handle_field_value_types(&map)?;
+                CustomType::Object(custom_map)
+            }
+            // Handle specialized types for financial data
+            FieldValue::ScaledInteger(value, scale) => {
+                CustomType::Decimal(*value, *scale)
             }
             // Handle optional types
-            FieldValue::Date(d) => InternalValue::String(d.format("%Y-%m-%d").to_string()),
-            FieldValue::Timestamp(ts) => InternalValue::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
-            FieldValue::Decimal(dec) => InternalValue::String(dec.to_string()),
+            FieldValue::Date(d) => CustomType::String(d.format("%Y-%m-%d").to_string()),
+            FieldValue::Timestamp(ts) => CustomType::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+            FieldValue::Decimal(dec) => CustomType::String(dec.to_string()),
         };
         
-        result.insert(key.clone(), internal_value);
+        result.insert(key.clone(), custom_value);
     }
     
     Ok(result)
@@ -257,12 +260,12 @@ impl SerializationFormat for MessagePackFormat {
         serde_value_to_field_value_map(&serde_value)
     }
 
-    fn to_execution_format(&self, record: &HashMap<String, FieldValue>) -> Result<HashMap<String, InternalValue>, SerializationError> {
-        field_value_to_internal_value_map(record)
+    fn to_execution_format(&self, record: &HashMap<String, FieldValue>) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        Ok(record.clone())
     }
 
-    fn from_execution_format(&self, data: &HashMap<String, InternalValue>) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        internal_value_to_field_value_map(data)
+    fn get_metadata(&self) -> Option<HashMap<String, String>> {
+        None
     }
 
     fn format_name(&self) -> &'static str {

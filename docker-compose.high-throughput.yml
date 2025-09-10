@@ -16,7 +16,7 @@ services:
       - SQL_WORKER_THREADS=16                   # Many processing threads
       - SQL_MEMORY_LIMIT_MB=8192                # Lots of memory
     volumes:
-      - ./sql-config-high-throughput.yaml:/app/sql-config.yaml
+      - ./configs/ferris-high-throughput.yaml:/app/sql-config.yaml
       - ./examples:/app/examples:ro
       - ./data:/app/data
     deploy:

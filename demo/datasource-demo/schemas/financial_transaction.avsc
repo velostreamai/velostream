@@ -1,0 +1,65 @@
+{
+  "type": "record",
+  "name": "FinancialTransaction",
+  "namespace": "com.ferrisstreams.demo.datasource",
+  "doc": "Financial transaction record with exact decimal precision for amounts",
+  "fields": [
+    {
+      "name": "transaction_id",
+      "type": "string",
+      "doc": "Unique transaction identifier (e.g., TXN00001)"
+    },
+    {
+      "name": "customer_id", 
+      "type": "string",
+      "doc": "Customer identifier (e.g., CUST001)"
+    },
+    {
+      "name": "amount",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Transaction amount with 4 decimal places precision (e.g., 123.4567)"
+    },
+    {
+      "name": "currency",
+      "type": "string", 
+      "default": "USD",
+      "doc": "Currency code (ISO 4217)"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Transaction timestamp in milliseconds since Unix epoch"
+    },
+    {
+      "name": "merchant_category",
+      "type": {
+        "type": "enum",
+        "name": "MerchantCategory",
+        "symbols": ["restaurant", "grocery", "gas", "entertainment", "coffee", "retail", "healthcare", "travel", "utilities", "other"]
+      },
+      "doc": "Merchant category classification"
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "doc": "Human-readable transaction description"
+    },
+    {
+      "name": "processed_at",
+      "type": ["null", "long"],
+      "default": null,
+      "logicalType": "timestamp-millis",
+      "doc": "When this record was processed by FerrisStreams (optional)"
+    },
+    {
+      "name": "pipeline_version",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Version of the processing pipeline (optional)"
+    }
+  ]
+}

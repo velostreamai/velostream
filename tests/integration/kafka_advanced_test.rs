@@ -429,6 +429,9 @@ async fn test_complex_enum_serialization() {
         return;
     }
 
+    // Add delay for CI environment to reduce resource contention
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
     let broker = "localhost:9092";
     let topic = format!("enum-complex-{}", Uuid::new_v4());
     let group_id = format!("enum-{}", Uuid::new_v4());
@@ -451,6 +454,9 @@ async fn test_complex_enum_serialization() {
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
+    // Give consumer time to establish connection and subscription
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
     // Test each enum variant
     let orders = vec![
         OrderEvent::new("order-1", "customer-1", 100.0, OrderStatus::Created),
@@ -471,21 +477,39 @@ async fn test_complex_enum_serialization() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let mut received_orders = Vec::new();
-    for _ in 0..20 {
-        match consumer.poll(Duration::from_secs(1)).await {
+    let mut attempts = 0;
+    let max_attempts = 30; // Increased attempts for CI environment
+
+    while received_orders.len() < orders.len() && attempts < max_attempts {
+        match consumer.poll(Duration::from_secs(2)).await {
+            // Increased poll timeout
             Ok(message) => {
                 received_orders.push(message.into_value());
-                if received_orders.len() >= orders.len() {
-                    break;
-                }
             }
-            Err(_) => break,
+            Err(e) => {
+                // Log error for debugging in CI
+                println!("Poll attempt {} failed: {:?}", attempts + 1, e);
+                // Small delay before retry
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
         }
+        attempts += 1;
     }
 
     // Only commit if we actually received messages
     if !received_orders.is_empty() {
         consumer.commit().expect("Failed to commit");
+    }
+
+    // More informative assertion for CI debugging
+    if received_orders.len() != orders.len() {
+        println!(
+            "Expected {} orders, received {} orders",
+            orders.len(),
+            received_orders.len()
+        );
+        println!("Sent orders: {:?}", orders);
+        println!("Received orders: {:?}", received_orders);
     }
     assert_eq!(received_orders.len(), orders.len());
 

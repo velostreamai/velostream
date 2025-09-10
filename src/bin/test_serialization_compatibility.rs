@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::serialization::SerializationFormatFactory;
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::collections::HashMap;
 
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test JSON serialization (always available)
     println!("\n--- JSON Serialization ---");
-    let json_format = SerializationFormatFactory::create_format("json")?;
+    let json_format = JsonFormat;
     let json_bytes = json_format.serialize_record(&record)?;
     let json_str = String::from_utf8(json_bytes.clone())?;
 

@@ -143,6 +143,8 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Stream properties (replication factor, partitions, etc.)
         properties: HashMap<String, String>,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE STREAM AS SELECT ... INTO statement for source-to-sink streaming.
     ///
@@ -159,6 +161,8 @@ pub enum StreamingQuery {
         into_clause: IntoClause,
         /// Enhanced configuration properties with multi-config support
         properties: ConfigProperties,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
@@ -174,6 +178,8 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Table properties (retention, compaction, etc.)
         properties: HashMap<String, String>,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// CREATE TABLE AS SELECT ... INTO statement for source-to-sink table creation.
     ///
@@ -191,6 +197,8 @@ pub enum StreamingQuery {
         into_clause: IntoClause,
         /// Enhanced configuration properties with multi-config support
         properties: ConfigProperties,
+        /// Emission mode for continuous query results
+        emit_mode: Option<EmitMode>,
     },
     /// SHOW/LIST commands for discovering available resources.
     ///
@@ -301,6 +309,18 @@ pub enum StreamingQuery {
         /// Optional WHERE clause to filter which records to delete
         where_clause: Option<Expr>,
     },
+    /// UNION operation for combining result sets from multiple SELECT queries.
+    ///
+    /// Combines rows from two or more SELECT queries into a single result set.
+    /// UNION removes duplicate rows, while UNION ALL preserves all rows.
+    Union {
+        /// Left SELECT query
+        left: Box<StreamingQuery>,
+        /// Right SELECT query  
+        right: Box<StreamingQuery>,
+        /// Whether to preserve duplicates (UNION ALL = true, UNION = false)
+        all: bool,
+    },
 }
 
 /// Source of data for INSERT operations.
@@ -407,6 +427,8 @@ pub enum StreamSource {
     Stream(String),
     /// Table reference (KTable)
     Table(String),
+    /// URI-based data source (FR-047 compliant)
+    Uri(String),
     /// Subquery (for future implementation)
     Subquery(Box<StreamingQuery>),
 }
@@ -557,6 +579,13 @@ pub enum Expr {
         query: Box<StreamingQuery>,
         subquery_type: SubqueryType,
     },
+    /// BETWEEN expressions: expr BETWEEN low AND high
+    Between {
+        expr: Box<Expr>,
+        low: Box<Expr>,
+        high: Box<Expr>,
+        negated: bool, // for NOT BETWEEN
+    },
 }
 
 /// Types of subquery expressions
@@ -630,6 +659,7 @@ pub enum BinaryOperator {
     // String operations
     Like,
     NotLike,
+    Concat, // || concatenation operator
 
     // Set operations
     In,
@@ -702,19 +732,15 @@ pub struct IntoClause {
 /// Enhanced configuration properties supporting multiple config files
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConfigProperties {
-    /// Base source configuration file path
-    pub base_source_config: Option<String>,
-    /// Environment-specific source configuration file path
+    /// Source configuration file path (supports extends: inheritance)
     pub source_config: Option<String>,
-    /// Base sink configuration file path
-    pub base_sink_config: Option<String>,
-    /// Environment-specific sink configuration file path
+    /// Sink configuration file path (supports extends: inheritance)
     pub sink_config: Option<String>,
     /// Additional monitoring configuration
     pub monitoring_config: Option<String>,
     /// Security configuration file path
     pub security_config: Option<String>,
-    /// Legacy inline properties for backward compatibility
+    /// Inline properties for direct configuration
     pub inline_properties: HashMap<String, String>,
 }
 
@@ -724,14 +750,8 @@ impl ConfigProperties {
         let mut properties = self.inline_properties;
 
         // Add config file paths as properties
-        if let Some(path) = self.base_source_config {
-            properties.insert("base_source_config".to_string(), path);
-        }
         if let Some(path) = self.source_config {
             properties.insert("source_config".to_string(), path);
-        }
-        if let Some(path) = self.base_sink_config {
-            properties.insert("base_sink_config".to_string(), path);
         }
         if let Some(path) = self.sink_config {
             properties.insert("sink_config".to_string(), path);
@@ -752,12 +772,11 @@ impl ConfigProperties {
 
         for (key, value) in properties {
             match key.as_str() {
-                "base_source_config" => config.base_source_config = Some(value),
                 "source_config" => config.source_config = Some(value),
-                "base_sink_config" => config.base_sink_config = Some(value),
                 "sink_config" => config.sink_config = Some(value),
                 "monitoring_config" => config.monitoring_config = Some(value),
                 "security_config" => config.security_config = Some(value),
+                // Removed: base_source_config and base_sink_config no longer supported
                 _ => {
                     config.inline_properties.insert(key, value);
                 }
@@ -787,6 +806,7 @@ impl StreamingQuery {
             StreamingQuery::InsertInto { .. } => false,  // INSERT commands don't use windows
             StreamingQuery::Update { .. } => false,      // UPDATE commands don't use windows
             StreamingQuery::Delete { .. } => false,      // DELETE commands don't use windows
+            StreamingQuery::Union { left, right, .. } => left.has_window() || right.has_window(),
         }
     }
 
@@ -882,6 +902,13 @@ impl StreamingQuery {
                 }
                 cols
             }
+            StreamingQuery::Union { left, right, .. } => {
+                let mut columns = left.get_columns();
+                columns.extend(right.get_columns());
+                columns.sort();
+                columns.dedup();
+                columns
+            }
         }
     }
 }
@@ -957,6 +984,14 @@ impl Expr {
                 // Subqueries can reference columns from the outer query scope
                 // For now, we'll include columns from the subquery itself
                 query.get_columns()
+            }
+            Expr::Between {
+                expr, low, high, ..
+            } => {
+                let mut columns = expr.get_columns();
+                columns.extend(low.get_columns());
+                columns.extend(high.get_columns());
+                columns
             }
         }
     }

@@ -4,7 +4,7 @@
 This benchmark demonstrates the precision issues with f64 for financial calculations
 and compares performance/accuracy of different numeric representations:
 
-- f64 (current InternalValue::Number)
+- f64 (current FieldValue::Float)
 - i64 scaled integers (4 decimal places)
 - RustDecimal (exact decimal arithmetic)
 - i128 scaled integers (high precision)

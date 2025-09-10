@@ -15,7 +15,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! # use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+//! # use ferrisstreams::ferris::sql::execution::{StreamExecutionEngine, StreamRecord};
 //! # use ferrisstreams::ferris::serialization::JsonFormat;
 //! # use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 //! # use std::sync::Arc;
@@ -24,14 +24,13 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let (output_sender, _receiver) = mpsc::unbounded_channel();
-//! let serialization_format = Arc::new(JsonFormat);
-//! let mut engine = StreamExecutionEngine::new(output_sender, serialization_format);
+//! let mut engine = StreamExecutionEngine::new(output_sender);
 //!
 //! // Parse a simple query and execute with a record
 //! let parser = StreamingSqlParser::new();
 //! let query = parser.parse("SELECT * FROM stream")?;
-//! let record = HashMap::new(); // Empty record for example
-//! engine.execute(&query, record).await?;
+//! let record = StreamRecord::new(HashMap::new()); // Empty record for example
+//! engine.execute_with_record(&query, record).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -55,5 +54,3 @@ pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 
 // Re-export internal types for testing
-pub use aggregation::GroupByStateManager;
-pub use processors::{DeleteProcessor, InsertProcessor, SelectProcessor, UpdateProcessor};

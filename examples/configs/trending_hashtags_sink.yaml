@@ -1,0 +1,18 @@
+# Trending Hashtags Output Configuration
+# Popular hashtag analytics
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "trending_hashtags"
+  
+delivery_profile: high_priority
+
+topic_config:
+  partitions: 8
+  retention_ms: 2592000000  # 30 days retention for trending analysis
+  
+metadata:
+  description: "Trending hashtag analytics"
+  data_classification: "trend_analytics"
+  priority: "high"

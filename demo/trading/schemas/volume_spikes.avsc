@@ -1,0 +1,59 @@
+{
+  "type": "record",
+  "name": "VolumeSpike",
+  "namespace": "com.trading.streams.alerts",
+  "doc": "Volume spike alerts for unusual trading activity",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "volume",
+      "type": "long",
+      "doc": "Current volume"
+    },
+    {
+      "name": "avg_volume_20",
+      "type": "long",
+      "doc": "20-period moving average volume"
+    },
+    {
+      "name": "volume_ratio",
+      "type": "string",
+      "doc": "Volume ratio vs 20-period average as decimal string"
+    },
+    {
+      "name": "price",
+      "type": "string",
+      "doc": "Price at spike time as decimal string"
+    },
+    {
+      "name": "spike_time",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Volume spike detection time"
+    },
+    {
+      "name": "spike_magnitude",
+      "type": {
+        "type": "enum",
+        "name": "SpikeMagnitude",
+        "symbols": ["MODERATE", "HIGH", "EXTREME"]
+      },
+      "doc": "Magnitude of volume spike",
+      "default": "HIGH"
+    },
+    {
+      "name": "trading_session",
+      "type": {
+        "type": "enum",
+        "name": "TradingSession",
+        "symbols": ["PRE_MARKET", "REGULAR", "AFTER_HOURS"]
+      },
+      "doc": "Trading session during spike",
+      "default": "REGULAR"
+    }
+  ]
+}

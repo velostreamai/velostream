@@ -24,11 +24,18 @@ FerrisStreams provides a comprehensive SQL interface for processing Kafka stream
    - [CASE WHEN Expressions](#case-when-expressions)
    - [INTERVAL Arithmetic](#interval-arithmetic)
    - [Set Operations (IN/NOT IN)](#set-operations-in-not-in)
+   - [Range Operations (BETWEEN)](#range-operations-between)
+   - [Set Combination Operations (UNION)](#set-combination-operations-union)
+   - [Binary Operators](#binary-operators)
 9. [JSON Processing](#json-processing)
 10. [System Columns](#system-columns)
 11. [Window Operations](#window-operations)
-12. [Type Conversion](#type-conversion)
-13. [Examples](#examples)
+12. [Performance Configuration](#performance-configuration)
+   - [Batch Processing Configuration](#batch-processing-configuration)
+   - [Compression Configuration](#compression-configuration)
+   - [Buffer Configuration](#buffer-configuration)
+13. [Type Conversion](#type-conversion)
+14. [Examples](#examples)
 
 ## Basic Query Syntax
 
@@ -369,14 +376,22 @@ WITH (
     "sink_config" = "configs/kafka_sink.yaml"
 );
 
+-- Alternative: Inline configuration with source./sink. prefixes
+CREATE STREAM orders_inline AS 
+SELECT id, customer_id, amount, status 
+FROM 'kafka://localhost:9092/orders'
+WITH (
+    "source.group_id" = "orders_processor",
+    "source.value.format" = "json"
+);
+
 -- Multi-config file support with environment variables (implemented)
+-- Configuration files can use 'extends:' for inheritance
 CREATE STREAM kafka_replication AS 
 SELECT * FROM kafka_source 
 INTO kafka_sink
 WITH (
-    "base_source_config" = "configs/base_kafka.yaml",
     "source_config" = "configs/kafka_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_kafka_sink.yaml", 
     "sink_config" = "configs/kafka_sink_${ENVIRONMENT}.yaml",
     "monitoring_config" = "configs/monitoring_${ENVIRONMENT}.yaml",
     "security_config" = "configs/security.yaml",
@@ -396,9 +411,8 @@ WITH (
 );
 ```
 
-**🚧 TODO - Planned Multi-Source Support:**
-```sql
--- TODO: CSV to Kafka (architecture ready, CSV reader not implemented)  
+
+```sql 
 CREATE STREAM csv_to_kafka AS 
 SELECT id, customer_id, amount, status 
 FROM csv_source   -- TODO: Implement CSV DataSource
@@ -408,14 +422,14 @@ WITH (
     "sink_config" = "configs/kafka_sink.yaml" 
 );
 
+**🚧 TODO - Planned Multi-Source Support:**
 -- TODO: PostgreSQL to S3 (architecture ready, implementations not done)
+-- Configuration files use 'extends:' for inheritance instead of base_* configs
 CREATE STREAM db_replication AS 
 SELECT * FROM postgres_source   -- TODO: Implement PostgreSQL DataSource 
 INTO s3_sink                    -- TODO: Implement S3 DataSink
 WITH (
-    "base_source_config" = "configs/base_postgres.yaml",
     "source_config" = "configs/postgres_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_s3.yaml", 
     "sink_config" = "configs/s3_${ENVIRONMENT}.yaml"
 );
 ```
@@ -427,6 +441,7 @@ Create a materialized table job that processes aggregated data and outputs to a 
 **✅ Currently Working:**
 ```sql
 -- CREATE TABLE INTO with aggregation (Kafka to Kafka working)
+-- Configuration files use 'extends:' for inheritance
 CREATE TABLE user_analytics AS 
 SELECT 
     customer_id,
@@ -437,9 +452,7 @@ FROM kafka_orders_stream
 GROUP BY customer_id
 INTO kafka_analytics_sink
 WITH (
-    "base_source_config" = "configs/base_kafka_source.yaml",
     "source_config" = "configs/kafka_orders_${ENVIRONMENT}.yaml",
-    "base_sink_config" = "configs/base_kafka_sink.yaml", 
     "sink_config" = "configs/kafka_analytics_${ENVIRONMENT}.yaml",
     "batch_size" = "500"
 );
@@ -463,15 +476,82 @@ WITH (
 
 #### Configuration File Support
 
-The new CREATE STREAM/TABLE INTO syntax supports multiple configuration layers:
+The CREATE STREAM/TABLE INTO syntax supports multiple configuration approaches:
 
-- **base_source_config**: Base configuration for the source (shared settings)
-- **source_config**: Specific source configuration (environment-specific)
-- **base_sink_config**: Base configuration for the sink (shared settings)
-- **sink_config**: Specific sink configuration (environment-specific)
+**Configuration Files:**
+- **source_config**: Source configuration file (can inherit from base using `extends:`)
+- **sink_config**: Sink configuration file (can inherit from base using `extends:`)
 - **monitoring_config**: Monitoring and metrics configuration
 - **security_config**: Security and authentication configuration
-- **inline properties**: Direct key-value properties in the WITH clause
+
+**Inline Configuration:**
+- **source.*** properties**: Direct source configuration (e.g., `source.format`, `source.topic`)
+- **sink.*** properties**: Direct sink configuration (e.g., `sink.path`, `sink.bootstrap.servers`)
+- **Mixed approach**: Combine config files with inline overrides
+
+#### YAML Configuration Inheritance
+
+Configuration files support inheritance using the `extends:` keyword:
+
+```yaml
+# configs/kafka_prod.yaml
+extends: configs/base_kafka.yaml
+topic: "orders_production"
+brokers: ["prod-kafka-1:9092", "prod-kafka-2:9092"]
+```
+
+This approach replaces the deprecated `base_source_config` and `base_sink_config` pattern.
+
+#### Configuration Pattern Examples
+
+**Pattern 1: Named Sources/Sinks with Configuration Files**
+```sql
+CREATE STREAM processing AS 
+SELECT * FROM kafka_orders_source 
+INTO file_export_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.config_file' = 'configs/kafka_orders.yaml',
+    'file_export_sink.type' = 'file_sink',
+    'file_export_sink.config_file' = 'configs/file_export.yaml'
+);
+```
+
+**Pattern 2: Named Sources/Sinks with Inline Configuration**  
+```sql
+CREATE STREAM file_processing AS
+SELECT * FROM csv_input_source
+INTO json_output_sink
+WITH (
+    'csv_input_source.type' = 'file_source',
+    'csv_input_source.path' = 'data/input.csv',
+    'csv_input_source.format' = 'csv',
+    'csv_input_source.has_headers' = 'true',
+    'csv_input_source.watching' = 'true',
+    'json_output_sink.type' = 'file_sink',
+    'json_output_sink.path' = 'output/results.json',
+    'json_output_sink.format' = 'json',
+    'json_output_sink.append' = 'true'
+);
+```
+
+**Pattern 3: Mixed Configuration (Config File + Inline Overrides)**
+```sql
+CREATE STREAM kafka_processing AS
+SELECT * FROM kafka_source 
+INTO kafka_sink  
+WITH (
+    'kafka_source.type' = 'kafka_source',
+    'kafka_source.config_file' = 'configs/kafka_base.yaml',
+    'kafka_sink.type' = 'kafka_sink', 
+    'kafka_sink.config_file' = 'configs/kafka_sink.yaml',
+    -- Inline overrides for specific job requirements
+    'kafka_source.group.id' = 'special_processor_${ENVIRONMENT}',
+    'kafka_sink.topic' = 'processed_${JOB_TYPE}',
+    'failure_strategy' = 'RetryWithBackoff'
+);
+```
+
 
 #### Environment Variable Resolution
 
@@ -483,9 +563,42 @@ Environment variables are resolved at parse time using these patterns:
 | `${VAR:-default}` | Use default if VAR unset | `"kafka_${ENV:-dev}.yaml"` |
 | `${VAR:?message}` | Error if VAR unset | `"${REQUIRED_CONFIG:?Config required}"` |
 
+#### Property Prefix Behavior
+
+The `source.` and `sink.` prefixes provide powerful configuration isolation with intelligent fallback behavior:
+
+**Prefix Priority Rules:**
+1. **Prefixed properties take priority**: `source.brokers` overrides `brokers` for source configuration
+2. **Fallback to unprefixed**: If `source.brokers` doesn't exist, `brokers` is used as fallback
+3. **Property isolation**: Source config excludes `sink.` properties and vice versa
+4. **Alias support**: Multiple property names can map to the same configuration (e.g., `bootstrap.servers` ↔ `brokers`)
+
+**Example Priority Resolution:**
+```sql
+CREATE STREAM priority_example AS
+SELECT * FROM kafka_source INTO kafka_sink
+WITH (
+    -- Source will use: source.brokers (priority)
+    "brokers" = "fallback-broker:9092",
+    "source.brokers" = "priority-broker:9092",
+    
+    -- Sink will use: brokers (fallback - no sink.brokers specified)
+    -- "sink.brokers" would take priority if present
+    
+    -- Property isolation in action:
+    "source.group_id" = "reader_group",    -- Only in source config
+    "sink.topic" = "output_topic",         -- Only in sink config
+    "failure_strategy" = "RetryWithBackoff" -- Shared property (both configs)
+);
+```
+
+**Property Aliases:**
+- **Kafka**: `brokers` ↔ `bootstrap.servers`
+- **File**: `watching` ↔ `watch`, `has_headers` ↔ `header`
+
 #### Backward Compatibility
 
-The traditional CREATE STREAM and CREATE TABLE syntax continues to work unchanged:
+The traditional CREATE STREAM and CREATE TABLE syntax continues to work but prints the output to STDOUT unless INTO is specified:
 
 ```sql
 -- Legacy CREATE STREAM (still supported)
@@ -565,6 +678,53 @@ FROM orders o
 INNER JOIN customers c ON o.customer_id = c.customer_id
 WHERE o.status = 'completed';
 ```
+
+#### INSERT with Configuration (TODO - Coming Soon)
+
+> **Note**: INSERT INTO syntax with configuration support is currently under development. The parser implementation is planned for a future release.
+
+For streaming INSERT operations that require source and sink configuration, you can use the WITH clause to specify connection details:
+
+```sql
+-- INSERT with configuration files (PLANNED)
+INSERT INTO high_value_orders
+SELECT order_id, customer_id, amount, order_date
+FROM orders
+WHERE amount > 1000.0
+WITH (
+    "source_config" = "configs/orders_source.yaml",
+    "sink_config" = "configs/high_value_sink.yaml"
+);
+
+-- INSERT with inline properties (PLANNED)  
+INSERT INTO processed_transactions
+SELECT 
+    transaction_id,
+    customer_id,
+    amount,
+    processed_at
+FROM raw_transactions
+WHERE status = 'validated'
+WITH (
+    "source.topic" = "raw_transactions",
+    "source.group.id" = "insert-processor",
+    "sink.topic" = "processed_transactions",
+    "sink.type" = "kafka",
+    "batch_size" = "1000"
+);
+```
+
+**Key Differences from CREATE STREAM**:
+- **INSERT INTO**: One-time data transfer/migration operation 
+- **CREATE STREAM**: Continuous processing job that runs indefinitely
+
+**Use Cases for INSERT INTO**:
+- Data backfills and historical data migration
+- One-time batch processing operations
+- Manual data transfers between streams/tables
+- Testing and data validation workflows
+
+**Current Workaround**: Use CREATE STREAM AS SELECT for continuous processing needs until INSERT parsing is implemented.
 
 ### UPDATE Operations
 
@@ -1524,6 +1684,8 @@ FROM products;
 SELECT 
     customer_id,
     CONCAT('Customer: ', first_name, ' ', last_name) as full_name,
+    'exported_' || UNIX_TIMESTAMP() as export_id,         -- || concatenation operator
+    first_name || ' ' || last_name as concatenated_name,  -- Chaining || operators
     LENGTH(description) as desc_length,
     LEN(product_code) as code_length
 FROM customers;
@@ -2567,6 +2729,37 @@ FROM events;
 
 ### Window Specifications
 
+FerrisStreams supports window operations with simple duration syntax:
+
+#### Window Syntax Format
+
+```sql
+-- Tumbling window (non-overlapping fixed intervals)
+WINDOW TUMBLING(5m)     -- 5 minutes
+WINDOW TUMBLING(1h)     -- 1 hour  
+WINDOW TUMBLING(30s)    -- 30 seconds
+WINDOW TUMBLING(1d)     -- 1 day
+
+-- Sliding window (overlapping intervals)
+WINDOW SLIDING(10m, 5m) -- 10-minute window, advance every 5 minutes
+WINDOW SLIDING(1h, 15m) -- 1-hour window, advance every 15 minutes
+
+-- Session window (activity-based grouping)
+WINDOW SESSION(5m)      -- 5-minute inactivity gap
+WINDOW SESSION(30m)     -- 30-minute inactivity gap
+```
+
+**Duration Units Supported:**
+- `ns` - nanoseconds
+- `us` or `μs` - microseconds  
+- `ms` - milliseconds
+- `s` - seconds
+- `m` - minutes
+- `h` - hours
+- `d` - days
+
+#### Window Examples
+
 ```sql
 -- Tumbling window (non-overlapping fixed intervals)
 SELECT 
@@ -2603,7 +2796,7 @@ SELECT
     COUNT(*) as hourly_orders
 FROM orders
 GROUP BY customer_id
-WINDOW TUMBLING(1h, order_timestamp);
+WINDOW TUMBLING(1h);
 ```
 
 ### Window Functions with OVER Clauses
@@ -3040,6 +3233,196 @@ SHOW STREAMS LIKE 'orders';      -- Exactly 'orders' stream
 
 ## Examples
 
+### New Operators in Action
+
+#### BETWEEN Operator - Real-World Use Cases
+
+**Financial Risk Management:**
+```sql
+-- Identify medium-risk transactions requiring manual review
+CREATE STREAM risk_review_queue AS
+SELECT transaction_id, customer_id, amount, merchant_category, risk_score
+FROM transactions
+WHERE amount BETWEEN 1000.00 AND 10000.00  -- Medium value transactions
+  AND risk_score BETWEEN 40 AND 75         -- Medium risk scores
+  AND merchant_category NOT BETWEEN 'grocery' AND 'restaurant'; -- Exclude low-risk categories
+
+-- Credit score based customer segmentation  
+CREATE TABLE customer_segments AS
+SELECT customer_id,
+       CASE 
+         WHEN credit_score BETWEEN 800 AND 850 THEN 'Excellent'
+         WHEN credit_score BETWEEN 740 AND 799 THEN 'Very Good' 
+         WHEN credit_score BETWEEN 670 AND 739 THEN 'Good'
+         WHEN credit_score BETWEEN 580 AND 669 THEN 'Fair'
+         ELSE 'Poor'
+       END as credit_tier,
+       credit_score
+FROM customer_analytics
+WHERE credit_score BETWEEN 300 AND 850; -- Valid credit score range
+```
+
+**IoT Sensor Monitoring:**
+```sql
+-- Environmental monitoring with range-based alerts
+CREATE STREAM environmental_alerts AS
+SELECT sensor_id, temperature, humidity, pressure, timestamp
+FROM sensor_readings  
+WHERE temperature NOT BETWEEN 18.0 AND 26.0  -- Outside comfort zone
+   OR humidity NOT BETWEEN 30.0 AND 60.0     -- Humidity issues
+   OR pressure BETWEEN 950.0 AND 980.0;      -- Low pressure system
+
+-- Equipment performance monitoring
+CREATE STREAM equipment_maintenance AS
+SELECT equipment_id, vibration_level, temperature, runtime_hours
+FROM equipment_metrics
+WHERE vibration_level BETWEEN 8.0 AND 12.0   -- Elevated vibration
+  AND temperature BETWEEN 80.0 AND 95.0      -- High temperature
+  AND runtime_hours BETWEEN 8000 AND 10000;  -- Due for maintenance
+```
+
+#### UNION/UNION ALL - Data Integration Patterns
+
+**Multi-Source Customer Data Platform:**
+```sql
+-- Unified customer profile from multiple touchpoints
+CREATE STREAM unified_customer_events AS
+-- E-commerce interactions
+SELECT customer_id, 'Purchase' as event_type, 
+       product_id as event_data, purchase_amount as value, timestamp
+FROM ecommerce_events
+WHERE purchase_amount BETWEEN 10.00 AND 5000.00
+UNION ALL
+-- Mobile app interactions  
+SELECT customer_id, 'App_Action' as event_type,
+       action_type as event_data, session_duration as value, timestamp
+FROM mobile_events
+WHERE session_duration BETWEEN 30 AND 3600  -- 30 seconds to 1 hour
+UNION ALL
+-- Customer service interactions
+SELECT customer_id, 'Support' as event_type,
+       ticket_category as event_data, resolution_time as value, created_at as timestamp  
+FROM support_tickets
+WHERE resolution_time BETWEEN 0 AND 86400;  -- Within 24 hours
+```
+
+**Financial Data Consolidation:**
+```sql
+-- Multi-account balance monitoring
+CREATE TABLE account_overview AS
+-- Checking accounts
+SELECT account_id, customer_id, 'Checking' as account_type, 
+       balance, interest_rate, last_updated
+FROM checking_accounts
+WHERE balance BETWEEN 0.00 AND 1000000.00
+UNION ALL
+-- Savings accounts  
+SELECT account_id, customer_id, 'Savings' as account_type,
+       balance, interest_rate, last_updated
+FROM savings_accounts  
+WHERE balance BETWEEN 0.00 AND 1000000.00
+UNION ALL
+-- Investment accounts
+SELECT account_id, customer_id, 'Investment' as account_type,
+       balance, expected_return as interest_rate, last_updated
+FROM investment_accounts
+WHERE balance BETWEEN 1000.00 AND 10000000.00;  -- Minimum investment threshold
+```
+
+**Real-Time Analytics Dashboard:**
+```sql
+-- Performance metrics from multiple systems
+CREATE STREAM dashboard_metrics AS
+-- Application performance
+SELECT 'APP' as source, server_id, 
+       response_time as metric_value, 'ms' as unit, timestamp
+FROM app_metrics
+WHERE response_time BETWEEN 0 AND 5000  -- Response times up to 5 seconds
+UNION ALL
+-- Database performance  
+SELECT 'DB' as source, db_instance,
+       query_time as metric_value, 'ms' as unit, timestamp
+FROM db_metrics
+WHERE query_time BETWEEN 0 AND 10000    -- Query times up to 10 seconds
+UNION ALL
+-- Network performance
+SELECT 'NET' as source, network_device,
+       latency as metric_value, 'ms' as unit, timestamp
+FROM network_metrics  
+WHERE latency BETWEEN 0 AND 1000;       -- Network latency up to 1 second
+```
+
+#### Combined Operators - Advanced Analytics
+
+**Fraud Detection Pipeline:**
+```sql
+-- Multi-layered fraud detection using BETWEEN and UNION ALL
+CREATE STREAM comprehensive_fraud_detection AS
+-- Unusual amount patterns
+SELECT transaction_id, 'Amount_Anomaly' as alert_type, 
+       amount as alert_value, risk_score, timestamp
+FROM transactions
+WHERE amount NOT BETWEEN 0.01 AND 2500.00  -- Unusual amounts
+  AND customer_tier BETWEEN 'Bronze' AND 'Silver'  -- Lower tier customers
+UNION ALL
+-- Frequency-based detection
+SELECT transaction_id, 'High_Frequency' as alert_type,
+       daily_transaction_count as alert_value, risk_score, timestamp  
+FROM customer_transaction_summary
+WHERE daily_transaction_count BETWEEN 10 AND 50    -- Moderate to high frequency
+  AND avg_amount_today BETWEEN 50.00 AND 500.00    -- Medium amounts
+UNION ALL  
+-- Geographic anomalies
+SELECT transaction_id, 'Geographic_Risk' as alert_type,
+       distance_from_home as alert_value, risk_score, timestamp
+FROM transaction_locations
+WHERE distance_from_home BETWEEN 500.0 AND 5000.0  -- 500km to 5000km from home
+  AND transaction_hour BETWEEN 22 AND 6;           -- Late night/early morning
+```
+
+**Customer Lifecycle Analytics:**
+```sql
+-- Customer journey analysis with range-based segmentation
+CREATE TABLE customer_lifecycle_analysis AS
+-- New customers (first 30 days)
+SELECT customer_id, 'New' as lifecycle_stage,
+       days_since_signup, total_orders, total_spent
+FROM customer_metrics
+WHERE days_since_signup BETWEEN 0 AND 30
+  AND total_orders BETWEEN 1 AND 5
+UNION ALL
+-- Growing customers (31-180 days)
+SELECT customer_id, 'Growing' as lifecycle_stage, 
+       days_since_signup, total_orders, total_spent
+FROM customer_metrics  
+WHERE days_since_signup BETWEEN 31 AND 180
+  AND total_orders BETWEEN 3 AND 20
+  AND total_spent BETWEEN 100.00 AND 2000.00
+UNION ALL
+-- Established customers (180+ days)
+SELECT customer_id, 'Established' as lifecycle_stage,
+       days_since_signup, total_orders, total_spent
+FROM customer_metrics
+WHERE days_since_signup BETWEEN 181 AND 36500  -- Up to ~100 years
+  AND total_orders BETWEEN 10 AND 1000
+  AND total_spent BETWEEN 500.00 AND 100000.00;
+```
+
+**Performance Benefits Demonstration:**
+```sql
+-- UNION vs UNION ALL performance comparison
+-- Use UNION when duplicates must be removed (slower but accurate)
+SELECT region, product_category FROM sales_data_2023
+UNION  -- Removes duplicate region/category combinations
+SELECT region, product_category FROM sales_data_2024;
+
+-- Use UNION ALL when duplicates are acceptable (faster for large datasets)  
+SELECT order_id, customer_id, order_total FROM daily_orders
+UNION ALL  -- Preserves all orders for complete audit trail
+SELECT order_id, customer_id, order_total FROM historical_orders  
+WHERE order_date BETWEEN '2023-01-01' AND '2023-12-31';
+```
+
 ### Complete Real-World Examples
 
 #### 1. E-commerce Order Processing
@@ -3300,8 +3683,9 @@ FROM events;
 - `POWER(base, exponent)`, `POW(base, exponent)` - Exponentiation
 - `SQRT(number)` - Square root
 
-### String Functions (12 functions)
+### String Functions (13 functions)
 - `CONCAT(str1, str2, ...)` - Concatenate strings
+- `||` (concatenation operator) - Concatenate two strings or values
 - `LENGTH(string)`, `LEN(string)` - String length in characters
 - `TRIM(string)` - Remove leading and trailing whitespace
 - `LTRIM(string)` - Remove leading whitespace
@@ -3353,25 +3737,622 @@ FROM events;
 - `IN (value1, value2, ...)` - Test if value exists in list
 - `NOT IN (value1, value2, ...)` - Test if value does not exist in list
 
+### Range Operations (2 operators)
+- `BETWEEN low AND high` - Test if value is within inclusive range
+- `NOT BETWEEN low AND high` - Test if value is outside inclusive range
+
+**Key Features:**
+- **Inclusive Boundaries**: Both low and high values are included in the range
+- **Type Coercion**: Automatic conversion between compatible numeric types
+- **Financial Precision**: Full support for ScaledInteger precision arithmetic
+- **NULL Handling**: Returns false when any operand is NULL (SQL standard)
+- **Performance**: Optimized single-pass evaluation without intermediate calculations
+
+**Basic Examples:**
+```sql
+-- Numeric range filtering for transaction amounts
+SELECT customer_id, amount, transaction_date 
+FROM transactions 
+WHERE amount BETWEEN 50.0 AND 500.0;
+
+-- Integer ID ranges
+SELECT * FROM orders WHERE order_id BETWEEN 1000 AND 2000;
+
+-- Date range filtering for time-series data
+SELECT * FROM events 
+WHERE event_date BETWEEN '2023-01-01' AND '2023-12-31'
+ORDER BY event_date;
+
+-- String lexicographic ranges (alphabetical filtering)
+SELECT * FROM customers 
+WHERE last_name BETWEEN 'A' AND 'M'
+ORDER BY last_name;
+```
+
+**Advanced Examples:**
+```sql
+-- NOT BETWEEN for exclusion filters
+SELECT product_id, price, category 
+FROM products 
+WHERE price NOT BETWEEN 100.0 AND 200.0  -- Exclude mid-range products
+  AND category = 'electronics';
+
+-- Mixed type comparisons with automatic conversion
+SELECT * FROM inventory 
+WHERE stock_level BETWEEN 10 AND 50.5  -- int BETWEEN int AND float
+  AND reorder_point BETWEEN 5.0 AND stock_level;
+
+-- Financial precision with exact decimal arithmetic
+SELECT account_id, balance, interest_rate
+FROM accounts 
+WHERE balance BETWEEN 1000.00 AND 50000.00
+  AND interest_rate BETWEEN 0.01 AND 0.05;  -- 1% to 5%
+
+-- Complex conditions with BETWEEN in WHERE clause
+SELECT customer_id, score, tier
+FROM customer_analytics
+WHERE score BETWEEN 700 AND 850        -- Credit score range
+  AND total_purchases BETWEEN 5000 AND 100000
+  AND days_since_last_purchase BETWEEN 1 AND 30;
+
+-- Using BETWEEN with expressions and functions
+SELECT order_id, total_amount, order_date
+FROM orders
+WHERE EXTRACT(YEAR FROM order_date) BETWEEN 2023 AND 2024
+  AND (total_amount * discount_rate) BETWEEN 10.00 AND 100.00;
+```
+
+**Streaming Analytics Examples:**
+```sql
+-- Real-time fraud detection with range checks
+CREATE STREAM fraud_alerts AS
+SELECT transaction_id, amount, merchant_id, risk_score
+FROM transactions
+WHERE amount NOT BETWEEN 0.01 AND 10000.00  -- Unusual amounts
+   OR risk_score BETWEEN 75 AND 100;         -- High risk scores
+
+-- Performance monitoring with metric ranges
+CREATE TABLE system_health AS  
+SELECT server_id, cpu_usage, memory_usage, disk_usage, timestamp
+FROM metrics
+WHERE cpu_usage BETWEEN 80.0 AND 100.0      -- High CPU usage
+   OR memory_usage BETWEEN 85.0 AND 100.0   -- High memory usage
+   OR disk_usage NOT BETWEEN 0.0 AND 90.0;  -- Very low or very high disk usage
+
+-- Customer segmentation with spending ranges
+CREATE STREAM customer_segments AS
+SELECT customer_id,
+       CASE 
+         WHEN total_spent BETWEEN 0 AND 1000 THEN 'Bronze'
+         WHEN total_spent BETWEEN 1001 AND 5000 THEN 'Silver' 
+         WHEN total_spent BETWEEN 5001 AND 25000 THEN 'Gold'
+         ELSE 'Platinum'
+       END as tier,
+       total_spent
+FROM customer_analytics;
+```
+
+**Performance Notes:**
+- BETWEEN is optimized for streaming data and processes in O(1) time
+- Financial calculations use exact arithmetic (no floating-point precision loss)
+- String comparisons use efficient lexicographic ordering
+- NULL values are handled according to SQL standards (three-valued logic)
+
+### Set Combination Operations (2 operators)
+- `UNION` - Combine result sets from multiple queries, removing duplicates
+- `UNION ALL` - Combine result sets from multiple queries, preserving duplicates
+
+**Key Features:**
+- **Schema Compatibility**: Both queries must have the same number and compatible types of columns
+- **Duplicate Handling**: UNION removes duplicates, UNION ALL preserves all rows for performance
+- **Column Names**: Result uses column names from the first (left) query
+- **Streaming Support**: Optimized for real-time data combination from multiple sources
+- **Performance**: UNION ALL is faster as it skips deduplication
+
+**Basic Examples:**
+```sql
+-- Basic UNION (removes duplicates)
+SELECT name, email FROM customers 
+UNION 
+SELECT name, email FROM suppliers;
+
+-- UNION ALL (preserves all rows - faster for large datasets)
+SELECT product_id, quantity FROM orders 
+UNION ALL 
+SELECT product_id, quantity FROM returns;
+
+-- Combining data from different time periods
+SELECT customer_id, order_amount FROM orders_2023
+UNION ALL
+SELECT customer_id, order_amount FROM orders_2024;
+
+-- Creating unified customer contact list
+SELECT customer_id, phone_number as contact FROM customers
+UNION
+SELECT vendor_id, phone_number as contact FROM vendors;
+```
+
+**Advanced Examples:**
+```sql
+-- Complex UNION with WHERE clauses and expressions
+SELECT customer_id, 
+       'High Value' as segment, 
+       total_spent,
+       'Premium' as service_level
+FROM customers 
+WHERE total_spent > 10000
+UNION ALL
+SELECT customer_id, 
+       'Standard' as segment, 
+       total_spent,
+       'Basic' as service_level  
+FROM customers 
+WHERE total_spent <= 10000;
+
+-- Combining aggregated results from multiple sources
+SELECT 'Q1' as quarter, SUM(revenue) as total_revenue FROM sales_q1
+UNION ALL
+SELECT 'Q2' as quarter, SUM(revenue) as total_revenue FROM sales_q2
+UNION ALL  
+SELECT 'Q3' as quarter, SUM(revenue) as total_revenue FROM sales_q3
+UNION ALL
+SELECT 'Q4' as quarter, SUM(revenue) as total_revenue FROM sales_q4;
+
+-- Multi-source error logging combination
+SELECT timestamp, 'APP' as source, error_message, severity FROM app_logs
+UNION ALL
+SELECT timestamp, 'DB' as source, error_message, severity FROM db_logs  
+UNION ALL
+SELECT timestamp, 'API' as source, error_message, severity FROM api_logs
+WHERE severity IN ('ERROR', 'CRITICAL')
+ORDER BY timestamp DESC;
+
+-- Historical and real-time data combination
+SELECT order_id, customer_id, amount, 'Historical' as data_type
+FROM archived_orders
+WHERE order_date < '2024-01-01'
+UNION ALL
+SELECT order_id, customer_id, amount, 'Current' as data_type  
+FROM live_orders
+WHERE order_date >= '2024-01-01';
+```
+
+**Streaming Analytics Examples:**
+```sql
+-- Real-time alerting: combining multiple alert sources
+CREATE STREAM unified_alerts AS
+SELECT alert_id, 'System' as alert_type, message, severity, timestamp
+FROM system_alerts
+WHERE severity >= 3
+UNION ALL
+SELECT alert_id, 'Security' as alert_type, message, severity, timestamp
+FROM security_alerts
+WHERE severity >= 2
+UNION ALL
+SELECT alert_id, 'Business' as alert_type, message, severity, timestamp  
+FROM business_alerts
+WHERE impact = 'HIGH';
+
+-- Multi-region data consolidation
+CREATE TABLE global_sales AS
+SELECT region, product_id, sales_amount, sale_date
+FROM us_sales
+UNION ALL
+SELECT region, product_id, sales_amount, sale_date  
+FROM eu_sales
+UNION ALL
+SELECT region, product_id, sales_amount, sale_date
+FROM asia_sales;
+
+-- Customer 360 view: combining interaction data
+CREATE STREAM customer_interactions AS
+SELECT customer_id, 'Purchase' as interaction_type, 
+       amount as value, timestamp
+FROM transactions
+UNION ALL
+SELECT customer_id, 'Support' as interaction_type,
+       ticket_priority as value, created_at as timestamp
+FROM support_tickets
+UNION ALL  
+SELECT customer_id, 'Marketing' as interaction_type,
+       campaign_id as value, interaction_time as timestamp
+FROM marketing_engagements;
+
+-- Financial data aggregation across accounts
+CREATE TABLE consolidated_balances AS
+SELECT account_id, 'Checking' as account_type, balance, last_updated
+FROM checking_accounts
+UNION ALL
+SELECT account_id, 'Savings' as account_type, balance, last_updated
+FROM savings_accounts  
+UNION ALL
+SELECT account_id, 'Investment' as account_type, balance, last_updated
+FROM investment_accounts;
+```
+
+**Performance Optimization Examples:**
+```sql
+-- Use UNION when duplicates must be removed
+SELECT DISTINCT customer_email FROM newsletter_subscribers
+UNION  -- Removes duplicates across both sources
+SELECT DISTINCT customer_email FROM promotional_list;
+
+-- Use UNION ALL when duplicates are acceptable (much faster)
+SELECT event_id, user_id, event_type, timestamp FROM user_events_stream1
+UNION ALL  -- Preserves all events for complete audit trail
+SELECT event_id, user_id, event_type, timestamp FROM user_events_stream2;
+
+-- Partitioned data reunion (common streaming pattern)
+SELECT order_id, customer_id, total_amount 
+FROM orders_partition_1
+UNION ALL
+SELECT order_id, customer_id, total_amount
+FROM orders_partition_2  
+UNION ALL
+SELECT order_id, customer_id, total_amount
+FROM orders_partition_3;
+```
+
+**Common Patterns:**
+```sql
+-- Master-detail reporting
+SELECT 'SUMMARY' as row_type, 
+       NULL as detail_id,
+       COUNT(*) as count, 
+       SUM(amount) as total
+FROM transactions
+UNION ALL
+SELECT 'DETAIL' as row_type,
+       transaction_id as detail_id, 
+       1 as count,
+       amount as total
+FROM transactions
+ORDER BY row_type, detail_id;
+
+-- Before/after data comparison
+SELECT 'BEFORE' as data_state, customer_id, balance FROM balances_before
+UNION ALL  
+SELECT 'AFTER' as data_state, customer_id, balance FROM balances_after
+ORDER BY customer_id, data_state;
+```
+
+**Performance Notes:**
+- **UNION ALL** is significantly faster than UNION as it skips deduplication
+- Use **UNION** only when duplicate removal is required
+- Column types are coerced to be compatible between queries
+- Results can be ordered using ORDER BY after the UNION operation
+- Streaming UNION operations maintain real-time processing capabilities
+
+### Binary Operators (1 operator)
+- `||` (concatenation) - Concatenate strings or convert values to strings and concatenate
+
+**Usage Examples:**
+```sql
+-- String concatenation
+SELECT 'Hello' || ' World' as greeting;                    -- Result: 'Hello World'
+
+-- Mixed type concatenation (automatic type conversion)
+SELECT 'Order #' || order_id || ' - $' || amount as description;
+
+-- NULL handling (concatenation with NULL returns NULL)
+SELECT 'Value: ' || null_column as result;                 -- Result: NULL
+
+-- Chained concatenation
+SELECT first_name || ' ' || middle_name || ' ' || last_name as full_name;
+
+-- User's example pattern
+SELECT 'exported_' || UNIX_TIMESTAMP() as export_id;
+```
+
 ### System Columns (3 columns)
 - `_timestamp` - Kafka message timestamp
 - `_offset` - Kafka message offset
 - `_partition` - Kafka partition number
 
-**Total: 67 functions/operators + 3 system columns**
+**Total: 72 functions/operators + 3 system columns**
 
 ### Function Categories Summary
 - **Window Functions:** 11 functions for row-by-row analysis
 - **Statistical Functions:** 7 functions for advanced analytics  
 - **Math Functions:** 7 functions for numeric operations
-- **String Functions:** 12 functions for text processing
+- **String Functions:** 13 functions for text processing
 - **Date/Time Functions:** 5 functions for temporal operations
 - **Utility Functions:** 6 functions for data manipulation
 - **Aggregate Functions:** 7 functions for group operations
 - **JSON Functions:** 2 functions for JSON processing
 - **Header Functions:** 5 functions for message metadata
 - **Set Operations:** 2 operators for list membership testing
+- **Range Operations:** 2 operators for range queries (NEW)
+- **Set Combination Operations:** 2 operators for combining result sets (NEW)
+- **Binary Operators:** 1 operator for string concatenation
 - **System Columns:** 3 columns for Kafka metadata
+
+## Performance Configuration
+
+### Overview
+
+FerrisStreams provides comprehensive performance configuration through its unified configuration management system. This includes batch processing strategies, buffer configurations, compression settings, and performance optimizations that can be applied at the stream, job, or application level.
+
+### SQL Batch Configuration
+
+**New Feature**: Batch processing strategies are now **fully configurable via SQL WITH clauses**. FerrisStreams supports comprehensive batch configuration through SQL, enabling performance optimization directly in your stream definitions.
+
+📖 **See the complete [Batch Configuration Guide](./BATCH_CONFIGURATION_GUIDE.md) for detailed documentation and examples.**
+
+#### Supported SQL Configuration
+SQL WITH clauses now support comprehensive batch processing, failure strategies, and connector properties:
+
+```sql
+-- Batch processing configuration with failure strategies (NEW!)
+CREATE STREAM optimized_orders AS
+SELECT * FROM kafka_source
+WITH (
+    -- Global Batch Configuration (applies to all sources/sinks)
+    'batch.strategy' = 'fixed_size',
+    'batch.enable' = 'true',
+    'batch.size' = '100',
+    'batch.timeout' = '5000ms',
+    
+    -- Job-Level Failure Handling
+    'failure_strategy' = 'RetryWithBackoff',
+    'max_retries' = '5',
+    'retry_backoff' = '2000ms'
+);
+
+-- Adaptive Size Batch Configuration Example
+CREATE STREAM adaptive_orders AS
+SELECT * FROM kafka_source  
+WITH (
+    -- Global Batch Configuration
+    'batch.strategy' = 'adaptive_size',
+    'batch.enable' = 'true',
+    'batch.min_size' = '50', 
+    'batch.adaptive_max_size' = '2000',
+    'batch.target_latency' = '100ms'
+);
+
+-- Kafka source and sink configuration (ALSO SUPPORTED)
+CREATE STREAM orders AS
+SELECT * FROM kafka_source
+WITH (
+    'source.kafka.bootstrap.servers' = 'localhost:9092',
+    'source.kafka.topic' = 'orders',
+    'source.kafka.group.id' = 'processor',
+    'source.kafka.fetch.min.bytes' = '1024',
+    'source.kafka.max.poll.records' = '500'
+);
+
+-- File source configuration (ACTUALLY SUPPORTED)  
+CREATE STREAM csv_data AS
+SELECT * FROM file_source
+WITH (
+    'source.file.path' = '/data/input.csv',
+    'source.file.format' = 'csv',
+    'source.file.has_headers' = 'true'
+);
+
+-- Sink configuration (ACTUALLY SUPPORTED)
+INSERT INTO output_stream
+SELECT * FROM processed_data
+WITH (
+    'sink.kafka.bootstrap.servers' = 'localhost:9092',
+    'sink.kafka.topic' = 'results',
+    'sink.kafka.compression.type' = 'lz4',
+    'sink.kafka.batch.size' = '32768'
+);
+```
+
+### Batch Processing Strategies
+
+#### 1. FixedSize Strategy
+Processes records in fixed-size batches for predictable memory usage and consistent processing latency.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: FixedSize
+  batch_size: 1000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Consistent memory usage patterns
+- Predictable processing times
+- High-throughput scenarios with uniform data
+
+#### 2. TimeWindow Strategy  
+Processes records within specified time windows, optimal for real-time analytics and time-based aggregations.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: TimeWindow
+  window_duration_ms: 5000
+  max_batch_size: 10000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Real-time dashboards
+- Time-based analytics
+- Latency-sensitive applications
+
+#### 3. AdaptiveSize Strategy
+Dynamically adjusts batch sizes based on processing performance and system load.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: AdaptiveSize  
+  initial_batch_size: 1000
+  max_batch_size: 10000
+  adaptation_factor: 1.5
+  enable_batching: true
+```
+
+**Use Cases:**
+- Variable data volumes
+- Dynamic system loads
+- Performance optimization scenarios
+
+#### 4. MemoryBased Strategy
+Adjusts batch processing based on available memory and memory pressure indicators.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: MemoryBased
+  target_memory_usage: 0.8
+  min_batch_size: 100
+  max_batch_size: 5000
+  enable_batching: true
+```
+
+**Use Cases:**
+- Memory-constrained environments
+- Large record processing
+- Resource optimization
+
+#### 5. LowLatency Strategy
+Minimizes processing latency with small batches and immediate processing.
+
+**Configuration:**
+```yaml
+batch:
+  strategy: LowLatency
+  max_latency_ms: 100
+  batch_size: 10
+  enable_batching: true
+```
+
+**Use Cases:**
+- Real-time trading systems
+- Alert processing
+- Interactive applications
+
+### Configuration Precedence
+
+The unified configuration system follows a strict precedence order that ensures user settings are never overridden:
+
+1. **User Settings** (Highest Priority)
+2. **Batch Strategy Suggestions** 
+3. **System Defaults** (Lowest Priority)
+
+**Example Configuration Flow:**
+```yaml
+# User explicitly sets compression
+kafka:
+  compression.type: "lz4"
+  batch.size: 32768
+
+# Batch strategy suggests different values (will be ignored for user-set properties)
+batch:
+  strategy: FixedSize
+  # This suggestion won't override user's compression.type
+```
+
+**Logging Output:**
+```
+INFO [ConfigFactory] User property 'compression.type'='lz4' preserved (not overridden by batch strategy)
+INFO [ConfigFactory] User property 'batch.size'='32768' preserved (not overridden by batch strategy)
+INFO [ConfigFactory] Batch strategy 'FixedSize' applied buffer.memory=67108864 (no user override)
+```
+
+### Compression Configuration
+
+#### Available Compression Types
+- **none** - No compression (fastest, largest size)
+- **gzip** - Good compression ratio, moderate CPU usage
+- **snappy** - Fast compression/decompression, moderate ratio
+- **lz4** - Fastest compression, good for high-throughput
+- **zstd** - Best compression ratio, higher CPU usage
+
+#### Configuration Examples
+
+**High Throughput (Low Latency):**
+```yaml
+kafka:
+  compression.type: "lz4"
+  batch.size: 16384
+  linger.ms: 5
+
+batch:
+  strategy: LowLatency
+  max_latency_ms: 50
+```
+
+**High Compression (Storage Efficiency):**
+```yaml
+kafka:
+  compression.type: "zstd"
+  compression.level: 6
+  batch.size: 131072
+  linger.ms: 100
+
+batch:
+  strategy: MemoryBased
+  target_memory_usage: 0.7
+```
+
+### Buffer Configuration
+
+#### Producer Buffer Settings
+```yaml
+kafka:
+  buffer.memory: 67108864        # 64MB total buffer
+  batch.size: 32768              # 32KB per batch
+  max.request.size: 1048576      # 1MB max request
+  linger.ms: 10                  # Wait up to 10ms
+```
+
+#### Consumer Buffer Settings
+```yaml
+kafka:
+  receive.buffer.bytes: 65536    # 64KB receive buffer  
+  send.buffer.bytes: 131072      # 128KB send buffer
+  fetch.min.bytes: 1024          # Min 1KB fetch
+  fetch.max.wait.ms: 500         # Max 500ms wait
+```
+
+### Performance Monitoring
+
+#### Key Metrics Tracked
+- **Records/second processed**
+- **Batch processing latency (P50, P95, P99)**
+- **Memory usage and allocation rates**  
+- **Compression ratios and throughput**
+- **Configuration override tracking**
+
+#### Configuration Logging
+```yaml
+logging:
+  level: INFO
+  loggers:
+    config_factory: DEBUG     # Log configuration decisions
+    batch_processor: INFO     # Log batch processing metrics
+    compression: INFO         # Log compression statistics
+```
+
+### Best Practices
+
+#### Strategy Selection Guidelines
+- **FixedSize**: Use for consistent workloads with predictable data volumes
+- **TimeWindow**: Choose for time-sensitive analytics and real-time dashboards  
+- **AdaptiveSize**: Apply for variable workloads requiring dynamic optimization
+- **MemoryBased**: Select for resource-constrained environments
+- **LowLatency**: Use for interactive applications requiring immediate responses
+
+#### Configuration Tips
+1. **Start with defaults** and measure baseline performance
+2. **Test different strategies** with representative data volumes
+3. **Monitor memory usage** when using large batch sizes
+4. **Consider network bandwidth** when selecting compression types
+5. **Preserve user settings** - never override explicit user configuration
+
+### Related Documentation
+- [Performance Guide](PERFORMANCE_GUIDE.md) - Comprehensive performance optimization
+- [Kafka Configuration](KAFKA_TRANSACTION_CONFIGURATION.md) - Transaction and reliability settings
+- [Development Guide](../CLAUDE.md) - Implementation guidelines
 
 ## Type Conversion
 

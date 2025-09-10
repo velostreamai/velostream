@@ -8,7 +8,7 @@ Comprehensive test suite for JOIN operations involving subqueries:
 - Complex combinations and error cases
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -40,33 +40,16 @@ fn create_test_record_for_subquery_join() -> StreamRecord {
 
 async fn execute_subquery_join_test(
     query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
-    let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_for_subquery_join();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let json_record: HashMap<String, InternalValue> = record
-        .fields
-        .into_iter()
-        .map(|(k, v)| {
-            let json_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(i),
-                FieldValue::Float(f) => InternalValue::Number(f),
-                FieldValue::String(s) => InternalValue::String(s),
-                FieldValue::Boolean(b) => InternalValue::Boolean(b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k, json_val)
-        })
-        .collect();
-
-    engine.execute(&parsed_query, json_record).await?;
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

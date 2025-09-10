@@ -1,0 +1,68 @@
+{
+  "type": "record",
+  "name": "PriceAlert",
+  "namespace": "com.trading.streams.alerts",
+  "doc": "Price movement alerts for significant changes (>5%)",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Current price with 4 decimal places precision"
+    },
+    {
+      "name": "prev_price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Previous price with 4 decimal places precision"
+    },
+    {
+      "name": "price_change_pct",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 10,
+      "scale": 4,
+      "doc": "Price change percentage with 4 decimal places (e.g., 5.2500 for 5.25%)"
+    },
+    {
+      "name": "volume",
+      "type": "long",
+      "doc": "Trading volume"
+    },
+    {
+      "name": "detection_time",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Alert detection timestamp"
+    },
+    {
+      "name": "alert_severity",
+      "type": {
+        "type": "enum",
+        "name": "AlertSeverity",
+        "symbols": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+      },
+      "doc": "Alert severity level",
+      "default": "HIGH"
+    },
+    {
+      "name": "market_session",
+      "type": {
+        "type": "enum",
+        "name": "MarketSession",
+        "symbols": ["PRE_MARKET", "REGULAR", "AFTER_HOURS", "OVERNIGHT"]
+      },
+      "doc": "Market session when alert occurred",
+      "default": "REGULAR"
+    }
+  ]
+}

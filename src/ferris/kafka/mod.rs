@@ -1,10 +1,13 @@
 // Kafka modules
 pub mod admin_client;
+pub mod configurable_consumer;
+pub mod configurable_producer;
 mod kafka_consumer;
 mod kafka_producer;
 mod kafka_producer_def_context;
 pub mod ktable;
 pub mod serialization;
+pub mod serialization_format;
 mod utils;
 
 // Common types
@@ -22,19 +25,17 @@ pub mod kafka_error;
 pub mod performance_presets;
 
 // Re-export main API
-pub use kafka_consumer::{ConsumerBuilder, KafkaConsumable, KafkaConsumer};
+pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use kafka_producer_def_context::LoggingProducerContext;
-pub use ktable::KTable;
+
+// Re-export Phase 2 Enhanced APIs
 pub use serialization::{
-    BytesSerializer, JsonSerializer, SerializationError, Serializer, StringSerializer,
+    AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError,
+    Serializer, StringSerializer,
 };
 
 // Feature-gated exports
-#[cfg(feature = "avro")]
-pub use serialization::AvroSerializer;
-#[cfg(feature = "protobuf")]
-pub use serialization::ProtoSerializer;
 pub use utils::convert_kafka_log_level;
 
 // Re-export common types at root level for easier access
@@ -43,6 +44,9 @@ pub use message::Message;
 
 // Re-export admin client
 pub use admin_client::KafkaAdminClient;
+
+// Re-export KTable
+pub use ktable::KTable;
 
 // Re-export errors
 pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};

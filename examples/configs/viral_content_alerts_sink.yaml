@@ -1,0 +1,18 @@
+# Viral Content Alerts Output Configuration
+# High engagement content detection
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "viral_content_alerts"
+  
+delivery_profile: high_priority
+
+topic_config:
+  partitions: 6
+  retention_ms: 604800000  # 7 days retention
+  
+metadata:
+  description: "Viral content detection alerts"
+  data_classification: "content_analytics"
+  priority: "high"

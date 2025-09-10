@@ -48,7 +48,7 @@ FerrisStreams SQL now includes comprehensive Docker and Kubernetes deployment in
 docker build -f Dockerfile.sqlfile -t ferrisstreams:sqlfile .
 
 # Create basic configuration file
-cat > sql-config.yaml <<EOF
+cat > configs/ferris-default.yaml <<EOF
 kafka:
   brokers: "kafka:9092"
   consumer_timeout_ms: 5000
@@ -72,7 +72,7 @@ EOF
 docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
-  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
   --name ferrisstreams-app \
@@ -83,7 +83,7 @@ docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
   -e FERRIS_FINANCIAL_PRECISION=true \
@@ -97,7 +97,7 @@ docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/sql-config-financial.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/ferris-financial.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
   -e FERRIS_PERFORMANCE_PROFILE=financial \
@@ -260,7 +260,7 @@ curl http://localhost:9080/metrics/report
 
 #### 1. Low Latency Configuration (< 10ms)
 
-**sql-config-low-latency.yaml:**
+**configs/ferris-low-latency.yaml:**
 ```yaml
 # Ultra-low latency configuration
 kafka:
@@ -300,7 +300,7 @@ performance:
 ```bash
 docker run -d \
   -p 8080:8080 \
-  -v $(pwd)/sql-config-low-latency.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/ferris-low-latency.yaml:/app/sql-config.yaml \
   -e RUST_LOG=warn \
   --name ferris-low-latency \
   ferrisstreams:latest
@@ -308,7 +308,7 @@ docker run -d \
 
 #### 2. High Throughput Configuration (>100k msgs/sec)
 
-**sql-config-high-throughput.yaml:**
+**configs/ferris-high-throughput.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -338,7 +338,7 @@ performance:
 
 #### 3. Financial Precision Configuration
 
-**sql-config-financial.yaml:**
+**configs/ferris-financial.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -361,7 +361,7 @@ sql:
 
 #### 4. Cross-System Compatibility Configuration
 
-**sql-config-compatibility.yaml:**
+**configs/ferris-compatibility.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -426,7 +426,7 @@ services:
       - KAFKA_BATCH_SIZE=1
       - KAFKA_FETCH_MAX_WAIT_MS=1
     volumes:
-      - ./sql-config-low-latency.yaml:/app/sql-config.yaml
+      - ./configs/ferris-low-latency.yaml:/app/sql-config.yaml
 ```
 
 #### High Throughput Setup
@@ -440,13 +440,13 @@ services:
       - SQL_WORKER_THREADS=16
       - SQL_MEMORY_LIMIT_MB=8192
     volumes:
-      - ./sql-config-high-throughput.yaml:/app/sql-config.yaml
+      - ./configs/ferris-high-throughput.yaml:/app/sql-config.yaml
 ```
 
 ### Volume Mounts
 ```bash
-./sql-config.yaml:/app/sql-config.yaml              # Main configuration
-./sql-config-low-latency.yaml:/app/sql-config.yaml  # Low latency config
+./configs/ferris-default.yaml:/app/sql-config.yaml              # Main configuration
+./configs/ferris-low-latency.yaml:/app/sql-config.yaml  # Low latency config
 ./examples:/app/examples                            # SQL applications
 sql-logs:/app/logs                                  # Log persistence
 sql-data:/app/data                                  # Data persistence
@@ -571,7 +571,7 @@ message Trade {
 # Mount schema directory in Docker
 docker run -d \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/sql-config.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
   ferrisstreams:latest
 ```
 
@@ -581,7 +581,7 @@ services:
   ferris-streams:
     volumes:
       - ./schemas:/app/schemas:ro          # Schema files (read-only)
-      - ./sql-config.yaml:/app/sql-config.yaml
+      - ./configs/ferris-default.yaml:/app/sql-config.yaml
       - ./examples:/app/examples:ro
 ```
 
@@ -1913,7 +1913,7 @@ KAFKA_REPLICATION_FACTOR=3
 - **[Multi-Job Guide](docs/MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
 
 ### Configuration References
-- **[SQL Configuration](sql-config.yaml)** - Service configuration
+- **[SQL Configuration](configs/ferris-default.yaml)** - Service configuration
 - **[Docker Compose](docker-compose.yml)** - Infrastructure definition
 - **[Kubernetes Manifests](k8s/)** - K8s deployment files
 

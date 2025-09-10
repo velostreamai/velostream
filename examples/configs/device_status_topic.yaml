@@ -1,0 +1,23 @@
+# Device Status Topic Configuration
+# IoT device health and status monitoring
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "device_status"
+  
+consumer_group: "iot_monitoring_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key_field: device_id
+    
+topic_config:
+  partitions: 6
+  retention_ms: 2592000000  # 30 days retention
+  
+metadata:
+  description: "IoT device status and health data"
+  data_classification: "device_telemetry"
+  update_frequency: "periodic"

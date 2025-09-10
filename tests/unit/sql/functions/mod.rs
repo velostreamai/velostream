@@ -11,3 +11,6 @@ pub mod new_functions_test;
 pub mod statistical_functions_test;
 pub mod string_json_functions_test;
 pub mod window_functions_test;
+// COUNT_DISTINCT and APPROX_COUNT_DISTINCT tests
+pub mod count_distinct_comprehensive_test;
+pub mod count_distinct_functions_test;

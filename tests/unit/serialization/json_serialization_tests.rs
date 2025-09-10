@@ -6,7 +6,8 @@ are properly converted to/from JSON format.
 */
 
 use super::common_test_data::*;
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
+use ferrisstreams::ferris::sql::execution::types::StreamRecord;
 use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 
@@ -31,34 +32,53 @@ async fn test_json_to_execution_format() {
 async fn test_json_from_execution_format() {
     let format = JsonFormat;
 
-    let mut execution_data = HashMap::new();
-    execution_data.insert(
+    // Create a StreamRecord directly
+    let mut fields = HashMap::new();
+    fields.insert(
         "test_string".to_string(),
-        InternalValue::String("test".to_string()),
+        FieldValue::String("test".to_string()),
     );
-    execution_data.insert("test_int".to_string(), InternalValue::Integer(42));
-    execution_data.insert(
+    fields.insert("test_int".to_string(), FieldValue::Integer(42));
+    fields.insert(
         "test_float".to_string(),
-        InternalValue::Number(std::f64::consts::PI),
+        FieldValue::Float(std::f64::consts::PI),
     );
-    execution_data.insert("test_bool".to_string(), InternalValue::Boolean(false));
-    execution_data.insert("test_null".to_string(), InternalValue::Null);
+    fields.insert("test_bool".to_string(), FieldValue::Boolean(false));
+    fields.insert("test_null".to_string(), FieldValue::Null);
 
-    let record = format
-        .from_execution_format(&execution_data)
-        .expect("Conversion from execution format should succeed");
+    let stream_record = StreamRecord {
+        fields: fields.clone(),
+        timestamp: 1234567890,
+        offset: 100,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
+    // Serialize the StreamRecord's fields
+    let serialized = format
+        .serialize_record(&stream_record.fields)
+        .expect("Serialization should succeed");
+
+    // Deserialize back
+    let deserialized = format
+        .deserialize_record(&serialized)
+        .expect("Deserialization should succeed");
+
+    // Verify the round-trip
     assert_eq!(
-        record.get("test_string"),
+        deserialized.get("test_string"),
         Some(&FieldValue::String("test".to_string()))
     );
-    assert_eq!(record.get("test_int"), Some(&FieldValue::Integer(42)));
+    assert_eq!(deserialized.get("test_int"), Some(&FieldValue::Integer(42)));
     assert_eq!(
-        record.get("test_float"),
+        deserialized.get("test_float"),
         Some(&FieldValue::Float(std::f64::consts::PI))
     );
-    assert_eq!(record.get("test_bool"), Some(&FieldValue::Boolean(false)));
-    assert_eq!(record.get("test_null"), Some(&FieldValue::Null));
+    assert_eq!(
+        deserialized.get("test_bool"),
+        Some(&FieldValue::Boolean(false))
+    );
+    assert_eq!(deserialized.get("test_null"), Some(&FieldValue::Null));
 }
 
 #[tokio::test]

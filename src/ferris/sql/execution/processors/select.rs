@@ -47,6 +47,12 @@ impl SelectProcessor {
                     StreamSource::Stream(name) | StreamSource::Table(name) => {
                         format!("select_{}_windowed", name)
                     }
+                    StreamSource::Uri(uri) => {
+                        format!(
+                            "select_{}_windowed",
+                            uri.replace("://", "_").replace("/", "_")
+                        )
+                    }
                     StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
                 };
 
@@ -305,6 +311,7 @@ impl SelectProcessor {
                 last_values: HashMap::new(),
                 string_values: HashMap::new(),
                 distinct_values: HashMap::new(),
+                approx_distinct_values: HashMap::new(),
                 sample_record: Some(record.clone()),
             });
 
@@ -769,6 +776,13 @@ impl SelectProcessor {
             Expr::List(_) => "list_expr".to_string(),
             Expr::Subquery { .. } => "subquery".to_string(),
             Expr::WindowFunction { function_name, .. } => format!("window_{}", function_name),
+            Expr::Between { expr, negated, .. } => {
+                format!(
+                    "{}_{}between",
+                    Self::get_expression_name(expr),
+                    if *negated { "not_" } else { "" }
+                )
+            }
         }
     }
 
@@ -857,6 +871,13 @@ impl SelectProcessor {
                 for arg in args {
                     Self::collect_header_mutations_from_expr(arg, record, mutations)?;
                 }
+            }
+            Expr::Between {
+                expr, low, high, ..
+            } => {
+                Self::collect_header_mutations_from_expr(expr, record, mutations)?;
+                Self::collect_header_mutations_from_expr(low, record, mutations)?;
+                Self::collect_header_mutations_from_expr(high, record, mutations)?;
             }
             // Terminal expressions don't need recursive processing
             Expr::Column(_) | Expr::Literal(_) | Expr::Subquery { .. } => {}

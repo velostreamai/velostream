@@ -13,3 +13,6 @@ pub mod aggregation;
 
 // Query processor tests
 pub mod processors;
+
+// Utility tests
+pub mod utils;

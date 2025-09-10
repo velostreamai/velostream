@@ -115,7 +115,6 @@ fn test_json_serializer_error_cases() {
 
 // Feature-gated serializer tests
 
-#[cfg(feature = "protobuf")]
 mod protobuf_tests {
     use super::*;
     use ferrisstreams::ferris::kafka::ProtoSerializer;
@@ -152,7 +151,6 @@ mod protobuf_tests {
     }
 }
 
-#[cfg(feature = "avro")]
 mod avro_tests {
     use super::*;
     use apache_avro::{types::Value as AvroValue, Schema as AvroSchema};

@@ -68,7 +68,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/ferris-sql-multi /usr/local/bin/
 
 # Copy configuration
-COPY sql-config.yaml ./
+COPY configs/ferris-default.yaml ./sql-config.yaml
 
 # Create directories
 RUN mkdir -p /app/sql-files /app/logs /app/data && chown -R ferris:ferris /app

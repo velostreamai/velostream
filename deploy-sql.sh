@@ -10,7 +10,7 @@ echo "================================"
 BINARY_NAME="ferris-sql"
 BUILD_MODE="release"
 INSTALL_DIR="/usr/local/bin"
-CONFIG_FILE="sql-config.yaml"
+CONFIG_FILE="configs/ferris-default.yaml"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

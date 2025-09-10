@@ -28,8 +28,7 @@ demo/trading/
 └── README.md                   # This file
 
 # References main project artifacts:
-../../target/release/ferris-sql              # SQL server
-../../target/release/ferris-sql-multi        # Multi-job SQL server
+../../target/release/ferris-sql-multi        # Multi-job SQL server (primary)
 ```
 
 ## 🚀 Quick Start
@@ -482,7 +481,7 @@ For production use, see:
 ## 📚 Related Documentation
 
 - [SQL Application Guide](../../SQL_APPLICATION_GUIDE.md)
-- [Kafka Configuration](../../docs/developer/SIMPLIFIED_KAFKA_API.md)
+- [Kafka Configuration](../../docs/developer/STREAMING_KAFKA_API.md)
 - [Performance Optimization](../../docs/developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)
 - [Docker Deployment](../../docs/DOCKER_DEPLOYMENT_GUIDE.md)
 

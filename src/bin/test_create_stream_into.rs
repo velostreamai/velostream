@@ -95,9 +95,7 @@ async fn test_multi_config_support() -> Result<(), Box<dyn std::error::Error>> {
         SELECT * FROM postgres_source 
         INTO s3_sink
         WITH (
-            "base_source_config" = "configs/base_postgres.yaml",
             "source_config" = "configs/postgres_prod.yaml",
-            "base_sink_config" = "configs/base_s3.yaml", 
             "sink_config" = "configs/s3_prod.yaml",
             "monitoring_config" = "configs/monitoring_prod.yaml",
             "security_config" = "configs/security.yaml"
@@ -111,12 +109,7 @@ async fn test_multi_config_support() -> Result<(), Box<dyn std::error::Error>> {
     match query {
         StreamingQuery::CreateStreamInto { properties, .. } => {
             println!("✅ Successfully parsed multi-config CREATE STREAM INTO");
-            println!(
-                "   📂 Base source config: {:?}",
-                properties.base_source_config
-            );
             println!("   📂 Source config: {:?}", properties.source_config);
-            println!("   📂 Base sink config: {:?}", properties.base_sink_config);
             println!("   📂 Sink config: {:?}", properties.sink_config);
             println!(
                 "   📊 Monitoring config: {:?}",
@@ -125,16 +118,8 @@ async fn test_multi_config_support() -> Result<(), Box<dyn std::error::Error>> {
             println!("   🔒 Security config: {:?}", properties.security_config);
 
             assert_eq!(
-                properties.base_source_config,
-                Some("configs/base_postgres.yaml".to_string())
-            );
-            assert_eq!(
                 properties.source_config,
                 Some("configs/postgres_prod.yaml".to_string())
-            );
-            assert_eq!(
-                properties.base_sink_config,
-                Some("configs/base_s3.yaml".to_string())
             );
             assert_eq!(
                 properties.sink_config,
@@ -239,9 +224,7 @@ async fn test_create_table_into_syntax() -> Result<(), Box<dyn std::error::Error
         GROUP BY customer_id
         INTO analytics_sink
         WITH (
-            "base_source_config" = "configs/base_kafka_source.yaml",
             "source_config" = "configs/kafka_orders_${ENVIRONMENT}.yaml",
-            "base_sink_config" = "configs/base_postgres_sink.yaml", 
             "sink_config" = "configs/postgres_${ENVIRONMENT}.yaml",
             "batch_size" = "500"
         )
@@ -261,12 +244,7 @@ async fn test_create_table_into_syntax() -> Result<(), Box<dyn std::error::Error
             println!("✅ Successfully parsed CREATE TABLE INTO");
             println!("   📊 Table name: {}", name);
             println!("   🎯 Sink: {}", into_clause.sink_name);
-            println!(
-                "   📂 Base source config: {:?}",
-                properties.base_source_config
-            );
             println!("   📂 Source config: {:?}", properties.source_config);
-            println!("   📂 Base sink config: {:?}", properties.base_sink_config);
             println!("   📂 Sink config: {:?}", properties.sink_config);
             println!(
                 "   ⚙️  Inline properties: {:?}",
@@ -275,14 +253,6 @@ async fn test_create_table_into_syntax() -> Result<(), Box<dyn std::error::Error
 
             assert_eq!(name, "user_analytics");
             assert_eq!(into_clause.sink_name, "analytics_sink");
-            assert_eq!(
-                properties.base_source_config,
-                Some("configs/base_kafka_source.yaml".to_string())
-            );
-            assert_eq!(
-                properties.base_sink_config,
-                Some("configs/base_postgres_sink.yaml".to_string())
-            );
             assert_eq!(
                 properties.inline_properties.get("batch_size"),
                 Some(&"500".to_string())

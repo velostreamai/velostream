@@ -1,0 +1,19 @@
+# High Value Orders Output Configuration
+# Critical alerts for high-value orders
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "high_value_orders_stream"
+  
+delivery_profile: critical
+
+topic_config:
+  partitions: 3
+  replication_factor: 2
+  retention_ms: 604800000  # 7 days retention
+  
+metadata:
+  description: "High-value order alerts"
+  data_classification: "business_critical"
+  priority: "high"

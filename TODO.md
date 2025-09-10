@@ -26,7 +26,7 @@ This document tracks the progress and remaining work for the GROUP BY implementa
    - Fixed test compatibility issues where tests expected final results but got intermediate emissions
 
 4. **Debug missing aggregation fields issue** ✅
-   - Fixed type mismatch between `InternalValue::Integer` and `InternalValue::Number` in tests
+   - Fixed type mismatch between `FieldValue::Integer` and `FieldValue::Float` in tests
    - Ensured all aggregate fields (COUNT, AVG, MIN, MAX) appear correctly in results
 
 5. **Fix boolean grouping issue** ✅
@@ -109,7 +109,6 @@ This document tracks the progress and remaining work for the GROUP BY implementa
 2. **Flink Semantics**: Continuous emission with result deduplication
 3. **13 Aggregate Functions**: COUNT, SUM, AVG, MIN, MAX, STDDEV, VARIANCE, FIRST, LAST, STRING_AGG, COUNT_DISTINCT (all working)
 4. **Expression Support**: Boolean comparisons, complex expressions in GROUP BY
-5. **Type Safety**: Proper InternalValue ↔ FieldValue conversions
 
 ### Key Files Modified
 

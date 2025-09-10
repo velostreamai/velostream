@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use ferrisstreams::ferris::{
-    serialization::{InternalValue, JsonFormat},
+    serialization::JsonFormat,
     sql::{
         execution::{
             types::{FieldValue, StreamRecord},
@@ -101,16 +101,15 @@ impl SqlExecutor {
     /// Execute SQL query and return results
     pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<String> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+        let mut engine = StreamExecutionEngine::new(tx);
 
         let parser = StreamingSqlParser::new();
         let query = parser.parse(sql).expect("Failed to parse SQL");
 
         // Execute records
         for (i, record) in records.iter().enumerate() {
-            // Convert StreamRecord to HashMap<String, InternalValue>
-            let internal_record = Self::convert_to_internal_record(record);
-            let result = engine.execute(&query, internal_record).await;
+            // Convert StreamRecord to StreamRecord
+            let result = engine.execute_with_record(&query, record.clone()).await;
             if let Err(e) = result {
                 eprintln!("❌ Error executing record {}: {:?}", i + 1, e);
                 eprintln!("   Record: {:?}", record);
@@ -122,32 +121,22 @@ impl SqlExecutor {
             }
         }
 
+        // need to flush any remaining results for windowed queries with group by
+        // First flush windows, then flush group by results
+        if let Err(e) = engine.flush_windows().await {
+            eprintln!("❌ Error flushing windows: {:?}", e);
+        } else {
+            println!("✅ Windows flushed successfully");
+        }
+
+        let flushed_results = engine.flush_group_by_results(&query);
+        println!("Group by flush results: {:?}", flushed_results);
         // Collect results
         let mut results = Vec::new();
         while let Ok(output) = rx.try_recv() {
             results.push(format!("{:?}", output));
         }
         results
-    }
-
-    /// Convert StreamRecord to HashMap<String, InternalValue>
-    fn convert_to_internal_record(record: &StreamRecord) -> HashMap<String, InternalValue> {
-        let mut internal_record = HashMap::new();
-
-        for (key, field_value) in &record.fields {
-            let internal_value = match field_value {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                // For now, convert other types to strings for simplicity
-                other => InternalValue::String(other.to_display_string()),
-            };
-            internal_record.insert(key.clone(), internal_value);
-        }
-
-        internal_record
     }
 }
 

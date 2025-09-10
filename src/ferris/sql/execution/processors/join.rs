@@ -396,6 +396,7 @@ impl JoinProcessor {
         let source_name = match source {
             StreamSource::Stream(name) => name,
             StreamSource::Table(name) => name,
+            StreamSource::Uri(uri) => uri,
             StreamSource::Subquery(_) => {
                 // For subqueries, we don't have a direct schema lookup
                 // Fall back to creating common fields
@@ -557,6 +558,7 @@ impl JoinProcessor {
                 let source_name = match from {
                     StreamSource::Table(name) => Some(name),
                     StreamSource::Stream(name) => Some(name),
+                    StreamSource::Uri(uri) => Some(uri),
                     StreamSource::Subquery(_) => {
                         // Nested subqueries would require recursive execution
                         // For now, not supported

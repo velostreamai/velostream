@@ -31,7 +31,6 @@ Non-windowed aggregations with late data.
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use std::iter;
 
 /// Test EMIT CHANGES with late data in tumbling windows - verify correction behavior
 #[tokio::test]

@@ -1,0 +1,22 @@
+# File sink configuration for merchant analytics CSV export
+# Flat structure with dot-notation properties
+
+# Sink type (required)
+type: "file_sink"
+
+# File sink properties
+path: "demo/datasource-demo/output/merchant_analytics.csv"
+format: "csv"
+has_headers: true
+append: false
+
+# Processing settings
+batch_size: 500
+flush_interval: 15000
+failure_strategy: "LogAndContinue"
+timeout_ms: 30000
+max_retries: 3
+
+# File settings
+create_directories: true
+buffer_size: 4096

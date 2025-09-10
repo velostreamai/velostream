@@ -1,0 +1,111 @@
+{
+  "type": "record",
+  "name": "TransactionAnalytics",
+  "namespace": "com.ferrisstreams.demo.datasource",
+  "doc": "Aggregated transaction analytics with tumbling window processing",
+  "fields": [
+    {
+      "name": "window_start",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Start of the aggregation window"
+    },
+    {
+      "name": "window_end", 
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "End of the aggregation window"
+    },
+    {
+      "name": "merchant_category",
+      "type": "string",
+      "doc": "Merchant category being aggregated"
+    },
+    {
+      "name": "transaction_count",
+      "type": "long",
+      "doc": "Number of transactions in this window"
+    },
+    {
+      "name": "total_amount",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4, 
+      "doc": "Total transaction amount with exact precision"
+    },
+    {
+      "name": "average_amount",
+      "type": "bytes", 
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Average transaction amount"
+    },
+    {
+      "name": "min_amount",
+      "type": "bytes",
+      "logicalType": "decimal", 
+      "precision": 19,
+      "scale": 4,
+      "doc": "Minimum transaction amount in window"
+    },
+    {
+      "name": "max_amount", 
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Maximum transaction amount in window"
+    },
+    {
+      "name": "unique_customers",
+      "type": "long",
+      "doc": "Number of unique customers in window"
+    },
+    {
+      "name": "high_value_count",
+      "type": "long",
+      "doc": "Number of high-value transactions (>$100)"
+    },
+    {
+      "name": "risk_alerts",
+      "type": "long", 
+      "doc": "Number of transactions flagged with high risk"
+    },
+    {
+      "name": "processing_metrics",
+      "type": {
+        "type": "record",
+        "name": "ProcessingMetrics",
+        "fields": [
+          {
+            "name": "records_processed",
+            "type": "long",
+            "doc": "Total records processed in window"
+          },
+          {
+            "name": "processing_duration_ms", 
+            "type": "long",
+            "doc": "Total processing time for window"
+          },
+          {
+            "name": "throughput_per_sec",
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 10,
+            "scale": 2,
+            "doc": "Average records processed per second"
+          }
+        ]
+      },
+      "doc": "Processing performance metrics"
+    },
+    {
+      "name": "generated_at",
+      "type": "long", 
+      "logicalType": "timestamp-millis",
+      "doc": "When this analytics record was generated"
+    }
+  ]
+}

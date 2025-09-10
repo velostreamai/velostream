@@ -1,0 +1,38 @@
+# Order Book Topic Configuration
+# Order book updates for flow imbalance analysis
+
+extends: common_kafka_source.yaml
+
+# Topic-specific settings
+topic:
+  name: "order_book_updates"
+  
+# Consumer group for order flow analysis
+consumer_group: "order_flow_analytics_group"
+
+# Performance profile for high throughput
+performance_profile: high_throughput
+
+# Topic-specific schema
+schema:
+  key_field: symbol
+  schema_file: "schemas/order_book_updates.avsc"
+  
+# Topic properties
+topic_config:
+  partitions: 16  # Highest parallelism for order book
+  retention_ms: 43200000  # 12 hours retention
+  cleanup_policy: "compact"  # Keep latest state per key
+  segment_ms: 1800000  # 30 minute segments
+  
+# Order book specific configuration
+orderbook_config:
+  depth_levels: 10
+  update_frequency: "real_time"
+  aggregation_interval: "1s"
+  
+# Business context
+metadata:
+  description: "Real-time order book updates for institutional flow analysis"
+  data_classification: "market_microstructure"
+  update_frequency: "milliseconds"

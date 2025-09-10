@@ -1,15 +1,23 @@
 -- SQL Application: Social Media Analytics Platform
--- Version: 1.5.2
+-- Version: 1.6.0
 -- Description: Real-time social media monitoring and sentiment analysis system
 -- Author: Social Analytics Team
--- Dependencies: kafka-tweets, kafka-posts, kafka-comments
+-- Dependencies: Configuration files in configs/ directory using extends pattern
 -- Tag: sentiment:enabled
 -- Tag: languages:multi
 
--- Name: Trending Hashtag Monitor
--- Property: min_mentions=100
--- Property: trending_window=1h
-START JOB trending_hashtags AS
+-- Configure social media streams using extends-based configuration
+CREATE STREAM social_posts WITH (
+    config_file = 'examples/configs/social_posts_topic.yaml'
+);
+
+CREATE STREAM trending_hashtags WITH (
+    config_file = 'examples/configs/trending_hashtags_sink.yaml'
+);
+
+-- Trending Hashtag Monitor
+-- Windowed analysis of popular hashtags
+INSERT INTO trending_hashtags
 SELECT 
     SUBSTRING(content, POSITION('#' IN content), POSITION(' ' IN content FROM POSITION('#' IN content)) - POSITION('#' IN content)) as hashtag,
     COUNT(*) as mention_count,
@@ -21,13 +29,15 @@ WHERE content LIKE '%#%'
     AND timestamp >= timestamp() - INTERVAL '1' HOUR
 GROUP BY SUBSTRING(content, POSITION('#' IN content), POSITION(' ' IN content FROM POSITION('#' IN content)) - POSITION('#' IN content))
 HAVING COUNT(*) > 100
-WINDOW TUMBLING(1h)
-WITH ('output.topic' = 'trending_hashtags');
+WINDOW TUMBLING(1h);
 
--- Name: Viral Content Detector
--- Property: viral_threshold=10000
--- Property: engagement_multiplier=5
-START JOB viral_content_detection AS
+-- Viral Content Detector
+-- Identifies high-engagement content for viral analysis
+CREATE STREAM viral_content_alerts WITH (
+    config_file = 'examples/configs/viral_content_alerts_sink.yaml'
+);
+
+INSERT INTO viral_content_alerts
 SELECT 
     post_id,
     user_id,
@@ -41,13 +51,15 @@ SELECT
     timestamp() as viral_detected_time
 FROM social_posts
 WHERE (likes_count + shares_count * 2 + comments_count * 3) > 10000
-    AND (likes_count + shares_count * 2 + comments_count * 3) / GREATEST(views_count, 1) > 0.1
-WITH ('output.topic' = 'viral_content_alerts');
+    AND (likes_count + shares_count * 2 + comments_count * 3) / GREATEST(views_count, 1) > 0.1;
 
--- Name: Sentiment Analysis Engine
--- Property: sentiment_threshold=0.8
--- Property: batch_size=1000
-START JOB sentiment_analysis AS
+-- Sentiment Analysis Engine
+-- Basic sentiment classification of social media content
+CREATE STREAM sentiment_analysis WITH (
+    config_file = 'examples/configs/sentiment_analysis_sink.yaml'
+);
+
+INSERT INTO sentiment_analysis
 SELECT 
     post_id,
     user_id,
@@ -65,13 +77,15 @@ SELECT
     LENGTH(content) as content_length,
     timestamp() as analyzed_at
 FROM social_posts
-WHERE content IS NOT NULL AND LENGTH(content) > 10
-WITH ('output.topic' = 'sentiment_analysis');
+WHERE content IS NOT NULL AND LENGTH(content) > 10;
 
--- Name: Influencer Activity Monitor
--- Property: min_followers=10000
--- Property: activity_threshold=5
-START JOB influencer_monitoring AS
+-- Influencer Activity Monitor
+-- Windowed monitoring of high-follower user activity
+CREATE STREAM influencer_activity WITH (
+    config_file = 'examples/configs/influencer_activity_sink.yaml'
+);
+
+INSERT INTO influencer_activity
 SELECT 
     user_id,
     username,
@@ -86,13 +100,15 @@ WHERE follower_count > 10000
     AND timestamp >= timestamp() - INTERVAL '1' HOUR
 GROUP BY user_id, username, follower_count
 HAVING COUNT(*) > 5
-WINDOW TUMBLING(1h)
-WITH ('output.topic' = 'influencer_activity');
+WINDOW TUMBLING(1h);
 
--- Name: Crisis Detection System
--- Property: crisis_keywords=disaster,emergency,breaking,urgent
--- Property: alert_threshold=50
-START JOB crisis_detection AS
+-- Crisis Detection System
+-- Emergency and disaster keyword monitoring
+CREATE STREAM crisis_alerts WITH (
+    config_file = 'examples/configs/crisis_alerts_sink.yaml'
+);
+
+INSERT INTO crisis_alerts
 SELECT 
     'CRISIS_ALERT' as alert_type,
     CASE 
@@ -117,5 +133,4 @@ GROUP BY CASE
     WHEN content LIKE '%fire%' OR content LIKE '%earthquake%' THEN 'NATURAL_DISASTER'
     ELSE 'GENERAL_CRISIS'
 END
-HAVING COUNT(*) > 50
-WITH ('output.topic' = 'crisis_alerts');
+HAVING COUNT(*) > 50;

@@ -5,11 +5,11 @@ Tests for fundamental execution engine functionality including engine creation,
 simple SELECT queries, and basic field selection.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -19,28 +19,34 @@ fn create_test_record(
     customer_id: i64,
     amount: f64,
     status: Option<&str>,
-) -> HashMap<String, InternalValue> {
-    let mut record = HashMap::new();
-    record.insert("id".to_string(), InternalValue::Integer(id));
-    record.insert(
-        "customer_id".to_string(),
-        InternalValue::Integer(customer_id),
-    );
-    record.insert("amount".to_string(), InternalValue::Number(amount));
+) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
     if let Some(s) = status {
-        record.insert("status".to_string(), InternalValue::String(s.to_string()));
+        fields.insert("status".to_string(), FieldValue::String(s.to_string()));
+    } else {
+        fields.insert("status".to_string(), FieldValue::Null);
     }
-    record.insert(
+    fields.insert(
         "timestamp".to_string(),
-        InternalValue::Integer(chrono::Utc::now().timestamp()),
+        FieldValue::Integer(chrono::Utc::now().timestamp()),
     );
-    record
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
 }
 
 #[tokio::test]
 async fn test_engine_creation() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let _engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let _engine = StreamExecutionEngine::new(tx);
 
     // Basic creation test - engine should start without errors
     assert!(true); // Engine created successfully
@@ -49,7 +55,7 @@ async fn test_engine_creation() {
 #[tokio::test]
 async fn test_execute_simple_select() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -66,7 +72,7 @@ async fn test_execute_simple_select() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     // Check that result was sent to channel
@@ -77,7 +83,7 @@ async fn test_execute_simple_select() {
 #[tokio::test]
 async fn test_execute_specific_columns() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -103,20 +109,20 @@ async fn test_execute_specific_columns() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     // Check output contains only selected fields
     let output = rx.try_recv().unwrap();
-    assert!(output.contains_key("id"));
-    assert!(output.contains_key("total")); // Should use alias
-    assert!(!output.contains_key("customer_id")); // Should not be included
+    assert!(output.fields.contains_key("id"));
+    assert!(output.fields.contains_key("total")); // Should use alias
+    assert!(!output.fields.contains_key("customer_id")); // Should not be included
 }
 
 #[tokio::test]
 async fn test_execute_with_literals() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -142,21 +148,24 @@ async fn test_execute_with_literals() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    assert_eq!(output.get("constant"), Some(&InternalValue::Integer(42)));
     assert_eq!(
-        output.get("message"),
-        Some(&InternalValue::String("test".to_string()))
+        output.fields.get("constant"),
+        Some(&FieldValue::Integer(42))
+    );
+    assert_eq!(
+        output.fields.get("message"),
+        Some(&FieldValue::String("test".to_string()))
     );
 }
 
 #[tokio::test]
 async fn test_missing_column_returns_null() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -176,18 +185,21 @@ async fn test_missing_column_returns_null() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
     // Missing columns should return NULL
-    assert_eq!(output.get("nonexistent_column"), Some(&InternalValue::Null));
+    assert_eq!(
+        output.fields.get("nonexistent_column"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]
 async fn test_multiple_records_processing() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -205,7 +217,7 @@ async fn test_multiple_records_processing() {
     // Process multiple records
     for i in 1..=5 {
         let record = create_test_record(i, 100 + i, 100.0 * i as f64, Some("pending"));
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok());
     }
 
@@ -223,7 +235,7 @@ async fn test_multiple_records_processing() {
 #[tokio::test]
 async fn test_null_value_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -243,14 +255,14 @@ async fn test_null_value_handling() {
 
     let record = create_test_record(1, 100, 299.99, None); // No status (null)
 
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
     // The status field should either be absent or null
-    match output.get("status") {
-        None => {}                      // Field is absent, which is acceptable
-        Some(InternalValue::Null) => {} // Field is explicitly null, which is also acceptable
+    match output.fields.get("status") {
+        None => {}                   // Field is absent, which is acceptable
+        Some(FieldValue::Null) => {} // Field is explicitly null, which is also acceptable
         _ => panic!("Expected null or absent status field"),
     }
 }

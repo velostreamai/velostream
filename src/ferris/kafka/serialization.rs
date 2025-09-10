@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
 
-#[cfg(feature = "protobuf")]
 use prost::Message;
 
-#[cfg(feature = "avro")]
 use apache_avro::{
-    from_avro_datum, to_avro_datum, types::Value as AvroValue, Error as AvroError,
-    Schema as AvroSchema,
+    from_avro_datum, to_avro_datum, types::Value as AvroValue, Schema as AvroSchema,
 };
+
+use std::io::Cursor;
+
+// Use the unified serialization error from the main serialization module
+pub use crate::ferris::serialization::SerializationError;
 
 /// Trait for objects that can be serialized to bytes for Kafka messages
 pub trait KafkaSerialize {
@@ -79,37 +80,19 @@ pub trait AsyncSerializer<T: Send + Sync> {
     }
 }
 
-/// Enumeration of possible serialization errors
-#[derive(Debug, thiserror::Error)]
-pub enum SerializationError {
-    #[error("JSON serialization error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Protocol Buffers error: {0}")]
-    ProtoBuf(String),
-
-    #[cfg(feature = "avro")]
-    #[error("Avro serialization error: {0}")]
-    Avro(#[from] AvroError),
-
-    #[error("Schema error: {0}")]
-    Schema(String),
-
-    #[error("Feature not enabled: {0}")]
-    FeatureNotEnabled(String),
-}
-
 // JSON Serialization Helpers
 //==========================
 
 /// Serialize a struct to JSON bytes
 pub fn to_json<T: Serialize>(value: &T) -> Result<Vec<u8>, SerializationError> {
-    Ok(serde_json::to_vec(value)?)
+    serde_json::to_vec(value)
+        .map_err(|e| SerializationError::json_error("Failed to serialize to JSON bytes", e))
 }
 
 /// Deserialize JSON bytes to a struct
 pub fn from_json<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, SerializationError> {
-    Ok(serde_json::from_slice(bytes)?)
+    serde_json::from_slice(bytes)
+        .map_err(|e| SerializationError::json_error("Failed to deserialize from JSON bytes", e))
 }
 
 // Implementation for any type that implements Serialize
@@ -172,45 +155,30 @@ where
 // Avro Serialization Helpers
 //==========================
 
-#[cfg(feature = "avro")]
 /// Serialize a value to Avro bytes using a schema
 pub fn to_avro(value: &AvroValue, schema: &AvroSchema) -> Result<Vec<u8>, SerializationError> {
-    Ok(to_avro_datum(schema, value.clone())?)
+    to_avro_datum(schema, value.clone())
+        .map_err(|e| SerializationError::avro_error("Failed to serialize to Avro bytes", e))
 }
 
-#[cfg(feature = "avro")]
 /// Deserialize Avro bytes to a value using a schema
 pub fn from_avro(bytes: &[u8], schema: &AvroSchema) -> Result<AvroValue, SerializationError> {
     let mut cursor = Cursor::new(bytes);
-    Ok(from_avro_datum(schema, &mut cursor, None)?)
+    from_avro_datum(schema, &mut cursor, None)
+        .map_err(|e| SerializationError::avro_error("Failed to deserialize from Avro bytes", e))
 }
 
-#[cfg(not(feature = "avro"))]
-/// Placeholder when Avro feature is not enabled
-pub fn to_avro(_value: &(), _schema: &()) -> Result<Vec<u8>, SerializationError> {
-    Err(SerializationError::FeatureNotEnabled("avro".to_string()))
-}
-
-#[cfg(not(feature = "avro"))]
-/// Placeholder when Avro feature is not enabled
-pub fn from_avro(_bytes: &[u8], _schema: &()) -> Result<(), SerializationError> {
-    Err(SerializationError::FeatureNotEnabled("avro".to_string()))
-}
-
-#[cfg(feature = "avro")]
 /// Avro serializer implementation
 pub struct AvroSerializer {
     schema: AvroSchema,
 }
 
-#[cfg(feature = "avro")]
 impl AvroSerializer {
     pub fn new(schema: AvroSchema) -> Self {
         Self { schema }
     }
 }
 
-#[cfg(feature = "avro")]
 impl Serializer<AvroValue> for AvroSerializer {
     fn serialize(&self, value: &AvroValue) -> Result<Vec<u8>, SerializationError> {
         to_avro(value, &self.schema)
@@ -224,60 +192,44 @@ impl Serializer<AvroValue> for AvroSerializer {
 // Protocol Buffers Serialization Helpers
 //======================================
 
-#[cfg(feature = "protobuf")]
 /// Serialize a Protocol Buffers message to bytes
 pub fn to_proto<T: Message>(message: &T) -> Result<Vec<u8>, SerializationError> {
     let mut buf = Vec::new();
     match message.encode(&mut buf) {
         Ok(_) => Ok(buf),
-        Err(e) => Err(SerializationError::ProtoBuf(e.to_string())),
+        Err(e) => Err(SerializationError::protobuf_error(
+            "Failed to encode protobuf message",
+            e,
+        )),
     }
 }
 
-#[cfg(feature = "protobuf")]
 /// Deserialize bytes to a Protocol Buffers message
 pub fn from_proto<T: Message + Default>(bytes: &[u8]) -> Result<T, SerializationError> {
     match T::decode(bytes) {
         Ok(message) => Ok(message),
-        Err(e) => Err(SerializationError::ProtoBuf(e.to_string())),
+        Err(e) => Err(SerializationError::protobuf_error(
+            "Failed to decode protobuf message",
+            e,
+        )),
     }
 }
 
-#[cfg(not(feature = "protobuf"))]
-/// Placeholder when Protocol Buffers feature is not enabled
-pub fn to_proto<T>(_message: &T) -> Result<Vec<u8>, SerializationError> {
-    Err(SerializationError::FeatureNotEnabled(
-        "protobuf".to_string(),
-    ))
-}
-
-#[cfg(not(feature = "protobuf"))]
-/// Placeholder when Protocol Buffers feature is not enabled
-pub fn from_proto<T>(_bytes: &[u8]) -> Result<T, SerializationError> {
-    Err(SerializationError::FeatureNotEnabled(
-        "protobuf".to_string(),
-    ))
-}
-
-#[cfg(feature = "protobuf")]
 /// Protocol Buffers serializer implementation
 pub struct ProtoSerializer<T: Message + Default>(std::marker::PhantomData<T>);
 
-#[cfg(feature = "protobuf")]
 impl<T: Message + Default> Default for ProtoSerializer<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "protobuf")]
 impl<T: Message + Default> ProtoSerializer<T> {
     pub fn new() -> Self {
         Self(std::marker::PhantomData)
     }
 }
 
-#[cfg(feature = "protobuf")]
 impl<T: Message + Default> Serializer<T> for ProtoSerializer<T> {
     fn serialize(&self, message: &T) -> Result<Vec<u8>, SerializationError> {
         to_proto(message)
@@ -317,6 +269,6 @@ impl Serializer<String> for StringSerializer {
 
     fn deserialize(&self, bytes: &[u8]) -> Result<String, SerializationError> {
         String::from_utf8(bytes.to_vec())
-            .map_err(|e| SerializationError::Schema(format!("Invalid UTF-8: {}", e)))
+            .map_err(|e| SerializationError::SchemaError(format!("Invalid UTF-8: {}", e)))
     }
 }

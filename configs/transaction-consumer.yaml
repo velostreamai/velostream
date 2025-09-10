@@ -1,0 +1,177 @@
+# Transaction-Enabled Kafka Consumer Configuration
+# Optimized for exactly-once processing with transactional guarantees
+# Compatible with FerrisStreams transactional multi-job processing
+
+datasource:
+  type: kafka
+  
+  # Transactional consumer configuration
+  consumer_config:
+    bootstrap_servers: "localhost:9092"
+    
+    # Transactional settings
+    isolation_level: "read_committed"  # Only read committed transactions
+    enable_auto_commit: false          # Manual commit for transaction control
+    
+    # Group coordination for transaction consistency
+    group_id: "ferris-tx-consumer-group"
+    auto_offset_reset: "earliest"      # Ensure no data loss in transactions
+    session_timeout_ms: 30000          # Increased for transaction stability
+    heartbeat_interval_ms: 3000        # More frequent heartbeats
+    max_poll_interval_ms: 300000       # 5 minutes for complex transactions
+    
+    # Optimized for transactional throughput
+    fetch_min_bytes: 1024              # Small batches for low latency
+    fetch_max_bytes: 52428800          # 50MB max fetch
+    fetch_max_wait_ms: 500             # Balance latency vs throughput
+    max_poll_records: 500              # Manageable transaction batch size
+    max_partition_fetch_bytes: 1048576 # 1MB per partition
+    
+    # Connection reliability for transactions
+    connections_max_idle_ms: 540000    # 9 minutes
+    request_timeout_ms: 30000          # 30 seconds
+    retry_backoff_ms: 100
+    reconnect_backoff_ms: 50
+    reconnect_backoff_max_ms: 1000
+    
+  # Schema configuration supporting transactional data
+  schema:
+    key_format: string
+    value_format: json
+    
+    # Enhanced schema for transactional metadata
+    include_transaction_metadata: true
+    transaction_id_field: "tx_id"
+    sequence_number_field: "seq_num"
+    
+    # Schema Registry for consistent transactional schemas
+    registry_url: "http://localhost:8081"
+    # registry_username: "tx_schema_user"
+    # registry_password: "tx_schema_pass"
+    
+    # Financial precision schema support
+    financial_fields:
+      - field: "amount"
+        type: "scaled_integer"
+        precision: 4
+      - field: "price"
+        type: "scaled_integer"
+        precision: 4
+      - field: "quantity"
+        type: "integer"
+    
+  # Transaction-specific performance settings
+  performance:
+    # Conservative settings for consistency
+    preset: "max_durability"
+    
+    # Memory management for large transactions
+    receive_buffer_bytes: 262144        # 256KB
+    send_buffer_bytes: 262144           # 256KB
+    
+    # Compression for transaction efficiency
+    compression_type: "lz4"             # Fast compression for transactions
+    
+  # Monitoring and observability
+  metrics:
+    enable_transaction_metrics: true
+    transaction_timeout_alerts: true
+    lag_monitoring: true
+    
+  # Security settings for transaction integrity
+  security:
+    protocol: "SASL_SSL"
+    sasl_mechanism: "SCRAM-SHA-512"
+    # sasl_username: "tx_consumer"
+    # sasl_password: "secure_tx_password"
+    
+    # SSL configuration
+    ssl_ca_location: "/etc/ssl/certs/ca-cert.pem"
+    ssl_certificate_location: "/etc/ssl/certs/client-cert.pem"
+    ssl_key_location: "/etc/ssl/private/client-key.pem"
+    ssl_key_password: "client_key_password"
+
+# Transaction processing profiles
+transaction_profiles:
+  financial_strict:
+    # Strictest consistency for financial transactions
+    isolation_level: "read_committed"
+    max_poll_records: 100
+    session_timeout_ms: 45000
+    enable_idempotence: true
+    transaction_timeout_ms: 60000
+    
+  batch_processing:
+    # Optimized for batch transaction processing
+    isolation_level: "read_committed"
+    max_poll_records: 1000
+    session_timeout_ms: 30000
+    fetch_max_wait_ms: 1000
+    transaction_timeout_ms: 300000
+    
+  real_time:
+    # Low latency with transaction guarantees
+    isolation_level: "read_committed"
+    max_poll_records: 50
+    session_timeout_ms: 15000
+    fetch_max_wait_ms: 100
+    transaction_timeout_ms: 30000
+
+# Error handling and recovery
+error_handling:
+  transaction_failure_strategy: "abort_and_retry"
+  max_retries: 3
+  retry_backoff_ms: 1000
+  
+  # Dead letter queue for failed transactions
+  dlq_enabled: true
+  dlq_topic: "ferris-tx-dlq"
+  dlq_headers:
+    failure_reason: "transaction_failure"
+    original_topic: "#{source_topic}"
+    failure_timestamp: "#{current_timestamp}"
+  
+# Integration with FerrisStreams multi-job processor
+ferris_integration:
+  processor_type: "transactional"        # Use TransactionalJobProcessor
+  job_config:
+    use_transactions: true
+    failure_strategy: "abort_transaction"
+    max_batch_size: 500
+    batch_timeout_ms: 5000
+    commit_interval_ms: 10000
+    
+  # Memory optimization for transactions
+  memory_config:
+    record_pool_size: 1000
+    field_map_pool_size: 1000
+    transaction_buffer_size: 10000
+    
+# Validation rules for transactional data
+validation:
+  required_fields:
+    - "transaction_id"
+    - "timestamp" 
+    - "sequence_number"
+  
+  field_constraints:
+    transaction_id:
+      type: "string"
+      max_length: 128
+      pattern: "^tx-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    
+    timestamp:
+      type: "integer"
+      min_value: 1640995200000  # 2022-01-01 00:00:00 UTC
+      
+    sequence_number:
+      type: "integer" 
+      min_value: 0
+
+# Topic configuration recommendations
+recommended_topic_config:
+  min.insync.replicas: 2
+  unclean.leader.election.enable: false
+  default.replication.factor: 3
+  log.flush.interval.messages: 1
+  log.flush.interval.ms: 1000

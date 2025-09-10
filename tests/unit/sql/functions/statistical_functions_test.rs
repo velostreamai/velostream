@@ -12,31 +12,38 @@ Note: In streaming context with single records, these functions return simplifie
 In real windowed implementations, these would calculate actual statistics across multiple records.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-fn create_test_record() -> HashMap<String, InternalValue> {
-    let mut record = HashMap::new();
-    record.insert("value_int".to_string(), InternalValue::Integer(42));
-    record.insert("value_float".to_string(), InternalValue::Number(PI));
-    record.insert("negative_value".to_string(), InternalValue::Integer(-10));
-    record.insert("zero_value".to_string(), InternalValue::Integer(0));
-    record.insert("null_value".to_string(), InternalValue::Null);
-    record.insert("large_value".to_string(), InternalValue::Number(1000.5));
-    record
+fn create_test_record() -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("value_int".to_string(), FieldValue::Integer(42));
+    fields.insert("value_float".to_string(), FieldValue::Float(PI));
+    fields.insert("negative_value".to_string(), FieldValue::Integer(-10));
+    fields.insert("zero_value".to_string(), FieldValue::Integer(0));
+    fields.insert("null_value".to_string(), FieldValue::Null);
+    fields.insert("large_value".to_string(), FieldValue::Float(1000.5));
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 1,
+        partition: 0,
+        headers: HashMap::new(),
+    }
 }
 
 #[tokio::test]
 async fn test_stddev_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["STDDEV", "STDDEV_SAMP"]; // Test both aliases
 
@@ -61,12 +68,12 @@ async fn test_stddev_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "{} execution failed", function_name);
 
         let output = rx.try_recv().unwrap();
-        match output.get("stddev_result") {
-            Some(InternalValue::Number(f)) => {
+        match output.fields.get("stddev_result") {
+            Some(FieldValue::Float(f)) => {
                 // In streaming single-record context, stddev should be 0.0
                 assert!(
                     (*f - 0.0).abs() < 0.0001,
@@ -83,7 +90,7 @@ async fn test_stddev_functions() {
 #[tokio::test]
 async fn test_stddev_pop_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -105,12 +112,12 @@ async fn test_stddev_pop_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok(), "STDDEV_POP execution failed");
 
     let output = rx.try_recv().unwrap();
-    match output.get("stddev_pop_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("stddev_pop_result") {
+        Some(FieldValue::Float(f)) => {
             // In streaming single-record context, stddev_pop should be 0.0
             assert!(
                 (*f - 0.0).abs() < 0.0001,
@@ -125,7 +132,7 @@ async fn test_stddev_pop_function() {
 #[tokio::test]
 async fn test_variance_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["VARIANCE", "VAR_SAMP"]; // Test both aliases
 
@@ -150,12 +157,12 @@ async fn test_variance_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "{} execution failed", function_name);
 
         let output = rx.try_recv().unwrap();
-        match output.get("variance_result") {
-            Some(InternalValue::Number(f)) => {
+        match output.fields.get("variance_result") {
+            Some(FieldValue::Float(f)) => {
                 // In streaming single-record context, variance should be 0.0
                 assert!(
                     (*f - 0.0).abs() < 0.0001,
@@ -172,7 +179,7 @@ async fn test_variance_functions() {
 #[tokio::test]
 async fn test_var_pop_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Expression {
@@ -194,12 +201,12 @@ async fn test_var_pop_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok(), "VAR_POP execution failed");
 
     let output = rx.try_recv().unwrap();
-    match output.get("var_pop_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("var_pop_result") {
+        Some(FieldValue::Float(f)) => {
             // In streaming single-record context, var_pop should be 0.0
             assert!(
                 (*f - 0.0).abs() < 0.0001,
@@ -214,7 +221,7 @@ async fn test_var_pop_function() {
 #[tokio::test]
 async fn test_median_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (column_name, expected_type, expected_value)
@@ -246,7 +253,7 @@ async fn test_median_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "MEDIAN execution failed for {}: {:?}",
@@ -255,15 +262,15 @@ async fn test_median_function() {
         );
 
         let output = rx.try_recv().unwrap();
-        match (output.get("median_result"), expected_type) {
-            (Some(InternalValue::Integer(i)), "integer") => {
+        match (output.fields.get("median_result"), expected_type) {
+            (Some(FieldValue::Integer(i)), "integer") => {
                 assert_eq!(
                     *i as f64, expected_value,
                     "MEDIAN({}) should return {}, got {}",
                     column_name, expected_value, i
                 );
             }
-            (Some(InternalValue::Number(f)), "float") => {
+            (Some(FieldValue::Float(f)), "float") => {
                 assert!(
                     (*f - expected_value).abs() < 0.0001,
                     "MEDIAN({}) should return {}, got {}",
@@ -283,7 +290,7 @@ async fn test_median_function() {
 #[tokio::test]
 async fn test_statistical_function_null_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec![
         "STDDEV",
@@ -316,12 +323,12 @@ async fn test_statistical_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "{} with NULL should succeed", function_name);
 
         let output = rx.try_recv().unwrap();
         assert!(
-            matches!(output.get("result"), Some(InternalValue::Null)),
+            matches!(output.fields.get("result"), Some(FieldValue::Null)),
             "{} with NULL should return NULL",
             function_name
         );
@@ -331,7 +338,7 @@ async fn test_statistical_function_null_handling() {
 #[tokio::test]
 async fn test_statistical_function_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let error_cases = vec![
         // (function_name, args, expected_error_message_contains)
@@ -365,7 +372,7 @@ async fn test_statistical_function_error_cases() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_err(),
             "{} with wrong args should fail",
@@ -384,7 +391,7 @@ async fn test_statistical_function_error_cases() {
 #[tokio::test]
 async fn test_statistical_functions_with_non_numeric_types() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec![
         "STDDEV",
@@ -397,11 +404,18 @@ async fn test_statistical_functions_with_non_numeric_types() {
     ];
 
     // Create record with non-numeric field
-    let mut record = HashMap::new();
-    record.insert(
+    let mut fields = HashMap::new();
+    fields.insert(
         "string_field".to_string(),
-        InternalValue::String("not_a_number".to_string()),
+        FieldValue::String("not_a_number".to_string()),
     );
+    let record = StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 1,
+        partition: 0,
+        headers: HashMap::new(),
+    };
 
     for function_name in functions {
         let query = StreamingQuery::Select {
@@ -423,7 +437,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
             emit_mode: None,
         };
 
-        let result = engine.execute(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, record.clone()).await;
         assert!(
             result.is_err(),
             "{} with non-numeric argument should fail",
@@ -442,7 +456,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
 #[tokio::test]
 async fn test_statistical_functions_with_literal_values() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test with literal values instead of columns
     let test_cases = vec![
@@ -473,7 +487,7 @@ async fn test_statistical_functions_with_literal_values() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "{} with literal {:?} should succeed",
@@ -482,15 +496,15 @@ async fn test_statistical_functions_with_literal_values() {
         );
 
         let output = rx.try_recv().unwrap();
-        match output.get("result") {
-            Some(InternalValue::Integer(i)) => {
+        match output.fields.get("result") {
+            Some(FieldValue::Integer(i)) => {
                 assert_eq!(
                     *i as f64, expected,
                     "{} with literal {:?} should return {}, got {}",
                     function_name, literal_value, expected, i
                 );
             }
-            Some(InternalValue::Number(f)) => {
+            Some(FieldValue::Float(f)) => {
                 assert!(
                     (*f - expected).abs() < 0.0001,
                     "{} with literal {:?} should return {}, got {}",
@@ -511,7 +525,7 @@ async fn test_statistical_functions_with_literal_values() {
 #[tokio::test]
 async fn test_multiple_statistical_functions_in_single_query() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test using multiple statistical functions in one query
     let query = StreamingQuery::Select {
@@ -550,14 +564,14 @@ async fn test_multiple_statistical_functions_in_single_query() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok(), "err:{:}", result.unwrap_err());
 
     let output = rx.try_recv().unwrap();
 
     // Check STDDEV result
-    match output.get("stddev_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("stddev_result") {
+        Some(FieldValue::Float(f)) => {
             assert!(
                 (*f - 0.0).abs() < 0.0001,
                 "STDDEV should return 0.0, got {}",
@@ -568,8 +582,8 @@ async fn test_multiple_statistical_functions_in_single_query() {
     }
 
     // Check VARIANCE result
-    match output.get("variance_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("variance_result") {
+        Some(FieldValue::Float(f)) => {
             assert!(
                 (*f - 0.0).abs() < 0.0001,
                 "VARIANCE should return 0.0, got {}",
@@ -580,8 +594,8 @@ async fn test_multiple_statistical_functions_in_single_query() {
     }
 
     // Check MEDIAN result
-    match output.get("median_result") {
-        Some(InternalValue::Integer(i)) => {
+    match output.fields.get("median_result") {
+        Some(FieldValue::Integer(i)) => {
             assert_eq!(*i, 42, "MEDIAN should return 42, got {}", i);
         }
         _ => panic!("Expected integer result for MEDIAN"),

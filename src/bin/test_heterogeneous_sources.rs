@@ -4,7 +4,8 @@
 //! and writing to another (e.g., Kafka -> ClickHouse)
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::sql::datasource::{DataReader, DataWriter, SourceOffset};
+use ferrisstreams::ferris::datasource::types::SourceOffset;
+use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
 use ferrisstreams::ferris::sql::execution::processors::ProcessorContext;
 use ferrisstreams::ferris::sql::execution::FieldValue;
 use ferrisstreams::ferris::sql::execution::StreamRecord;
@@ -60,26 +61,13 @@ impl MockKafkaReader {
 
 #[async_trait]
 impl DataReader for MockKafkaReader {
-    async fn read(&mut self) -> Result<Option<StreamRecord>, Box<dyn Error + Send + Sync>> {
+    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        let mut batch = Vec::new();
+        // Return one record per call (batch size 1)
         if self.current_index < self.records.len() {
             let record = self.records[self.current_index].clone();
             self.current_index += 1;
-            Ok(Some(record))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn read_batch(
-        &mut self,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let mut batch = Vec::new();
-        for _ in 0..max_size {
-            match self.read().await? {
-                Some(record) => batch.push(record),
-                None => break,
-            }
+            batch.push(record);
         }
         Ok(batch)
     }
@@ -270,19 +258,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     context.set_active_reader("kafka_events")?;
     context.set_active_writer("clickhouse_analytics")?;
 
-    while let Some(record) = context.read().await? {
-        // Transform record for analytics (example transformation)
-        let mut analytics_record = record.clone();
-        if let Some(FieldValue::String(action)) = record.fields.get("action") {
-            if action == "purchase" {
-                analytics_record.fields.insert(
-                    "event_type".to_string(),
-                    FieldValue::String("conversion".to_string()),
-                );
-            }
+    loop {
+        let records = context.read().await?;
+        if records.is_empty() {
+            break; // No more data
         }
 
-        context.write(analytics_record).await?;
+        for record in records {
+            // Transform record for analytics (example transformation)
+            let mut analytics_record = record.clone();
+            if let Some(FieldValue::String(action)) = record.fields.get("action") {
+                if action == "purchase" {
+                    analytics_record.fields.insert(
+                        "event_type".to_string(),
+                        FieldValue::String("conversion".to_string()),
+                    );
+                }
+            }
+
+            context.write(analytics_record).await?;
+        }
     }
 
     context.commit_sink("clickhouse_analytics").await?;
@@ -299,7 +294,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     context.set_active_writer("s3_data_lake")?;
 
     // Read batch and write to S3
-    let batch = context.read_batch_from("kafka_events_2", 10).await?;
+    let batch = context.read_from("kafka_events_2").await?;
     if !batch.is_empty() {
         context.write_batch_to("s3_data_lake", batch).await?;
         context.commit_sink("s3_data_lake").await?;
@@ -312,12 +307,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let kafka_reader3: Box<dyn DataReader> = Box::new(MockKafkaReader::new());
     context.add_reader("kafka_events_3", kafka_reader3);
 
-    while let Some(record) = context.read_from("kafka_events_3").await? {
-        // Write to both sinks
-        context
-            .write_to("clickhouse_analytics", record.clone())
-            .await?;
-        context.write_to("s3_data_lake", record).await?;
+    loop {
+        let records = context.read_from("kafka_events_3").await?;
+        if records.is_empty() {
+            break; // No more data
+        }
+
+        for record in records {
+            // Write to both sinks
+            context
+                .write_to("clickhouse_analytics", record.clone())
+                .await?;
+            context.write_to("s3_data_lake", record).await?;
+        }
     }
 
     // Commit both sinks

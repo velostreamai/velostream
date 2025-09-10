@@ -840,6 +840,8 @@ pub struct StreamRecord {
     pub headers: HashMap<String, String>,
 }
 
+impl StreamRecord {}
+
 impl StreamRecord {
     /// Create a new StreamRecord with the given fields
     ///
@@ -892,5 +894,12 @@ impl StreamRecord {
     /// Get the number of fields in this record
     pub fn field_count(&self) -> usize {
         self.fields.len()
+    }
+
+    /// Check if the record contains a specific key
+    ///
+    /// Returns true if the specified key exists in the record's fields.
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.fields.contains_key(name)
     }
 }

@@ -166,6 +166,15 @@ impl Headers {
 
         Self { inner: headers }
     }
+
+    /// Converts the headers into a standard HashMap, discarding any null values.
+    /// This method consumes `self` to avoid cloning.
+    pub fn into_map(self) -> HashMap<String, String> {
+        self.inner
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|v| (key, v)))
+            .collect()
+    }
 }
 
 impl Default for Headers {

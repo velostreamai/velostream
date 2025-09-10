@@ -29,10 +29,9 @@ src/ferris/kafka/                    # Kafka-specific module (22 files)
 ├── kafka_producer.rs               # Producer implementation
 └── client_config_builder.rs        # Configuration builders
 
-src/bin/                            # Binary entry points (3 files)
-├── sql_server.rs                   # SQL server CLI
-├── ferris_cli.rs                   # Main CLI tool
-└── multi_job_sql_server.rs         # Multi-job server
+src/bin/                            # Binary entry points (2 files)
+├── ferris_cli.rs                   # Main CLI tool  
+└── ferris-sql-multi.rs             # Multi-job SQL server
 
 src/lib.rs, src/main.rs             # Library/binary roots
 ```

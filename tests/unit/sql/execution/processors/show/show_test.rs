@@ -4,13 +4,13 @@
 Comprehensive test suite for schema introspection operations.
 */
 
+use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::ast::{ShowResourceType, StreamingQuery};
 use ferrisstreams::ferris::sql::execution::processors::{
     JoinContext, ProcessorContext, QueryProcessor,
 };
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
 use std::collections::HashMap;
 
 fn create_test_record() -> StreamRecord {

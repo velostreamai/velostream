@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("6. Consumer Configurations:");
 
     // Basic consumer
-    let basic_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
+    let _basic_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-processors",
         JsonSerializer,
@@ -142,38 +142,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Created basic consumer with defaults");
 
     // High-throughput consumer
-    let ht_consumer_config = ConsumerConfig::new("localhost:9092", "ht-processors")
+    let _ht_consumer_config = ConsumerConfig::new("localhost:9092", "ht-processors")
         .client_id("ht-consumer")
         .high_throughput();
 
-    let ht_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        ht_consumer_config,
+    let _ht_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+        _ht_consumer_config,
         JsonSerializer,
         JsonSerializer,
     )?;
     println!("✅ Created high-throughput consumer");
 
     // Streaming consumer
-    let streaming_config = ConsumerConfig::new("localhost:9092", "stream-processors")
+    let _streaming_config = ConsumerConfig::new("localhost:9092", "stream-processors")
         .client_id("streaming-consumer")
         .auto_offset_reset(OffsetReset::Latest)
         .streaming(); // Optimized for continuous processing
 
-    let streaming_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        streaming_config,
+    let _streaming_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+        _streaming_config,
         JsonSerializer,
         JsonSerializer,
     )?;
     println!("✅ Created streaming consumer");
 
     // Development consumer
-    let dev_config = ConsumerConfig::new("localhost:9092", "dev-processors")
+    let _dev_config = ConsumerConfig::new("localhost:9092", "dev-processors")
         .client_id("dev-consumer")
         .development() // Development-friendly settings
         .auto_commit(true, Duration::from_secs(1));
 
-    let dev_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        dev_config,
+    let _dev_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+        _dev_config,
         JsonSerializer,
         JsonSerializer,
     )?;

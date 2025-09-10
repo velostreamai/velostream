@@ -1,0 +1,85 @@
+{
+  "type": "record",
+  "name": "MarketData",
+  "namespace": "com.trading.streams",
+  "doc": "High-frequency market data with exact financial precision",
+  "fields": [
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol (e.g., AAPL, MSFT)"
+    },
+    {
+      "name": "exchange",
+      "type": "string",
+      "doc": "Exchange identifier (e.g., NYSE, NASDAQ)"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Market data timestamp in milliseconds"
+    },
+    {
+      "name": "price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Current price with 4 decimal places precision (e.g., 123.4567)"
+    },
+    {
+      "name": "bid_price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Best bid price with 4 decimal places precision"
+    },
+    {
+      "name": "ask_price",
+      "type": "bytes",
+      "logicalType": "decimal",
+      "precision": 19,
+      "scale": 4,
+      "doc": "Best ask price with 4 decimal places precision"
+    },
+    {
+      "name": "bid_size",
+      "type": "long",
+      "doc": "Bid quantity"
+    },
+    {
+      "name": "ask_size",
+      "type": "long",
+      "doc": "Ask quantity"
+    },
+    {
+      "name": "volume",
+      "type": "long",
+      "doc": "Trading volume"
+    },
+    {
+      "name": "vwap",
+      "type": ["null", {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 19,
+        "scale": 4
+      }],
+      "doc": "Volume-weighted average price with 4 decimal places precision",
+      "default": null
+    },
+    {
+      "name": "market_cap",
+      "type": ["null", {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 28,
+        "scale": 2
+      }],
+      "doc": "Market capitalization with 2 decimal places precision",
+      "default": null
+    }
+  ]
+}

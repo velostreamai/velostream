@@ -1,10 +1,10 @@
 //! Processor execution context and state management
 
-use crate::ferris::sql::datasource::{DataReader, DataWriter, SourceOffset};
+use crate::ferris::datasource::{DataReader, DataWriter, SourceOffset};
+use crate::ferris::schema::{Schema, StreamHandle};
 use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
 use crate::ferris::sql::execution::StreamRecord;
-use crate::ferris::sql::schema::{Schema, StreamHandle};
 use crate::ferris::sql::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -227,7 +227,7 @@ impl ProcessorContext {
     }
 
     /// Read from a specific data source
-    pub async fn read_from(&mut self, source_name: &str) -> Result<Option<StreamRecord>, SqlError> {
+    pub async fn read_from(&mut self, source_name: &str) -> Result<Vec<StreamRecord>, SqlError> {
         let reader =
             self.data_readers
                 .get_mut(source_name)
@@ -266,7 +266,7 @@ impl ProcessorContext {
     }
 
     /// Read from the active data source
-    pub async fn read(&mut self) -> Result<Option<StreamRecord>, SqlError> {
+    pub async fn read(&mut self) -> Result<Vec<StreamRecord>, SqlError> {
         let source_name = self
             .active_reader
             .clone()
@@ -323,29 +323,6 @@ impl ProcessorContext {
         self.data_writers.keys().cloned().collect()
     }
 
-    /// Read a batch of records from a specific source
-    pub async fn read_batch_from(
-        &mut self,
-        source_name: &str,
-        max_size: usize,
-    ) -> Result<Vec<StreamRecord>, SqlError> {
-        let reader =
-            self.data_readers
-                .get_mut(source_name)
-                .ok_or_else(|| SqlError::ExecutionError {
-                    message: format!("Data source '{}' not found in context", source_name),
-                    query: None,
-                })?;
-
-        reader
-            .read_batch(max_size)
-            .await
-            .map_err(|e| SqlError::ExecutionError {
-                message: format!("Failed to read batch from source '{}': {}", source_name, e),
-                query: None,
-            })
-    }
-
     /// Write a batch of records to a specific sink
     pub async fn write_batch_to(
         &mut self,
@@ -399,6 +376,156 @@ impl ProcessorContext {
             message: format!("Failed to commit sink '{}': {}", sink_name, e),
             query: None,
         })
+    }
+
+    /// Begin a transaction for the active reader
+    pub async fn begin_reader_transaction(&mut self) -> Result<bool, SqlError> {
+        let reader_name = self
+            .active_reader
+            .clone()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: "No active reader set for transaction".to_string(),
+                query: None,
+            })?;
+
+        let reader =
+            self.data_readers
+                .get_mut(&reader_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", reader_name),
+                    query: None,
+                })?;
+
+        reader
+            .begin_transaction()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to begin transaction for source '{}': {}",
+                    reader_name, e
+                ),
+                query: None,
+            })
+    }
+
+    /// Begin a transaction for the active writer
+    pub async fn begin_writer_transaction(&mut self) -> Result<bool, SqlError> {
+        let writer_name = self
+            .active_writer
+            .clone()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: "No active writer set for transaction".to_string(),
+                query: None,
+            })?;
+
+        let writer =
+            self.data_writers
+                .get_mut(&writer_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", writer_name),
+                    query: None,
+                })?;
+
+        writer
+            .begin_transaction()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to begin transaction for sink '{}': {}",
+                    writer_name, e
+                ),
+                query: None,
+            })
+    }
+
+    /// Commit transaction for the active writer
+    pub async fn commit_writer(&mut self) -> Result<(), SqlError> {
+        let writer_name = self
+            .active_writer
+            .clone()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: "No active writer set for transaction commit".to_string(),
+                query: None,
+            })?;
+
+        let writer =
+            self.data_writers
+                .get_mut(&writer_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", writer_name),
+                    query: None,
+                })?;
+
+        writer
+            .commit_transaction()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to commit transaction for sink '{}': {}",
+                    writer_name, e
+                ),
+                query: None,
+            })
+    }
+
+    /// Abort transaction for the active writer
+    pub async fn abort_writer(&mut self) -> Result<(), SqlError> {
+        let writer_name = self
+            .active_writer
+            .clone()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: "No active writer set for transaction abort".to_string(),
+                query: None,
+            })?;
+
+        let writer =
+            self.data_writers
+                .get_mut(&writer_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", writer_name),
+                    query: None,
+                })?;
+
+        writer
+            .abort_transaction()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to abort transaction for sink '{}': {}",
+                    writer_name, e
+                ),
+                query: None,
+            })
+    }
+
+    /// Abort transaction for the active reader  
+    pub async fn abort_reader(&mut self) -> Result<(), SqlError> {
+        let reader_name = self
+            .active_reader
+            .clone()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: "No active reader set for transaction abort".to_string(),
+                query: None,
+            })?;
+
+        let reader =
+            self.data_readers
+                .get_mut(&reader_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data source '{}' not found in context", reader_name),
+                    query: None,
+                })?;
+
+        reader
+            .abort_transaction()
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to abort transaction for source '{}': {}",
+                    reader_name, e
+                ),
+                query: None,
+            })
     }
 
     /// Seek to a specific position in a data source

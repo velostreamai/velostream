@@ -5,7 +5,7 @@ Comprehensive test suite for header writing functions including SET_HEADER and R
 Tests both functionality and error handling for Kafka message header manipulation.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -33,48 +33,16 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-fn convert_stream_record_to_internal(record: &StreamRecord) -> HashMap<String, InternalValue> {
-    record
-        .fields
-        .iter()
-        .map(|(k, v)| {
-            let internal_val = match v {
-                FieldValue::Integer(i) => InternalValue::Integer(*i),
-                FieldValue::Float(f) => InternalValue::Number(*f),
-                FieldValue::String(s) => InternalValue::String(s.clone()),
-                FieldValue::Boolean(b) => InternalValue::Boolean(*b),
-                FieldValue::Null => InternalValue::Null,
-                _ => InternalValue::String(format!("{:?}", v)),
-            };
-            (k.clone(), internal_val)
-        })
-        .collect()
-}
-
-async fn execute_query(
-    query: &str,
-) -> Result<Vec<HashMap<String, InternalValue>>, Box<dyn std::error::Error>> {
+async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
     let record = create_test_record();
 
-    // Convert StreamRecord to HashMap<String, InternalValue>
-    let internal_record = convert_stream_record_to_internal(&record);
-
-    // Execute the query with internal record, including metadata
-    engine
-        .execute_with_metadata(
-            &parsed_query,
-            internal_record,
-            record.headers,
-            Some(record.timestamp),
-            Some(record.offset),
-            Some(record.partition),
-        )
-        .await?;
+    // Execute the query with StreamRecord directly
+    engine.execute_with_record(&parsed_query, record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -95,8 +63,8 @@ async fn test_set_header_basic() {
 
     // The SET_HEADER function should return the value that was set
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("new_value".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("new_value".to_string()))
     );
 }
 
@@ -111,8 +79,8 @@ async fn test_set_header_with_field_value() {
 
     // The SET_HEADER function should return the field value that was set
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("test".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("test".to_string()))
     );
 }
 
@@ -127,8 +95,8 @@ async fn test_set_header_with_integer() {
 
     // Integer should be converted to string
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("1".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("1".to_string()))
     );
 }
 
@@ -143,8 +111,8 @@ async fn test_set_header_with_float() {
 
     // Float should be converted to string
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("123.45".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("123.45".to_string()))
     );
 }
 
@@ -159,8 +127,8 @@ async fn test_set_header_with_boolean() {
 
     // Boolean should be converted to string
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("true".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("true".to_string()))
     );
 }
 
@@ -175,8 +143,8 @@ async fn test_set_header_with_null() {
 
     // NULL should be converted to "null" string
     assert_eq!(
-        results[0]["set_result"],
-        InternalValue::String("null".to_string())
+        results[0].fields.get("set_result"),
+        Some(&FieldValue::String("null".to_string()))
     );
 }
 
@@ -191,8 +159,8 @@ async fn test_remove_header_existing() {
 
     // REMOVE_HEADER should return the removed value
     assert_eq!(
-        results[0]["remove_result"],
-        InternalValue::String("test-system".to_string())
+        results[0].fields.get("remove_result"),
+        Some(&FieldValue::String("test-system".to_string()))
     );
 }
 
@@ -206,7 +174,10 @@ async fn test_remove_header_nonexistent() {
     assert_eq!(results.len(), 1);
 
     // REMOVE_HEADER should return NULL for nonexistent headers
-    assert_eq!(results[0]["remove_result"], InternalValue::Null);
+    assert_eq!(
+        results[0].fields.get("remove_result"),
+        Some(&FieldValue::Null)
+    );
 }
 
 #[tokio::test]
@@ -226,16 +197,16 @@ async fn test_multiple_header_operations() {
 
     // Check return values
     assert_eq!(
-        results[0]["set1_result"],
-        InternalValue::String("value1".to_string())
+        results[0].fields.get("set1_result"),
+        Some(&FieldValue::String("value1".to_string()))
     );
     assert_eq!(
-        results[0]["set2_result"],
-        InternalValue::String("test".to_string())
+        results[0].fields.get("set2_result"),
+        Some(&FieldValue::String("test".to_string()))
     );
     assert_eq!(
-        results[0]["remove_result"],
-        InternalValue::String("existing_value".to_string())
+        results[0].fields.get("remove_result"),
+        Some(&FieldValue::String("existing_value".to_string()))
     );
 }
 
@@ -256,16 +227,16 @@ async fn test_header_functions_with_sql_functions() {
 
     // Check return values
     assert_eq!(
-        results[0]["set_upper"],
-        InternalValue::String("TEST".to_string())
+        results[0].fields.get("set_upper"),
+        Some(&FieldValue::String("TEST".to_string()))
     );
     assert_eq!(
-        results[0]["set_rounded"],
-        InternalValue::String("123.5".to_string())
+        results[0].fields.get("set_rounded"),
+        Some(&FieldValue::String("123.5".to_string()))
     );
     assert_eq!(
-        results[0]["set_length"],
-        InternalValue::String("4".to_string())
+        results[0].fields.get("set_length"),
+        Some(&FieldValue::String("4".to_string()))
     );
 }
 
@@ -325,8 +296,8 @@ async fn test_set_header_with_non_string_key() {
 
     // Integer key should be converted to string and function should work
     assert_eq!(
-        results[0]["result"],
-        InternalValue::String("value".to_string())
+        results[0].fields.get("result"),
+        Some(&FieldValue::String("value".to_string()))
     );
 }
 
@@ -345,7 +316,7 @@ async fn test_header_functions_in_complex_expression() {
 
     // The complex expression should work correctly
     assert_eq!(
-        results[0]["complex_result"],
-        InternalValue::String("Result: id_1".to_string())
+        results[0].fields.get("complex_result"),
+        Some(&FieldValue::String("Result: id_1".to_string()))
     );
 }

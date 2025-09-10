@@ -5,33 +5,40 @@ Tests for mathematical functions including ABS, ROUND, CEIL, FLOOR, MOD, POWER, 
 Tests both parsing and execution functionality.
 */
 
-use ferrisstreams::ferris::serialization::{InternalValue, JsonFormat};
+use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-fn create_test_record() -> HashMap<String, InternalValue> {
-    let mut record = HashMap::new();
-    record.insert("positive_int".to_string(), InternalValue::Integer(42));
-    record.insert("negative_int".to_string(), InternalValue::Integer(-15));
-    record.insert("positive_float".to_string(), InternalValue::Number(PI));
-    record.insert("negative_float".to_string(), InternalValue::Number(-2.5));
-    record.insert("zero_int".to_string(), InternalValue::Integer(0));
-    record.insert("zero_float".to_string(), InternalValue::Number(0.0));
-    record.insert("large_float".to_string(), InternalValue::Number(123.456789));
-    record.insert("null_value".to_string(), InternalValue::Null);
-    record
+fn create_test_record() -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("positive_int".to_string(), FieldValue::Integer(42));
+    fields.insert("negative_int".to_string(), FieldValue::Integer(-15));
+    fields.insert("positive_float".to_string(), FieldValue::Float(PI));
+    fields.insert("negative_float".to_string(), FieldValue::Float(-2.5));
+    fields.insert("zero_int".to_string(), FieldValue::Integer(0));
+    fields.insert("zero_float".to_string(), FieldValue::Float(0.0));
+    fields.insert("large_float".to_string(), FieldValue::Float(123.456789));
+    fields.insert("null_value".to_string(), FieldValue::Null);
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: 1,
+        partition: 0,
+        headers: HashMap::new(),
+    }
 }
 
 #[tokio::test]
 async fn test_abs_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (column_name, expected_result)
@@ -64,7 +71,7 @@ async fn test_abs_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "ABS function execution failed for {}",
@@ -72,11 +79,11 @@ async fn test_abs_function() {
         );
 
         let output = rx.try_recv().unwrap();
-        match output.get("abs_result") {
-            Some(InternalValue::Integer(i)) => {
+        match output.fields.get("abs_result") {
+            Some(FieldValue::Integer(i)) => {
                 assert_eq!(*i as f64, expected, "ABS({}) failed", column_name);
             }
-            Some(InternalValue::Number(f)) => {
+            Some(FieldValue::Float(f)) => {
                 assert!(
                     (f - expected).abs() < 0.0001,
                     "ABS({}) failed: {} != {}",
@@ -110,13 +117,13 @@ async fn test_abs_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
     assert!(matches!(
-        output.get("abs_result"),
-        Some(InternalValue::Null)
+        output.fields.get("abs_result"),
+        Some(FieldValue::Null)
     ));
 }
 
@@ -124,7 +131,7 @@ async fn test_abs_function() {
 #[allow(clippy::approx_constant)]
 async fn test_round_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     // Test ROUND without precision
     let query = StreamingQuery::Select {
@@ -147,12 +154,12 @@ async fn test_round_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    match output.get("round_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("round_result") {
+        Some(FieldValue::Float(f)) => {
             assert!(
                 (f - 4.0).abs() < 0.0001,
                 "ROUND(3.7) should be 4.0, got {}",
@@ -186,12 +193,12 @@ async fn test_round_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
-    match output.get("round_result") {
-        Some(InternalValue::Number(f)) => {
+    match output.fields.get("round_result") {
+        Some(FieldValue::Float(f)) => {
             assert!(
                 (f - 3.14).abs() < 0.0001,
                 "ROUND(PI, 2) should be close to 3.14, got {}",
@@ -205,7 +212,7 @@ async fn test_round_function() {
 #[tokio::test]
 async fn test_ceil_floor_functions() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         ("CEIL", 3.2, 4),
@@ -236,12 +243,12 @@ async fn test_ceil_floor_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "{}({}) execution failed", function, input);
 
         let output = rx.try_recv().unwrap();
-        match output.get("result") {
-            Some(InternalValue::Integer(i)) => {
+        match output.fields.get("result") {
+            Some(FieldValue::Integer(i)) => {
                 assert_eq!(
                     *i, expected,
                     "{}({}) should be {}, got {}",
@@ -256,7 +263,7 @@ async fn test_ceil_floor_functions() {
 #[tokio::test]
 async fn test_mod_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (dividend, divisor, expected)
@@ -290,7 +297,7 @@ async fn test_mod_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "MOD({}, {}) execution failed",
@@ -299,8 +306,8 @@ async fn test_mod_function() {
         );
 
         let output = rx.try_recv().unwrap();
-        match output.get("mod_result") {
-            Some(InternalValue::Integer(i)) => {
+        match output.fields.get("mod_result") {
+            Some(FieldValue::Integer(i)) => {
                 assert_eq!(
                     *i, expected,
                     "MOD({}, {}) should be {}, got {}",
@@ -335,7 +342,7 @@ async fn test_mod_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(
         result.is_err(),
         "MOD(10, 0) should fail with division by zero"
@@ -345,7 +352,7 @@ async fn test_mod_function() {
 #[tokio::test]
 async fn test_power_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (base, exponent, expected)
@@ -381,7 +388,7 @@ async fn test_power_function() {
             };
 
             let record = create_test_record();
-            let result = engine.execute(&query, record).await;
+            let result = engine.execute_with_record(&query, record).await;
             assert!(
                 result.is_ok(),
                 "{}({}, {}) execution failed",
@@ -391,15 +398,15 @@ async fn test_power_function() {
             );
 
             let output = rx.try_recv().unwrap();
-            match output.get("power_result") {
-                Some(InternalValue::Integer(i)) => {
+            match output.fields.get("power_result") {
+                Some(FieldValue::Integer(i)) => {
                     assert_eq!(
                         *i as f64, expected,
                         "{}({}, {}) should be {}, got {}",
                         function_name, base, exponent, expected, i
                     );
                 }
-                Some(InternalValue::Number(f)) => {
+                Some(FieldValue::Float(f)) => {
                     assert!(
                         (f - expected).abs() < 0.0001,
                         "{}({}, {}) should be {}, got {}",
@@ -422,7 +429,7 @@ async fn test_power_function() {
 #[tokio::test]
 async fn test_sqrt_function() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
         // (input, expected)
@@ -454,12 +461,12 @@ async fn test_sqrt_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "SQRT({}) execution failed", input);
 
         let output = rx.try_recv().unwrap();
-        match output.get("sqrt_result") {
-            Some(InternalValue::Number(f)) => {
+        match output.fields.get("sqrt_result") {
+            Some(FieldValue::Float(f)) => {
                 assert!(
                     (f - expected).abs() < 0.0001,
                     "SQRT({}) should be {}, got {}",
@@ -493,7 +500,7 @@ async fn test_sqrt_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute(&query, record).await;
+    let result = engine.execute_with_record(&query, record).await;
     assert!(
         result.is_err(),
         "SQRT(-4) should fail with negative number error"
@@ -503,7 +510,7 @@ async fn test_sqrt_function() {
 #[tokio::test]
 async fn test_math_function_error_cases() {
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let error_cases = vec![
         // (function_name, args, expected_error_message_contains)
@@ -537,7 +544,7 @@ async fn test_math_function_error_cases() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_err(),
             "{} with wrong args should fail",
@@ -556,7 +563,7 @@ async fn test_math_function_error_cases() {
 #[tokio::test]
 async fn test_math_function_null_handling() {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx, Arc::new(JsonFormat));
+    let mut engine = StreamExecutionEngine::new(tx);
 
     let functions = vec!["ABS", "ROUND", "CEIL", "FLOOR", "SQRT"];
 
@@ -581,12 +588,12 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(result.is_ok(), "{} with NULL should succeed", function_name);
 
         let output = rx.try_recv().unwrap();
         assert!(
-            matches!(output.get("result"), Some(InternalValue::Null)),
+            matches!(output.fields.get("result"), Some(FieldValue::Null)),
             "{} with NULL should return NULL",
             function_name
         );
@@ -620,7 +627,7 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "{} with first arg NULL should succeed",
@@ -629,7 +636,7 @@ async fn test_math_function_null_handling() {
 
         let output = rx.try_recv().unwrap();
         assert!(
-            matches!(output.get("result"), Some(InternalValue::Null)),
+            matches!(output.fields.get("result"), Some(FieldValue::Null)),
             "{} with first arg NULL should return NULL",
             function_name
         );
@@ -658,7 +665,7 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute(&query, record).await;
+        let result = engine.execute_with_record(&query, record).await;
         assert!(
             result.is_ok(),
             "{} with second arg NULL should succeed",
@@ -667,7 +674,7 @@ async fn test_math_function_null_handling() {
 
         let output = rx.try_recv().unwrap();
         assert!(
-            matches!(output.get("result"), Some(InternalValue::Null)),
+            matches!(output.fields.get("result"), Some(FieldValue::Null)),
             "{} with second arg NULL should return NULL",
             function_name
         );

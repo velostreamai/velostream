@@ -4,12 +4,10 @@
 Tests for Protocol Buffers serialization format implementation.
 */
 
-#[cfg(feature = "protobuf")]
 mod protobuf_tests {
     use super::super::common_test_data::*;
-    use ferrisstreams::ferris::serialization::{
-        ProtobufFormat, SerializationFormat, SerializationFormatFactory,
-    };
+    use ferrisstreams::ferris::serialization::{ProtobufFormat, SerializationFormat};
+    use ferrisstreams::ferris::sql::execution::types::StreamRecord;
     use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
 
@@ -33,36 +31,74 @@ mod protobuf_tests {
         let format = ProtobufFormat::<()>::new();
         let record = create_basic_test_record();
 
-        test_execution_format_round_trip(&format, &record)
-            .expect("Protobuf execution format round trip should succeed");
+        // Create a StreamRecord
+        let stream_record = StreamRecord {
+            fields: record.clone(),
+            timestamp: 1234567890,
+            offset: 100,
+            partition: 0,
+            headers: HashMap::new(),
+        };
+
+        // Test serialization round-trip using StreamRecord's fields
+        let serialized = format
+            .serialize_record(&stream_record.fields)
+            .expect("Serialization should succeed");
+
+        let deserialized = format
+            .deserialize_record(&serialized)
+            .expect("Deserialization should succeed");
+
+        // Verify key fields are preserved
+        assert_eq!(deserialized.get("id"), record.get("id"));
+        assert_eq!(deserialized.get("name"), record.get("name"));
+        assert_eq!(deserialized.get("active"), record.get("active"));
+        assert_eq!(deserialized.get("score"), record.get("score"));
     }
 
     #[tokio::test]
     async fn test_protobuf_from_execution_format() {
-        use ferrisstreams::ferris::serialization::InternalValue;
-
         let format = ProtobufFormat::<()>::new();
 
-        let mut execution_data = HashMap::new();
-        execution_data.insert("user_id".to_string(), InternalValue::Integer(456));
-        execution_data.insert(
+        // Create a StreamRecord directly
+        let mut fields = HashMap::new();
+        fields.insert("user_id".to_string(), FieldValue::Integer(456));
+        fields.insert(
             "username".to_string(),
-            InternalValue::String("jane_doe".to_string()),
+            FieldValue::String("jane_doe".to_string()),
         );
-        execution_data.insert("is_admin".to_string(), InternalValue::Boolean(false));
-        execution_data.insert("rating".to_string(), InternalValue::Number(92.7));
+        fields.insert("is_admin".to_string(), FieldValue::Boolean(false));
+        fields.insert("rating".to_string(), FieldValue::Float(92.7));
 
-        let record = format
-            .from_execution_format(&execution_data)
-            .expect("Conversion from execution format should succeed");
+        let stream_record = StreamRecord {
+            fields: fields.clone(),
+            timestamp: 1234567890,
+            offset: 100,
+            partition: 0,
+            headers: HashMap::new(),
+        };
 
-        assert_eq!(record.get("user_id"), Some(&FieldValue::Integer(456)));
+        // Serialize the StreamRecord's fields
+        let serialized = format
+            .serialize_record(&stream_record.fields)
+            .expect("Serialization should succeed");
+
+        // Deserialize back
+        let deserialized = format
+            .deserialize_record(&serialized)
+            .expect("Deserialization should succeed");
+
+        // Verify the round-trip
+        assert_eq!(deserialized.get("user_id"), Some(&FieldValue::Integer(456)));
         assert_eq!(
-            record.get("username"),
+            deserialized.get("username"),
             Some(&FieldValue::String("jane_doe".to_string()))
         );
-        assert_eq!(record.get("is_admin"), Some(&FieldValue::Boolean(false)));
-        assert_eq!(record.get("rating"), Some(&FieldValue::Float(92.7)));
+        assert_eq!(
+            deserialized.get("is_admin"),
+            Some(&FieldValue::Boolean(false))
+        );
+        assert_eq!(deserialized.get("rating"), Some(&FieldValue::Float(92.7)));
     }
 
     #[tokio::test]
@@ -75,14 +111,13 @@ mod protobuf_tests {
     }
 
     #[tokio::test]
-    async fn test_protobuf_factory_creation() {
-        let format_proto = SerializationFormatFactory::create_format("protobuf")
-            .expect("Should create Protobuf format via factory");
+    async fn test_protobuf_direct_creation() {
+        let format_proto = ProtobufFormat::<()>::new();
         assert_eq!(format_proto.format_name(), "Protobuf");
 
-        let format_proto_alias = SerializationFormatFactory::create_format("proto")
-            .expect("Should create Protobuf format via factory with 'proto' alias");
-        assert_eq!(format_proto_alias.format_name(), "Protobuf");
+        // Test that direct creation works the same way
+        let format_proto_direct = ProtobufFormat::<()>::new();
+        assert_eq!(format_proto_direct.format_name(), "Protobuf");
     }
 
     #[tokio::test]
@@ -136,7 +171,7 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_type_specific_creation() {
         // Test creating protobuf format with specific type
-        let format = SerializationFormatFactory::create_protobuf_format::<()>();
+        let format = ProtobufFormat::<()>::new();
         assert_eq!(format.format_name(), "Protobuf");
     }
 
@@ -226,10 +261,6 @@ mod protobuf_tests {
         // Test serialization round trip
         test_serialization_round_trip(&format, &record)
             .expect("Comprehensive type matrix round trip should succeed");
-
-        // Also test execution format round trip
-        test_execution_format_round_trip(&format, &record)
-            .expect("Comprehensive execution format round trip should succeed");
     }
 
     #[tokio::test]
@@ -242,12 +273,4 @@ mod protobuf_tests {
     }
 }
 
-// If Protobuf feature is not enabled, provide placeholder tests
-#[cfg(not(feature = "protobuf"))]
-mod protobuf_tests {
-    #[tokio::test]
-    async fn test_protobuf_feature_not_enabled() {
-        // This test just verifies that the feature flag is working correctly
-        assert!(true, "Protobuf feature is not enabled, tests are skipped");
-    }
-}
+// Protobuf is always available - no feature flag needed

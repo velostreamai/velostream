@@ -1,5 +1,4 @@
 use crate::ferris::kafka::headers::Headers;
-
 /// A message containing deserialized key, value, and headers
 ///
 /// This struct represents a complete Kafka message with type-safe access to all components:
@@ -110,6 +109,29 @@ impl<K, V> Message<K, V> {
     /// Returns true if this message is the first in its partition (offset 0)
     pub fn is_first(&self) -> bool {
         self.offset == 0
+    }
+
+    // methods for zero-copy data transfer
+
+    /// Takes ownership of the message value, leaving a default value in its place.
+    pub fn take_value(&mut self) -> V
+    where
+        V: Default,
+    {
+        std::mem::take(&mut self.value)
+    }
+
+    /// Takes ownership of the message key, leaving `None` in its place.
+    pub fn take_key(&mut self) -> Option<K> {
+        self.key.take()
+    }
+
+    /// Takes ownership of the message headers, leaving a default value in its place.
+    pub fn take_headers(&mut self) -> Headers
+    where
+        Headers: Default,
+    {
+        std::mem::take(&mut self.headers)
     }
 }
 

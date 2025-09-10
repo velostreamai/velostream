@@ -1,14 +1,28 @@
-use ferrisstreams::ferris::serialization::InternalValue;
 use ferrisstreams::ferris::serialization::JsonFormat;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
+use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use ferrisstreams::ferris::sql::DataType;
 
+use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::sql::schema::{FieldDefinition, Schema, StreamHandle};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+
+fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert("amount".to_string(), FieldValue::Float(amount));
+    fields.insert("status".to_string(), FieldValue::String(status.to_string()));
+
+    StreamRecord {
+        fields,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: id,
+        partition: 0,
+        headers: HashMap::new(),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -28,6 +42,7 @@ mod tests {
                 columns,
                 as_select,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "high_value_orders");
                 assert!(columns.is_none());
@@ -124,6 +139,7 @@ mod tests {
                 columns,
                 as_select,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "customer_totals");
                 assert!(columns.is_none());
@@ -230,7 +246,7 @@ mod tests {
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CSAS query
         let parser = StreamingSqlParser::new();
@@ -240,21 +256,23 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(123));
-        record.insert("amount".to_string(), InternalValue::Number(299.99));
+        record.insert("customer_id".to_string(), FieldValue::Integer(123));
+        record.insert("amount".to_string(), FieldValue::Float(299.99));
         record.insert(
             "status".to_string(),
-            InternalValue::String("pending".to_string()),
+            FieldValue::String("pending".to_string()),
         );
         // Execute CREATE STREAM
-        let result = engine.execute(&query, record).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("status")); // Should be filtered out
+        assert!(output.fields.contains_key("customer_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("status")); // Should be filtered out
     }
 
     #[tokio::test]
@@ -263,7 +281,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
 
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CTAS query
         let parser = StreamingSqlParser::new();
@@ -273,16 +291,18 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(456));
-        record.insert("amount".to_string(), InternalValue::Number(150.00));
+        record.insert("customer_id".to_string(), FieldValue::Integer(456));
+        record.insert("amount".to_string(), FieldValue::Float(150.00));
 
         // Execute CREATE TABLE
-        let result = engine.execute(&query, record).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
+        assert!(output.fields.contains_key("customer_id"));
         // COUNT(*) should be present (though implementation details may vary)
     }
 
@@ -442,6 +462,7 @@ mod tests {
                 as_select,
                 into_clause,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "enriched_orders");
                 assert!(columns.is_none());
@@ -480,6 +501,7 @@ mod tests {
                 as_select,
                 into_clause,
                 properties,
+                emit_mode: _,
             } => {
                 assert_eq!(name, "analytics_summary");
                 assert!(columns.is_none());
@@ -553,10 +575,8 @@ mod tests {
             GROUP BY date_trunc('hour', timestamp)
             INTO postgres_sink
             WITH (
-                "base_source_config" = "configs/base_kafka.yaml",
                 "source_config" = "configs/kafka_perf.yaml",
-                "base_sink_config" = "configs/base_postgres.yaml",
-                "sink_config" = "configs/postgres_analytics.yaml",
+                "sink_config" = "configs/postgres_analytics.yaml", 
                 "monitoring_config" = "configs/monitoring.yaml"
             )
         "#,
@@ -575,16 +595,8 @@ mod tests {
                 assert_eq!(name, "aggregated_metrics");
                 assert_eq!(into_clause.sink_name, "postgres_sink");
                 assert_eq!(
-                    properties.base_source_config,
-                    Some("configs/base_kafka.yaml".to_string())
-                );
-                assert_eq!(
                     properties.source_config,
                     Some("configs/kafka_perf.yaml".to_string())
-                );
-                assert_eq!(
-                    properties.base_sink_config,
-                    Some("configs/base_postgres.yaml".to_string())
                 );
                 assert_eq!(
                     properties.sink_config,
@@ -699,7 +711,7 @@ mod tests {
         // Setup execution engine
         let serialization_format = std::sync::Arc::new(JsonFormat);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CREATE STREAM INTO query
         let parser = StreamingSqlParser::new();
@@ -709,19 +721,21 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("order_id".to_string(), InternalValue::Integer(12345));
-        record.insert("amount".to_string(), InternalValue::Number(599.99));
-        record.insert("customer_id".to_string(), InternalValue::Integer(789)); // Extra field
+        record.insert("order_id".to_string(), FieldValue::Integer(12345));
+        record.insert("amount".to_string(), FieldValue::Float(599.99));
+        record.insert("customer_id".to_string(), FieldValue::Integer(789)); // Extra field
 
         // Execute CREATE STREAM INTO
-        let result = engine.execute(&query, record).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("order_id"));
-        assert!(output.contains_key("amount"));
-        assert!(!output.contains_key("customer_id")); // Should be filtered out by SELECT
+        assert!(output.fields.contains_key("order_id"));
+        assert!(output.fields.contains_key("amount"));
+        assert!(!output.fields.contains_key("customer_id")); // Should be filtered out by SELECT
     }
 
     #[tokio::test]
@@ -729,7 +743,7 @@ mod tests {
         // Setup execution engine
         let (tx, mut rx) = mpsc::unbounded_channel();
         let serialization_format = std::sync::Arc::new(JsonFormat);
-        let mut engine = StreamExecutionEngine::new(tx, serialization_format.clone());
+        let mut engine = StreamExecutionEngine::new(tx);
 
         // Parse CREATE TABLE INTO query
         let parser = StreamingSqlParser::new();
@@ -739,16 +753,18 @@ mod tests {
 
         // Create test record
         let mut record = HashMap::new();
-        record.insert("customer_id".to_string(), InternalValue::Integer(555));
-        record.insert("amount".to_string(), InternalValue::Number(299.50));
+        record.insert("customer_id".to_string(), FieldValue::Integer(555));
+        record.insert("amount".to_string(), FieldValue::Float(299.50));
 
         // Execute CREATE TABLE INTO
-        let result = engine.execute(&query, record).await;
+        let result = engine
+            .execute_with_record(&query, StreamRecord::new(record))
+            .await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
         let output = rx.try_recv().unwrap();
-        assert!(output.contains_key("customer_id"));
+        assert!(output.fields.contains_key("customer_id"));
         // COUNT(*) result may vary based on aggregation implementation
     }
 
