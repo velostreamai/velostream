@@ -979,12 +979,12 @@ pub fn validate_environment_variables(
                     } else {
                         continue; // Invalid case, skip
                     };
-                    
+
                     // Ensure prefix_end <= suffix_start
                     if prefix_end > suffix_start {
                         continue; // Invalid case, skip
                     }
-                    
+
                     let wildcard_part = &env_name[prefix_end..suffix_start];
 
                     // Skip empty wildcard matches
