@@ -24,6 +24,7 @@ async fn test_transactional_producer_commit() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30)) // Longer timeout for CI
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10)); // Longer request timeout
 
     let producer = match KafkaProducer::<String, TestMessage, _, _>::with_config(
@@ -118,6 +119,7 @@ async fn test_transactional_producer_abort() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer = KafkaProducer::<String, TestMessage, _, _>::with_config(
@@ -201,6 +203,7 @@ async fn test_exactly_once_semantics() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let config2 = ProducerConfig::new("localhost:9092", &topic)
@@ -208,6 +211,7 @@ async fn test_exactly_once_semantics() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer1 = Arc::new(
@@ -470,6 +474,7 @@ async fn test_exactly_once_consumer_producer_coordination() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer = KafkaProducer::<String, TestMessage, _, _>::with_config(
@@ -643,6 +648,7 @@ async fn test_exactly_once_with_failure_recovery() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer = KafkaProducer::<String, TestMessage, _, _>::with_config(
@@ -832,6 +838,7 @@ async fn test_exactly_once_with_consumer_stream() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer = match KafkaProducer::<String, TestMessage, _, _>::with_config(
@@ -1030,6 +1037,7 @@ async fn test_exactly_once_stream_with_error_handling() {
         .idempotence(true)
         .acks(AckMode::All)
         .transaction_timeout(Duration::from_secs(30))
+        .message_timeout(Duration::from_secs(25)) // Must be <= transaction timeout
         .request_timeout(Duration::from_secs(10));
 
     let producer = KafkaProducer::<String, TestMessage, _, _>::with_config(

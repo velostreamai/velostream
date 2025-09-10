@@ -13,6 +13,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0  # Disable incremental compilation for CI
+  CARGO_PROFILE_DEV_DEBUG: 0  # Reduce debug info size
+  RUST_BACKTRACE: 1
 
 jobs:
   test:
@@ -36,28 +39,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@master
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ matrix.rust }}-
-          ${{ runner.os }}-cargo-
+        rust-version: ${{ matrix.rust }}
+        components: rustfmt,clippy
+        cache-suffix: test
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -114,24 +101,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-comprehensive-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+        rust-version: stable
+        components: rustfmt,clippy
+        cache-suffix: comprehensive
 
     - name: Run comprehensive failure scenario tests
       run: |
@@ -149,27 +124,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        components: llvm-tools-preview
+        rust-version: stable
+        components: rustfmt,clippy,llvm-tools-preview
+        cache-suffix: coverage
 
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Generate code coverage (fast tests only)
       run: |
@@ -192,22 +155,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
+        rust-version: stable
+        components: rustfmt,clippy
+        cache-suffix: docs
 
     - name: Check documentation
       run: cargo doc --all-features --no-deps --document-private-items
@@ -219,13 +172,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: stable
+        components: rustfmt,clippy
+        cache-suffix: security
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
@@ -240,22 +192,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install minimum supported Rust version
-      uses: dtolnay/rust-toolchain@1.85.0
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+        rust-version: 1.85.0
+        components: rustfmt,clippy
+        cache-suffix: msrv
 
     - name: Check MSRV compatibility
       run: cargo check --all-features

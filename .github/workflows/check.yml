@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop, master ]
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0  # Disable incremental compilation for CI
+  CARGO_PROFILE_DEV_DEBUG: 0  # Reduce debug info size
+  RUST_BACKTRACE: 1
+
 jobs:
   quick-check:
     name: Quick Check
@@ -14,24 +20,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Protocol Buffers compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
       with:
-        components: rustfmt, clippy
-
-    - name: Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-quick-${{ hashFiles('**/Cargo.lock') }}
+        rust-version: stable
+        components: rustfmt,clippy
+        cache-suffix: quick
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -45,9 +39,8 @@ jobs:
     - name: Build project
       run: cargo build
 
-    - name: Run unit tests (allow one known failure)
+    - name: Run unit tests
       run: cargo test --lib
-      continue-on-error: true
 
     - name: Test examples compile
       run: |
