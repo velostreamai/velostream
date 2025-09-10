@@ -24,7 +24,8 @@ use std::{collections::HashMap, marker::PhantomData};
 ///
 /// ## Basic JSON Serialization
 /// ```rust,no_run
-/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaConsumerBuilder, SerializationFormat};
+/// use ferrisstreams::ferris::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use ferrisstreams::ferris::kafka::serialization_format::SerializationFormat;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug)]
@@ -46,7 +47,8 @@ use std::{collections::HashMap, marker::PhantomData};
 /// ## Avro Serialization with Schema Registry (requires "avro" feature)
 /// ```rust,no_run
 /// # {
-/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaConsumerBuilder, SerializationFormat};
+/// use ferrisstreams::ferris::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use ferrisstreams::ferris::kafka::serialization_format::SerializationFormat;
 ///
 /// let consumer = ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::new(
 ///     "localhost:9092",
@@ -64,7 +66,8 @@ use std::{collections::HashMap, marker::PhantomData};
 /// ## SQL WITH Clause Configuration
 /// ```rust,no_run
 /// use std::collections::HashMap;
-/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaConsumerBuilder, SerializationConfig};
+/// use ferrisstreams::ferris::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use ferrisstreams::ferris::kafka::serialization_format::SerializationConfig;
 ///
 /// let mut sql_params = HashMap::new();
 /// sql_params.insert("key.serializer".to_string(), "string".to_string());

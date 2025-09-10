@@ -28,7 +28,8 @@ use std::{collections::HashMap, marker::PhantomData};
 ///
 /// ## Basic JSON Serialization
 /// ```rust,no_run
-/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaProducerBuilder, SerializationFormat};
+/// use ferrisstreams::ferris::kafka::configurable_producer::ConfigurableKafkaProducerBuilder;
+/// use ferrisstreams::ferris::kafka::serialization_format::SerializationFormat;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug)]
@@ -50,7 +51,8 @@ use std::{collections::HashMap, marker::PhantomData};
 /// ## SQL WITH Clause Configuration
 /// ```rust,no_run
 /// use std::collections::HashMap;
-/// use ferrisstreams::ferris::kafka::{ConfigurableKafkaProducerBuilder, SerializationConfig};
+/// use ferrisstreams::ferris::kafka::configurable_producer::ConfigurableKafkaProducerBuilder;
+/// use ferrisstreams::ferris::kafka::serialization_format::SerializationConfig;
 ///
 /// let mut sql_params = HashMap::new();
 /// sql_params.insert("key.serializer".to_string(), "string".to_string());

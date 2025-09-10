@@ -15,6 +15,7 @@
 //!
 //! ```rust
 //! use ferrisstreams::ferris::sql::config::*;
+//! use ferrisstreams::ferris::sql::config::builder::DataSourceConfigBuilder;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Parse URI
