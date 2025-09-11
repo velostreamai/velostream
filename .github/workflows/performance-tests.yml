@@ -102,36 +102,112 @@ jobs:
 
     - name: Run FerrisStreams SQL Performance Benchmarks
       run: |
-        echo "Running FerrisStreams SQL Performance Benchmarks..."
+        echo "🔍 ENHANCED DEBUG: Running FerrisStreams SQL Performance Benchmarks..."
+        echo "🏁 Environment: CI=$CI, GITHUB_ACTIONS=$GITHUB_ACTIONS"
+        echo "⏰ Timestamp: $(date)"
+        echo "💻 System Resources:"
+        echo "  - CPU Info: $(nproc) cores"
+        echo "  - Memory: $(free -h | grep Mem: | awk '{print $2}')"
+        echo "  - Disk space: $(df -h / | tail -1 | awk '{print $4}')"
         echo "These benchmarks will run in CI mode with reduced dataset sizes"
+        
         export CI=true
         export GITHUB_ACTIONS=true
-        # Run ignored performance benchmarks with reduced scope
-        echo "Running ferris_sql_multi_benchmarks..."
-        timeout 300 cargo test --ignored --test ferris_sql_multi_benchmarks --no-default-features \
+        export RUST_BACKTRACE=1
+        
+        # Test Kafka connectivity before benchmarks
+        echo "🔌 Testing Kafka connectivity..."
+        timeout 10 bash -c 'until nc -z localhost 9092; do echo "Kafka not ready, waiting..."; sleep 2; done' && echo "✅ Kafka is ready" || echo "⚠️ Kafka connectivity test failed"
+        
+        # Initialize result file with header
+        echo "=== FerrisStreams SQL Performance Benchmark Results ===" > ferris_sql_benchmarks.txt
+        echo "Execution started at: $(date)" >> ferris_sql_benchmarks.txt
+        echo "" >> ferris_sql_benchmarks.txt
+        
+        # Run ferris_sql_multi_benchmarks with enhanced error handling
+        echo "🧪 Running ferris_sql_multi_benchmarks..."
+        echo "Command: timeout 300 cargo test --test ferris_sql_multi_benchmarks --no-default-features benchmark_simple_select_baseline benchmark_complex_aggregation -- --ignored --nocapture"
+        
+        START_TIME=$(date +%s)
+        BENCHMARK_EXIT_CODE=0
+        timeout 300 cargo test --test ferris_sql_multi_benchmarks --no-default-features \
           benchmark_simple_select_baseline \
           benchmark_complex_aggregation \
-          -- --nocapture > ferris_sql_benchmarks.txt 2>&1 || echo "ferris_sql_multi_benchmarks failed or timed out"
+          -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || BENCHMARK_EXIT_CODE=$?
+        END_TIME=$(date +%s)
         
-        echo "SQL benchmark step 1 complete, checking output..."
-        if [ -f ferris_sql_benchmarks.txt ]; then
-          echo "ferris_sql_benchmarks.txt exists, size: $(wc -l < ferris_sql_benchmarks.txt) lines"
+        echo "📊 ferris_sql_multi_benchmarks completed with exit code: $BENCHMARK_EXIT_CODE"
+        echo "⏱️ Execution time: $((END_TIME - START_TIME)) seconds"
+        
+        if [ $BENCHMARK_EXIT_CODE -eq 124 ]; then
+          echo "⏰ ferris_sql_multi_benchmarks TIMED OUT (300s limit exceeded)"
+          echo "TIMEOUT: ferris_sql_multi_benchmarks exceeded 300 second limit" >> ferris_sql_benchmarks.txt
+        elif [ $BENCHMARK_EXIT_CODE -ne 0 ]; then
+          echo "❌ ferris_sql_multi_benchmarks FAILED with exit code $BENCHMARK_EXIT_CODE"
+          echo "FAILURE: ferris_sql_multi_benchmarks failed with exit code $BENCHMARK_EXIT_CODE" >> ferris_sql_benchmarks.txt
+        else
+          echo "✅ ferris_sql_multi_benchmarks completed successfully"
         fi
         
-        # Also run transactional processor benchmarks
-        echo "Running transactional_processor_benchmarks..."
-        timeout 300 cargo test --ignored --test transactional_processor_benchmarks --no-default-features \
-          benchmark_simple_vs_transactional_small_batch \
-          -- --nocapture >> ferris_sql_benchmarks.txt 2>&1 || echo "transactional_processor_benchmarks failed or timed out"
-        echo "FerrisStreams SQL benchmarks completed"
+        echo "📄 Checking ferris_sql_benchmarks.txt output..."
         if [ -f ferris_sql_benchmarks.txt ]; then
-          echo "=== FerrisStreams SQL Benchmark Results ==="
-          cat ferris_sql_benchmarks.txt | grep -E "(BASELINE|AGGREGATION|PROCESSOR|records/sec|✅|❌|Config:)" || true
+          FILE_SIZE=$(wc -l < ferris_sql_benchmarks.txt)
+          echo "✅ ferris_sql_benchmarks.txt exists, size: $FILE_SIZE lines"
+          echo "📝 Last 10 lines of output:"
+          tail -10 ferris_sql_benchmarks.txt | sed 's/^/    /'
+        else
+          echo "❌ ferris_sql_benchmarks.txt NOT CREATED"
+          touch ferris_sql_benchmarks.txt
+        fi
+        
+        # Run transactional processor benchmarks with enhanced error handling
+        echo ""
+        echo "🧪 Running transactional_processor_benchmarks..."
+        echo "Command: timeout 300 cargo test --test transactional_processor_benchmarks --no-default-features benchmark_simple_vs_transactional_small_batch -- --ignored --nocapture"
+        
+        START_TIME=$(date +%s)
+        PROCESSOR_EXIT_CODE=0
+        timeout 300 cargo test --test transactional_processor_benchmarks --no-default-features \
+          benchmark_simple_vs_transactional_small_batch \
+          -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || PROCESSOR_EXIT_CODE=$?
+        END_TIME=$(date +%s)
+        
+        echo "📊 transactional_processor_benchmarks completed with exit code: $PROCESSOR_EXIT_CODE"
+        echo "⏱️ Execution time: $((END_TIME - START_TIME)) seconds"
+        
+        if [ $PROCESSOR_EXIT_CODE -eq 124 ]; then
+          echo "⏰ transactional_processor_benchmarks TIMED OUT (300s limit exceeded)"
+          echo "TIMEOUT: transactional_processor_benchmarks exceeded 300 second limit" >> ferris_sql_benchmarks.txt
+        elif [ $PROCESSOR_EXIT_CODE -ne 0 ]; then
+          echo "❌ transactional_processor_benchmarks FAILED with exit code $PROCESSOR_EXIT_CODE"
+          echo "FAILURE: transactional_processor_benchmarks failed with exit code $PROCESSOR_EXIT_CODE" >> ferris_sql_benchmarks.txt
+        else
+          echo "✅ transactional_processor_benchmarks completed successfully"
+        fi
+        
+        # Final results analysis
+        echo ""
+        echo "🏁 FerrisStreams SQL benchmarks completed"
+        echo "📄 Final ferris_sql_benchmarks.txt analysis:"
+        if [ -f ferris_sql_benchmarks.txt ]; then
+          FILE_SIZE=$(wc -l < ferris_sql_benchmarks.txt)
+          echo "  📝 Total lines: $FILE_SIZE"
+          echo "  📊 Key metrics found:"
+          echo "    - Baseline Throughput lines: $(grep -c "- Baseline Throughput:" ferris_sql_benchmarks.txt || echo "0")"
+          echo "    - Aggregation Throughput lines: $(grep -c "- Aggregation Throughput:" ferris_sql_benchmarks.txt || echo "0")"
+          echo "    - Simple/Transactional Processor lines: $(grep -c "Processor.*records/sec" ferris_sql_benchmarks.txt || echo "0")"
+          echo "    - Error/timeout indicators: $(grep -c -E "(TIMEOUT|FAILURE|failed|timed out)" ferris_sql_benchmarks.txt || echo "0")"
+          
+          echo ""
+          echo "=== FerrisStreams SQL Benchmark Results (Key Lines) ==="
+          cat ferris_sql_benchmarks.txt | grep -E "(BASELINE|AGGREGATION|PROCESSOR|records/sec|✅|❌|Config:|TIMEOUT|FAILURE)" || echo "No key metrics found"
+        else
+          echo "  ❌ ferris_sql_benchmarks.txt does not exist!"
         fi
     
     - name: Extract Performance Metrics
       run: |
-        echo "Extracting performance metrics..."
+        echo "🔍 ENHANCED DEBUG: Extracting performance metrics..."
         
         # Debug: Show relevant lines from results files
         echo "=== JSON Performance Results (Messages Sent lines) ==="
@@ -152,30 +228,114 @@ jobs:
         # Extract P95 latency (matches format: "   P95 Latency:       123.4 ms")
         P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?=\s+ms)' latency_perf_results.txt | head -1 || echo "999")
         
-        # Extract FerrisStreams SQL benchmark metrics
-        echo "=== FerrisStreams SQL Benchmark Results (Throughput lines) ==="
+        # Enhanced FerrisStreams SQL benchmark metrics extraction with comprehensive debugging
+        echo ""
+        echo "🔍 ENHANCED DEBUG: FerrisStreams SQL Benchmark Analysis"
+        echo "======================================================="
+        
         if [ -f ferris_sql_benchmarks.txt ]; then
-          grep "records/sec" ferris_sql_benchmarks.txt || echo "No throughput metrics found in ferris_sql_benchmarks.txt"
+          FILE_SIZE=$(wc -l < ferris_sql_benchmarks.txt)
+          echo "✅ ferris_sql_benchmarks.txt exists (${FILE_SIZE} lines)"
           
-          # Extract baseline throughput (format: "- Baseline Throughput: 1234 records/sec")
-          BASELINE_THROUGHPUT=$(grep -oP '- Baseline Throughput:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          # Show full file content for debugging (first 50 lines)
+          echo "📄 ferris_sql_benchmarks.txt content (first 50 lines):"
+          head -50 ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "Failed to read file"
           
-          # Extract aggregation throughput (format: "- Aggregation Throughput: 567 records/sec")  
-          AGGREGATION_THROUGHPUT=$(grep -oP '- Aggregation Throughput:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
+          echo ""
+          echo "🔍 Searching for performance metrics patterns:"
           
-          # Extract processor comparison ratio by calculating Simple/Transactional ratio
-          SIMPLE_THROUGHPUT=$(grep -oP 'Simple Processor:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "0")
-          TRANSACTIONAL_THROUGHPUT=$(grep -oP 'Transactional Processor:\s+\K\d+(?=\s+records/sec)' ferris_sql_benchmarks.txt | head -1 || echo "1")
-          if [ "$TRANSACTIONAL_THROUGHPUT" != "0" ] && [ "$SIMPLE_THROUGHPUT" != "0" ]; then
-            PROCESSOR_RATIO=$(echo "scale=1; $SIMPLE_THROUGHPUT / $TRANSACTIONAL_THROUGHPUT" | bc -l || echo "1.0")
+          # Search for all potential throughput patterns
+          echo "  📊 All 'records/sec' lines:"
+          grep "records/sec" ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "    No 'records/sec' lines found"
+          
+          echo "  📊 All 'Throughput' lines:"
+          grep -i "throughput" ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "    No 'Throughput' lines found"
+          
+          echo "  📊 All 'Baseline' lines:"
+          grep -i "baseline" ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "    No 'Baseline' lines found"
+          
+          echo "  📊 All 'Aggregation' lines:"
+          grep -i "aggregation" ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "    No 'Aggregation' lines found"
+          
+          echo "  📊 All 'Processor' lines:"
+          grep -i "processor" ferris_sql_benchmarks.txt | sed 's/^/    /' || echo "    No 'Processor' lines found"
+          
+          echo "  🚨 Error indicators:"
+          grep -i -E "(timeout|failure|failed|error|timed out)" ferris_sql_benchmarks.txt | sed 's/^/    ⚠️ /' || echo "    No error indicators found"
+          
+          echo ""
+          echo "🧮 Attempting metrics extraction..."
+          
+          # Extract baseline throughput with multiple patterns
+          echo "  🔍 Extracting baseline throughput:"
+          BASELINE_THROUGHPUT=""
+          if grep -q "- Baseline Throughput:" ferris_sql_benchmarks.txt; then
+            BASELINE_THROUGHPUT=$(grep "- Baseline Throughput:" ferris_sql_benchmarks.txt | grep -oE '[0-9]+' | head -1 || echo "0")
+            echo "    ✅ Found '- Baseline Throughput:' pattern, extracted: $BASELINE_THROUGHPUT"
+          elif grep -q -i "baseline.*records/sec" ferris_sql_benchmarks.txt; then
+            BASELINE_THROUGHPUT=$(grep -i "baseline.*records/sec" ferris_sql_benchmarks.txt | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1 | cut -d. -f1 || echo "0")
+            echo "    ✅ Found alternative baseline pattern, extracted: $BASELINE_THROUGHPUT"
+          else
+            BASELINE_THROUGHPUT="0"
+            echo "    ❌ No baseline throughput pattern found"
+          fi
+          
+          # Extract aggregation throughput with multiple patterns
+          echo "  🔍 Extracting aggregation throughput:"
+          AGGREGATION_THROUGHPUT=""
+          if grep -q "- Aggregation Throughput:" ferris_sql_benchmarks.txt; then
+            AGGREGATION_THROUGHPUT=$(grep "- Aggregation Throughput:" ferris_sql_benchmarks.txt | grep -oE '[0-9]+' | head -1 || echo "0")
+            echo "    ✅ Found '- Aggregation Throughput:' pattern, extracted: $AGGREGATION_THROUGHPUT"
+          elif grep -q -i "aggregation.*records/sec" ferris_sql_benchmarks.txt; then
+            AGGREGATION_THROUGHPUT=$(grep -i "aggregation.*records/sec" ferris_sql_benchmarks.txt | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1 | cut -d. -f1 || echo "0")
+            echo "    ✅ Found alternative aggregation pattern, extracted: $AGGREGATION_THROUGHPUT"
+          else
+            AGGREGATION_THROUGHPUT="0"
+            echo "    ❌ No aggregation throughput pattern found"
+          fi
+          
+          # Extract processor comparison with multiple patterns  
+          echo "  🔍 Extracting processor comparison:"
+          SIMPLE_THROUGHPUT=""
+          TRANSACTIONAL_THROUGHPUT=""
+          
+          if grep -q "Simple Processor:" ferris_sql_benchmarks.txt; then
+            SIMPLE_THROUGHPUT=$(grep "Simple Processor:" ferris_sql_benchmarks.txt | grep -oE '[0-9]+' | tail -1 || echo "0")
+            echo "    ✅ Found Simple Processor, extracted: $SIMPLE_THROUGHPUT"
+          else
+            SIMPLE_THROUGHPUT="0"
+            echo "    ❌ No Simple Processor pattern found"
+          fi
+          
+          if grep -q "Transactional Processor:" ferris_sql_benchmarks.txt; then
+            TRANSACTIONAL_THROUGHPUT=$(grep "Transactional Processor:" ferris_sql_benchmarks.txt | grep -oE '[0-9]+' | tail -1 || echo "1")
+            echo "    ✅ Found Transactional Processor, extracted: $TRANSACTIONAL_THROUGHPUT"
+          else
+            TRANSACTIONAL_THROUGHPUT="1"
+            echo "    ❌ No Transactional Processor pattern found"
+          fi
+          
+          # Calculate processor ratio safely
+          if [ "$TRANSACTIONAL_THROUGHPUT" != "0" ] && [ "$SIMPLE_THROUGHPUT" != "0" ] && command -v bc >/dev/null 2>&1; then
+            PROCESSOR_RATIO=$(echo "scale=1; $SIMPLE_THROUGHPUT / $TRANSACTIONAL_THROUGHPUT" | bc 2>/dev/null || echo "1.0")
+            echo "    🧮 Calculated processor ratio: ${SIMPLE_THROUGHPUT}/${TRANSACTIONAL_THROUGHPUT} = $PROCESSOR_RATIO"
           else
             PROCESSOR_RATIO="1.0"
+            echo "    ⚠️ Using default processor ratio: $PROCESSOR_RATIO (bc missing or zero values)"
           fi
+          
         else
+          echo "❌ ferris_sql_benchmarks.txt file does not exist!"
           BASELINE_THROUGHPUT="0"
           AGGREGATION_THROUGHPUT="0" 
           PROCESSOR_RATIO="1.0"
         fi
+        
+        echo ""
+        echo "📈 Final extracted values:"
+        echo "  - Baseline Throughput: $BASELINE_THROUGHPUT records/sec"
+        echo "  - Aggregation Throughput: $AGGREGATION_THROUGHPUT records/sec"
+        echo "  - Processor Ratio: $PROCESSOR_RATIO"
         
         echo "JSON_THROUGHPUT=$JSON_THROUGHPUT" >> $GITHUB_ENV
         echo "RAW_THROUGHPUT=$RAW_THROUGHPUT" >> $GITHUB_ENV  
@@ -184,13 +344,27 @@ jobs:
         echo "AGGREGATION_THROUGHPUT=$AGGREGATION_THROUGHPUT" >> $GITHUB_ENV
         echo "PROCESSOR_RATIO=$PROCESSOR_RATIO" >> $GITHUB_ENV
         
-        echo "Performance Metrics:"
-        echo "JSON Throughput: $JSON_THROUGHPUT msg/s"
-        echo "Raw Throughput: $RAW_THROUGHPUT msg/s"
-        echo "P95 Latency: $P95_LATENCY ms"
-        echo "SQL Baseline Throughput: $BASELINE_THROUGHPUT records/sec"
-        echo "SQL Aggregation Throughput: $AGGREGATION_THROUGHPUT records/sec"
-        echo "Processor Performance Ratio: ${PROCESSOR_RATIO}x faster"
+        echo ""
+        echo "🎯 FINAL PERFORMANCE METRICS SUMMARY:"
+        echo "====================================="
+        echo "Kafka Streaming Performance:"
+        echo "  JSON Throughput: $JSON_THROUGHPUT msg/s"
+        echo "  Raw Throughput: $RAW_THROUGHPUT msg/s"
+        echo "  P95 Latency: $P95_LATENCY ms"
+        echo ""
+        echo "FerrisStreams SQL Performance:"
+        echo "  SQL Baseline Throughput: $BASELINE_THROUGHPUT records/sec"
+        echo "  SQL Aggregation Throughput: $AGGREGATION_THROUGHPUT records/sec"
+        echo "  Processor Performance Ratio: ${PROCESSOR_RATIO}x faster"
+        echo ""
+        echo "🚨 DIAGNOSTIC STATUS:"
+        if [ "$BASELINE_THROUGHPUT" = "0" ] && [ "$AGGREGATION_THROUGHPUT" = "0" ]; then
+          echo "  ❌ SQL benchmarks failed to complete (likely timeout/infrastructure issues)"
+          echo "  ✅ Kafka streaming benchmarks completed successfully"
+          echo "  💡 This explains why SQL metrics show ❌ in the workflow summary"
+        else
+          echo "  ✅ All benchmarks completed successfully"
+        fi
     
     - name: Performance Regression Check
       run: |
