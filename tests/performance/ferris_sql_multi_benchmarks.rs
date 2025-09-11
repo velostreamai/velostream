@@ -424,14 +424,20 @@ async fn run_query_benchmark(
     batch_size: usize,
     test_name: &str,
 ) -> BenchmarkMetrics {
+    println!("🔧 [{}] Initializing benchmark...", test_name);
+    println!("   📊 Records: {}, Batch size: {}", record_count, batch_size);
+    
+    println!("🔧 [{}] Creating data reader and writer...", test_name);
     let reader =
         Box::new(BenchmarkDataReader::new(record_count, batch_size)) as Box<dyn DataReader>;
     let writer = Some(Box::new(BenchmarkDataWriter::new()) as Box<dyn DataWriter>);
 
+    println!("🔧 [{}] Setting up execution engine and channels...", test_name);
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
+    println!("🔧 [{}] Creating job processing config...", test_name);
     let config = JobProcessingConfig {
         max_batch_size: batch_size,
         batch_timeout: Duration::from_millis(100),
@@ -439,15 +445,21 @@ async fn run_query_benchmark(
         ..Default::default()
     };
 
+    println!("🔧 [{}] Creating SimpleJobProcessor...", test_name);
     let processor = SimpleJobProcessor::new(config);
     let job_name = format!("{}_benchmark", test_name);
+    println!("🔧 [{}] Job name: {}", test_name, job_name);
 
     let start_time = Instant::now();
+    println!("🚀 [{}] Starting job processor at {:?}...", test_name, start_time);
 
     let job_handle = tokio::spawn(async move {
-        processor
+        println!("🔄 [{}] Inside job processor spawn, calling process_job...", test_name);
+        let result = processor
             .process_job(reader, writer, engine, query, job_name, shutdown_rx)
-            .await
+            .await;
+        println!("🔚 [{}] Job processor completed with result: {:?}", test_name, result.is_ok());
+        result
     });
 
     // Let the benchmark run for sufficient time to process all records
@@ -461,18 +473,24 @@ async fn run_query_benchmark(
     let adjusted_duration = Duration::from_millis(
         (base_duration.as_millis() as f64 * config.timeout_multiplier) as u64,
     );
-    println!("⏰ Benchmark timeout: {:.1}s (records: {}, throughput: {:.0}/s, multiplier: {:.1})", 
-             adjusted_duration.as_secs_f64(), record_count, expected_throughput, config.timeout_multiplier);
+    println!("⏰ [{}] Benchmark timeout: {:.1}s (records: {}, throughput: {:.0}/s, multiplier: {:.1})", 
+             test_name, adjusted_duration.as_secs_f64(), record_count, expected_throughput, config.timeout_multiplier);
+    println!("⏳ [{}] Waiting for benchmark to complete...", test_name);
     tokio::time::sleep(adjusted_duration).await;
+    println!("📤 [{}] Sending shutdown signal...", test_name);
     let _ = shutdown_tx.send(()).await;
 
+    println!("⏰ [{}] Waiting for job handle to complete...", test_name);
     let result = job_handle.await.unwrap();
     let end_time = Instant::now();
     let total_duration = end_time - start_time;
+    println!("✅ [{}] Job handle completed after {:.2}s", test_name, total_duration.as_secs_f64());
 
     let mut metrics = BenchmarkMetrics::new();
+    println!("📊 [{}] Processing benchmark results...", test_name);
 
     if let Ok(stats) = result {
+        println!("✅ [{}] Job completed successfully! Records processed: {}", test_name, stats.records_processed);
         metrics.records_processed = stats.records_processed;
         metrics.total_duration = total_duration;
         metrics.calculate_throughput();
@@ -485,8 +503,16 @@ async fn run_query_benchmark(
         // Simulated memory and CPU (in a real system, these would be measured)
         metrics.memory_used_mb = (record_count as f64 * 0.001) + 50.0; // Estimated
         metrics.cpu_usage_percent = 15.0; // Estimated
+    } else {
+        println!("❌ [{}] Job FAILED! Error: {:?}", test_name, result.err());
+        // Set failure metrics
+        metrics.records_processed = 0;
+        metrics.total_duration = total_duration;
+        metrics.calculate_throughput(); // Will be 0
     }
 
+    println!("📋 [{}] Final metrics: {} records, {:.2}s, {:.1} records/sec", 
+             test_name, metrics.records_processed, metrics.total_duration.as_secs_f64(), metrics.throughput_records_per_sec);
     metrics
 }
 
@@ -532,11 +558,18 @@ async fn benchmark_complex_aggregation() {
     println!("\n📊 AGGREGATION PERFORMANCE: GROUP BY with Multiple Functions");
     println!("Testing complex aggregation with financial precision (ScaledInteger)");
     println!("Config: {:?}", config);
+    
+    println!("🔍 Creating aggregation query...");
+    let query = create_aggregation_query();
+    println!("🔍 Query created: {:?}", query);
+    
+    let batch_size = (config.batch_size * 2).min(1000);
+    println!("🔍 Using batch size: {} (adjusted from {})", batch_size, config.batch_size);
 
     let metrics = run_query_benchmark(
-        create_aggregation_query(),
+        query,
         config.record_count,
-        (config.batch_size * 2).min(1000), // Slightly larger batch for aggregation
+        batch_size,
         "complex_aggregation",
     )
     .await;
