@@ -453,12 +453,14 @@ async fn run_query_benchmark(
     let start_time = Instant::now();
     println!("🚀 [{}] Starting job processor at {:?}...", test_name, start_time);
 
+    // Clone test_name for use inside the async block
+    let test_name_clone = test_name.to_string();
     let job_handle = tokio::spawn(async move {
-        println!("🔄 [{}] Inside job processor spawn, calling process_job...", test_name);
+        println!("🔄 [{}] Inside job processor spawn, calling process_job...", test_name_clone);
         let result = processor
             .process_job(reader, writer, engine, query, job_name, shutdown_rx)
             .await;
-        println!("🔚 [{}] Job processor completed with result: {:?}", test_name, result.is_ok());
+        println!("🔚 [{}] Job processor completed with result: {:?}", test_name_clone, result.is_ok());
         result
     });
 
