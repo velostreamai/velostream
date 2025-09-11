@@ -6,8 +6,8 @@ pub use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetRe
 pub use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 pub use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 pub use ferrisstreams::ferris::kafka::{
-    ConsumerBuilder, Headers, JsonSerializer, KafkaClientError, KafkaConsumer, KafkaProducer,
-    Message, ProducerBuilder, SerializationError, Serializer,
+    Headers, JsonSerializer, KafkaClientError, KafkaConsumer, KafkaProducer, Message,
+    ProducerBuilder, SerializationError, Serializer,
 };
 
 // Re-export commonly used external crates
