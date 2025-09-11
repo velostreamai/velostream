@@ -91,7 +91,8 @@ pub enum EmitMode {
 ///         window: None,
 ///         order_by: None,
 ///         limit: Some(100),
-///         emit_mode: None};
+///         emit_mode: None,
+///         properties: None};
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
