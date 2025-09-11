@@ -1,9 +1,6 @@
 use ferrisstreams::ferris::datasource::{
-    config::SinkConfig,
-    file::data_sink::FileSink,
-    kafka::data_sink::KafkaDataSink,
-    traits::{DataSink, DataWriter},
-    BatchConfig, BatchStrategy,
+    config::SinkConfig, file::data_sink::FileSink, kafka::data_sink::KafkaDataSink,
+    traits::DataSink, BatchConfig, BatchStrategy,
 };
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema};
 use ferrisstreams::ferris::sql::ast::DataType;

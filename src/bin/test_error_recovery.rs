@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Simulate failures to open circuit
     println!("\nTesting failure scenarios:");
     for i in 1..=3 {
-        let result = circuit_breaker
+        let _result = circuit_breaker
             .call(async {
                 Err::<String, _>(SqlError::execution_error(
                     format!("Simulated failure {}", i),

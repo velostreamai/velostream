@@ -1119,6 +1119,175 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
+        self.expect(TokenType::Select)?;
+
+        let fields = self.parse_select_fields()?;
+
+        // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let from_stream = if self.current_token().token_type == TokenType::From {
+            self.advance(); // consume FROM
+
+            // Support both identifiers and URI strings (FR-047)
+            let stream_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+                    name
+                }
+                TokenType::String => {
+                    // URI string like 'file://path' or 'kafka://broker/topic'
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected stream name or data source URI after FROM".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            // Parse optional alias for FROM clause (e.g., "FROM events s" or "FROM 'file://data.csv' f")
+            let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+                let alias = self.current_token().value.clone();
+                self.advance();
+                Some(alias)
+            } else {
+                None
+            };
+
+            stream_name
+        } else {
+            // No FROM clause - use a dummy stream name for scalar queries
+            "".to_string()
+        };
+
+        // Parse JOIN clauses
+        let joins = self.parse_join_clauses()?;
+
+        let mut where_clause = None;
+        if self.current_token().token_type == TokenType::Where {
+            self.advance();
+            where_clause = Some(self.parse_expression()?);
+        }
+
+        let mut group_by = None;
+        if self.current_token().token_type == TokenType::GroupBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            group_by = Some(self.parse_group_by_list()?);
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
+        }
+
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        let mut order_by = None;
+        if self.current_token().token_type == TokenType::OrderBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            order_by = Some(self.parse_order_by_list()?);
+        }
+
+        let mut limit = None;
+        if self.current_token().token_type == TokenType::Limit {
+            self.advance();
+            let limit_token = self.expect(TokenType::Number)?;
+            limit = Some(
+                limit_token
+                    .value
+                    .parse::<u64>()
+                    .map_err(|_| self.create_parse_error("Invalid LIMIT value"))?,
+            );
+        }
+
+        // Parse optional EMIT clause
+        let mut emit_mode = None;
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+
+            let emit_token = self.current_token().clone();
+
+            match emit_token.token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Changes);
+                }
+                TokenType::Final => {
+                    self.advance();
+                    emit_mode = Some(crate::ferris::sql::ast::EmitMode::Final);
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(emit_token.position),
+                    });
+                }
+            }
+        }
+
+        // Skip INTO and WITH clauses - they belong to the parent job command
+        // This method is specifically for job contexts where WITH belongs to the job
+
+        // Determine if from_stream is a URI or named stream
+        let from_source = if from_stream.contains("://") {
+            StreamSource::Uri(from_stream)
+        } else {
+            StreamSource::Stream(from_stream) // Both scalar queries and named streams
+        };
+
+        // Consume optional semicolon
+        self.consume_semicolon();
+
+        let select_query = StreamingQuery::Select {
+            fields,
+            from: from_source,
+            joins,
+            where_clause,
+            group_by,
+            having,
+            window,
+            order_by,
+            limit,
+            emit_mode,
+            properties: None, // No WITH clause parsing in job contexts
+        };
+
+        // Check for UNION after SELECT
+        if self.current_token().token_type == TokenType::Union {
+            self.advance(); // consume UNION
+
+            // Check for ALL keyword
+            let all = if self.current_token().token_type == TokenType::All {
+                self.advance(); // consume ALL
+                true
+            } else {
+                false
+            };
+
+            // Parse the right side of the UNION (also without WITH)
+            let right_query = self.parse_select_no_with()?;
+
+            Ok(StreamingQuery::Union {
+                left: Box::new(select_query),
+                right: Box::new(right_query),
+                all,
+            })
+        } else {
+            Ok(select_query)
+        }
+    }
+
     fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
         let mut fields = Vec::new();
 
@@ -2755,8 +2924,8 @@ impl<'a> TokenParser<'a> {
         // Expect AS keyword
         self.expect(TokenType::As)?;
 
-        // Parse the underlying query
-        let query = Box::new(self.parse_tokens_inner()?);
+        // Parse the underlying query (without consuming WITH clause)
+        let query = Box::new(self.parse_tokens_inner_no_with()?);
 
         // Optional WITH properties
         let properties = if self.current_token().token_type == TokenType::With {
@@ -2873,8 +3042,8 @@ impl<'a> TokenParser<'a> {
         // Expect AS keyword
         self.expect(TokenType::As)?;
 
-        // Parse the underlying query
-        let query = Box::new(self.parse_tokens_inner()?);
+        // Parse the underlying query (without consuming WITH clause)
+        let query = Box::new(self.parse_tokens_inner_no_with()?);
 
         // Optional WITH properties clause
         let mut properties = HashMap::new();
@@ -2980,6 +3149,18 @@ impl<'a> TokenParser<'a> {
             TokenType::Create => self.parse_create(),
             _ => Err(SqlError::ParseError {
                 message: "Expected SELECT or CREATE statement in START QUERY".to_string(),
+                position: Some(self.current_token().position),
+            }),
+        }
+    }
+
+    fn parse_tokens_inner_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Similar to parse_tokens_inner but doesn't consume WITH clauses (for job contexts)
+        match self.current_token().token_type {
+            TokenType::Select => self.parse_select_no_with(),
+            TokenType::Create => self.parse_create(),
+            _ => Err(SqlError::ParseError {
+                message: "Expected SELECT or CREATE statement in job definition".to_string(),
                 position: Some(self.current_token().position),
             }),
         }

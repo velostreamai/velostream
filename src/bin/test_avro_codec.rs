@@ -1,5 +1,4 @@
 use chrono::NaiveDate;
-use ferrisstreams::ferris::kafka::serialization::Serializer;
 use ferrisstreams::ferris::serialization::avro_codec::create_avro_serializer;
 use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use rust_decimal::Decimal;

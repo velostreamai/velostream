@@ -10,7 +10,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n1. Testing basic UNION parsing:");
     let sql1 = "SELECT name FROM customers UNION SELECT name FROM suppliers";
     match parser.parse(sql1) {
-        Ok(StreamingQuery::Union { left, right, all }) => {
+        Ok(StreamingQuery::Union {
+            left: _,
+            right: _,
+            all,
+        }) => {
             println!("✓ Successfully parsed UNION query");
             println!("  - All flag: {} (should be false for UNION)", all);
             match left.as_ref() {
@@ -30,7 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. Testing UNION ALL parsing:");
     let sql2 = "SELECT id FROM orders UNION ALL SELECT id FROM returns";
     match parser.parse(sql2) {
-        Ok(StreamingQuery::Union { left, right, all }) => {
+        Ok(StreamingQuery::Union {
+            left: _,
+            right: _,
+            all,
+        }) => {
             println!("✓ Successfully parsed UNION ALL query");
             println!("  - All flag: {} (should be true for UNION ALL)", all);
         }
