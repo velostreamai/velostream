@@ -124,27 +124,42 @@ jobs:
         echo "Execution started at: $(date)" >> ferris_sql_benchmarks.txt
         echo "" >> ferris_sql_benchmarks.txt
         
-        # Run ferris_sql_multi_benchmarks with enhanced error handling
+        # Run ferris_sql_multi_benchmarks with enhanced error handling (run tests individually)
         echo "🧪 Running ferris_sql_multi_benchmarks..."
-        echo "Command: timeout 300 cargo test --test ferris_sql_multi_benchmarks --no-default-features benchmark_simple_select_baseline benchmark_complex_aggregation -- --ignored --nocapture"
+        echo "Note: Running tests individually due to cargo test syntax limitations"
         
+        # Run baseline benchmark
+        echo "📊 Running benchmark_simple_select_baseline..."
+        echo "Command: timeout 300 cargo test --no-default-features benchmark_simple_select_baseline -- --ignored --nocapture"
         START_TIME=$(date +%s)
         BENCHMARK_EXIT_CODE=0
-        timeout 300 cargo test --test ferris_sql_multi_benchmarks --no-default-features \
-          benchmark_simple_select_baseline \
-          benchmark_complex_aggregation \
-          -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || BENCHMARK_EXIT_CODE=$?
+        timeout 300 cargo test --no-default-features benchmark_simple_select_baseline -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || BENCHMARK_EXIT_CODE=$?
         END_TIME=$(date +%s)
+        echo "📊 benchmark_simple_select_baseline completed with exit code: $BENCHMARK_EXIT_CODE (${END_TIME} - ${START_TIME} = $((END_TIME - START_TIME))s)"
         
-        echo "📊 ferris_sql_multi_benchmarks completed with exit code: $BENCHMARK_EXIT_CODE"
-        echo "⏱️ Execution time: $((END_TIME - START_TIME)) seconds"
+        # Run aggregation benchmark  
+        echo "📊 Running benchmark_complex_aggregation..."
+        echo "Command: timeout 300 cargo test --no-default-features benchmark_complex_aggregation -- --ignored --nocapture"
+        START_TIME=$(date +%s)
+        AGGREGATION_EXIT_CODE=0
+        timeout 300 cargo test --no-default-features benchmark_complex_aggregation -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || AGGREGATION_EXIT_CODE=$?
+        END_TIME=$(date +%s)
+        echo "📊 benchmark_complex_aggregation completed with exit code: $AGGREGATION_EXIT_CODE (${END_TIME} - ${START_TIME} = $((END_TIME - START_TIME))s)"
         
-        if [ $BENCHMARK_EXIT_CODE -eq 124 ]; then
+        # Combine exit codes for overall status
+        OVERALL_EXIT_CODE=0
+        if [ $BENCHMARK_EXIT_CODE -ne 0 ] || [ $AGGREGATION_EXIT_CODE -ne 0 ]; then
+          OVERALL_EXIT_CODE=1
+        fi
+        
+        echo "📊 ferris_sql_multi_benchmarks overall status: $OVERALL_EXIT_CODE"
+        
+        if [ $BENCHMARK_EXIT_CODE -eq 124 ] || [ $AGGREGATION_EXIT_CODE -eq 124 ]; then
           echo "⏰ ferris_sql_multi_benchmarks TIMED OUT (300s limit exceeded)"
           echo "TIMEOUT: ferris_sql_multi_benchmarks exceeded 300 second limit" >> ferris_sql_benchmarks.txt
-        elif [ $BENCHMARK_EXIT_CODE -ne 0 ]; then
-          echo "❌ ferris_sql_multi_benchmarks FAILED with exit code $BENCHMARK_EXIT_CODE"
-          echo "FAILURE: ferris_sql_multi_benchmarks failed with exit code $BENCHMARK_EXIT_CODE" >> ferris_sql_benchmarks.txt
+        elif [ $OVERALL_EXIT_CODE -ne 0 ]; then
+          echo "❌ ferris_sql_multi_benchmarks FAILED (baseline: $BENCHMARK_EXIT_CODE, aggregation: $AGGREGATION_EXIT_CODE)"
+          echo "FAILURE: ferris_sql_multi_benchmarks failed (baseline: $BENCHMARK_EXIT_CODE, aggregation: $AGGREGATION_EXIT_CODE)" >> ferris_sql_benchmarks.txt
         else
           echo "✅ ferris_sql_multi_benchmarks completed successfully"
         fi
@@ -163,11 +178,11 @@ jobs:
         # Run transactional processor benchmarks with enhanced error handling
         echo ""
         echo "🧪 Running transactional_processor_benchmarks..."
-        echo "Command: timeout 300 cargo test --test transactional_processor_benchmarks --no-default-features benchmark_simple_vs_transactional_small_batch -- --ignored --nocapture"
+        echo "Command: timeout 300 cargo test --no-default-features benchmark_simple_vs_transactional_small_batch -- --ignored --nocapture"
         
         START_TIME=$(date +%s)
         PROCESSOR_EXIT_CODE=0
-        timeout 300 cargo test --test transactional_processor_benchmarks --no-default-features \
+        timeout 300 cargo test --no-default-features \
           benchmark_simple_vs_transactional_small_batch \
           -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || PROCESSOR_EXIT_CODE=$?
         END_TIME=$(date +%s)
