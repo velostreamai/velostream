@@ -66,6 +66,12 @@ impl AccumulatorManager {
                             match value {
                                 FieldValue::Integer(i) => accumulator.add_sum(field_name, i as f64),
                                 FieldValue::Float(f) => accumulator.add_sum(field_name, f),
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    // Convert ScaledInteger to f64 for SUM aggregation
+                                    let divisor = 10_i64.pow(scale as u32) as f64;
+                                    let float_value = value as f64 / divisor;
+                                    accumulator.add_sum(field_name, float_value);
+                                }
                                 FieldValue::Null => {
                                     // NULL values are ignored in SUM
                                 }
@@ -112,6 +118,16 @@ impl AccumulatorManager {
                                         .entry(field_name.to_string())
                                         .or_default()
                                         .push(f);
+                                }
+                                FieldValue::ScaledInteger(value, scale) => {
+                                    // Convert ScaledInteger to f64 for aggregation
+                                    let divisor = 10_i64.pow(scale as u32) as f64;
+                                    let float_value = value as f64 / divisor;
+                                    accumulator
+                                        .numeric_values
+                                        .entry(field_name.to_string())
+                                        .or_default()
+                                        .push(float_value);
                                 }
                                 FieldValue::Null => {
                                     // NULL values are ignored in AVG/STDDEV/VARIANCE

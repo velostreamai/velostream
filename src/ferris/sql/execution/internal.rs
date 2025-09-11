@@ -168,6 +168,35 @@ impl GroupAccumulator {
             (FieldValue::Integer(l), FieldValue::Integer(r)) => l < r,
             (FieldValue::Float(l), FieldValue::Float(r)) => l < r,
             (FieldValue::String(l), FieldValue::String(r)) => l < r,
+            // ScaledInteger comparisons
+            (FieldValue::ScaledInteger(l_val, l_scale), FieldValue::ScaledInteger(r_val, r_scale)) => {
+                // Convert both to same scale and compare
+                if l_scale == r_scale {
+                    l_val < r_val
+                } else {
+                    // Convert to f64 for cross-scale comparison
+                    let l_float = *l_val as f64 / 10_i64.pow(*l_scale as u32) as f64;
+                    let r_float = *r_val as f64 / 10_i64.pow(*r_scale as u32) as f64;
+                    l_float < r_float
+                }
+            },
+            // Mixed comparisons with ScaledInteger
+            (FieldValue::ScaledInteger(val, scale), FieldValue::Integer(r)) => {
+                let l_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                l_float < (*r as f64)
+            },
+            (FieldValue::Integer(l), FieldValue::ScaledInteger(val, scale)) => {
+                let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                (*l as f64) < r_float
+            },
+            (FieldValue::ScaledInteger(val, scale), FieldValue::Float(r)) => {
+                let l_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                l_float < *r
+            },
+            (FieldValue::Float(l), FieldValue::ScaledInteger(val, scale)) => {
+                let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                *l < r_float
+            },
             _ => false, // For complex comparisons, don't update
         }
     }
@@ -178,6 +207,35 @@ impl GroupAccumulator {
             (FieldValue::Integer(l), FieldValue::Integer(r)) => l > r,
             (FieldValue::Float(l), FieldValue::Float(r)) => l > r,
             (FieldValue::String(l), FieldValue::String(r)) => l > r,
+            // ScaledInteger comparisons
+            (FieldValue::ScaledInteger(l_val, l_scale), FieldValue::ScaledInteger(r_val, r_scale)) => {
+                // Convert both to same scale and compare
+                if l_scale == r_scale {
+                    l_val > r_val
+                } else {
+                    // Convert to f64 for cross-scale comparison
+                    let l_float = *l_val as f64 / 10_i64.pow(*l_scale as u32) as f64;
+                    let r_float = *r_val as f64 / 10_i64.pow(*r_scale as u32) as f64;
+                    l_float > r_float
+                }
+            },
+            // Mixed comparisons with ScaledInteger
+            (FieldValue::ScaledInteger(val, scale), FieldValue::Integer(r)) => {
+                let l_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                l_float > (*r as f64)
+            },
+            (FieldValue::Integer(l), FieldValue::ScaledInteger(val, scale)) => {
+                let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                (*l as f64) > r_float
+            },
+            (FieldValue::ScaledInteger(val, scale), FieldValue::Float(r)) => {
+                let l_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                l_float > *r
+            },
+            (FieldValue::Float(l), FieldValue::ScaledInteger(val, scale)) => {
+                let r_float = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                *l > r_float
+            },
             _ => false, // For complex comparisons, don't update
         }
     }

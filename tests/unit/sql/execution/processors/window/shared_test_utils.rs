@@ -121,16 +121,16 @@ impl SqlExecutor {
             }
         }
 
-        // need to flush any remaining results for windowed queries with group by
-        // First flush windows, then flush group by results
-        if let Err(e) = engine.flush_windows().await {
-            eprintln!("❌ Error flushing windows: {:?}", e);
-        } else {
-            println!("✅ Windows flushed successfully");
-        }
+        // // need to flush any remaining results for windowed queries with group by
+        // // First flush windows, then flush group by results
+        // if let Err(e) = engine.flush_windows().await {
+        //     eprintln!("❌ Error flushing windows: {:?}", e);
+        // } else {
+        //     println!("✅ Windows flushed successfully");
+        // }
 
-        let flushed_results = engine.flush_group_by_results(&query);
-        println!("Group by flush results: {:?}", flushed_results);
+        // let flushed_results = engine.flush_group_by_results(&query);
+        // println!("Group by flush results: {:?}", flushed_results);
         // Collect results
         let mut results = Vec::new();
         while let Ok(output) = rx.try_recv() {
