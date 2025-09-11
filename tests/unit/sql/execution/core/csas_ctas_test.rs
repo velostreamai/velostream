@@ -543,14 +543,15 @@ mod tests {
             CREATE STREAM processed_events AS 
             SELECT id, timestamp, event_type 
             FROM file_source 
+            WITH ("source_config" = "configs/file_input.yaml")
             INTO s3_sink
-            WITH (
-                "source_config" = "configs/file_input.yaml",
-                "sink_config" = "configs/s3_output.yaml"
-            )
+            WITH ("sink_config" = "configs/s3_output.yaml")
         "#,
         );
 
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
         assert!(result.is_ok());
         let query = result.unwrap();
 
@@ -558,19 +559,30 @@ mod tests {
             StreamingQuery::CreateStreamInto {
                 name,
                 into_clause,
+                as_select,
                 properties,
                 ..
             } => {
                 assert_eq!(name, "processed_events");
                 assert_eq!(into_clause.sink_name, "s3_sink");
-                assert_eq!(
-                    properties.source_config,
-                    Some("configs/file_input.yaml".to_string())
-                );
+                
+                // Check sink config in top-level properties
                 assert_eq!(
                     properties.sink_config,
                     Some("configs/s3_output.yaml".to_string())
                 );
+                
+                // Check source config in SELECT WITH clause
+                match *as_select {
+                    StreamingQuery::Select { properties: select_props, .. } => {
+                        let props = select_props.as_ref().expect("Expected properties in SELECT");
+                        assert_eq!(
+                            props.get("source_config"),
+                            Some(&"configs/file_input.yaml".to_string())
+                        );
+                    }
+                    _ => panic!("Expected Select query in CreateStreamInto"),
+                }
             }
             _ => panic!("Expected CreateStreamInto query"),
         }
@@ -587,10 +599,10 @@ mod tests {
                 COUNT(*) as event_count,
                 AVG(latency) as avg_latency
             FROM performance_events 
+            WITH ("source_config" = "configs/kafka_perf.yaml")
             GROUP BY date_trunc('hour', timestamp)
             INTO postgres_sink
             WITH (
-                "source_config" = "configs/kafka_perf.yaml",
                 "sink_config" = "configs/postgres_analytics.yaml", 
                 "monitoring_config" = "configs/monitoring.yaml"
             )
@@ -607,15 +619,14 @@ mod tests {
             StreamingQuery::CreateTableInto {
                 name,
                 into_clause,
+                as_select,
                 properties,
                 ..
             } => {
                 assert_eq!(name, "aggregated_metrics");
                 assert_eq!(into_clause.sink_name, "postgres_sink");
-                assert_eq!(
-                    properties.source_config,
-                    Some("configs/kafka_perf.yaml".to_string())
-                );
+                
+                // Check sink and monitoring config in top-level properties
                 assert_eq!(
                     properties.sink_config,
                     Some("configs/postgres_analytics.yaml".to_string())
@@ -624,6 +635,18 @@ mod tests {
                     properties.monitoring_config,
                     Some("configs/monitoring.yaml".to_string())
                 );
+                
+                // Check source config in SELECT WITH clause
+                match *as_select {
+                    StreamingQuery::Select { properties: select_props, .. } => {
+                        let props = select_props.as_ref().expect("Expected properties in SELECT");
+                        assert_eq!(
+                            props.get("source_config"),
+                            Some(&"configs/kafka_perf.yaml".to_string())
+                        );
+                    }
+                    _ => panic!("Expected Select query in CreateTableInto"),
+                }
             }
             _ => panic!("Expected CreateTableInto query"),
         }
@@ -693,6 +716,7 @@ mod tests {
             WITH ("source_config" = "configs/kafka.yaml")
             WINDOW TUMBLING(5m)
             INTO analytics_sink
+            WITH ("sink_config" = "configs/analytics.yaml")
         "#,
         );
 
