@@ -449,8 +449,12 @@ mod tests {
     fn test_csas_with_into_parsing() {
         let parser = StreamingSqlParser::new();
         let result = parser.parse(
-            "CREATE STREAM enriched_orders AS SELECT * FROM kafka_source INTO postgres_sink",
+            "CREATE STREAM enriched_orders AS SELECT * FROM kafka_source WITH (\"source_config\" = \"configs/kafka.yaml\") INTO postgres_sink",
         );
+        
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
 
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -468,14 +472,21 @@ mod tests {
                 assert!(columns.is_none());
                 assert_eq!(into_clause.sink_name, "postgres_sink");
                 assert!(into_clause.sink_properties.is_empty());
-                assert!(properties.source_config.is_none()); // No config specified
+                assert!(properties.source_config.is_none()); // Config is in SELECT WITH, not outer config
 
                 // Check the underlying SELECT query
                 match *as_select {
-                    StreamingQuery::Select { fields, from, .. } => {
+                    StreamingQuery::Select { fields, from, properties, .. } => {
                         assert_eq!(fields.len(), 1);
                         assert!(matches!(fields[0], SelectField::Wildcard));
                         assert!(matches!(from, StreamSource::Stream(_)));
+                        
+                        // Check that SELECT has the source config in its properties
+                        if let Some(props) = properties {
+                            assert_eq!(props.get("source_config"), Some(&"configs/kafka.yaml".to_string()));
+                        } else {
+                            panic!("Expected SELECT to have WITH properties");
+                        }
                     }
                     _ => panic!("Expected Select query in CREATE STREAM INTO"),
                 }
@@ -488,8 +499,12 @@ mod tests {
     fn test_ctas_with_into_parsing() {
         let parser = StreamingSqlParser::new();
         let result = parser.parse(
-            "CREATE TABLE analytics_summary AS SELECT customer_id, COUNT(*), AVG(amount) FROM kafka_stream INTO clickhouse_sink"
+            "CREATE TABLE analytics_summary AS SELECT customer_id, COUNT(*), AVG(amount) FROM kafka_stream WITH (\"source_config\" = \"configs/kafka.yaml\") INTO clickhouse_sink"
         );
+        
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
 
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -506,7 +521,7 @@ mod tests {
                 assert_eq!(name, "analytics_summary");
                 assert!(columns.is_none());
                 assert_eq!(into_clause.sink_name, "clickhouse_sink");
-                assert!(properties.source_config.is_none());
+                assert!(properties.source_config.is_none()); // Config is in SELECT WITH
 
                 // Check the underlying SELECT query has aggregation
                 match *as_select {
@@ -582,6 +597,9 @@ mod tests {
         "#,
         );
 
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
         assert!(result.is_ok());
         let query = result.unwrap();
 
@@ -624,12 +642,13 @@ mod tests {
             ) AS 
             SELECT id, customer_id, amount, status 
             FROM raw_orders 
+            WITH ("source_config" = "configs/kafka.yaml")
             INTO kafka_validated_orders
         "#,
         );
 
         if let Err(e) = &result {
-            println!("Parse error: {:?}", e);
+            panic!("Parse failed with error: {:?}", e);
         }
         assert!(result.is_ok());
         let query = result.unwrap();
@@ -671,11 +690,15 @@ mod tests {
                 COUNT(*) as order_count,
                 AVG(amount) as avg_amount
             FROM orders 
+            WITH ("source_config" = "configs/kafka.yaml")
             WINDOW TUMBLING(5m)
             INTO analytics_sink
         "#,
         );
 
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
         assert!(result.is_ok());
         let query = result.unwrap();
 
@@ -715,9 +738,13 @@ mod tests {
 
         // Parse CREATE STREAM INTO query
         let parser = StreamingSqlParser::new();
-        let query = parser
-            .parse("CREATE STREAM orders_to_warehouse AS SELECT order_id, amount FROM source INTO warehouse_sink")
-            .unwrap();
+        let result = parser
+            .parse("CREATE STREAM orders_to_warehouse AS SELECT order_id, amount FROM source WITH (\"source_config\" = \"configs/kafka.yaml\") INTO warehouse_sink");
+            
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
+        let query = result.unwrap();
 
         // Create test record
         let mut record = HashMap::new();
@@ -747,9 +774,13 @@ mod tests {
 
         // Parse CREATE TABLE INTO query
         let parser = StreamingSqlParser::new();
-        let query = parser
-            .parse("CREATE TABLE user_stats AS SELECT customer_id, COUNT(*) FROM orders INTO analytics_db")
-            .unwrap();
+        let result = parser
+            .parse("CREATE TABLE user_stats AS SELECT customer_id, COUNT(*) FROM orders WITH (\"source_config\" = \"configs/kafka.yaml\") INTO analytics_db");
+            
+        if let Err(e) = &result {
+            panic!("Parse failed with error: {:?}", e);
+        }
+        let query = result.unwrap();
 
         // Create test record
         let mut record = HashMap::new();
@@ -796,7 +827,7 @@ mod tests {
 
         // Test that both old and new syntax work in same parser
         let old_query = parser.parse("CREATE STREAM old_style AS SELECT * FROM orders");
-        let new_query = parser.parse("CREATE STREAM new_style AS SELECT * FROM orders INTO sink");
+        let new_query = parser.parse("CREATE STREAM new_style AS SELECT * FROM orders WITH (\"source_config\" = \"configs/kafka.yaml\") INTO sink");
 
         assert!(old_query.is_ok());
         assert!(new_query.is_ok());
