@@ -453,10 +453,16 @@ async fn run_query_benchmark(
     // Let the benchmark run for sufficient time to process all records
     // Use shorter timeout in CI/CD mode
     let config = BenchmarkConfig::default();
-    let base_duration = Duration::from_millis((record_count as u64 * 2) / batch_size as u64);
+    // Give more realistic time: assume ~500 records/second minimum throughput in CI, ~1000 locally  
+    // Base time: 2 seconds + (records / expected_throughput) seconds * timeout_multiplier
+    let expected_throughput = if config.timeout_multiplier < 1.0 { 500.0 } else { 1000.0 };
+    let processing_time = (record_count as f64 / expected_throughput).max(1.0);
+    let base_duration = Duration::from_millis(((2.0 + processing_time) * 1000.0) as u64);
     let adjusted_duration = Duration::from_millis(
         (base_duration.as_millis() as f64 * config.timeout_multiplier) as u64,
     );
+    println!("⏰ Benchmark timeout: {:.1}s (records: {}, throughput: {:.0}/s, multiplier: {:.1})", 
+             adjusted_duration.as_secs_f64(), record_count, expected_throughput, config.timeout_multiplier);
     tokio::time::sleep(adjusted_duration).await;
     let _ = shutdown_tx.send(()).await;
 
