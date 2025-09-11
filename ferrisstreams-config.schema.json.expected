@@ -4,6 +4,54 @@
   "additionalProperties": false,
   "description": "Comprehensive configuration schema for FerrisStreams multi-source/multi-sink processing",
   "properties": {
+    "batch": {
+      "additionalProperties": false,
+      "description": "Batch processing configuration for optimized throughput",
+      "properties": {
+        "batch_config": {
+          "additionalProperties": false,
+          "description": "Batch processing strategy configuration",
+          "properties": {
+            "max_size": {
+              "default": 1000,
+              "description": "Maximum number of messages per batch",
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "memory_limit_mb": {
+              "default": 64,
+              "description": "Memory-based batch limit in MB",
+              "maximum": 1024,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "strategy": {
+              "default": "time_based",
+              "description": "Batch processing strategy",
+              "enum": [
+                "time_based",
+                "memory_based",
+                "count_based"
+              ],
+              "type": "string"
+            },
+            "timeout_ms": {
+              "default": 5000,
+              "description": "Maximum time to wait for batch completion (milliseconds)",
+              "maximum": 300000,
+              "minimum": 100,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "strategy"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "extends": {
       "description": "Configuration file inheritance - extend other config files",
       "oneOf": [

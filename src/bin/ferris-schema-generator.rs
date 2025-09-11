@@ -139,6 +139,53 @@ fn generate_comprehensive_json_schema(
         }),
     );
 
+    // Add batch configuration section
+    properties.insert(
+        "batch".to_string(),
+        json!({
+            "type": "object",
+            "description": "Batch processing configuration for optimized throughput",
+            "additionalProperties": false,
+            "properties": {
+                "batch_config": {
+                    "type": "object",
+                    "description": "Batch processing strategy configuration",
+                    "additionalProperties": false,
+                    "properties": {
+                        "strategy": {
+                            "type": "string",
+                            "enum": ["time_based", "memory_based", "count_based"],
+                            "description": "Batch processing strategy",
+                            "default": "time_based"
+                        },
+                        "max_size": {
+                            "type": "integer",
+                            "description": "Maximum number of messages per batch",
+                            "minimum": 1,
+                            "maximum": 100000,
+                            "default": 1000
+                        },
+                        "timeout_ms": {
+                            "type": "integer",
+                            "description": "Maximum time to wait for batch completion (milliseconds)",
+                            "minimum": 100,
+                            "maximum": 300000,
+                            "default": 5000
+                        },
+                        "memory_limit_mb": {
+                            "type": "integer",
+                            "description": "Memory-based batch limit in MB",
+                            "minimum": 1,
+                            "maximum": 1024,
+                            "default": 64
+                        }
+                    },
+                    "required": ["strategy"]
+                }
+            }
+        }),
+    );
+
     // Add configuration file inheritance
     properties.insert(
         "extends".to_string(),
