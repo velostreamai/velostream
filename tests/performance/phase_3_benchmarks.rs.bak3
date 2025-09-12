@@ -17,8 +17,7 @@ to validate production readiness and measure overhead of new features.
 use chrono::{DateTime, Utc};
 use ferrisstreams::ferris::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
-    config::{StreamingConfig, LateDataStrategy},
-    watermarks::WatermarkStrategy,  
+    config::{StreamingConfig, LateDataStrategy, WatermarkStrategy},  
     error::StreamingError,
     resource_manager::{ResourceLimits, ResourceManager},
     watermarks::WatermarkManager,
@@ -128,11 +127,10 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
         fields.insert("id".to_string(), FieldValue::Integer(i as i64));
         fields.insert("amount".to_string(), FieldValue::Float(i as f64 * 10.5));
         fields.insert("category".to_string(), FieldValue::String(format!("cat_{}", i % 10)));
-        let mut record = StreamRecord::new(fields);
         
         // Enhanced processing with event time
         let event_time = Utc::now();
-        record.event_time = Some(event_time);
+        record.set_event_time(Some(event_time));
         
         // Resource tracking
         let _ = resource_manager.update_resource_usage("records_processed", i as u64 + 1);
@@ -147,8 +145,8 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
         }).await;
         
         // Simulate processing
-        let _id = record.fields.get("id");
-        let _amount = record.fields.get("amount");
+        let _id = record.get("id");
+        let _amount = record.get("amount");
         let _event_time = record.get_event_time();
         
         if i % 1000 == 0 {
@@ -161,7 +159,7 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
 }
 
 async fn benchmark_watermarks_only(record_count: usize) -> f64 {
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
@@ -171,14 +169,13 @@ async fn benchmark_watermarks_only(record_count: usize) -> f64 {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(i as i64));
         fields.insert("amount".to_string(), FieldValue::Float(i as f64 * 10.5));
-        let mut record = StreamRecord::new(fields);
-        record.event_time = Some(Utc::now());
+        record.set_event_time(Some(Utc::now()));
         
         if i % 100 == 0 {
             watermark_manager.update_watermark("benchmark_source", Utc::now());
         }
         
-        let _id = record.fields.get("id");
+        let _id = record.get("id");
         let _event_time = record.get_event_time();
         
         if i % 1000 == 0 {
@@ -203,11 +200,10 @@ async fn benchmark_resources_only(record_count: usize) -> f64 {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(i as i64));
         fields.insert("amount".to_string(), FieldValue::Float(i as f64 * 10.5));
-        let record = StreamRecord::new(fields);
         
         let _ = resource_manager.update_resource_usage("records_processed", i as u64 + 1);
         
-        let _id = record.fields.get("id");
+        let _id = record.get("id");
         
         if i % 1000 == 0 {
             tokio::task::yield_now().await;
@@ -228,10 +224,9 @@ async fn benchmark_circuit_breaker_only(record_count: usize) -> f64 {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(i as i64));
         fields.insert("amount".to_string(), FieldValue::Float(i as f64 * 10.5));
-        let record = StreamRecord::new(fields);
         
         let _: Result<(), StreamingError> = circuit_breaker.execute(|| {
-            let _id = record.fields.get("id");
+            let _id = record.get("id");
             Ok(())
         }).await;
         
@@ -360,11 +355,10 @@ async fn measure_legacy_processing_latency() -> f64 {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(42));
     fields.insert("data".to_string(), FieldValue::String("test_data".to_string()));
-    let record = StreamRecord::new(fields);
     
     // Simulate basic processing
-    let _id = record.fields.get("id");
-    let _data = record.fields.get("data");
+    let _id = record.get("id");
+    let _data = record.get("data");
     
     start.elapsed().as_micros() as f64
 }
@@ -379,7 +373,7 @@ async fn setup_enhanced_components() -> EnhancedComponents {
     let mut resource_manager = ResourceManager::new(ResourceLimits::default());
     resource_manager.enable();
     
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
@@ -405,8 +399,8 @@ async fn measure_enhanced_processing_latency(components: &EnhancedComponents) ->
     let _ = components.resource_manager.update_resource_usage("latency_test", 1);
     
     let _: Result<(), StreamingError> = components.circuit_breaker.execute(|| {
-        let _id = record.fields.get("id");
-        let _data = record.fields.get("data");
+        let _id = record.get("id");
+        let _data = record.get("data");
         let _event_time = record.get_event_time();
         Ok(())
     }).await;
@@ -485,7 +479,7 @@ async fn benchmark_stress_testing() {
     });
     resource_manager.enable();
     
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
@@ -519,7 +513,7 @@ async fn benchmark_stress_testing() {
             // Circuit breaker protection
             let result: Result<(), StreamingError> = circuit_breaker.execute(|| {
                 // Simulate processing work
-                let _processing = record.fields.get("id").is_some() && record.get_event_time().is_some();
+                let _processing = record.get("id").is_some() && record.get_event_time().is_some();
                 Ok(())
             }).await;
             
@@ -631,8 +625,8 @@ async fn benchmark_financial_trading_scenario() -> f64 {
         // High-frequency processing with circuit breaker protection
         let _: Result<(), StreamingError> = circuit_breaker.execute(|| {
             // Simulate trade validation and processing
-            let _price = record.fields.get("price");
-            let _volume = record.fields.get("volume");
+            let _price = record.get("price");
+            let _volume = record.get("volume");
             resource_manager.update_resource_usage("active_trades", i as u64 + 1)
         }).await;
     }
@@ -730,8 +724,8 @@ async fn benchmark_web_analytics_scenario() -> f64 {
             resource_manager.update_resource_usage("page_views", i as u64 + 1)?;
             
             // Simulate analytics computation
-            let _session = record.fields.get("session_id");
-            let _response_time = record.fields.get("response_time");
+            let _session = record.get("session_id");
+            let _response_time = record.get("response_time");
             
             Ok(())
         }).await;

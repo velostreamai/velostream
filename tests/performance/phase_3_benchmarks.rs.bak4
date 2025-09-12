@@ -161,7 +161,7 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
 }
 
 async fn benchmark_watermarks_only(record_count: usize) -> f64 {
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
@@ -379,7 +379,7 @@ async fn setup_enhanced_components() -> EnhancedComponents {
     let mut resource_manager = ResourceManager::new(ResourceLimits::default());
     resource_manager.enable();
     
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
@@ -485,7 +485,7 @@ async fn benchmark_stress_testing() {
     });
     resource_manager.enable();
     
-    let watermark_strategy = WatermarkStrategy::Ascending;
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
     let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     

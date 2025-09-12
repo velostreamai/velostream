@@ -14,6 +14,7 @@ use ferrisstreams::ferris::{
         execution::{
             types::{FieldValue, StreamRecord},
             config::{StreamingConfig, CircuitBreakerConfig, ResourceMonitoringConfig, WatermarkStrategy},
+            resource_manager::ResourceLimits,
             circuit_breaker::CircuitBreaker,
             resource_manager::ResourceManager,
             watermarks::WatermarkManager,
@@ -448,7 +449,7 @@ async fn run_enhanced_query_benchmark(
 
     // Initialize enhanced streaming components
     let mut circuit_breaker = if config.streaming_config.enable_circuit_breakers {
-        let mut cb = CircuitBreaker::new(config.streaming_config.circuit_breaker_config.clone());
+        let mut cb = CircuitBreaker::new("benchmark_service".to_string(), config.streaming_config.circuit_breaker_config.clone().unwrap_or_default());
         cb.enable();
         Some(cb)
     } else {
@@ -456,7 +457,7 @@ async fn run_enhanced_query_benchmark(
     };
 
     let mut resource_manager = if config.streaming_config.enable_resource_monitoring {
-        let mut rm = ResourceManager::new(config.streaming_config.resource_limits.clone());
+        let mut rm = ResourceManager::new(ResourceLimits::default());
         rm.enable();
         Some(rm)
     } else {
@@ -464,7 +465,7 @@ async fn run_enhanced_query_benchmark(
     };
 
     let watermark_manager = if config.streaming_config.enable_watermarks {
-        Some(WatermarkManager::new(config.streaming_config.watermark_config.clone()))
+        Some(WatermarkManager::new(config.streaming_config.watermark_strategy.clone()))
     } else {
         None
     };
@@ -575,7 +576,7 @@ async fn run_enhanced_query_benchmark(
         }
 
         if let Some(ref cb) = circuit_breaker {
-            let cb_metrics = cb.get_metrics();
+            let cb_metrics = cb.get_stats();
             metrics.circuit_breaker_opens = cb_metrics.failure_count;
         }
 
@@ -852,12 +853,8 @@ async fn benchmark_enhanced_resource_limits() {
     
     // Create restrictive resource configuration
     let mut config = EnhancedBenchmarkConfig::default();
-    config.streaming_config.resource_limits = ResourceLimits {
-        max_total_memory: Some(64 * 1024 * 1024), // 64MB - restrictive
-        max_operator_memory: Some(32 * 1024 * 1024), // 32MB per operator
-        max_processing_time_per_record: Some(50), // 50ms max per record
-        ..Default::default()
-    };
+    // Configure resource limits directly on StreamingConfig
+    config.streaming_config.max_total_memory = Some(64 * 1024 * 1024); // 64MB - restrictive
 
     let query = {
         use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
