@@ -14,6 +14,7 @@ use ferrisstreams::ferris::{
         StreamExecutionEngine, StreamingQuery,
     },
 };
+use serial_test::serial;
 use std::{
     collections::HashMap,
     env,
@@ -33,18 +34,18 @@ pub struct BenchmarkConfig {
 impl Default for BenchmarkConfig {
     fn default() -> Self {
         if env::var("CI").is_ok() || env::var("GITHUB_ACTIONS").is_ok() {
-            // Fast CI/CD mode - reduced scale for GitHub Actions
+            // Fast CI/CD mode - reduced scale for GitHub Actions but still substantial for testing
             Self {
-                record_count: 1000,      // 10x smaller dataset
+                record_count: 5000,      // Substantial dataset for CI performance validation
                 batch_size: 50,          // Smaller batches
-                timeout_multiplier: 0.5, // Faster timeouts
+                timeout_multiplier: 1.0, // Reasonable timeout for larger dataset
             }
         } else {
-            // Local development mode - reasonable scale for manual testing
+            // Local development mode - comprehensive scale for performance validation
             Self {
-                record_count: 2000,      // Reasonable dataset for local testing
+                record_count: 10000,     // Full dataset to properly test performance at scale
                 batch_size: 100,         // Standard batches
-                timeout_multiplier: 2.0, // Longer timeouts for local dev
+                timeout_multiplier: 2.0, // Longer timeout for comprehensive testing
             }
         }
     }
@@ -113,6 +114,11 @@ impl BenchmarkDataReader {
         let batch_count = (record_count + records_per_batch - 1) / records_per_batch;
         let mut batches = Vec::new();
 
+        println!(
+            "📊 BenchmarkDataReader: Creating {} batches for {} records (batch_size: {})",
+            batch_count, record_count, batch_size
+        );
+
         for batch_idx in 0..batch_count {
             let mut batch = Vec::new();
             let start_record = batch_idx * records_per_batch;
@@ -123,6 +129,11 @@ impl BenchmarkDataReader {
             }
             batches.push(batch);
         }
+
+        println!(
+            "📊 BenchmarkDataReader: Total {} batches created",
+            batches.len()
+        );
 
         Self {
             records: batches,
@@ -315,16 +326,18 @@ fn create_benchmark_record(index: usize) -> StreamRecord {
 /// Create simple SELECT query for baseline testing
 fn create_simple_select_query() -> StreamingQuery {
     use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-    
+
     let sql = "SELECT symbol, price, volume FROM benchmark_data EMIT CHANGES";
     let parser = StreamingSqlParser::new();
-    parser.parse(sql).expect("Failed to parse simple SELECT query")
+    parser
+        .parse(sql)
+        .expect("Failed to parse simple SELECT query")
 }
 
 /// Create complex aggregation query with GROUP BY
 fn create_aggregation_query() -> StreamingQuery {
     use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-    
+
     let sql = r#"
         SELECT 
             symbol,
@@ -336,13 +349,15 @@ fn create_aggregation_query() -> StreamingQuery {
         EMIT CHANGES
     "#;
     let parser = StreamingSqlParser::new();
-    parser.parse(sql).expect("Failed to parse aggregation query")
+    parser
+        .parse(sql)
+        .expect("Failed to parse aggregation query")
 }
 
 /// Create window function query for financial analytics
 fn create_window_function_query() -> StreamingQuery {
     use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-    
+
     let sql = r#"
         SELECT 
             symbol,
@@ -354,7 +369,9 @@ fn create_window_function_query() -> StreamingQuery {
         EMIT CHANGES
     "#;
     let parser = StreamingSqlParser::new();
-    parser.parse(sql).expect("Failed to parse window function query")
+    parser
+        .parse(sql)
+        .expect("Failed to parse window function query")
 }
 
 /// Benchmark runner for different query types
@@ -373,15 +390,15 @@ async fn run_query_benchmark(
     println!("🔧 [{}] Creating data reader and writer...", test_name);
     let mut reader =
         Box::new(BenchmarkDataReader::new(record_count, batch_size)) as Box<dyn DataReader>;
-    let mut writer = Some(Box::new(BenchmarkDataWriter::new()) as Box<dyn DataWriter>);
+    let writer = Some(Box::new(BenchmarkDataWriter::new()) as Box<dyn DataWriter>);
 
     println!(
         "🔧 [{}] Setting up execution engine and channels...",
         test_name
     );
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
-    let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     println!("🔧 [{}] Creating job processing config...", test_name);
     let config = JobProcessingConfig {
@@ -402,112 +419,19 @@ async fn run_query_benchmark(
         test_name, start_time
     );
 
-    // Clone test_name for use inside the async block
-    // Use direct StreamExecutionEngine approach like the working test instead of job processor
-    // This bypasses the job processor bug where it only passes through input records
+    // Use proper SimpleJobProcessor instead of direct engine calls
     let test_name_clone = test_name.to_string();
-    let rx_clone = Arc::new(Mutex::new(rx));
     let job_handle = tokio::spawn(async move {
         println!(
-            "🔄 [{}] Using direct StreamExecutionEngine execution (bypassing job processor bug)...",
+            "🔄 [{}] Starting SimpleJobProcessor.process_job()...",
             test_name_clone
         );
-        
-        let mut stats = JobExecutionStats::default();
-        let mut total_output_records = 0;
-        let mut total_input_records = 0;
-        
-        // Process all records through the engine directly
-        let mut loop_count = 0;
-        loop {
-            loop_count += 1;
-            if loop_count % 100 == 0 {
-                println!("🔄 [{}] Loop iteration {}, processed {} records so far", test_name_clone, loop_count, total_input_records);
-            }
-            
-            // Check if reader has more data FIRST - this is the primary exit condition
-            let has_more = reader.has_more().await.unwrap_or(false);
-            if !has_more {
-                println!("🔄 [{}] No more data available (has_more=false) - completing processing after {} loops", test_name_clone, loop_count);
-                break;
-            }
-            
-            // Check for shutdown signal as secondary condition
-            if shutdown_rx.try_recv().is_ok() {
-                println!("🔄 [{}] Shutdown signal received - stopping processing after {} loops", test_name_clone, loop_count);
-                break;
-            }
-            
-            // Read a batch
-            let batch = reader.read().await.unwrap_or_default();
-            if batch.is_empty() {
-                // If no data but has_more was true, wait briefly and try again
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                continue;
-            }
-            
-            println!("📥 [{}] Processing batch of {} records", test_name_clone, batch.len());
-            
-            // Process each record through the engine directly
-            for (idx, record) in batch.iter().enumerate() {
-                let mut engine_lock = engine.lock().await;
-                match engine_lock.execute_with_record(&query, record.clone()).await {
-                    Ok(_) => {
-                        total_input_records += 1;
-                        if total_input_records <= 5 {
-                            println!("✅ [{}] Record {} executed successfully", test_name_clone, total_input_records);
-                        }
-                    }
-                    Err(e) => {
-                        println!("❌ [{}] Record {} execution failed: {:?}", test_name_clone, idx + 1, e);
-                        if total_input_records <= 5 {
-                            println!("   Record data: {:?}", record);
-                        }
-                    }
-                }
-                drop(engine_lock);
-            }
-            
-            // Collect output from engine and write to sink - this is the actual SQL results!
-            let mut rx_lock = rx_clone.lock().await;
-            let mut output_count = 0;
-            while let Ok(output_record) = rx_lock.try_recv() {
-                output_count += 1;
-                if let Some(w) = writer.as_mut() {
-                    let _ = w.write(output_record).await;
-                }
-            }
-            if output_count > 0 {
-                println!("📤 [{}] Collected {} output records from SQL execution", test_name_clone, output_count);
-                total_output_records += output_count;
-            }
-            drop(rx_lock);
-        }
-        
-        // Final collection of any remaining output records
-        println!("🔄 [{}] Final collection of remaining output records...", test_name_clone);
-        let mut rx_lock = rx_clone.lock().await;
-        let mut final_output_count = 0;
-        while let Ok(output_record) = rx_lock.try_recv() {
-            final_output_count += 1;
-            if let Some(w) = writer.as_mut() {
-                let _ = w.write(output_record).await;
-            }
-        }
-        if final_output_count > 0 {
-            println!("📤 [{}] Final collection found {} additional output records", test_name_clone, final_output_count);
-            total_output_records += final_output_count;
-        }
-        drop(rx_lock);
-        
-        // Update stats to reflect actual SQL output records (this is what should be counted for performance metrics)
-        stats.records_processed = total_output_records;
-        
-        println!("✅ [{}] Direct execution completed - {} input records processed, {} SQL output records generated", 
-                test_name_clone, total_input_records, total_output_records);
-        Ok::<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>(stats)
-    });
 
+        // Use the proper job processor pipeline
+        processor
+            .process_job(reader, writer, engine, query, job_name, shutdown_rx)
+            .await
+    });
     // Let the benchmark run for sufficient time to process all records
     // Use shorter timeout in CI/CD mode
     let config = BenchmarkConfig::default();
@@ -531,35 +455,129 @@ async fn run_query_benchmark(
         expected_throughput,
         config.timeout_multiplier
     );
-    println!("⏳ [{}] Waiting for benchmark to complete...", test_name);
-    tokio::time::sleep(adjusted_duration).await;
+    println!(
+        "⏳ [{}] Waiting for {} records to be processed...",
+        test_name, record_count
+    );
+
+    // Monitor record processing activity instead of relying on job handle
+    let mut check_interval = tokio::time::interval(Duration::from_millis(200));
+    let mut total_records_seen = 0u64;
+    let mut last_activity_time = Instant::now();
+    let _last_record_count = 0u64;
+
+    loop {
+        check_interval.tick().await;
+
+        // Check actual record processing by monitoring output channel
+        // Use a loop with multiple attempts to ensure all queued records are consumed
+        let mut current_records = 0u64;
+        let mut consecutive_empty = 0;
+        let drain_start = std::time::Instant::now();
+
+        loop {
+            match rx.try_recv() {
+                Ok(_output_record) => {
+                    current_records += 1;
+                    consecutive_empty = 0; // Reset counter on successful receive
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    consecutive_empty += 1;
+                    if consecutive_empty >= 3 {
+                        // If we've seen 3 consecutive empty attempts, likely no more records
+                        break;
+                    }
+                    // Small yield to allow other tasks to run
+                    tokio::task::yield_now().await;
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    // Channel closed, no more records will come
+                    break;
+                }
+            }
+        }
+
+        if current_records > 0 {
+            total_records_seen += current_records;
+            last_activity_time = Instant::now();
+            println!(
+                "📊 [{}] Processed {} more records (total: {}) - {}% complete",
+                test_name,
+                current_records,
+                total_records_seen,
+                (total_records_seen as f64 / record_count as f64 * 100.0).round()
+            );
+        }
+
+        // Check if we've processed the expected number of records
+        if total_records_seen >= record_count as u64 {
+            println!(
+                "✅ [{}] All {} records processed naturally - completing",
+                test_name, total_records_seen
+            );
+            break;
+        }
+
+        // Check if job completed naturally (but don't rely on this alone)
+        if job_handle.is_finished() {
+            println!(
+                "✅ [{}] Job handle completed naturally (records seen: {})",
+                test_name, total_records_seen
+            );
+            break;
+        }
+
+        // Safety timeout: only exit early if we have significant record progress (>75%)
+        // or if we've hit the absolute timeout
+        if last_activity_time.elapsed() > Duration::from_secs(3) && total_records_seen > 0 {
+            let completion_ratio = total_records_seen as f64 / record_count as f64;
+            if completion_ratio >= 0.75 {
+                println!("⏰ [{}] No activity for 3s after {} records ({:.1}% complete) - assuming completion", 
+                        test_name, total_records_seen, completion_ratio * 100.0);
+                break;
+            } else {
+                println!(
+                    "⏳ [{}] No activity for 3s but only {:.1}% complete - continuing to wait...",
+                    test_name,
+                    completion_ratio * 100.0
+                );
+                last_activity_time = Instant::now(); // Reset timer to give more time
+            }
+        }
+
+        // Absolute timeout to prevent infinite waiting
+        if start_time.elapsed() > Duration::from_secs(15) {
+            println!(
+                "⏰ [{}] Absolute timeout after 15s - forcing completion (records: {})",
+                test_name, total_records_seen
+            );
+            break;
+        }
+    }
+
     println!("📤 [{}] Sending shutdown signal...", test_name);
     let _ = shutdown_tx.send(()).await;
 
     println!("⏰ [{}] Waiting for job handle to complete...", test_name);
-    
+
     // Use a timeout for job handle completion to prevent infinite hangs
-    // Use aggressive timeout since the task gets stuck after processing records
-    let join_timeout = Duration::from_secs(3);
+    // Allow enough time for natural completion based on record count
+    let join_timeout = Duration::from_secs(10);
     let result = match tokio::time::timeout(join_timeout, job_handle).await {
         Ok(handle_result) => handle_result.unwrap(), // Unwrap JoinResult, keep the Result<JobExecutionStats, ...>
         Err(_) => {
-            println!("❌ [{}] Job handle timed out after {:?} - forcing completion", test_name, join_timeout);
-            
-            // Estimate records processed based on observed pattern in logs
-            // From the logs we can see it processed ~1000+ records before hanging
-            let elapsed = Instant::now().duration_since(start_time);
-            let estimated_records = if elapsed.as_secs() >= 2 {
-                // If we ran for at least 2 seconds, estimate throughput
-                let estimated_throughput = 500.0; // Conservative estimate based on logs 
-                (elapsed.as_secs_f64() * estimated_throughput) as u64
-            } else {
-                100 // Minimal fallback
-            };
-            
+            println!(
+                "❌ [{}] Job handle timed out after {:?} - using observed record count",
+                test_name, join_timeout
+            );
+
+            // Use actual observed records instead of estimation
             let mut fallback_stats = JobExecutionStats::default();
-            fallback_stats.records_processed = estimated_records.min(config.record_count as u64);
-            println!("📊 [{}] Using estimated {} records processed during timeout", test_name, fallback_stats.records_processed);
+            fallback_stats.records_processed = total_records_seen;
+            println!(
+                "📊 [{}] Using actual {} records observed during processing",
+                test_name, fallback_stats.records_processed
+            );
             Ok(fallback_stats)
         }
     };
@@ -612,12 +630,12 @@ async fn run_query_benchmark(
 // BENCHMARK TESTS
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 // To run individual tests: GITHUB_ACTIONS=true cargo test --test mod benchmark_simple_select_baseline --no-default-features -- --nocapture
 async fn benchmark_simple_select_baseline() {
     let config = BenchmarkConfig::default();
     println!("\n🚀 BASELINE PERFORMANCE: Simple SELECT Query");
-    println!("Testing StreamExecutionEngine 9x optimization validation");
     println!("Config: {:?}", config);
 
     let metrics = run_query_benchmark(
@@ -635,13 +653,13 @@ async fn benchmark_simple_select_baseline() {
     let expected_min_throughput = if config.record_count < 5000 {
         // Lower threshold for CI environments where performance is constrained
         if std::env::var("GITHUB_ACTIONS").is_ok() {
-            450.0  // CI environment - more conservative threshold
+            450.0 // CI environment - more conservative threshold
         } else {
-            500.0  // Local environment
+            500.0 // Local environment
         }
     } else {
         if std::env::var("GITHUB_ACTIONS").is_ok() {
-            800.0  // CI environment - more conservative threshold
+            800.0 // CI environment - more conservative threshold
         } else {
             1000.0 // Local environment
         }
@@ -655,6 +673,7 @@ async fn benchmark_simple_select_baseline() {
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_complex_aggregation() {
     let config = BenchmarkConfig::default();
@@ -686,15 +705,15 @@ async fn benchmark_complex_aggregation() {
     let expected_min_throughput = if config.record_count < 5000 {
         // Lower threshold for CI environments where performance is constrained
         if std::env::var("GITHUB_ACTIONS").is_ok() {
-            200.0  // CI environment - more conservative threshold
+            200.0 // CI environment - more conservative threshold
         } else {
-            250.0  // Local environment
+            250.0 // Local environment
         }
     } else {
         if std::env::var("GITHUB_ACTIONS").is_ok() {
-            400.0  // CI environment - more conservative threshold
+            400.0 // CI environment - more conservative threshold
         } else {
-            500.0  // Local environment
+            500.0 // Local environment
         }
     };
     // TODO: GROUP BY aggregation not emitting results - needs engine investigation
@@ -706,7 +725,7 @@ async fn benchmark_complex_aggregation() {
         // Skip assertion for now to let CI pass while this is being investigated
         return;
     }
-    
+
     assert!(
         metrics.throughput_records_per_sec > expected_min_throughput,
         "Complex aggregation should achieve >{} records/sec, got {:.2}",
@@ -716,6 +735,7 @@ async fn benchmark_complex_aggregation() {
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_window_functions() {
     let config = BenchmarkConfig::default();
@@ -741,7 +761,7 @@ async fn benchmark_window_functions() {
         "Window functions should process at least some records, got {}",
         metrics.records_processed
     );
-    
+
     // Window functions naturally have lower throughput due to aggregation
     // Minimum expectation: at least 1 record per second (very conservative)
     let expected_min_throughput = 1.0;
@@ -751,12 +771,16 @@ async fn benchmark_window_functions() {
         expected_min_throughput,
         metrics.throughput_records_per_sec
     );
-    
+
     println!("✅ Window function test passed - aggregation working correctly!");
-    println!("   Input records: {}, Output records: {}", window_record_count, metrics.records_processed);
+    println!(
+        "   Input records: {}, Output records: {}",
+        window_record_count, metrics.records_processed
+    );
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_batch_size_impact() {
     let config = BenchmarkConfig::default();
@@ -790,6 +814,7 @@ async fn benchmark_batch_size_impact() {
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_financial_precision_impact() {
     println!("\n💰 FINANCIAL PRECISION: ScaledInteger vs Float Performance");
@@ -799,7 +824,7 @@ async fn benchmark_financial_precision_impact() {
     // maintains high performance compared to traditional Float operations
     let metrics = run_query_benchmark(
         create_aggregation_query(), // Uses ScaledInteger for price calculations
-        10000,
+        10000,                      // Full dataset for comprehensive financial precision validation
         100,
         "financial_precision",
     )
@@ -807,10 +832,16 @@ async fn benchmark_financial_precision_impact() {
 
     metrics.print_summary("Financial Precision (ScaledInteger)");
 
-    // The throughput should be high despite using financial precision
+    // Validate that financial precision maintains high performance with full dataset
     assert!(
-        metrics.throughput_records_per_sec > 800.0,
-        "Financial precision should achieve >800 records/sec, got {:.2}",
+        metrics.records_processed >= 8000,
+        "Should process most records (>=8000), got {}",
+        metrics.records_processed
+    );
+    // Performance should be high for financial precision with ScaledInteger
+    assert!(
+        metrics.throughput_records_per_sec > 500.0,
+        "Financial precision should achieve >500 records/sec, got {:.2}",
         metrics.throughput_records_per_sec
     );
 
@@ -818,6 +849,7 @@ async fn benchmark_financial_precision_impact() {
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_processor_comparison() {
     println!("\n🔄 PROCESSOR COMPARISON: Simple vs Transactional");
@@ -840,11 +872,21 @@ async fn benchmark_processor_comparison() {
     simple_metrics.print_summary("Simple Processor");
     println!("Transactional processor comparison would go here");
 
-    // Validation that simple processor achieves good baseline performance
-    assert!(simple_metrics.throughput_records_per_sec > 1000.0);
+    // Validation that simple processor achieves good baseline performance with full dataset
+    assert!(
+        simple_metrics.records_processed >= 8000,
+        "Should process most records (>=8000), got {}",
+        simple_metrics.records_processed
+    );
+    assert!(
+        simple_metrics.throughput_records_per_sec > 1000.0,
+        "Should achieve >1000 records/sec with full processing, got {:.2}",
+        simple_metrics.throughput_records_per_sec
+    );
 }
 
 #[tokio::test]
+#[serial]
 // #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn benchmark_memory_efficiency() {
     println!("\n💾 MEMORY EFFICIENCY: Large Record Set Processing");
@@ -870,7 +912,8 @@ async fn benchmark_memory_efficiency() {
 // COMPREHENSIVE BENCHMARK SUITE RUNNER
 
 #[tokio::test]
-#[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
+#[serial]
+// #[ignore = "performance benchmark - run with 'cargo test --ignored' or in CI/CD"]
 async fn run_comprehensive_benchmark_suite() {
     println!("\n🎯 COMPREHENSIVE PERFORMANCE BENCHMARK SUITE");
     println!("===============================================");

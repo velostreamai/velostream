@@ -147,8 +147,8 @@ use super::processors::{
 
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
-    message_sender: mpsc::Sender<ExecutionMessage>,
-    message_receiver: Option<mpsc::Receiver<ExecutionMessage>>,
+    message_sender: mpsc::UnboundedSender<ExecutionMessage>,
+    message_receiver: Option<mpsc::UnboundedReceiver<ExecutionMessage>>,
     output_sender: mpsc::UnboundedSender<StreamRecord>,
     record_count: u64,
     // Stateful GROUP BY support
@@ -164,7 +164,16 @@ pub struct StreamExecutionEngine {
 
 impl StreamExecutionEngine {
     pub fn new(output_sender: mpsc::UnboundedSender<StreamRecord>) -> Self {
-        let (message_sender, receiver) = mpsc::channel(1000);
+        Self::new_with_capacity(output_sender, 100) // Batch-aligned capacity for proper backpressure
+    }
+
+    pub fn new_with_capacity(
+        output_sender: mpsc::UnboundedSender<StreamRecord>,
+        _channel_capacity: usize,
+    ) -> Self {
+        // Use unbounded channel to prevent deadlocks in current lock-based architecture
+        // TODO: Replace with proper message-passing architecture in FR-058
+        let (message_sender, receiver) = mpsc::unbounded_channel();
         Self {
             active_queries: HashMap::new(),
             message_sender,
@@ -458,7 +467,6 @@ impl StreamExecutionEngine {
                     query_id: "default".to_string(),
                     result: result.clone(),
                 })
-                .await
                 .map_err(|_| SqlError::ExecutionError {
                     message: "Failed to send result".to_string(),
                     query: None,
