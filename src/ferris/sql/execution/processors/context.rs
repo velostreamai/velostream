@@ -4,6 +4,7 @@ use crate::ferris::datasource::{DataReader, DataWriter, SourceOffset};
 use crate::ferris::schema::{Schema, StreamHandle};
 use crate::ferris::sql::execution::internal::WindowState;
 use crate::ferris::sql::execution::performance::PerformanceMonitor;
+use crate::ferris::sql::execution::watermarks::WatermarkManager;
 use crate::ferris::sql::execution::StreamRecord;
 use crate::ferris::sql::SqlError;
 use std::collections::HashMap;
@@ -65,6 +66,11 @@ pub struct ProcessorContext {
     // === PERFORMANCE MONITORING ===
     /// Optional performance monitor for query tracking
     pub performance_monitor: Option<Arc<PerformanceMonitor>>,
+    
+    // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
+    /// Optional watermark manager for event-time processing
+    /// Only activated when event-time processing is explicitly enabled
+    pub watermark_manager: Option<Arc<WatermarkManager>>,
 }
 
 /// Window processing context
@@ -98,6 +104,7 @@ impl ProcessorContext {
             dirty_window_states: 0,
             metadata: HashMap::new(),
             performance_monitor: None,
+            watermark_manager: None, // Disabled by default for backward compatibility
         }
     }
 
@@ -592,5 +599,47 @@ impl ProcessorContext {
                 ),
                 query: None,
             })
+    }
+
+    // === PHASE 1B: WATERMARK MANAGEMENT METHODS ===
+
+    /// Enable watermark processing by setting a WatermarkManager
+    pub fn enable_watermarks(&mut self, manager: Arc<WatermarkManager>) {
+        self.watermark_manager = Some(manager);
+    }
+
+    /// Check if watermark processing is enabled
+    pub fn has_watermarks_enabled(&self) -> bool {
+        self.watermark_manager.is_some()
+    }
+
+    /// Update watermark for a source and get watermark event if generated
+    pub fn update_watermark(&self, source_id: &str, record: &StreamRecord) 
+        -> Option<crate::ferris::sql::execution::watermarks::WatermarkEvent> {
+        self.watermark_manager
+            .as_ref()?
+            .update_watermark(source_id, record)
+    }
+
+    /// Check if a record is late based on current watermark
+    pub fn is_late_record(&self, record: &StreamRecord) -> bool {
+        self.watermark_manager
+            .as_ref()
+            .map(|wm| wm.is_late(record))
+            .unwrap_or(false)
+    }
+
+    /// Get the current global watermark
+    pub fn get_global_watermark(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.watermark_manager
+            .as_ref()
+            .and_then(|wm| wm.get_global_watermark())
+    }
+
+    /// Calculate how late a record is
+    pub fn calculate_record_lateness(&self, record: &StreamRecord) -> Option<std::time::Duration> {
+        self.watermark_manager
+            .as_ref()
+            .and_then(|wm| wm.calculate_lateness(record))
     }
 }

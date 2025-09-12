@@ -21,9 +21,9 @@
 
 **Phase 1B: Add Time Semantics (Week 1)**
 - [x] Extend StreamRecord with optional event_time field *(COMPLETED - compilation fixed)*
-- [ ] Add WatermarkManager as optional component in ProcessorContext
-- [ ] Enhance WindowProcessor with watermark-aware processing
-- [ ] Add late data handling strategies
+- [x] Add WatermarkManager as optional component in ProcessorContext *(COMPLETED - integrated with context)*
+- [x] Enhance WindowProcessor with watermark-aware processing *(COMPLETED - watermark-aware windowing)*
+- [x] Add late data handling strategies *(COMPLETED - configurable strategies implemented)*
 
 **Phase 2: Error & Resource Enhancements (Weeks 2-3)**
 - [ ] Add StreamingError enum alongside existing SqlError

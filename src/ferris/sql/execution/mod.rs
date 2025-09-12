@@ -49,6 +49,7 @@ pub mod processors;
 pub mod test_data_sources;
 pub mod types;
 pub mod utils;
+pub mod watermarks;
 
 // Re-export public API only
 pub use config::StreamingConfig;

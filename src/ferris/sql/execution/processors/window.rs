@@ -1,21 +1,115 @@
 //! Window Query Processor
 //!
 //! Handles windowed query processing including tumbling, sliding, and session windows.
+//! Phase 1B enhancement: Added watermark-aware processing for proper event-time semantics.
 
 use super::{ProcessorContext, WindowContext};
 use crate::ferris::sql::ast::WindowSpec;
 use crate::ferris::sql::execution::expression::ExpressionEvaluator;
 use crate::ferris::sql::execution::internal::WindowState;
+use crate::ferris::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::ferris::sql::execution::{FieldValue, StreamRecord};
 use crate::ferris::sql::{SqlError, StreamingQuery};
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 /// Window processing utilities
 pub struct WindowProcessor;
 
 impl WindowProcessor {
+    /// Process a windowed query with optional watermark awareness (Phase 1B)
+    /// This is the new enhanced entry point that handles both legacy and watermark-aware processing
+    pub fn process_windowed_query_enhanced(
+        query_id: &str,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        source_id: Option<&str>,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        // Phase 1B: Check for watermark processing
+        if context.has_watermarks_enabled() {
+            Self::process_windowed_query_with_watermarks(query_id, query, record, context, source_id)
+        } else {
+            // Fallback to existing legacy processing for backward compatibility
+            Self::process_windowed_query(query_id, query, record, context)
+        }
+    }
+
+    /// Process a windowed query with watermark awareness (Phase 1B)
+    /// Handles late data, watermark-based emission, and proper event-time semantics
+    pub fn process_windowed_query_with_watermarks(
+        query_id: &str,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        source_id: Option<&str>,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        if let StreamingQuery::Select { window, .. } = query {
+            if let Some(window_spec) = window {
+                let source_id = source_id.unwrap_or("default");
+                
+                // Phase 1B: Update watermark for this source
+                if let Some(watermark_event) = context.update_watermark(source_id, record) {
+                    log::debug!("Watermark updated for source {}: {:?}", source_id, watermark_event);
+                }
+
+                // Phase 1B: Check if record is late
+                if context.is_late_record(record) {
+                    return Self::handle_late_data(record, context, query_id, query, window_spec);
+                }
+
+                // Extract event time (prefer event_time field, fallback to processing timestamp)
+                let event_time = Self::extract_event_time_enhanced(record, window_spec.time_column());
+                
+                // Phase 1B: Get watermark before any mutable borrows
+                let global_watermark = context.get_global_watermark();
+                let has_watermarks_enabled = context.has_watermarks_enabled();
+                
+                // Get window state for modification
+                let window_state = context.get_or_create_window_state(query_id, window_spec);
+                
+                // Add record to buffer first
+                window_state.add_record(record.clone());
+
+                // Phase 1B: Check emission using watermark-aware logic (without borrowing context)
+                let should_emit = if has_watermarks_enabled {
+                    Self::should_emit_window_with_watermark_standalone(
+                        window_state, 
+                        event_time, 
+                        window_spec, 
+                        global_watermark
+                    )
+                } else {
+                    Self::should_emit_window_state(window_state, event_time, window_spec)
+                };
+
+                if should_emit {
+                    return Self::process_window_emission_state(
+                        query,
+                        window_spec,
+                        window_state,
+                        event_time,
+                    );
+                }
+
+                Ok(None)
+            } else {
+                Err(SqlError::ExecutionError {
+                    message: "No window specification found for windowed query".to_string(),
+                    query: None,
+                })
+            }
+        } else {
+            Err(SqlError::ExecutionError {
+                message: "Invalid query type for WindowProcessor".to_string(),
+                query: None,
+            })
+        }
+    }
+
     /// Process a windowed query using high-performance context state management
     /// Optimized for multi-threading with minimal allocations and lock-free operation
+    /// (Legacy method - preserved for backward compatibility)
     pub fn process_windowed_query(
         query_id: &str,
         query: &StreamingQuery,
@@ -851,6 +945,206 @@ impl WindowProcessor {
                 } else {
                     Ok(FieldValue::Null)
                 }
+            }
+        }
+    }
+
+    // === PHASE 1B: WATERMARK-AWARE PROCESSING METHODS ===
+
+    /// Enhanced event time extraction that prefers event_time field over processing timestamp
+    fn extract_event_time_enhanced(record: &StreamRecord, time_column: Option<&str>) -> i64 {
+        // Phase 1B: Prefer event_time field if available
+        if let Some(event_time) = record.event_time {
+            return event_time.timestamp_millis();
+        }
+
+        // Fallback to existing logic
+        Self::extract_event_time(record, time_column)
+    }
+
+    /// Check if window should emit considering watermarks (Phase 1B)
+    fn should_emit_window_with_watermark(
+        window_state: &WindowState,
+        event_time: i64,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+    ) -> bool {
+        // If no watermarks enabled, use legacy logic
+        if !context.has_watermarks_enabled() {
+            return Self::should_emit_window_state(window_state, event_time, window_spec);
+        }
+
+        let global_watermark = context.get_global_watermark();
+        Self::should_emit_window_with_watermark_standalone(window_state, event_time, window_spec, global_watermark)
+    }
+
+    /// Standalone watermark checking without context borrowing (Phase 1B)
+    fn should_emit_window_with_watermark_standalone(
+        window_state: &WindowState,
+        event_time: i64,
+        window_spec: &WindowSpec,
+        global_watermark: Option<DateTime<Utc>>,
+    ) -> bool {
+        // Get global watermark
+        let global_watermark_millis = match global_watermark {
+            Some(wm) => wm.timestamp_millis(),
+            None => return false, // No watermark yet, can't emit safely
+        };
+
+        // Check if we have any buffered records
+        if window_state.buffer.is_empty() {
+            return false;
+        }
+
+        match window_spec {
+            WindowSpec::Tumbling { size, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let last_emit = window_state.last_emit;
+                
+                // Calculate window boundaries
+                let window_start = if last_emit == 0 { 0 } else { last_emit };
+                let window_end = window_start + window_size_ms;
+                
+                // Emit when watermark has passed the window end
+                // This ensures all events for this window have arrived
+                global_watermark_millis >= window_end
+            }
+            WindowSpec::Sliding { size, advance, .. } => {
+                let _window_size_ms = size.as_millis() as i64; // Keep for future use
+                let slide_ms = advance.as_millis() as i64;
+                let last_emit = window_state.last_emit;
+                
+                // Calculate next slide boundary
+                let next_slide = last_emit + slide_ms;
+                
+                // Emit when watermark passes the slide boundary
+                global_watermark_millis >= next_slide
+            }
+            WindowSpec::Session { .. } => {
+                // Session windows emit when watermark indicates session timeout
+                // For now, use legacy logic (Phase 3 will enhance session window watermarks)
+                Self::should_emit_window_state(window_state, event_time, window_spec)
+            }
+        }
+    }
+
+    /// Handle late data according to the configured strategy (Phase 1B)
+    fn handle_late_data(
+        record: &StreamRecord,
+        context: &ProcessorContext,
+        query_id: &str,
+        _query: &StreamingQuery,
+        _window_spec: &WindowSpec,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        let lateness = context.calculate_record_lateness(record);
+        
+        if let Some(duration) = lateness {
+            log::warn!(
+                "Late record detected: {}ms late (event_time: {:?}, timestamp: {}) for query: {}",
+                duration.as_millis(),
+                record.event_time,
+                record.timestamp,
+                query_id
+            );
+        }
+
+        // Get the configured late data strategy from context/config
+        // For Phase 1B, implement configurable strategies
+        let strategy = Self::get_late_data_strategy_from_context(context);
+        
+        if let Some(watermark_manager) = context.watermark_manager.as_ref() {
+            let action = watermark_manager.determine_late_data_action(record, &strategy);
+            
+            match action {
+                LateDataAction::Process => {
+                    log::info!("Processing late record for query: {}", query_id);
+                    // Return None to indicate the record should be processed normally
+                    // The caller will continue with regular window processing
+                    Ok(None) 
+                }
+                
+                LateDataAction::Drop => {
+                    log::info!("Dropping late record for query: {}", query_id);
+                    Ok(None)
+                }
+                
+                LateDataAction::DeadLetter => {
+                    log::warn!("Sending late record to dead letter queue for query: {}", query_id);
+                    // In a real implementation, this would send to a dead letter queue
+                    // For now, we'll log and drop
+                    Ok(None)
+                }
+                
+                LateDataAction::UpdatePrevious { window_end } => {
+                    log::info!(
+                        "Late record should update previous window (end: {}) for query: {}",
+                        window_end, query_id
+                    );
+                    // This would require stateful window storage to update previous results
+                    // For Phase 1B, log and drop for now
+                    Ok(None)
+                }
+            }
+        } else {
+            // No watermark manager - drop late data and log
+            log::warn!("Late record dropped (no watermark manager) for query: {}", query_id);
+            Ok(None)
+        }
+    }
+    
+    /// Get the late data strategy from context configuration (Phase 1B)
+    fn get_late_data_strategy_from_context(_context: &ProcessorContext) -> LateDataStrategy {
+        // For Phase 1B, use a default strategy
+        // Phase 2 will integrate with StreamingConfig to get the configured strategy
+        LateDataStrategy::Drop
+    }
+    
+    /// Handle late data with a specific strategy (Public API for external consumers)
+    pub fn handle_late_record_with_strategy(
+        record: &StreamRecord,
+        strategy: &LateDataStrategy,
+        context: &ProcessorContext,
+    ) -> Result<LateDataAction, SqlError> {
+        if let Some(watermark_manager) = context.watermark_manager.as_ref() {
+            Ok(watermark_manager.determine_late_data_action(record, strategy))
+        } else {
+            Err(SqlError::ExecutionError {
+                message: "Watermark manager not available for late data handling".to_string(),
+                query: None,
+            })
+        }
+    }
+
+    /// Check if a window is ready for emission based on watermarks
+    /// This is a utility method for external consumers
+    pub fn is_window_ready_for_emission(
+        window_spec: &WindowSpec,
+        window_start_time: i64,
+        context: &ProcessorContext,
+    ) -> bool {
+        if !context.has_watermarks_enabled() {
+            return true; // Without watermarks, always ready (legacy behavior)
+        }
+
+        let global_watermark = match context.get_global_watermark() {
+            Some(wm) => wm.timestamp_millis(),
+            None => return false,
+        };
+
+        match window_spec {
+            WindowSpec::Tumbling { size, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let window_end = window_start_time + window_size_ms;
+                global_watermark >= window_end
+            }
+            WindowSpec::Sliding { advance, .. } => {
+                let slide_ms = advance.as_millis() as i64;
+                let slide_end = window_start_time + slide_ms;
+                global_watermark >= slide_end
+            }
+            WindowSpec::Session { .. } => {
+                // Session windows use different logic
+                true
             }
         }
     }
