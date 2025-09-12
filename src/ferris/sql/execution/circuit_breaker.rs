@@ -522,60 +522,70 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_operation() {
-        let mut breaker = CircuitBreaker::with_default_config("test_service".to_string());
-        breaker.enable();
+        // Add timeout to prevent hanging in CI
+        let test_result = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut breaker = CircuitBreaker::with_default_config("test_service".to_string());
+            breaker.enable();
 
-        let result: Result<(), StreamingError> = breaker
-            .execute(|| {
-                Err(StreamingError::MessagePassingError {
-                    operation: "test".to_string(),
-                    message: "test failure".to_string(),
-                    retry_possible: true,
+            let result: Result<(), StreamingError> = breaker
+                .execute(|| {
+                    Err(StreamingError::MessagePassingError {
+                        operation: "test".to_string(),
+                        message: "test failure".to_string(),
+                        retry_possible: true,
+                    })
                 })
-            })
-            .await;
+                .await;
 
-        assert!(result.is_err());
+            assert!(result.is_err());
 
-        let stats = breaker.get_stats();
-        assert_eq!(stats.total_calls, 1);
-        assert_eq!(stats.total_successes, 0);
-        assert_eq!(stats.total_failures, 1);
-        assert_eq!(stats.consecutive_failures, 1);
+            let stats = breaker.get_stats();
+            assert_eq!(stats.total_calls, 1);
+            assert_eq!(stats.total_successes, 0);
+            assert_eq!(stats.total_failures, 1);
+            assert_eq!(stats.consecutive_failures, 1);
+        }).await;
+
+        assert!(test_result.is_ok(), "Test timed out after 5 seconds");
     }
 
     #[tokio::test]
     async fn test_circuit_opens_after_failures() {
-        let config = CircuitBreakerConfig {
-            failure_threshold: 2, // Open after 2 failures
-            ..Default::default()
-        };
-        let mut breaker = CircuitBreaker::new("test_service".to_string(), config);
-        breaker.enable();
+        // Add timeout to prevent hanging in CI
+        let test_result = tokio::time::timeout(Duration::from_secs(8), async {
+            let config = CircuitBreakerConfig {
+                failure_threshold: 2, // Open after 2 failures
+                ..Default::default()
+            };
+            let mut breaker = CircuitBreaker::new("test_service".to_string(), config);
+            breaker.enable();
 
-        // First failure
-        let _: Result<(), StreamingError> = breaker
-            .execute(|| {
-                Err(StreamingError::MessagePassingError {
-                    operation: "test".to_string(),
-                    message: "failure 1".to_string(),
-                    retry_possible: true,
+            // First failure
+            let _: Result<(), StreamingError> = breaker
+                .execute(|| {
+                    Err(StreamingError::MessagePassingError {
+                        operation: "test".to_string(),
+                        message: "failure 1".to_string(),
+                        retry_possible: true,
+                    })
                 })
-            })
-            .await;
-        assert_eq!(breaker.get_state(), CircuitBreakerState::Closed);
+                .await;
+            assert_eq!(breaker.get_state(), CircuitBreakerState::Closed);
 
-        // Second failure should open circuit
-        let _: Result<(), StreamingError> = breaker
-            .execute(|| {
-                Err(StreamingError::MessagePassingError {
-                    operation: "test".to_string(),
-                    message: "failure 2".to_string(),
-                    retry_possible: true,
+            // Second failure should open circuit
+            let _: Result<(), StreamingError> = breaker
+                .execute(|| {
+                    Err(StreamingError::MessagePassingError {
+                        operation: "test".to_string(),
+                        message: "failure 2".to_string(),
+                        retry_possible: true,
+                    })
                 })
-            })
-            .await;
-        assert_eq!(breaker.get_state(), CircuitBreakerState::Open);
+                .await;
+            assert_eq!(breaker.get_state(), CircuitBreakerState::Open);
+        }).await;
+
+        assert!(test_result.is_ok(), "Test timed out after 8 seconds");
     }
 
     #[tokio::test]

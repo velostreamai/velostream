@@ -12,6 +12,8 @@ pub mod serialization_performance_tests;
 
 // New comprehensive benchmark modules
 pub mod ferris_sql_multi_benchmarks;
+pub mod ferris_sql_multi_enhanced_benchmarks;
+
 pub mod transactional_processor_benchmarks;
 
 // New consolidated performance testing framework
