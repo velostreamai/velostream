@@ -495,6 +495,633 @@ impl PerformanceProfiler {
 - **Tokio Console**: Rust async runtime debugging
 - **Perf/FlameGraph**: Low-level CPU profiling
 
+## Topology Explanation & Query Plan Analysis System
+
+### Overview
+
+A production streaming engine must provide comprehensive topology explanation and query plan analysis capabilities for operators to understand data flow, optimize SQL queries, debug issues, and maintain system reliability. This includes both traditional SQL query plan explanation and streaming topology introspection. The message-passing architecture makes this even more critical as data flow becomes async and distributed.
+
+### 1. SQL Query Plan Explanation
+
+#### **Traditional Query Plan Analysis**
+FerrisStreams provides comprehensive SQL query plan explanation similar to traditional databases, but adapted for streaming workloads:
+
+```rust
+pub struct QueryPlanExplainer {
+    query_analyzer: Arc<QueryAnalyzer>,
+    logical_planner: Arc<LogicalPlanner>,
+    physical_planner: Arc<PhysicalPlanner>,
+    cost_model: Arc<StreamingCostModel>,
+    statistics_provider: Arc<StatisticsProvider>,
+}
+
+impl QueryPlanExplainer {
+    pub async fn explain_query_plan(&self, sql: &str, explain_options: ExplainOptions) -> QueryPlanExplanation {
+        let parsed_query = self.query_analyzer.parse(sql)?;
+        let logical_plan = self.logical_planner.create_logical_plan(&parsed_query)?;
+        let physical_plan = self.physical_planner.create_physical_plan(&logical_plan)?;
+        let cost_estimates = self.cost_model.estimate_costs(&physical_plan).await?;
+        
+        QueryPlanExplanation {
+            // Traditional query plan components
+            logical_plan: self.build_logical_plan_tree(&logical_plan),
+            physical_plan: self.build_physical_plan_tree(&physical_plan),
+            cost_estimates: cost_estimates,
+            cardinality_estimates: self.estimate_cardinalities(&physical_plan).await?,
+            
+            // Streaming-specific components  
+            streaming_topology: self.build_streaming_topology(&physical_plan),
+            windowing_analysis: self.analyze_windowing(&physical_plan),
+            state_management: self.analyze_state_requirements(&physical_plan),
+            parallelism_strategy: self.determine_parallelism(&physical_plan),
+            
+            // Performance analysis
+            bottleneck_analysis: self.identify_bottlenecks(&physical_plan, &cost_estimates),
+            optimization_hints: self.suggest_optimizations(&logical_plan, &physical_plan),
+        }
+    }
+}
+
+pub struct LogicalPlanNode {
+    pub id: String,
+    pub operation: LogicalOperation,
+    pub children: Vec<LogicalPlanNode>,
+    pub schema: Schema,
+    pub predicates: Vec<Predicate>,
+    pub estimated_cardinality: Option<u64>,
+    pub cost_estimate: Option<f64>,
+}
+
+pub struct PhysicalPlanNode {
+    pub id: String,
+    pub operator: PhysicalOperator,
+    pub children: Vec<PhysicalPlanNode>,
+    pub input_schema: Schema,
+    pub output_schema: Schema,
+    pub parallelism: u32,
+    pub memory_requirement: usize,
+    pub cpu_cost: f64,
+    pub io_cost: f64,
+    pub streaming_properties: StreamingProperties,
+}
+
+pub enum LogicalOperation {
+    TableScan { table: String, predicates: Vec<Predicate> },
+    StreamScan { stream: String, window_spec: Option<WindowSpec> },
+    Filter { condition: Expr },
+    Project { expressions: Vec<NamedExpr> },
+    Aggregate { group_by: Vec<Expr>, aggregates: Vec<AggregateExpr> },
+    Join { join_type: JoinType, condition: Expr, left_keys: Vec<Expr>, right_keys: Vec<Expr> },
+    Window { window_spec: WindowSpec, functions: Vec<WindowFunc> },
+    Sort { expressions: Vec<SortExpr> },
+    Limit { count: u64, offset: Option<u64> },
+}
+
+pub enum PhysicalOperator {
+    // Source operators
+    KafkaStreamScan { topic: String, consumer_config: HashMap<String, String> },
+    FileStreamScan { path: String, format: FileFormat },
+    
+    // Processing operators
+    Filter { predicate: PhysicalExpr, selectivity: f64 },
+    Project { expressions: Vec<PhysicalNamedExpr> },
+    HashAggregate { 
+        group_by: Vec<PhysicalExpr>, 
+        aggregates: Vec<PhysicalAggregateExpr>,
+        estimated_groups: u64,
+    },
+    SortMergeJoin { 
+        join_type: JoinType, 
+        left_keys: Vec<PhysicalExpr>, 
+        right_keys: Vec<PhysicalExpr>,
+        estimated_join_selectivity: f64,
+    },
+    HashJoin {
+        join_type: JoinType,
+        build_side: BuildSide,
+        probe_keys: Vec<PhysicalExpr>,
+        build_keys: Vec<PhysicalExpr>,
+        estimated_build_size: usize,
+    },
+    WindowAggregate {
+        window_spec: PhysicalWindowSpec,
+        functions: Vec<PhysicalWindowFunc>,
+        state_size_estimate: usize,
+    },
+    
+    // Sink operators
+    KafkaStreamSink { topic: String, producer_config: HashMap<String, String> },
+    FileStreamSink { path: String, format: FileFormat },
+    ConsoleSink,
+}
+
+pub struct StreamingProperties {
+    pub requires_state: bool,
+    pub state_size_estimate: Option<usize>,
+    pub watermark_strategy: Option<WatermarkStrategy>,
+    pub key_distribution: KeyDistribution,
+    pub ordering_properties: OrderingProperties,
+    pub partitioning_scheme: PartitioningScheme,
+}
+```
+
+#### **Streaming Topology Analysis**
+```rust
+pub struct StreamingTopologyAnalyzer {
+    topology_builder: Arc<TopologyBuilder>,
+    metrics_collector: Arc<MetricsCollector>,
+}
+
+impl StreamingTopologyAnalyzer {
+    pub async fn explain_streaming_topology(&self, physical_plan: &PhysicalPlan) -> StreamingTopologyExplanation {
+        let topology = self.topology_builder.build_topology(physical_plan)?;
+        let runtime_metrics = self.metrics_collector.get_topology_metrics(&topology).await?;
+        
+        StreamingTopologyExplanation {
+            // Data flow topology
+            data_flow_graph: self.create_data_flow_graph(&topology),
+            processor_nodes: self.extract_processor_nodes(&topology),
+            channel_connections: self.extract_channel_connections(&topology),
+            
+            // Runtime characteristics
+            current_metrics: runtime_metrics,
+            performance_characteristics: self.analyze_performance(&topology, &runtime_metrics),
+            bottleneck_analysis: self.identify_topology_bottlenecks(&topology, &runtime_metrics),
+            
+            // Streaming-specific analysis
+            backpressure_analysis: self.analyze_backpressure(&topology, &runtime_metrics),
+            state_distribution: self.analyze_state_distribution(&topology),
+            parallelism_utilization: self.analyze_parallelism_utilization(&topology, &runtime_metrics),
+            
+            // Optimization opportunities
+            scaling_recommendations: self.suggest_scaling(&topology, &runtime_metrics),
+            topology_optimizations: self.suggest_topology_optimizations(&topology),
+        }
+    }
+}
+```
+
+#### **Execution Plan Visualization**
+```rust
+pub struct ExecutionPlan {
+    pub operators: Vec<OperatorNode>,
+    pub data_dependencies: Vec<DataDependency>,
+    pub parallelism_strategy: ParallelismStrategy,
+    pub resource_requirements: ResourceRequirements,
+}
+
+pub struct OperatorNode {
+    pub id: String,
+    pub operator_type: OperatorType,  // Source, Transform, Aggregate, Sink
+    pub sql_fragment: String,         // Original SQL that created this operator
+    pub input_schema: Schema,
+    pub output_schema: Schema,
+    pub estimated_selectivity: f64,   // % of records that pass through
+    pub parallelism: u32,
+    pub memory_requirement: usize,
+    pub cpu_requirement: f64,
+}
+
+pub enum OperatorType {
+    Source { connector_type: String, properties: HashMap<String, String> },
+    Filter { condition: String, selectivity: f64 },
+    Project { fields: Vec<String> },
+    Aggregate { group_by: Vec<String>, functions: Vec<String> },
+    Join { join_type: JoinType, condition: String },
+    Window { window_spec: WindowSpec, functions: Vec<String> },
+    Sink { connector_type: String, properties: HashMap<String, String> },
+}
+```
+
+### 2. Data Flow Topology
+
+#### **Stream Processing Pipeline Visualization**
+```rust
+pub struct DataFlowTopology {
+    pub sources: Vec<DataSource>,
+    pub processors: Vec<ProcessorNode>,
+    pub sinks: Vec<DataSink>,
+    pub channels: Vec<ChannelConnection>,
+    pub backpressure_graph: BackpressureGraph,
+}
+
+pub struct ProcessorNode {
+    pub id: String,
+    pub processor_type: String,
+    pub input_channels: Vec<ChannelId>,
+    pub output_channels: Vec<ChannelId>,
+    pub current_queue_depth: usize,
+    pub processing_rate: f64,        // records/sec
+    pub error_rate: f64,             // errors/sec  
+    pub resource_usage: ResourceUsage,
+    pub health_status: HealthStatus,
+}
+
+pub struct ChannelConnection {
+    pub id: ChannelId,
+    pub from_processor: String,
+    pub to_processor: String,
+    pub channel_type: ChannelType,   // Bounded, Unbounded
+    pub capacity: Option<usize>,
+    pub current_depth: usize,
+    pub throughput: f64,             // messages/sec
+    pub backpressure_events: u64,
+}
+```
+
+#### **Interactive Topology Browser**
+```rust
+pub struct TopologyBrowser {
+    topology: Arc<RwLock<DataFlowTopology>>,
+    metrics_store: Arc<MetricsStore>,
+}
+
+impl TopologyBrowser {
+    // Get real-time topology with live metrics
+    pub async fn get_live_topology(&self) -> LiveTopology {
+        let topology = self.topology.read().await;
+        let live_metrics = self.metrics_store.get_current_metrics().await;
+        
+        LiveTopology {
+            static_topology: topology.clone(),
+            live_metrics,
+            performance_summary: self.summarize_performance(&live_metrics),
+            health_summary: self.summarize_health(&topology, &live_metrics),
+            bottlenecks: self.identify_current_bottlenecks(&topology, &live_metrics),
+        }
+    }
+    
+    // Trace data lineage for specific record
+    pub async fn trace_record_lineage(&self, record_id: &str) -> RecordLineage {
+        let trace_events = self.metrics_store.get_trace_events(record_id).await;
+        
+        RecordLineage {
+            record_id: record_id.to_string(),
+            source_info: self.extract_source_info(&trace_events),
+            processing_path: self.build_processing_path(&trace_events),
+            transformations: self.extract_transformations(&trace_events),
+            sink_destinations: self.extract_sink_info(&trace_events),
+            total_processing_time: self.calculate_total_time(&trace_events),
+            bottlenecks_encountered: self.identify_record_bottlenecks(&trace_events),
+        }
+    }
+}
+```
+
+### 3. Performance Topology Analysis
+
+#### **Bottleneck Detection & Analysis**
+```rust
+pub struct TopologyPerformanceAnalyzer {
+    topology: Arc<DataFlowTopology>,
+    metrics_history: Arc<MetricsHistory>,
+}
+
+impl TopologyPerformanceAnalyzer {
+    pub async fn analyze_performance_topology(&self) -> PerformanceTopology {
+        let current_metrics = self.metrics_history.get_latest().await;
+        let historical_trends = self.metrics_history.get_trends(Duration::from_hours(24)).await;
+        
+        PerformanceTopology {
+            throughput_analysis: self.analyze_throughput_by_operator(&current_metrics),
+            latency_analysis: self.analyze_latency_by_path(&current_metrics),
+            resource_utilization: self.analyze_resource_usage(&current_metrics),
+            bottleneck_ranking: self.rank_bottlenecks(&current_metrics, &historical_trends),
+            scaling_recommendations: self.generate_scaling_recommendations(&historical_trends),
+            optimization_opportunities: self.identify_optimization_opportunities(),
+        }
+    }
+    
+    pub fn explain_bottleneck(&self, bottleneck: &Bottleneck) -> BottleneckExplanation {
+        BottleneckExplanation {
+            description: self.describe_bottleneck(bottleneck),
+            root_cause_analysis: self.analyze_root_cause(bottleneck),
+            impact_analysis: self.analyze_impact(bottleneck),
+            resolution_steps: self.suggest_resolution_steps(bottleneck),
+            estimated_improvement: self.estimate_improvement(bottleneck),
+            risk_assessment: self.assess_resolution_risk(bottleneck),
+        }
+    }
+}
+```
+
+### 4. Command-Line Interface (EXPLAIN Commands)
+
+#### **SQL EXPLAIN Command Extensions**
+
+**Traditional Query Plan Commands:**
+```sql
+-- Basic logical and physical query plan
+EXPLAIN 
+SELECT symbol, AVG(price) as avg_price 
+FROM trades 
+WHERE price > 100
+WINDOW TUMBLING(5m) 
+GROUP BY symbol;
+
+-- Detailed execution plan with cost estimates and cardinality
+EXPLAIN (ANALYZE true, COSTS true, BUFFERS true, TIMING true)
+SELECT t1.symbol, t1.price, t2.volume
+FROM trades t1 
+JOIN volumes t2 ON t1.symbol = t2.symbol
+WHERE t1.price > 100;
+
+-- JSON format for programmatic analysis  
+EXPLAIN (FORMAT JSON, ANALYZE true)
+SELECT symbol, COUNT(*) as trade_count
+FROM trades
+GROUP BY symbol;
+
+-- Verbose plan with detailed operator information
+EXPLAIN (VERBOSE true, COSTS true)
+SELECT symbol, 
+       AVG(price) as avg_price,
+       MAX(price) as max_price,
+       MIN(price) as min_price,
+       STDDEV(price) as price_volatility
+FROM trades
+WINDOW SLIDING(1h, 5m)
+GROUP BY symbol;
+```
+
+**Streaming Topology Commands:**
+```sql
+-- Basic streaming topology explanation
+EXPLAIN TOPOLOGY 
+SELECT symbol, AVG(price) as avg_price 
+FROM trades 
+WINDOW TUMBLING(5m) 
+GROUP BY symbol;
+
+-- Live topology with current runtime metrics
+EXPLAIN TOPOLOGY (LIVE true, METRICS true)
+SELECT symbol, COUNT(*) as trade_count
+FROM trades
+GROUP BY symbol
+EMIT CHANGES;
+
+-- Detailed topology with performance analysis and bottlenecks
+EXPLAIN TOPOLOGY (ANALYZE true, PERFORMANCE true, BOTTLENECKS true)
+SELECT symbol, 
+       AVG(price) as avg_price,
+       MAX(price) as max_price,
+       COUNT(*) as trade_count
+FROM trades
+WINDOW SLIDING(1h, 5m)
+GROUP BY symbol;
+
+-- Combined query plan + topology explanation
+EXPLAIN (PLAN true, TOPOLOGY true, ANALYZE true)
+SELECT t1.symbol, t1.price, t2.volume
+FROM trades t1 
+JOIN volumes t2 ON t1.symbol = t2.symbol
+WHERE t1.price > 100;
+```
+
+**Example Output - Traditional Query Plan:**
+```
+QUERY PLAN
+-----------
+StreamingAggregate  (cost=1000.00..2000.00 rows=100 width=32) (actual time=0.123..0.145 rows=95 loops=1)
+  Group Key: symbol
+  Window: TUMBLING(5 minutes)
+  Aggregate Functions: AVG(price)
+  State Size Estimate: 1024 bytes per group
+  ->  StreamingScan on trades  (cost=0.00..1000.00 rows=5000 width=16) (actual time=0.001..0.102 rows=4876 loops=1)
+        Filter: (price > 100::numeric)
+        Rows Removed by Filter: 124
+        Kafka Topic: financial_trades
+        Partition Assignment: 0,1,2,3
+        Consumer Group: query_executor_001
+        Watermark Strategy: Bounded(10s)
+
+Planning Time: 2.34 ms  
+Execution Time: 145.67 ms
+Peak Memory Usage: 2.1 MB
+```
+
+**Example Output - Streaming Topology:**
+```
+STREAMING TOPOLOGY
+-----------------
+┌─[KafkaSource: trades]─────────────────────┐
+│ Topic: financial_trades                   │
+│ Partitions: 4 (0,1,2,3)                 │ 
+│ Current Rate: 1,250 records/sec          │
+│ Lag: 45ms                                │
+└─────────────┬─────────────────────────────┘
+              │ Channel: bounded(1000)
+              │ Depth: 234/1000 (23%)
+              │ Throughput: 1,250 msgs/sec
+              v
+┌─[FilterProcessor]─────────────────────────┐
+│ Condition: price > 100                   │
+│ Selectivity: 97.5%                       │
+│ Processing Rate: 1,219 records/sec       │
+│ CPU Usage: 15%                           │
+└─────────────┬─────────────────────────────┘
+              │ Channel: bounded(1000) 
+              │ Depth: 12/1000 (1%)
+              │ Throughput: 1,219 msgs/sec
+              v
+┌─[WindowAggregateProcessor]────────────────┐
+│ Window: TUMBLING(5m)                     │
+│ Group By: symbol                         │
+│ Functions: AVG(price)                    │
+│ Active Groups: 95                        │
+│ State Size: 97KB                         │
+│ Processing Rate: 1,219 records/sec       │
+│ Output Rate: 95 records/5min             │
+└─────────────┬─────────────────────────────┘
+              │ Channel: unbounded
+              │ Depth: 0 (no backpressure)
+              │ Throughput: 0.32 msgs/sec
+              v
+┌─[ConsoleSink]─────────────────────────────┐
+│ Format: JSON                             │
+│ Output Rate: 0.32 records/sec            │
+└───────────────────────────────────────────┘
+
+Performance Analysis:
+- Bottleneck: None detected
+- Memory Usage: 2.1MB (within limits)
+- Backpressure: None detected
+- Scaling Recommendation: Current parallelism sufficient
+```
+
+#### **CLI Topology Commands**
+```bash
+# Show current topology overview
+ferris-cli topology show
+
+# Explain specific query topology  
+ferris-cli topology explain --query "SELECT ..."
+
+# Show live topology with real-time metrics
+ferris-cli topology live --refresh 1s
+
+# Analyze topology performance and bottlenecks
+ferris-cli topology analyze --timerange 1h
+
+# Trace specific record through topology
+ferris-cli topology trace --record-id "trade_12345"
+
+# Show topology health and degradation
+ferris-cli topology health --detailed
+
+# Export topology for external analysis
+ferris-cli topology export --format graphviz --output topology.dot
+ferris-cli topology export --format json --output topology.json
+```
+
+### 5. Visual Topology Representations
+
+#### **Web-Based Topology Visualizer**
+```rust
+pub struct TopologyVisualizer {
+    topology_service: Arc<TopologyService>,
+    metrics_service: Arc<MetricsService>,
+}
+
+impl TopologyVisualizer {
+    // Generate interactive topology visualization
+    pub async fn generate_interactive_topology(&self) -> InteractiveTopology {
+        let topology = self.topology_service.get_current_topology().await;
+        let live_metrics = self.metrics_service.get_live_metrics().await;
+        
+        InteractiveTopology {
+            nodes: self.create_visual_nodes(&topology, &live_metrics),
+            edges: self.create_visual_edges(&topology, &live_metrics),
+            layouts: self.generate_layout_options(&topology),
+            interactions: self.define_interactions(),
+            real_time_updates: self.setup_live_updates(),
+        }
+    }
+}
+
+pub struct VisualNode {
+    pub id: String,
+    pub label: String,
+    pub node_type: NodeType,
+    pub position: Position,
+    pub size: Size,
+    pub color: Color,           // Based on health status
+    pub metrics_overlay: MetricsOverlay,
+    pub drill_down_available: bool,
+}
+
+pub struct VisualEdge {
+    pub from: String,
+    pub to: String,
+    pub label: String,
+    pub thickness: f32,         // Based on throughput
+    pub color: Color,           // Based on backpressure/health
+    pub animation: EdgeAnimation, // Data flow animation
+    pub metrics: EdgeMetrics,
+}
+```
+
+#### **Export Formats**
+- **GraphViz DOT**: For generating static topology diagrams
+- **JSON**: For external analysis tools and custom visualizations  
+- **SVG**: For documentation and presentations
+- **Prometheus Metrics**: For integration with monitoring systems
+- **OpenAPI Spec**: For topology REST API documentation
+
+### 6. Topology Documentation Generation
+
+#### **Automated Documentation**
+```rust
+pub struct TopologyDocumentationGenerator {
+    topology_analyzer: Arc<TopologyAnalyzer>,
+    template_engine: Arc<TemplateEngine>,
+}
+
+impl TopologyDocumentationGenerator {
+    pub async fn generate_topology_documentation(&self, 
+                                                  format: DocumentationFormat) -> TopologyDocumentation {
+        let topology = self.topology_analyzer.analyze_current_topology().await;
+        
+        match format {
+            DocumentationFormat::Markdown => self.generate_markdown_docs(&topology),
+            DocumentationFormat::Html => self.generate_html_docs(&topology),
+            DocumentationFormat::Confluence => self.generate_confluence_docs(&topology),
+            DocumentationFormat::OpenApi => self.generate_api_docs(&topology),
+        }
+    }
+}
+
+pub struct TopologyDocumentation {
+    pub overview: String,
+    pub data_sources: Vec<DataSourceDocumentation>,
+    pub processing_stages: Vec<ProcessingStageDocumentation>,
+    pub data_sinks: Vec<DataSinkDocumentation>,
+    pub performance_characteristics: PerformanceDocumentation,
+    pub operational_runbooks: Vec<RunbookEntry>,
+    pub troubleshooting_guide: TroubleshootingGuide,
+}
+```
+
+### 7. Integration with Existing Systems
+
+#### **Observability Integration**
+- **Grafana Integration**: Topology dashboards with live metrics
+- **Jaeger Integration**: Distributed tracing topology correlation
+- **Prometheus Integration**: Topology-aware alerting rules
+- **ELK Integration**: Topology context in log analysis
+
+#### **Development Integration**
+- **IDE Extensions**: Topology visualization in development environments
+- **CI/CD Integration**: Topology validation in deployment pipelines  
+- **Testing Integration**: Topology-aware integration testing
+- **Documentation Integration**: Auto-generated topology documentation
+
+### 8. Implementation Phases
+
+#### **Phase 1: Basic Topology Explanation (Week 1)**
+- [ ] Implement basic query plan explanation
+- [ ] Create simple topology visualization
+- [ ] Add CLI topology commands
+- [ ] Basic performance bottleneck detection
+
+#### **Phase 2: Advanced Analysis (Week 2)**  
+- [ ] Implement live topology browser with real-time metrics
+- [ ] Add record lineage tracing
+- [ ] Create interactive web-based visualizer
+- [ ] Implement bottleneck analysis and optimization suggestions
+
+#### **Phase 3: Production Integration (Week 3)**
+- [ ] Integrate with observability stack (Grafana/Jaeger/Prometheus)
+- [ ] Implement automated documentation generation
+- [ ] Add topology export capabilities
+- [ ] Create operational runbooks and troubleshooting guides
+
+#### **Phase 4: Advanced Features (Week 4)**
+- [ ] Implement predictive topology analysis
+- [ ] Add topology change detection and alerting
+- [ ] Create topology testing and validation tools
+- [ ] Build topology-aware capacity planning
+
+### 9. Use Cases & Benefits
+
+#### **Development & Debugging**
+- **Query Optimization**: Understand execution plans and identify inefficiencies
+- **Performance Tuning**: Visual identification of bottlenecks and resource constraints
+- **Data Lineage**: Track data transformations and dependencies
+- **Impact Analysis**: Understand downstream effects of changes
+
+#### **Operations & Monitoring**
+- **Real-time Health**: Visual topology health with live metrics
+- **Troubleshooting**: Rapid identification of failing components
+- **Capacity Planning**: Resource usage analysis and scaling recommendations
+- **Change Management**: Impact assessment for topology modifications
+
+#### **Business Understanding**
+- **Data Flow Documentation**: Clear business process to technical implementation mapping
+- **Compliance**: Data lineage for regulatory requirements
+- **Optimization**: Business impact of performance improvements
+- **Communication**: Visual topology for stakeholder discussions
+
 ## Success Criteria
 
 ### Performance Targets
