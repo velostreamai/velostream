@@ -768,7 +768,593 @@ impl TopologyBrowser {
 }
 ```
 
-### 3. Performance Topology Analysis
+### 3. Multi-Query Topology Analysis
+
+#### **Cross-Query Dependency Analysis**
+In production streaming systems, multiple related SQL queries often share data sources, intermediate results, and processing resources. Understanding these relationships is critical for optimization and operational management.
+
+```rust
+pub struct MultiQueryTopologyAnalyzer {
+    query_registry: Arc<QueryRegistry>,
+    dependency_analyzer: Arc<DependencyAnalyzer>,  
+    resource_analyzer: Arc<ResourceAnalyzer>,
+    sharing_optimizer: Arc<SharingOptimizer>,
+}
+
+impl MultiQueryTopologyAnalyzer {
+    pub async fn analyze_multi_query_topology(&self, query_group: &QueryGroup) -> MultiQueryTopology {
+        let individual_topologies = self.build_individual_topologies(query_group).await?;
+        let shared_resources = self.identify_shared_resources(&individual_topologies)?;
+        let data_dependencies = self.analyze_data_dependencies(query_group).await?;
+        let resource_contention = self.analyze_resource_contention(&individual_topologies).await?;
+        
+        MultiQueryTopology {
+            query_topologies: individual_topologies,
+            shared_topology_graph: self.build_shared_topology_graph(&shared_resources),
+            data_flow_dependencies: data_dependencies,
+            resource_sharing_analysis: shared_resources,
+            cross_query_optimization_opportunities: self.identify_sharing_opportunities(query_group),
+            resource_contention_analysis: resource_contention,
+            consolidated_performance_metrics: self.aggregate_performance_metrics(query_group).await?,
+        }
+    }
+}
+
+pub struct QueryGroup {
+    pub group_id: String,
+    pub group_metadata: QueryGroupMetadata,
+    pub queries: Vec<RegisteredQuery>,
+    pub shared_sources: Vec<SharedDataSource>,
+    pub shared_sinks: Vec<SharedDataSink>,
+    pub deployment_context: DeploymentContext,
+}
+
+pub struct QueryGroupMetadata {
+    pub job_name: String,
+    pub version: SemanticVersion,
+    pub description: Option<String>,
+    pub owner: String,
+    pub team: String,
+    pub environment: Environment,  // dev, staging, prod
+    pub created_at: DateTime<Utc>,
+    pub last_modified: DateTime<Utc>,
+    pub configuration_history: Vec<ConfigurationChange>,
+    pub tags: HashMap<String, String>,
+    pub service_level_objectives: Vec<ServiceLevelObjective>,
+}
+
+pub struct RegisteredQuery {
+    pub query_id: String,
+    pub query_metadata: QueryMetadata,
+    pub sql: String,
+    pub logical_plan: LogicalPlan,
+    pub physical_plan: PhysicalPlan,
+    pub runtime_topology: StreamingTopology,
+    pub resource_requirements: ResourceRequirements,
+    pub current_metrics: QueryMetrics,
+}
+
+pub struct QueryMetadata {
+    pub name: String,
+    pub version: SemanticVersion,
+    pub description: Option<String>,
+    pub owner: String,
+    pub created_at: DateTime<Utc>,
+    pub last_modified: DateTime<Utc>,
+    pub git_commit_hash: Option<String>,
+    pub build_id: Option<String>,
+    pub deployment_id: String,
+    pub configuration_checksum: String,
+    pub schema_version: String,
+    pub feature_flags: HashMap<String, bool>,
+    pub compliance_requirements: Vec<ComplianceRequirement>,
+    pub business_context: BusinessContext,
+}
+
+pub struct ConfigurationChange {
+    pub change_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub change_type: ChangeType,
+    pub author: String,
+    pub description: String,
+    pub configuration_diff: ConfigurationDiff,
+    pub rollback_info: Option<RollbackInfo>,
+    pub approval_metadata: Option<ApprovalMetadata>,
+}
+
+pub enum ChangeType {
+    Initial,
+    SqlUpdate,
+    ConfigurationChange,
+    SchemaEvolution,
+    ResourceScaling,
+    FeatureFlagToggle,
+    EnvironmentPromotion,
+    Rollback,
+}
+
+pub struct BusinessContext {
+    pub business_domain: String,          // "financial_analytics", "risk_management"  
+    pub data_classification: DataClassification, // Public, Internal, Confidential, Restricted
+    pub retention_policy: RetentionPolicy,
+    pub sla_requirements: SlaRequirements,
+    pub cost_center: String,
+    pub regulatory_requirements: Vec<String>,
+}
+
+pub struct SharedDataSource {
+    pub source_id: String,
+    pub source_type: DataSourceType,  // Kafka, File, etc.
+    pub consuming_queries: Vec<String>,
+    pub partitioning_strategy: PartitioningStrategy,
+    pub current_load: f64,
+    pub sharing_efficiency: f64,
+}
+```
+
+#### **Data Lineage Across Multiple Queries**
+```rust
+pub struct CrossQueryDataLineage {
+    lineage_analyzer: Arc<LineageAnalyzer>,
+    impact_analyzer: Arc<ImpactAnalyzer>,
+}
+
+impl CrossQueryDataLineage {
+    pub async fn trace_cross_query_lineage(&self, 
+                                           source_record_id: &str) -> CrossQueryLineageTrace {
+        let primary_trace = self.lineage_analyzer.trace_record(source_record_id).await?;
+        let derived_traces = self.find_derived_records(&primary_trace).await?;
+        let downstream_impact = self.analyze_downstream_impact(&derived_traces).await?;
+        
+        CrossQueryLineageTrace {
+            source_record: primary_trace.source_record,
+            primary_processing_path: primary_trace.processing_path,
+            cross_query_derivations: derived_traces,
+            downstream_queries_affected: downstream_impact.affected_queries,
+            total_processing_latency: self.calculate_total_latency(&primary_trace, &derived_traces),
+            data_quality_propagation: self.analyze_quality_propagation(&primary_trace, &derived_traces),
+            compliance_chain: self.build_compliance_chain(&primary_trace, &derived_traces),
+        }
+    }
+    
+    pub async fn analyze_query_impact(&self, query_id: &str, 
+                                      change_type: QueryChangeType) -> QueryImpactAnalysis {
+        let affected_queries = self.find_downstream_queries(query_id).await?;
+        let shared_resources = self.find_shared_resources(query_id).await?;
+        let performance_impact = self.estimate_performance_impact(query_id, change_type).await?;
+        
+        QueryImpactAnalysis {
+            target_query: query_id.to_string(),
+            change_type,
+            directly_affected_queries: affected_queries.direct,
+            transitively_affected_queries: affected_queries.transitive,
+            shared_resource_impact: shared_resources,
+            estimated_performance_impact: performance_impact,
+            risk_assessment: self.assess_change_risk(query_id, change_type, &affected_queries),
+            rollback_plan: self.generate_rollback_plan(query_id, &affected_queries),
+        }
+    }
+}
+
+pub struct CrossQueryLineageTrace {
+    pub source_record: RecordInfo,
+    pub primary_processing_path: ProcessingPath,
+    pub cross_query_derivations: Vec<DerivedRecord>,
+    pub downstream_queries_affected: Vec<String>,
+    pub total_processing_latency: Duration,
+    pub data_quality_propagation: QualityPropagation,
+    pub compliance_chain: ComplianceChain,
+}
+
+pub struct DerivedRecord {
+    pub derived_record_id: String,
+    pub source_query: String,
+    pub target_query: String,
+    pub transformation_type: TransformationType,
+    pub processing_latency: Duration,
+    pub data_quality_score: f64,
+}
+```
+
+#### **Resource Sharing Analysis**
+```rust
+pub struct ResourceSharingAnalyzer {
+    resource_monitor: Arc<ResourceMonitor>,
+    contention_detector: Arc<ContentionDetector>,
+}
+
+impl ResourceSharingAnalyzer {
+    pub async fn analyze_resource_sharing(&self, queries: &[RegisteredQuery]) -> ResourceSharingAnalysis {
+        let shared_sources = self.identify_shared_data_sources(queries)?;
+        let shared_processors = self.identify_shared_processors(queries)?;
+        let shared_sinks = self.identify_shared_data_sinks(queries)?;
+        let resource_contention = self.detect_resource_contention(queries).await?;
+        
+        ResourceSharingAnalysis {
+            shared_data_sources: shared_sources,
+            shared_processors: shared_processors,
+            shared_data_sinks: shared_sinks,
+            resource_contention_hotspots: resource_contention,
+            sharing_efficiency_metrics: self.calculate_sharing_efficiency(queries),
+            optimization_recommendations: self.recommend_sharing_optimizations(queries),
+            cost_benefit_analysis: self.analyze_sharing_cost_benefits(queries),
+        }
+    }
+    
+    pub fn identify_sharing_opportunities(&self, queries: &[RegisteredQuery]) -> Vec<SharingOpportunity> {
+        let mut opportunities = Vec::new();
+        
+        // Identify common subexpressions across queries
+        let common_filters = self.find_common_filters(queries);
+        let common_aggregations = self.find_common_aggregations(queries);
+        let common_joins = self.find_common_joins(queries);
+        
+        // Identify source fanout opportunities
+        let source_fanout = self.find_source_fanout_opportunities(queries);
+        
+        // Identify materialized view opportunities
+        let materialization = self.find_materialization_opportunities(queries);
+        
+        opportunities.extend(common_filters.into_iter().map(SharingOpportunity::CommonFilter));
+        opportunities.extend(common_aggregations.into_iter().map(SharingOpportunity::CommonAggregation));
+        opportunities.extend(common_joins.into_iter().map(SharingOpportunity::CommonJoin));
+        opportunities.extend(source_fanout.into_iter().map(SharingOpportunity::SourceFanout));
+        opportunities.extend(materialization.into_iter().map(SharingOpportunity::Materialization));
+        
+        opportunities
+    }
+}
+
+pub enum SharingOpportunity {
+    CommonFilter { 
+        filter_expression: String, 
+        queries: Vec<String>, 
+        estimated_savings: ResourceSavings 
+    },
+    CommonAggregation { 
+        aggregation_spec: AggregationSpec, 
+        queries: Vec<String>, 
+        estimated_savings: ResourceSavings 
+    },
+    CommonJoin { 
+        join_spec: JoinSpec, 
+        queries: Vec<String>, 
+        estimated_savings: ResourceSavings 
+    },
+    SourceFanout { 
+        source: DataSource, 
+        queries: Vec<String>, 
+        current_efficiency: f64, 
+        potential_efficiency: f64 
+    },
+    Materialization { 
+        intermediate_result: MaterializationSpec, 
+        consumer_queries: Vec<String>, 
+        estimated_performance_gain: f64 
+    },
+}
+```
+
+### 4. Enhanced SQL EXPLAIN for Multi-Query Analysis
+
+#### **Multi-Query EXPLAIN Commands**
+```sql
+-- Analyze relationships between multiple queries
+EXPLAIN MULTI_QUERY 
+WITH QUERIES (
+  'query1' AS (SELECT symbol, AVG(price) FROM trades WINDOW TUMBLING(5m) GROUP BY symbol),
+  'query2' AS (SELECT symbol, MAX(price) FROM trades WINDOW TUMBLING(5m) GROUP BY symbol),
+  'query3' AS (SELECT symbol, COUNT(*) FROM trades WHERE price > 100 GROUP BY symbol)
+);
+
+-- Show shared resource analysis
+EXPLAIN SHARED_RESOURCES
+FOR QUERIES ('portfolio_risk_query', 'trading_analytics_query', 'compliance_report_query');
+
+-- Analyze data lineage across queries  
+EXPLAIN LINEAGE
+FROM SOURCE 'kafka://trades/trade_12345'
+THROUGH QUERIES ('risk_calculation', 'portfolio_update', 'audit_log');
+
+-- Impact analysis for query changes
+EXPLAIN IMPACT 
+FOR QUERY 'portfolio_risk_query'
+CHANGE TYPE 'schema_evolution';
+
+-- Cross-query optimization opportunities
+EXPLAIN OPTIMIZATION_OPPORTUNITIES
+FOR QUERY_GROUP 'financial_analytics_suite';
+```
+
+#### **Example Multi-Query Analysis Output**
+```
+MULTI-QUERY TOPOLOGY ANALYSIS
+=============================
+
+┌─ JOB METADATA ─────────────────────────────────────────────────────┐
+│ Job Name: financial_analytics_suite                                 │
+│ Version: 2.1.3                                                      │
+│ Owner: trading-platform-team                                        │
+│ Environment: production                                              │
+│ Deployment ID: deploy-20240115-143022-7f8a9b2                      │
+│ Git Commit: 7f8a9b2c (feat: add real-time risk calculations)       │
+│ Build ID: jenkins-2024-0115-build-4721                             │
+│ Created: 2024-01-10 09:15:32 UTC                                   │
+│ Modified: 2024-01-15 14:30:22 UTC                                  │
+│ Configuration Checksum: sha256:a7f8c9d2e1b4...                      │
+│                                                                     │
+│ Business Context:                                                   │
+│   Domain: financial_analytics                                       │
+│   Classification: Confidential                                     │
+│   Cost Center: TRADING-TECH-001                                    │
+│   SLA: 99.9% uptime, <100ms P95 latency                           │
+│   Compliance: SOX, MiFID II, GDPR                                  │
+│                                                                     │
+│ Feature Flags:                                                      │
+│   ✓ enhanced_risk_calculation: enabled                             │
+│   ✓ real_time_alerts: enabled                                      │
+│   ✗ experimental_ml_predictions: disabled                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+Query Group: financial_analytics_suite (3 queries)
+───────────────────────────────────────────────────
+
+┌─ QUERY REGISTRY ───────────────────────────────────────────────────┐
+│                                                                     │
+│ Query 1: portfolio_risk_calculator                                  │
+│   Version: 2.1.2                                                   │
+│   Owner: risk-management-team                                       │
+│   Schema Version: trades_v3.1                                      │
+│   Last Modified: 2024-01-15 14:25:18 UTC                          │
+│   Git Commit: 6e7d8a1b (fix: improve risk calculation precision)   │
+│                                                                     │
+│ Query 2: real_time_price_alerts                                     │
+│   Version: 2.0.1                                                   │
+│   Owner: trading-platform-team                                     │
+│   Schema Version: trades_v3.1                                      │
+│   Last Modified: 2024-01-14 11:42:07 UTC                          │
+│   Git Commit: 9c4f2a8d (feat: add volatility thresholds)          │
+│                                                                     │
+│ Query 3: compliance_audit_trail                                     │
+│   Version: 1.8.3                                                   │
+│   Owner: compliance-team                                            │
+│   Schema Version: trades_v3.0 (migration pending)                  │
+│   Last Modified: 2024-01-12 16:20:45 UTC                          │
+│   Git Commit: 2b5e9f7c (fix: ensure GDPR compliance)              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ CONFIGURATION CHANGE HISTORY ─────────────────────────────────────┐
+│                                                                     │
+│ Recent Changes (Last 7 days):                                      │
+│                                                                     │
+│ 2024-01-15 14:30:22 UTC - ResourceScaling                         │
+│   Author: ops-team                                                 │
+│   Change: Increased Kafka consumer parallelism 8 → 12             │
+│   Approval: auto-approved (performance optimization)               │
+│   Rollback: available (change-id: cfg-20240115-1430)              │
+│                                                                     │
+│ 2024-01-14 09:15:10 UTC - FeatureFlagToggle                       │
+│   Author: risk-management-team                                     │
+│   Change: Enabled enhanced_risk_calculation                        │
+│   Approval: manual (risk-manager, platform-lead)                  │
+│   Rollback: available (change-id: cfg-20240114-0915)              │
+│                                                                     │
+│ 2024-01-13 16:45:33 UTC - SqlUpdate                              │
+│   Author: trading-platform-team                                   │
+│   Change: Added volatility calculation to portfolio_risk_calculator│
+│   Approval: manual (code-review, qa-testing)                      │
+│   Rollback: available (change-id: cfg-20240113-1645)              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─[SharedKafkaSource: trades]──────────────────────┐
+│ Topic: financial_trades                          │
+│ Consumers: 3 (query1, query2, query3)          │
+│ Total Rate: 3,750 records/sec                   │
+│ Sharing Efficiency: 85% (good)                  │
+│ Partitioning: Round-robin across consumers       │
+└─┬────────────────────────┬───────────────────────┘
+  │                        │
+  │ ┌─[query1]─────────────│──[query3]──────────────┐
+  │ │ Window: TUMBLING(5m) │  Filter: price > 100  │
+  │ │ Function: AVG(price) │  Function: COUNT(*)    │
+  │ │ Rate: 1,250 rec/sec  │  Rate: 1,250 rec/sec   │
+  │ └──────────────────────┼─────────────────────────┘
+  │                        │
+  v                        v
+┌─[query2]─────────────────────────────────────────┐
+│ Window: TUMBLING(5m)                             │
+│ Function: MAX(price)                             │ 
+│ Rate: 1,250 rec/sec                             │
+│ Shared Window State: 75KB (with query1)         │
+└──────────────────────────────────────────────────┘
+
+SHARED RESOURCE ANALYSIS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Data Sources:
+  └── trades (Kafka): Used by 3 queries, efficiency 85%
+
+• Processing Resources:
+  └── TUMBLING(5m) window: Shared by query1 & query2 
+      ├── Current: 2 separate processors (150KB state)
+      └── Optimized: 1 shared processor (75KB state) → 50% memory savings
+
+• Optimization Opportunities:
+  1. Merge TUMBLING(5m) windows for query1 & query2
+     └── Savings: 50% memory, 30% CPU, identical results
+  2. Pre-filter common condition (price > 0) 
+     └── Savings: 15% processing overhead
+  3. Materialize 5-minute symbol aggregates
+     └── Benefits: query3 latency -60%, query1/query2 consistency
+
+CROSS-QUERY DATA LINEAGE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+trade_12345 (2024-01-15 10:30:00)
+├── query1: AVG calculation (10:30:05) → portfolio_update
+├── query2: MAX calculation (10:30:05) → risk_threshold_check  
+└── query3: COUNT increment (10:30:01) → compliance_audit
+
+Impact Radius: 3 queries, 6 downstream systems
+Processing Latency: 1-5 seconds end-to-end
+Compliance Chain: Complete (all regulations tracked)
+
+PERFORMANCE METRICS (Last 1 Hour):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                  Query1    Query2    Query3    Total
+Records/sec:      1,250     1,250     1,219     3,719
+Memory Usage:     85KB      87KB      45KB      217KB
+CPU Usage:        12%       13%       8%        33%
+Error Rate:       0.01%     0.01%     0.02%     0.013%
+Backpressure:     None      None      None      None
+
+RECOMMENDATIONS:
+━━━━━━━━━━━━━━━━
+Priority 1: Implement shared TUMBLING(5m) processor
+Priority 2: Add materialized view for symbol aggregates  
+Priority 3: Optimize Kafka consumer group assignments
+Priority 4: Consider query consolidation for query1/query2
+
+Estimated Benefits: 
+├── Memory: -50% (75KB savings)
+├── CPU: -30% (10% absolute reduction)
+├── Latency: -40% average across all queries
+└── Operational Complexity: -25%
+```
+
+#### **CLI Multi-Query Commands with Metadata Support**
+```bash
+# Analyze query group topology with full metadata
+ferris-cli multi-query analyze --group financial_analytics --include-metadata
+
+# Show query registry with version and ownership information
+ferris-cli multi-query registry --group financial_analytics --show-history
+
+# Show shared resources across queries with metadata context
+ferris-cli multi-query shared-resources --queries query1,query2,query3 --include-owners
+
+# Cross-query lineage tracing with compliance tracking
+ferris-cli multi-query lineage --record-id trade_12345 --trace-depth 3 --include-compliance-chain
+
+# Impact analysis for query changes with approval workflows
+ferris-cli multi-query impact --query portfolio_risk --change schema_update --include-approvals
+
+# Show configuration change history
+ferris-cli multi-query history --group financial_analytics --timerange 7d --show-approvals
+
+# Version comparison between environments
+ferris-cli multi-query diff --group financial_analytics --env1 staging --env2 production
+
+# Find optimization opportunities with cost analysis and ownership
+ferris-cli multi-query optimize --group trading_suite --include-cost-analysis --include-owners
+
+# Real-time multi-query dashboard with metadata overlay
+ferris-cli multi-query dashboard --refresh 2s --group financial_analytics --show-versions
+
+# Export multi-query topology with full metadata context
+ferris-cli multi-query export --format graphviz --include-lineage --include-metadata --output multi_query_topology.dot
+
+# Compliance and audit reporting
+ferris-cli multi-query compliance-report --group financial_analytics --regulations SOX,GDPR --format json
+
+# Show feature flag status across query group
+ferris-cli multi-query feature-flags --group financial_analytics --environment production
+
+# Configuration validation and drift detection
+ferris-cli multi-query validate-config --group financial_analytics --baseline production
+```
+
+#### **Enhanced EXPLAIN Commands with Metadata**
+```sql
+-- Show query metadata alongside topology
+EXPLAIN TOPOLOGY (METADATA true, HISTORY true)
+SELECT symbol, AVG(price) FROM trades WINDOW TUMBLING(5m) GROUP BY symbol;
+
+-- Multi-query analysis with full metadata context
+EXPLAIN MULTI_QUERY (METADATA true, OWNERSHIP true, COMPLIANCE true)
+WITH QUERIES (
+  'portfolio_risk_calculator' AS (...),
+  'real_time_price_alerts' AS (...),  
+  'compliance_audit_trail' AS (...)
+);
+
+-- Configuration change impact analysis
+EXPLAIN IMPACT (METADATA true, APPROVALS true, ROLLBACK_PLAN true)
+FOR QUERY 'portfolio_risk_calculator'
+CHANGE TYPE 'sql_update'
+CHANGE DESCRIPTION 'Add new volatility calculation';
+
+-- Version and environment comparison
+EXPLAIN DIFF (METADATA true, VERSIONS true)
+QUERY 'portfolio_risk_calculator'
+BETWEEN ENVIRONMENTS ('staging', 'production');
+```
+
+#### **Metadata-Enriched Output Examples**
+```bash
+# Query registry with ownership
+$ ferris-cli multi-query registry --group financial_analytics --show-history
+
+QUERY REGISTRY - financial_analytics_suite
+═══════════════════════════════════════════
+
+┌─ portfolio_risk_calculator ─────────────────────────────────────────┐
+│ Version: 2.1.2 → 2.1.3 (pending deployment)                        │
+│ Owner: risk-management-team (primary), trading-platform-team (collab)│
+│ Business Impact: Critical (affects $2.1B portfolio)                 │
+│ SLA: 99.95% uptime, <50ms P95 latency                              │
+│ Dependencies: trades_v3.1, market_data_v2.3, risk_models_v1.8      │
+│ Compliance: SOX (critical), MiFID II (required)                     │
+│                                                                      │
+│ Recent Changes:                                                      │
+│   2024-01-15: Added enhanced volatility calculation                  │
+│   2024-01-13: Improved precision for ScaledInteger calculations     │
+│   2024-01-10: Schema migration trades_v3.0 → v3.1                  │
+│                                                                      │
+│ Deployment History:                                                  │
+│   Production: 2.1.2 (deployed 2024-01-15 08:30 UTC)               │
+│   Staging: 2.1.3 (deployed 2024-01-15 14:25 UTC)                  │
+│   Development: 2.2.0-alpha (active development)                     │
+└──────────────────────────────────────────────────────────────────────┘
+
+# Configuration drift detection
+$ ferris-cli multi-query validate-config --group financial_analytics --baseline production
+
+CONFIGURATION VALIDATION - financial_analytics_suite
+════════════════════════════════════════════════════
+
+Environment: staging
+Baseline: production  
+Validation Time: 2024-01-15 15:45:22 UTC
+
+DRIFT DETECTED:
+━━━━━━━━━━━━━━━
+
+⚠️  portfolio_risk_calculator:
+   └── Feature Flag Difference:
+       • enhanced_risk_calculation: enabled (staging) vs disabled (production)
+       • Risk Level: Medium (affects calculation accuracy)
+       • Recommendation: Coordinate deployment with risk-management-team
+
+⚠️  real_time_price_alerts:  
+   └── Resource Configuration Difference:
+       • Kafka consumer parallelism: 12 (staging) vs 8 (production)
+       • Risk Level: Low (performance optimization)
+       • Recommendation: Deploy after monitoring staging performance
+
+✅ compliance_audit_trail:
+   └── Configuration matches baseline (no drift)
+
+SUMMARY:
+• Total Queries: 3
+• Queries with Drift: 2  
+• High Risk Changes: 0
+• Medium Risk Changes: 1
+• Low Risk Changes: 1
+• Approval Required: 1 (portfolio_risk_calculator feature flag)
+```
+
+### 5. Performance Topology Analysis
 
 #### **Bottleneck Detection & Analysis**
 ```rust
