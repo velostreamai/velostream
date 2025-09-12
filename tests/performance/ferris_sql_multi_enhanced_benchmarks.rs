@@ -13,7 +13,7 @@ use ferrisstreams::ferris::{
         ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::{
             types::{FieldValue, StreamRecord},
-            config::{StreamingConfig, CircuitBreakerConfig, ResourceLimits, WatermarkStrategy},
+            config::{StreamingConfig, CircuitBreakerConfig, ResourceMonitoringConfig, WatermarkStrategy},
             circuit_breaker::CircuitBreaker,
             resource_manager::ResourceManager,
             watermarks::WatermarkManager,
@@ -62,22 +62,28 @@ impl Default for EnhancedBenchmarkConfig {
 
             // Enable Phase 2 circuit breakers
             enable_circuit_breakers: true,
-            circuit_breaker_config: CircuitBreakerConfig {
+            circuit_breaker_config: Some(CircuitBreakerConfig {
                 failure_threshold: 10, // Allow some errors before opening
-                timeout: Duration::from_secs(60), // 1 minute timeout
-                recovery_timeout: Duration::from_secs(30), // 30 second recovery
-                ..Default::default()
-            },
+                recovery_timeout_seconds: 30, // 30 second recovery
+                success_threshold: 3, // 3 successes to close circuit
+                operation_timeout_seconds: 60, // 60 second operation timeout
+                failure_rate_threshold: 60.0, // 60% failure rate threshold
+            }),
 
             // Enable Phase 2 resource monitoring
             enable_resource_monitoring: true,
-            resource_limits: ResourceLimits {
-                max_total_memory: Some(512 * 1024 * 1024), // 512MB limit
-                max_operator_memory: Some(128 * 1024 * 1024), // 128MB per operator
-                max_processing_time_per_record: Some(100), // 100ms max per record
-                max_concurrent_operations: Some(50), // 50 concurrent ops
-                ..Default::default()
-            },
+            resource_monitoring_config: Some(ResourceMonitoringConfig {
+                check_interval_seconds: 30,
+                warning_threshold_percent: 80.0,
+                critical_threshold_percent: 95.0,
+                history_retention_minutes: 60,
+                enable_auto_cleanup: false,
+                max_memory_mb: Some(512),
+                max_cpu_percent: Some(80.0),
+            }),
+            enable_resource_limits: true,
+            max_total_memory: Some(512 * 1024 * 1024), // 512MB limit
+            max_concurrent_operations: Some(50), // 50 concurrent ops
 
             ..Default::default()
         };
