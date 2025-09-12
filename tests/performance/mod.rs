@@ -16,6 +16,7 @@ pub mod transactional_processor_benchmarks;
 
 // New consolidated performance testing framework
 pub mod consolidated_mod;
+mod phase_3_benchmarks;
 
 // Re-export consolidated structure for easier access
 pub use consolidated_mod::*;

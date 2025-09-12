@@ -20,7 +20,7 @@ use ferrisstreams::ferris::sql::execution::{
     config::{StreamingConfig, LateDataStrategy, WatermarkStrategy},  
     error::StreamingError,
     resource_manager::{ResourceLimits, ResourceManager},
-    watermarks::{WatermarkManager, WatermarkConfig},
+    watermarks::WatermarkManager,
 };
 use ferrisstreams::ferris::sql::{StreamRecord, FieldValue};
 use std::sync::Arc;
@@ -108,14 +108,11 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
     });
     resource_manager.enable();
     
-    let watermark_config = WatermarkConfig {
-        strategy: WatermarkStrategy::BoundedOutOfOrderness {
-            max_out_of_orderness: Duration::from_secs(10),
-        },
-        idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+    let watermark_strategy = WatermarkStrategy::BoundedOutOfOrderness {
+        max_out_of_orderness: Duration::from_secs(10),
+        watermark_interval: Duration::from_secs(1),
     };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
     let mut circuit_breaker = CircuitBreaker::with_default_config("benchmark".to_string());
@@ -160,12 +157,8 @@ async fn benchmark_enhanced_processing(record_count: usize) -> f64 {
 }
 
 async fn benchmark_watermarks_only(record_count: usize) -> f64 {
-    let watermark_config = WatermarkConfig {
-        strategy: WatermarkStrategy::Ascending,
-        idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
-    };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
+    let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
     let start_time = Instant::now();
@@ -378,12 +371,8 @@ async fn setup_enhanced_components() -> EnhancedComponents {
     let mut resource_manager = ResourceManager::new(ResourceLimits::default());
     resource_manager.enable();
     
-    let watermark_config = WatermarkConfig {
-        strategy: WatermarkStrategy::Ascending,
-        idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
-    };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
+    let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
     let mut circuit_breaker = CircuitBreaker::with_default_config("latency_test".to_string());
@@ -488,12 +477,8 @@ async fn benchmark_stress_testing() {
     });
     resource_manager.enable();
     
-    let watermark_config = WatermarkConfig {
-        strategy: WatermarkStrategy::Ascending,
-        idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
-    };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let watermark_strategy = WatermarkStrategy::AscendingTimestamps;
+    let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
     let mut circuit_breaker = CircuitBreaker::with_default_config("stress_test".to_string());
@@ -656,14 +641,11 @@ async fn benchmark_iot_sensor_scenario() -> f64 {
     });
     resource_manager.enable();
     
-    let watermark_config = WatermarkConfig {
-        strategy: WatermarkStrategy::BoundedOutOfOrderness {
-            max_out_of_orderness: Duration::from_secs(30), // IoT can have delays
-        },
-        idle_timeout: Duration::from_secs(60),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+    let watermark_strategy = WatermarkStrategy::BoundedOutOfOrderness {
+        max_out_of_orderness: Duration::from_secs(30), // IoT can have delays
+        watermark_interval: Duration::from_secs(2),
     };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let mut watermark_manager = WatermarkManager::new(watermark_strategy);
     watermark_manager.enable();
     
     const SENSOR_READINGS: usize = 50_000;
@@ -716,12 +698,7 @@ async fn benchmark_web_analytics_scenario() -> f64 {
     });
     resource_manager.enable();
     
-    let watermark_config = WatermarkConfig {
-        strategy: config.watermark_strategy.clone(),
-        idle_timeout: Duration::from_secs(120),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
-    };
-    let mut watermark_manager = WatermarkManager::new(watermark_config);
+    let mut watermark_manager = WatermarkManager::new(config.watermark_strategy.clone());
     watermark_manager.enable();
     
     let mut circuit_breaker = CircuitBreaker::with_default_config("analytics".to_string());

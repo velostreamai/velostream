@@ -13,7 +13,7 @@ use ferrisstreams::ferris::{
         ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::{
             types::{FieldValue, StreamRecord},
-            config::{StreamingConfig, CircuitBreakerConfig, ResourceLimits, WatermarkConfig},
+            config::{StreamingConfig, CircuitBreakerConfig, ResourceLimits, WatermarkStrategy},
             circuit_breaker::CircuitBreaker,
             resource_manager::ResourceManager,
             watermarks::WatermarkManager,
@@ -55,10 +55,9 @@ impl Default for EnhancedBenchmarkConfig {
         let streaming_config = StreamingConfig {
             // Enable Phase 1B watermark processing
             enable_watermarks: true,
-            watermark_config: WatermarkConfig {
-                late_data_threshold: Duration::from_secs(30), // 30 second tolerance
-                emit_mode: EmitMode::OnWatermark,
-                ..Default::default()
+            watermark_strategy: WatermarkStrategy::BoundedOutOfOrderness {
+                max_out_of_orderness: Duration::from_secs(30), // 30 second tolerance
+                watermark_interval: Duration::from_secs(1),
             },
 
             // Enable Phase 2 circuit breakers
