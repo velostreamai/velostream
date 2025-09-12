@@ -66,7 +66,7 @@ pub struct ProcessorContext {
     // === PERFORMANCE MONITORING ===
     /// Optional performance monitor for query tracking
     pub performance_monitor: Option<Arc<PerformanceMonitor>>,
-    
+
     // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
     /// Optional watermark manager for event-time processing
     /// Only activated when event-time processing is explicitly enabled
@@ -614,8 +614,11 @@ impl ProcessorContext {
     }
 
     /// Update watermark for a source and get watermark event if generated
-    pub fn update_watermark(&self, source_id: &str, record: &StreamRecord) 
-        -> Option<crate::ferris::sql::execution::watermarks::WatermarkEvent> {
+    pub fn update_watermark(
+        &self,
+        source_id: &str,
+        record: &StreamRecord,
+    ) -> Option<crate::ferris::sql::execution::watermarks::WatermarkEvent> {
         self.watermark_manager
             .as_ref()?
             .update_watermark(source_id, record)

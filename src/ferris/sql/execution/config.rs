@@ -116,13 +116,13 @@ impl StreamingConfig {
         self.message_passing_mode = mode;
         self
     }
-    
+
     /// Configure late data handling strategy (Phase 1B)
     pub fn with_late_data_strategy(mut self, strategy: LateDataStrategy) -> Self {
         self.late_data_strategy = strategy;
         self
     }
-    
+
     /// Configure watermark generation strategy (Phase 1B)
     pub fn with_watermark_strategy(mut self, strategy: WatermarkStrategy) -> Self {
         self.watermark_strategy = strategy;
