@@ -51,6 +51,7 @@ async fn test_json_from_execution_format() {
         timestamp: 1234567890,
         offset: 100,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 

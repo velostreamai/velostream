@@ -35,6 +35,7 @@ fn create_test_record_with_timestamps() -> StreamRecord {
         timestamp: 1672576245123, // 2023-01-01 12:30:45.123 UTC
         offset: 1000,
         partition: 0,
+        event_time: None,
     }
 }
 
@@ -446,6 +447,7 @@ fn create_test_record_for_timestamp_functions() -> StreamRecord {
         timestamp: 1672576245000, // 2023-01-01 12:30:45 UTC in milliseconds
         offset: 1001,
         partition: 0,
+        event_time: None,
     }
 }
 

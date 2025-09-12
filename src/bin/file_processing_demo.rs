@@ -426,5 +426,6 @@ async fn process_financial_record(record: StreamRecord) -> Result<StreamRecord, 
         offset: record.offset,
         partition: record.partition,
         headers: record.headers,
+        event_time: None,
     })
 }

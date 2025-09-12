@@ -39,6 +39,7 @@ fn create_test_record(
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: id,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

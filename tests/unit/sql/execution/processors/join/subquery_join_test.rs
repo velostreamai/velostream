@@ -32,6 +32,7 @@ fn create_test_record_for_subquery_join() -> StreamRecord {
     StreamRecord {
         fields,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,

@@ -332,6 +332,7 @@ impl FileReader {
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         })
     }
 
@@ -515,6 +516,7 @@ impl FileReader {
                         offset: self.current_position as i64,
                         partition: 0,
                         headers: HashMap::new(),
+                        event_time: None,
                     };
 
                     self.records_read += 1;
@@ -1112,6 +1114,7 @@ impl FileReader {
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         Ok(Some(record))
@@ -1151,6 +1154,7 @@ impl FileReader {
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         Ok(Some(record))

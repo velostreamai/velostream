@@ -126,6 +126,7 @@ mod avro_tests {
             timestamp: 1234567890,
             offset: 100,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 

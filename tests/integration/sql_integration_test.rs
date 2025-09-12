@@ -58,6 +58,7 @@ mod tests {
             timestamp: safe_timestamp,
             offset: order_id,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         }
     }
@@ -76,6 +77,7 @@ mod tests {
             timestamp: 1000 + user_id * 1000,
             offset: user_id,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         }
     }

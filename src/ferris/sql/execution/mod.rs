@@ -39,6 +39,7 @@
 
 pub mod aggregation;
 pub mod algorithms;
+pub mod config;
 pub mod engine;
 pub mod expression;
 pub mod internal;
@@ -50,6 +51,7 @@ pub mod types;
 pub mod utils;
 
 // Re-export public API only
+pub use config::StreamingConfig;
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 

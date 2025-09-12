@@ -38,6 +38,7 @@ fn create_test_record() -> StreamRecord {
         timestamp: 1734652800000,
         offset: 100,
         partition: 0,
+        event_time: None,
     }
 }
 

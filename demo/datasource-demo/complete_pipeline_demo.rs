@@ -535,6 +535,7 @@ fn json_value_to_stream_record(json_value: &serde_json::Value) -> StreamRecord {
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
+        event_time: None,
     }
 }
 
@@ -589,6 +590,7 @@ fn process_transaction_record(record: &StreamRecord) -> Result<StreamRecord, Str
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
+        event_time: None,
     })
 }
 

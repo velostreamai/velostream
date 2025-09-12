@@ -154,6 +154,7 @@ async fn test_process_datasource_with_shutdown() {
                         timestamp: chrono::Utc::now().timestamp_millis(),
                         offset: 0,
                         partition: 0,
+                        event_time: None,
                         headers: HashMap::new(),
                     });
                 }

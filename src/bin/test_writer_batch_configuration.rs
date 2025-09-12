@@ -241,6 +241,7 @@ fn create_test_records(count: usize) -> Vec<StreamRecord> {
             offset: i as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         });
     }
 

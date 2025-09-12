@@ -377,6 +377,7 @@ impl WindowProcessor {
                     offset: 0,
                     partition: 0,
                     headers: HashMap::new(),
+                    event_time: None,
                 };
 
                 // For HAVING clauses with aggregates, we need special handling
@@ -443,6 +444,7 @@ impl WindowProcessor {
                 offset: 0,
                 partition: 0,
                 headers: HashMap::new(),
+                event_time: None,
             })
         } else {
             Err(SqlError::ExecutionError {

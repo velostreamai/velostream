@@ -336,6 +336,7 @@ impl HashJoinExecutor {
             offset: left.offset,
             partition: left.partition,
             headers: left.headers.clone(),
+            event_time: None,
         })
     }
 
@@ -409,6 +410,7 @@ impl HashJoinExecutor {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         }
     }
 
@@ -420,6 +422,7 @@ impl HashJoinExecutor {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         }
     }
 }
@@ -539,6 +542,7 @@ mod tests {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         let context = ProcessorContext::new("test");

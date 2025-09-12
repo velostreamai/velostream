@@ -30,6 +30,7 @@ fn create_test_record(field_count: usize) -> StreamRecord {
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
+        event_time: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn main() {
                 offset: offset.unwrap_or(0),
                 partition: partition.unwrap_or(0),
                 headers,
+                event_time: None,
             };
         }
         let old_time = start.elapsed();

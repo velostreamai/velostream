@@ -648,6 +648,7 @@ impl KafkaDataReader {
             offset: message.offset(),
             partition: message.partition(),
             headers: message.take_headers().into_map(),
+            event_time: None,
         })
     }
 

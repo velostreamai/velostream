@@ -43,6 +43,7 @@ fn create_test_record(
         timestamp,
         offset: id as u64,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

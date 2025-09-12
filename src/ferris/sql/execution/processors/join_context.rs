@@ -129,6 +129,7 @@ impl JoinContext {
         Ok(Some(crate::ferris::sql::execution::StreamRecord {
             fields,
             headers: std::collections::HashMap::new(),
+            event_time: None,
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,

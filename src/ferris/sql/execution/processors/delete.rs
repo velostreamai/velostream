@@ -125,6 +125,7 @@ impl DeleteProcessor {
                 headers.insert("tombstone".to_string(), "true".to_string());
                 headers
             },
+            event_time: None,
         };
 
         log::info!("DELETE: Created tombstone record for table {}", table_name);
@@ -205,6 +206,7 @@ impl DeleteProcessor {
                 headers.insert("deleted_at".to_string(), chrono::Utc::now().to_rfc3339());
                 headers
             },
+            event_time: None,
         };
 
         log::info!(

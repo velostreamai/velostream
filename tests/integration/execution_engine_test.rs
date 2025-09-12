@@ -35,6 +35,7 @@ fn create_market_data_record(
         timestamp,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }
@@ -288,6 +289,7 @@ async fn test_null_handling() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 

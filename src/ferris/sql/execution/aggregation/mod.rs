@@ -34,6 +34,7 @@
 //!     offset: 0,
 //!     partition: 0,
 //!     headers: Default::default(),
+//!     event_time: None,
 //! };
 //!
 //! // accumulator.increment_count();

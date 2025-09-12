@@ -270,6 +270,7 @@ async fn generate_sample_data_for_query(
             offset: i as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         });
     }
 

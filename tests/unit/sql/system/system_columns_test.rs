@@ -16,6 +16,7 @@ fn create_test_record(id: i64, amount: f64) -> StreamRecord {
         timestamp: 1609459200000, // Fixed timestamp for test consistency
         offset: id,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }
@@ -94,6 +95,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -143,6 +145,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -178,6 +181,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -215,6 +219,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -252,6 +257,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -293,6 +299,7 @@ mod tests {
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 offset: 0,
                 partition: 0,
+                event_time: None,
                 headers: HashMap::new(),
             };
 
@@ -333,6 +340,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 

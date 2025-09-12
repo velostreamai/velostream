@@ -17,6 +17,7 @@ fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
         timestamp: 0,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

@@ -316,25 +316,136 @@ impl Default for GroupAccumulator {
 ///
 /// These messages support asynchronous communication between different
 /// parts of the execution engine for job control and result processing.
+///
+/// Enhanced with correlation IDs for async error handling and new message types
+/// for production streaming capabilities.
 #[derive(Debug)]
 pub enum ExecutionMessage {
     /// Start a new streaming query job
     StartJob {
         job_id: String,
         query: StreamingQuery,
+        correlation_id: String,
     },
     /// Stop an existing streaming query job
-    StopJob { job_id: String },
+    StopJob {
+        job_id: String,
+        correlation_id: String,
+    },
     /// Process a single record through the engine
     ProcessRecord {
         stream_name: String,
         record: StreamRecord,
+        correlation_id: String,
     },
     /// Deliver a query result
     QueryResult {
         query_id: String,
         result: StreamRecord,
+        correlation_id: String,
     },
+
+    // Enhanced message types for FR-058 capabilities (Phase 1B and beyond)
+    /// Advance watermark for time-based window processing
+    /// Only sent when watermarks are enabled
+    AdvanceWatermark {
+        watermark_timestamp: chrono::DateTime<chrono::Utc>,
+        source_id: String,
+        correlation_id: String,
+    },
+
+    /// Trigger window emission due to watermark advancement
+    /// Only sent when watermark-based windowing is enabled  
+    TriggerWindow {
+        window_id: String,
+        trigger_reason: WindowTriggerReason,
+        correlation_id: String,
+    },
+
+    /// Request cleanup of expired state
+    /// Only sent when resource management is enabled
+    CleanupExpiredState {
+        retention_duration_ms: u64,
+        correlation_id: String,
+    },
+
+    /// Error recovery message for enhanced error handling
+    /// Only sent when enhanced error handling is enabled
+    ErrorRecovery {
+        original_correlation_id: String,
+        error_type: String,
+        retry_attempt: u32,
+        correlation_id: String,
+    },
+
+    /// Circuit breaker state change notification
+    /// Only sent when enhanced error handling is enabled
+    CircuitBreakerStateChange {
+        component_id: String,
+        old_state: String,
+        new_state: String,
+        correlation_id: String,
+    },
+
+    /// Resource limit exceeded notification
+    /// Only sent when resource management is enabled
+    ResourceLimitExceeded {
+        resource_type: String,
+        current_usage: u64,
+        limit: u64,
+        correlation_id: String,
+    },
+}
+
+/// Reasons for window triggering in enhanced windowing
+#[derive(Debug, Clone)]
+pub enum WindowTriggerReason {
+    /// Window triggered by watermark advancement
+    WatermarkAdvancement,
+    /// Window triggered by processing time
+    ProcessingTime,
+    /// Window triggered by element count
+    ElementCount(usize),
+    /// Window triggered by session timeout
+    SessionTimeout,
+    /// Manual window trigger
+    Manual,
+}
+
+impl ExecutionMessage {
+    /// Generate a new correlation ID for tracking async operations
+    pub fn generate_correlation_id() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
+    /// Get the correlation ID from any message
+    pub fn correlation_id(&self) -> &str {
+        match self {
+            ExecutionMessage::StartJob { correlation_id, .. } => correlation_id,
+            ExecutionMessage::StopJob { correlation_id, .. } => correlation_id,
+            ExecutionMessage::ProcessRecord { correlation_id, .. } => correlation_id,
+            ExecutionMessage::QueryResult { correlation_id, .. } => correlation_id,
+            ExecutionMessage::AdvanceWatermark { correlation_id, .. } => correlation_id,
+            ExecutionMessage::TriggerWindow { correlation_id, .. } => correlation_id,
+            ExecutionMessage::CleanupExpiredState { correlation_id, .. } => correlation_id,
+            ExecutionMessage::ErrorRecovery { correlation_id, .. } => correlation_id,
+            ExecutionMessage::CircuitBreakerStateChange { correlation_id, .. } => correlation_id,
+            ExecutionMessage::ResourceLimitExceeded { correlation_id, .. } => correlation_id,
+        }
+    }
+
+    /// Check if this message type requires enhanced features to be enabled
+    pub fn requires_enhanced_features(&self) -> bool {
+        matches!(
+            self,
+            ExecutionMessage::AdvanceWatermark { .. }
+                | ExecutionMessage::TriggerWindow { .. }
+                | ExecutionMessage::CleanupExpiredState { .. }
+                | ExecutionMessage::ErrorRecovery { .. }
+                | ExecutionMessage::CircuitBreakerStateChange { .. }
+                | ExecutionMessage::ResourceLimitExceeded { .. }
+        )
+    }
 }
 
 /// Header mutation operation for message header processing

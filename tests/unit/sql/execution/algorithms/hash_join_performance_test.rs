@@ -28,6 +28,7 @@ mod hash_join_performance_tests {
                 timestamp: i as i64,
                 offset: i as i64,
                 partition: 0,
+        event_time: None,
                 headers: HashMap::new(),
             }
         }).collect()

@@ -27,6 +27,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         }
     }
@@ -299,6 +300,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -310,6 +312,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 2,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 
@@ -321,6 +324,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 3,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
 

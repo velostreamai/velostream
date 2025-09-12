@@ -320,6 +320,7 @@ fn create_benchmark_record(index: usize) -> StreamRecord {
         offset: index as i64,
         partition: (index % 4) as i32,
         headers: HashMap::new(),
+        event_time: None,
     }
 }
 

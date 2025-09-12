@@ -39,6 +39,7 @@ impl MockKafkaReader {
             StreamRecord {
                 fields: fields1,
                 headers: HashMap::new(),
+                event_time: None,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 offset: 1001,
                 partition: 0,
@@ -46,6 +47,7 @@ impl MockKafkaReader {
             StreamRecord {
                 fields: fields2,
                 headers: HashMap::new(),
+                event_time: None,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 offset: 1002,
                 partition: 0,

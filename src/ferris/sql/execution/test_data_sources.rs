@@ -64,6 +64,7 @@ fn create_config_table_data() -> Vec<StreamRecord> {
     config_records.push(StreamRecord {
         fields: config_fields_1,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
@@ -84,6 +85,7 @@ fn create_config_table_data() -> Vec<StreamRecord> {
     config_records.push(StreamRecord {
         fields: config_fields_2,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200001,
         offset: 2,
         partition: 0,
@@ -107,6 +109,7 @@ fn create_active_configs_table_data() -> Vec<StreamRecord> {
     vec![StreamRecord {
         fields: active_config_fields,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
@@ -130,6 +133,7 @@ fn create_products_table_data() -> Vec<StreamRecord> {
     products_records.push(StreamRecord {
         fields: product_fields_1,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
@@ -148,6 +152,7 @@ fn create_products_table_data() -> Vec<StreamRecord> {
     products_records.push(StreamRecord {
         fields: product_fields_2,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200001,
         offset: 2,
         partition: 0,
@@ -180,6 +185,7 @@ fn create_users_table_data() -> Vec<StreamRecord> {
     users_records.push(StreamRecord {
         fields: user_fields_1,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
@@ -205,6 +211,7 @@ fn create_users_table_data() -> Vec<StreamRecord> {
     users_records.push(StreamRecord {
         fields: user_fields_2,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1640995200001,
         offset: 2,
         partition: 0,
