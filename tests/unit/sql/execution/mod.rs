@@ -16,3 +16,6 @@ pub mod processors;
 
 // Utility tests
 pub mod utils;
+
+// Phase 1B: Time Semantics & Watermarks tests
+pub mod phase_1b_watermarks_test;

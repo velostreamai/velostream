@@ -507,20 +507,26 @@ mod tests {
         let mut manager = WatermarkManager::default();
         manager.enable();
 
+        // Use fixed time for predictable testing
+        let base_time = Utc::now();
+
         // Add a record to establish watermark
-        let early_time = Utc::now() - chrono::Duration::seconds(30);
+        let early_time = base_time - chrono::Duration::seconds(30);
         let early_record = create_test_record_with_event_time(early_time);
         manager.update_watermark("source1", &early_record);
 
-        // Create a late record
-        let late_time = Utc::now() - chrono::Duration::seconds(60);
+        // Create a late record that is 30 seconds before the early record
+        let late_time = base_time - chrono::Duration::seconds(60);
         let late_record = create_test_record_with_event_time(late_time);
 
         assert!(manager.is_late(&late_record));
 
         let lateness = manager.calculate_lateness(&late_record);
         assert!(lateness.is_some());
-        assert!(lateness.unwrap() > Duration::from_secs(25));
+
+        // With 5-second out-of-orderness, watermark from early_record is (early_time - 5s)
+        // So lateness = (early_time - 5s) - late_time = (base-30-5) - (base-60) = 25 seconds
+        assert!(lateness.unwrap() >= Duration::from_secs(24)); // Allow 1 second tolerance
     }
 
     #[test]

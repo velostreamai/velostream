@@ -86,6 +86,7 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
             offset: i,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Use processing time by default
         };
         writer
             .write(record)
@@ -157,6 +158,7 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
             offset: i,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Use processing time by default
         };
         writer
             .write(record)
@@ -229,6 +231,7 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
                 offset: record_id,
                 partition: 0,
                 headers: HashMap::new(),
+                event_time: None, // Use processing time by default
             });
         }
 

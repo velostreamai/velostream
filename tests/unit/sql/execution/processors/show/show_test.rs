@@ -88,6 +88,8 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         active_reader: None,
         active_writer: None,
         source_positions: HashMap::new(),
+        // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
+        watermark_manager: None,
     }
 }
 
@@ -430,6 +432,8 @@ async fn test_show_streams_empty_context() {
         active_reader: None,
         active_writer: None,
         source_positions: HashMap::new(),
+        // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
+        watermark_manager: None,
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);
