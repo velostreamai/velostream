@@ -143,10 +143,12 @@ for record in batch {
    - Graceful degradation under backpressure
    - Proper shutdown and resource cleanup
 
-4. **Observability**
-   - Metrics: queue depth, processing rate, error rate
-   - Structured logging for async error correlation
-   - Health checks for engine background tasks
+4. **Observability & Monitoring**
+   - **Real-time Metrics**: Queue depth, processing rate, error rate, latency percentiles
+   - **Structured Logging**: Async error correlation with trace IDs
+   - **Health Checks**: Engine background task monitoring
+   - **Distributed Tracing**: End-to-end request flow visibility
+   - **Performance Profiling**: CPU, memory, and I/O bottleneck detection
 
 ## Design Options
 
@@ -203,19 +205,295 @@ async fn engine_task(mut receiver, output_sender) {
 - [ ] Implement proper backpressure flow through bounded channels
 - [ ] Add async error propagation with correlation
 - [ ] Create configurable error handling strategies
-- [ ] Add comprehensive logging and metrics
+- [ ] **OBSERVABILITY**: Implement comprehensive metrics collection (StreamEngineMetrics, ProcessorMetrics)
+- [ ] **OBSERVABILITY**: Add structured logging with trace context propagation
+- [ ] **OBSERVABILITY**: Create health check endpoints with degradation detection
 
 ### Phase 3: Optimization (Week 3)
 - [ ] Implement batch-level message passing
 - [ ] Optimize channel sizes based on benchmarking
-- [ ] Add performance monitoring and health checks
+- [ ] **OBSERVABILITY**: Implement distributed tracing with OpenTelemetry/Jaeger
+- [ ] **OBSERVABILITY**: Add business metrics and performance profiling integration  
+- [ ] **OBSERVABILITY**: Build real-time operations dashboard (Grafana)
 - [ ] Comprehensive testing across all processor types
 
 ### Phase 4: Advanced Features (Week 4)
 - [ ] Support multiple concurrent engine instances
 - [ ] Add partition-based processing for parallelism
 - [ ] Implement graceful shutdown and resource cleanup
+- [ ] **OBSERVABILITY**: Set up continuous profiling and anomaly detection in production
+- [ ] **OBSERVABILITY**: Create runbook automation and capacity planning dashboards
 - [ ] Documentation and migration guide
+
+## Observability & Monitoring Architecture
+
+### Core Observability Requirements
+
+A message-passing streaming engine introduces async complexity that demands comprehensive observability for production operation, debugging, and performance optimization.
+
+### 1. Metrics Collection & Monitoring
+
+#### **Engine-Level Metrics**
+```rust
+pub struct StreamEngineMetrics {
+    // Channel Health
+    pub queue_depth: Gauge,           // Current messages in queue
+    pub queue_capacity_utilization: Gauge,  // % of channel capacity used
+    pub queue_high_water_mark: Counter,     // Times queue >90% full
+    
+    // Processing Performance  
+    pub records_processed_total: Counter,
+    pub records_failed_total: Counter,
+    pub processing_duration_seconds: Histogram,  // P50, P95, P99 latencies
+    pub batch_size_distribution: Histogram,
+    
+    // Backpressure & Flow Control
+    pub backpressure_events: Counter,
+    pub channel_send_duration: Histogram,
+    pub channel_recv_duration: Histogram,
+    
+    // Error Tracking
+    pub errors_by_type: CounterVec,    // Labels: error_type, correlation_id
+    pub retry_attempts: Counter,
+    pub dead_letter_messages: Counter,
+}
+```
+
+#### **Processor-Level Metrics**
+```rust
+pub struct ProcessorMetrics {
+    // Pipeline Health
+    pub active_processors: Gauge,
+    pub processor_restarts: Counter,
+    pub processor_uptime_seconds: Gauge,
+    
+    // Resource Utilization
+    pub cpu_usage_percent: Gauge,
+    pub memory_usage_bytes: Gauge,
+    pub gc_collections: Counter,      // For memory-managed workloads
+    
+    // Data Flow
+    pub input_rate_records_per_sec: Gauge,
+    pub output_rate_records_per_sec: Gauge,
+    pub processing_lag_seconds: Gauge,
+}
+```
+
+#### **Business Logic Metrics**
+```rust
+pub struct BusinessMetrics {
+    // SQL Query Performance
+    pub query_execution_duration: Histogram,  // Labels: query_type, table
+    pub aggregation_window_size: Histogram,
+    pub join_operation_duration: Histogram,
+    
+    // Financial Analytics (Domain-Specific)
+    pub trades_processed: Counter,
+    pub price_updates_applied: Counter,
+    pub risk_calculations_completed: Counter,
+    pub portfolio_valuations: Counter,
+}
+```
+
+### 2. Distributed Tracing
+
+#### **Trace Context Propagation**
+```rust
+pub struct TraceContext {
+    pub trace_id: String,        // Unique across entire request flow
+    pub span_id: String,         // Unique within trace
+    pub parent_span_id: Option<String>,
+    pub correlation_id: String,  // Business correlation (trade_id, etc.)
+    pub baggage: HashMap<String, String>,  // Cross-service context
+}
+
+pub struct ExecutionMessage {
+    pub trace_context: TraceContext,
+    pub payload: MessagePayload,
+    pub timestamp: Instant,
+    pub retry_count: u32,
+}
+```
+
+#### **Instrumentation Points**
+- **Message Ingestion**: Kafka consumer → Engine queue
+- **Engine Processing**: Message dequeue → SQL execution → Result emission  
+- **Backpressure Events**: Channel full → Backpressure propagation
+- **Error Handling**: Exception → Retry → Dead letter queue
+- **Cross-Service Calls**: Engine → External services (schema registry, etc.)
+
+#### **Jaeger/OpenTelemetry Integration**
+```rust
+use opentelemetry::{trace::Tracer, Context};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+#[tracing::instrument(
+    skip(self, message),
+    fields(
+        trace_id = %message.trace_context.trace_id,
+        correlation_id = %message.trace_context.correlation_id,
+        queue_depth = self.get_queue_depth()
+    )
+)]
+async fn process_message(&self, message: ExecutionMessage) -> Result<(), ProcessingError> {
+    let span = tracing::Span::current();
+    span.set_attribute("processing.batch_size", message.payload.records.len() as i64);
+    
+    // Processing logic with automatic span propagation
+    self.execute_with_tracing(message).await
+}
+```
+
+### 3. Structured Logging
+
+#### **Log Levels & Categories**
+- **ERROR**: Processing failures, system errors, resource exhaustion
+- **WARN**: Backpressure events, retry attempts, performance degradation
+- **INFO**: Processing milestones, configuration changes, health status
+- **DEBUG**: Message flow details, correlation tracking
+- **TRACE**: Fine-grained execution steps (development/troubleshooting)
+
+#### **Log Structure**
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "level": "INFO", 
+  "message": "Batch processed successfully",
+  "trace_id": "550e8400-e29b-41d4-a716-446655440000",
+  "correlation_id": "trade_batch_20240115_001",
+  "component": "stream_execution_engine",
+  "processor_id": "simple_processor_001",
+  "metrics": {
+    "records_processed": 1250,
+    "processing_duration_ms": 45,
+    "queue_depth_before": 2340,
+    "queue_depth_after": 1090,
+    "memory_usage_mb": 256
+  },
+  "context": {
+    "query_type": "aggregation",
+    "table": "financial_trades",
+    "batch_size": 1250
+  }
+}
+```
+
+### 4. Health Checks & Alerting
+
+#### **Health Check Endpoints**
+```rust
+pub struct HealthCheckService {
+    engines: Vec<Arc<StreamExecutionEngine>>,
+    processors: Vec<Arc<dyn JobProcessor>>,
+}
+
+impl HealthCheckService {
+    pub async fn check_engine_health(&self) -> HealthStatus {
+        HealthStatus {
+            status: if self.all_engines_healthy() { "healthy" } else { "degraded" },
+            checks: vec![
+                Check { name: "channel_capacity", status: self.check_channel_capacity() },
+                Check { name: "processing_rate", status: self.check_processing_rate() },
+                Check { name: "error_rate", status: self.check_error_rate() },
+                Check { name: "memory_usage", status: self.check_memory_usage() },
+            ],
+            timestamp: Utc::now(),
+        }
+    }
+}
+```
+
+#### **Critical Alerts**
+- **Queue Depth**: Alert if >80% capacity for >5 minutes
+- **Processing Rate**: Alert if <50% of baseline for >2 minutes  
+- **Error Rate**: Alert if >5% error rate for >1 minute
+- **Memory Growth**: Alert if memory usage growing >10%/hour
+- **Engine Restarts**: Alert on any unexpected engine restart
+- **Correlation Loss**: Alert if trace correlation drops <95%
+
+### 5. Performance Profiling
+
+#### **Runtime Performance Monitoring**
+```rust
+pub struct PerformanceProfiler {
+    cpu_profiler: Arc<CpuProfiler>,
+    memory_profiler: Arc<MemoryProfiler>, 
+    io_profiler: Arc<IoProfiler>,
+}
+
+impl PerformanceProfiler {
+    pub async fn profile_execution(&self, duration: Duration) -> ProfileReport {
+        let cpu_profile = self.cpu_profiler.sample(duration).await;
+        let memory_profile = self.memory_profiler.snapshot().await;
+        let io_profile = self.io_profiler.measure(duration).await;
+        
+        ProfileReport {
+            hotspots: cpu_profile.identify_bottlenecks(),
+            memory_leaks: memory_profile.detect_leaks(),
+            io_bottlenecks: io_profile.slow_operations(),
+            recommendations: self.generate_optimization_recommendations(),
+        }
+    }
+}
+```
+
+#### **Continuous Profiling Integration**
+- **Pyroscope**: Continuous CPU profiling for production workloads
+- **Memory Profiling**: Heap allocation tracking and leak detection
+- **I/O Profiling**: Disk and network operation performance analysis
+- **Lock Contention**: Mutex/channel contention detection and resolution
+
+### 6. Dashboards & Visualization
+
+#### **Real-Time Operations Dashboard**
+- **Engine Health Overview**: Status, throughput, error rates
+- **Message Flow Visualization**: Queue depths, processing rates
+- **Performance Heatmaps**: Latency distribution over time
+- **Error Analysis**: Error types, frequency, resolution status
+- **Resource Utilization**: CPU, memory, network usage
+
+#### **Business Intelligence Dashboard**  
+- **Financial Analytics Performance**: Trade processing rates, risk calculation latency
+- **Data Quality Metrics**: Record completeness, schema validation success
+- **SLA Compliance**: Processing time SLAs, availability metrics
+- **Capacity Planning**: Growth trends, scaling recommendations
+
+### 7. Implementation Strategy
+
+#### **Phase 1: Foundation (Week 1)**
+- [ ] Implement basic metrics collection (queue depth, processing rate)
+- [ ] Add structured logging with trace IDs
+- [ ] Create health check endpoints
+- [ ] Set up basic alerting for critical failures
+
+#### **Phase 2: Advanced Observability (Week 2)**
+- [ ] Implement distributed tracing with OpenTelemetry
+- [ ] Add comprehensive business metrics
+- [ ] Create performance profiling integration
+- [ ] Build real-time operations dashboard
+
+#### **Phase 3: Production Operations (Week 3)**
+- [ ] Set up continuous profiling in production
+- [ ] Implement automated anomaly detection
+- [ ] Create runbook automation for common issues
+- [ ] Add capacity planning and forecasting
+
+### 8. Tools & Technologies
+
+#### **Metrics & Monitoring Stack**
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Dashboards and visualization
+- **AlertManager**: Alert routing and notification
+
+#### **Tracing & Logging Stack**
+- **Jaeger**: Distributed tracing storage and UI
+- **OpenTelemetry**: Instrumentation and trace collection
+- **ELK Stack**: Log aggregation, search, and analysis
+
+#### **Performance & Profiling**
+- **Pyroscope**: Continuous profiling for production
+- **Tokio Console**: Rust async runtime debugging
+- **Perf/FlameGraph**: Low-level CPU profiling
 
 ## Success Criteria
 
@@ -232,10 +510,14 @@ async fn engine_task(mut receiver, output_sender) {
 - [ ] Resource cleanup on shutdown
 
 ### Operational Excellence
-- [ ] Clear metrics for monitoring queue health
-- [ ] Structured logging enables debugging async issues
-- [ ] Performance characteristics well-documented
-- [ ] Migration path from current architecture
+- [ ] **Observability**: Complete metrics coverage (engine, processor, business-level)
+- [ ] **Monitoring**: Real-time dashboards with <1s latency for critical metrics
+- [ ] **Tracing**: End-to-end trace correlation >95% for all requests
+- [ ] **Alerting**: Sub-minute alert response for critical system degradation
+- [ ] **Profiling**: Continuous production profiling with automated bottleneck detection
+- [ ] **Health Checks**: Comprehensive health endpoints with dependency validation
+- [ ] **Documentation**: Complete runbooks for all operational scenarios
+- [ ] **Migration**: Clear migration path with rollback procedures documented
 
 ## Risks & Mitigation
 
