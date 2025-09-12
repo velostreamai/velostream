@@ -68,6 +68,7 @@ async fn test_abs_function() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -114,6 +115,7 @@ async fn test_abs_function() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record();
@@ -151,6 +153,7 @@ async fn test_round_function() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record();
@@ -190,6 +193,7 @@ async fn test_round_function() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record();
@@ -240,6 +244,7 @@ async fn test_ceil_floor_functions() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -294,6 +299,7 @@ async fn test_mod_function() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -339,6 +345,7 @@ async fn test_mod_function() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record();
@@ -385,6 +392,7 @@ async fn test_power_function() {
                 order_by: None,
                 limit: None,
                 emit_mode: None,
+                properties: None,
             };
 
             let record = create_test_record();
@@ -458,6 +466,7 @@ async fn test_sqrt_function() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -497,6 +506,7 @@ async fn test_sqrt_function() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record();
@@ -541,6 +551,7 @@ async fn test_math_function_error_cases() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -585,6 +596,7 @@ async fn test_math_function_null_handling() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -624,6 +636,7 @@ async fn test_math_function_null_handling() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();
@@ -662,6 +675,7 @@ async fn test_math_function_null_handling() {
             order_by: None,
             limit: None,
             emit_mode: None,
+            properties: None,
         };
 
         let record = create_test_record();

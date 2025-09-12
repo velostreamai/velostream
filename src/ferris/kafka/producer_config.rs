@@ -221,9 +221,14 @@ impl ProducerConfig {
         self.enable_idempotence = true; // Required for transactions
         self.acks = AckMode::All; // Required for transactions
 
-        // Ensure message.timeout.ms <= transaction.timeout.ms for transactional producers
-        if self.message_timeout > self.transaction_timeout {
-            self.message_timeout = self.transaction_timeout;
+        // Ensure message.timeout.ms < transaction.timeout.ms for transactional producers (Kafka requirement)
+        if self.message_timeout >= self.transaction_timeout {
+            let timeout_ms = self
+                .transaction_timeout
+                .as_millis()
+                .saturating_sub(1000)
+                .max(1000) as u64;
+            self.message_timeout = Duration::from_millis(timeout_ms);
         }
 
         self
@@ -237,9 +242,10 @@ impl ProducerConfig {
     pub fn transaction_timeout(mut self, timeout: Duration) -> Self {
         self.transaction_timeout = timeout;
 
-        // Ensure message.timeout.ms <= transaction.timeout.ms
-        if self.message_timeout > timeout {
-            self.message_timeout = timeout;
+        // Ensure message.timeout.ms < transaction.timeout.ms (Kafka requirement)
+        if self.message_timeout >= timeout {
+            let timeout_ms = timeout.as_millis().saturating_sub(1000).max(1000) as u64;
+            self.message_timeout = Duration::from_millis(timeout_ms);
         }
 
         self

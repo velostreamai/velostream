@@ -1,0 +1,45 @@
+name: 'Setup Rust Environment'
+description: 'Install Rust toolchain, Protocol Buffers compiler, and setup unified caching'
+
+inputs:
+  rust-version:
+    description: 'Rust version to install'
+    required: false
+    default: 'stable'
+  components:
+    description: 'Rust components to install'
+    required: false
+    default: 'rustfmt,clippy'
+  cache-suffix:
+    description: 'Additional cache key suffix for specific workflows'
+    required: false
+    default: 'default'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Protocol Buffers compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler libprotobuf-dev
+      shell: bash
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.rust-version }}
+        components: ${{ inputs.components }}
+
+    - name: Unified Smart Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ inputs.rust-version }}-${{ inputs.cache-suffix }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ inputs.rust-version }}-${{ inputs.cache-suffix }}-
+          ${{ runner.os }}-cargo-${{ inputs.rust-version }}-
+          ${{ runner.os }}-cargo-

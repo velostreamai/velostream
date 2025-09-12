@@ -16,7 +16,6 @@ use std::collections::HashMap;
 
 /// Test that compound source type declaration works (kafka_source)
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_kafka_source_compound_type() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -54,7 +53,6 @@ fn test_kafka_source_compound_type() {
 
 /// Test that compound source type declaration works (s3_source)
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_s3_source_compound_type() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -81,7 +79,6 @@ fn test_s3_source_compound_type() {
 
 /// Test that compound source type declaration works (file_source)
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_file_source_compound_type() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -111,7 +108,6 @@ fn test_file_source_compound_type() {
 
 /// Test that compound sink type declaration works (kafka_sink)
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_kafka_sink_compound_type() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -141,7 +137,6 @@ fn test_kafka_sink_compound_type() {
 
 /// Test that missing type declaration results in an error for sources
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_missing_source_type_declaration_error() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -178,7 +173,6 @@ fn test_missing_source_type_declaration_error() {
 
 /// Test that missing type declaration results in an error for sinks
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_missing_sink_type_declaration_error() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -211,7 +205,6 @@ fn test_missing_sink_type_declaration_error() {
 
 /// Test invalid compound type results in error
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_invalid_compound_source_type_error() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -249,7 +242,6 @@ fn test_invalid_compound_source_type_error() {
 
 /// Test invalid compound sink type results in error  
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_invalid_compound_sink_type_error() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -285,7 +277,6 @@ fn test_invalid_compound_sink_type_error() {
 
 /// Test all supported compound source types
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_all_supported_compound_source_types() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
     let serialization_config =
@@ -324,7 +315,6 @@ fn test_all_supported_compound_source_types() {
 
 /// Test all supported compound sink types
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_all_supported_compound_sink_types() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
     let serialization_config =
@@ -364,7 +354,6 @@ fn test_all_supported_compound_sink_types() {
 
 /// Test that properties are correctly extracted with compound types
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_properties_extraction_with_compound_types() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -426,7 +415,6 @@ fn test_properties_extraction_with_compound_types() {
 
 /// Test error messages contain helpful guidance
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_error_message_contains_helpful_guidance() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
 
@@ -458,7 +446,6 @@ fn test_error_message_contains_helpful_guidance() {
 
 /// Integration test: Test complete SQL parsing with explicit types
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_integration_sql_parsing_with_explicit_types() {
     let parser = StreamingSqlParser::new();
     let analyzer = QueryAnalyzer::new("test-group".to_string());
@@ -515,7 +502,6 @@ fn test_integration_sql_parsing_with_explicit_types() {
 
 /// Test that SQL structure determines source vs sink roles, not configuration
 #[test]
-#[ignore = "QueryAnalyzer property validation disabled"]
 fn test_source_sink_role_determination_from_sql_structure() {
     let parser = StreamingSqlParser::new();
     let analyzer = QueryAnalyzer::new("test-group".to_string());

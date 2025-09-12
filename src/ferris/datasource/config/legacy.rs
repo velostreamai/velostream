@@ -3,8 +3,12 @@
 //! This module provides generic configuration abstractions that are independent
 //! of SQL or any specific query engine. These can be used by any data processing system.
 
+use crate::ferris::config::{
+    ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
+};
 use crate::ferris::datasource::DataSourceError;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
@@ -681,5 +685,299 @@ impl FromStr for ConnectionString {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
+    }
+}
+
+/// ConfigSchemaProvider implementation for BatchConfig
+/// This provides validation and schema information for batch processing configuration
+impl ConfigSchemaProvider for BatchConfig {
+    fn config_type_id() -> &'static str {
+        "batch_config"
+    }
+
+    fn inheritable_properties() -> Vec<&'static str> {
+        vec![
+            "batch.size",
+            "batch.timeout",
+            "batch.strategy",
+            "batch.enable",
+            "batch.max_size",
+            "batch.min_size",
+            "batch.target_latency",
+            "batch.max_wait_time",
+            "batch.eager_processing",
+        ]
+    }
+
+    fn required_named_properties() -> Vec<&'static str> {
+        vec![] // All batch properties have sensible defaults
+    }
+
+    fn optional_properties_with_defaults() -> HashMap<&'static str, PropertyDefault> {
+        let mut defaults = HashMap::new();
+        defaults.insert("batch.size", PropertyDefault::Static("100".to_string()));
+        defaults.insert("batch.timeout", PropertyDefault::Static("1000".to_string()));
+        defaults.insert(
+            "batch.strategy",
+            PropertyDefault::Static("FixedSize".to_string()),
+        );
+        defaults.insert("batch.enable", PropertyDefault::Static("true".to_string()));
+        defaults.insert(
+            "batch.max_size",
+            PropertyDefault::Static("1000".to_string()),
+        );
+        defaults
+    }
+
+    fn validate_property(&self, key: &str, value: &str) -> Result<(), Vec<String>> {
+        match key {
+            "batch.size" | "max_batch_size" => {
+                if let Ok(size) = value.parse::<usize>() {
+                    if size == 0 {
+                        return Err(vec!["batch.size must be greater than 0".to_string()]);
+                    }
+                    if size > 100_000 {
+                        return Err(vec!["batch.size must not exceed 100,000".to_string()]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.size must be a valid positive integer".to_string()
+                    ]);
+                }
+            }
+            "batch.timeout" | "batch_timeout" => {
+                if let Ok(timeout_ms) = value.parse::<u64>() {
+                    if timeout_ms == 0 {
+                        return Err(vec!["batch.timeout must be greater than 0ms".to_string()]);
+                    }
+                    if timeout_ms > 300_000 {
+                        // 5 minutes max
+                        return Err(vec![
+                            "batch.timeout must not exceed 300,000ms (5 minutes)".to_string()
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.timeout must be a valid timeout in milliseconds".to_string(),
+                    ]);
+                }
+            }
+            "batch.strategy" => {
+                let valid_strategies = [
+                    "FixedSize",
+                    "TimeWindow",
+                    "AdaptiveSize",
+                    "MemoryBased",
+                    "LowLatency",
+                ];
+                if !valid_strategies.contains(&value) {
+                    return Err(vec![format!(
+                        "batch.strategy must be one of: {}. Got: {}",
+                        valid_strategies.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "batch.enable" | "enable_batching" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec!["batch.enable must be 'true' or 'false'".to_string()]);
+                }
+            }
+            "batch.min_size" => {
+                if let Ok(size) = value.parse::<usize>() {
+                    if size == 0 {
+                        return Err(vec!["batch.min_size must be greater than 0".to_string()]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.min_size must be a valid positive integer".to_string()
+                    ]);
+                }
+            }
+            "batch.max_size" => {
+                if let Ok(size) = value.parse::<usize>() {
+                    if size == 0 {
+                        return Err(vec!["batch.max_size must be greater than 0".to_string()]);
+                    }
+                    if size > 1_000_000 {
+                        return Err(vec!["batch.max_size must not exceed 1,000,000".to_string()]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.max_size must be a valid positive integer".to_string()
+                    ]);
+                }
+            }
+            "batch.target_latency" => {
+                if let Ok(latency_ms) = value.parse::<u64>() {
+                    if latency_ms == 0 {
+                        return Err(vec![
+                            "batch.target_latency must be greater than 0ms".to_string()
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.target_latency must be a valid timeout in milliseconds".to_string(),
+                    ]);
+                }
+            }
+            "batch.max_wait_time" => {
+                if let Ok(wait_ms) = value.parse::<u64>() {
+                    if wait_ms > 10_000 {
+                        // 10 seconds max for low latency
+                        return Err(vec![
+                            "batch.max_wait_time must not exceed 10,000ms for low latency batching"
+                                .to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "batch.max_wait_time must be a valid timeout in milliseconds".to_string(),
+                    ]);
+                }
+            }
+            "batch.eager_processing" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec![
+                        "batch.eager_processing must be 'true' or 'false'".to_string()
+                    ]);
+                }
+            }
+            _ => {
+                // Allow unknown batch properties for extensibility
+                if !key.starts_with("batch.") {
+                    return Err(vec![format!(
+                        "Unknown batch property: {}. Batch properties must start with 'batch.'",
+                        key
+                    )]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn json_schema() -> Value {
+        serde_json::json!({
+            "type": "object",
+            "title": "Batch Configuration Schema",
+            "description": "Configuration schema for batch processing in FerrisStreams",
+            "properties": {
+                "batch.size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000,
+                    "default": 100,
+                    "description": "Number of records to process in each batch"
+                },
+                "batch.timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300000,
+                    "default": 1000,
+                    "description": "Maximum time to wait for batch to fill (milliseconds)"
+                },
+                "batch.strategy": {
+                    "type": "string",
+                    "enum": ["FixedSize", "TimeWindow", "AdaptiveSize", "MemoryBased", "LowLatency"],
+                    "default": "FixedSize",
+                    "description": "Batching strategy to use for processing"
+                },
+                "batch.enable": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to enable batch processing"
+                },
+                "batch.max_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000,
+                    "default": 1000,
+                    "description": "Hard limit for maximum batch size to prevent memory issues"
+                },
+                "batch.min_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Minimum batch size for adaptive batching"
+                },
+                "batch.target_latency": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Target latency for adaptive batching (milliseconds)"
+                },
+                "batch.max_wait_time": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000,
+                    "description": "Maximum wait time for low latency batching (milliseconds)"
+                },
+                "batch.eager_processing": {
+                    "type": "boolean",
+                    "description": "Whether to process immediately when any record is available"
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    fn property_validations() -> Vec<PropertyValidation> {
+        vec![
+            PropertyValidation {
+                key: "batch.size".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static("100".to_string())),
+                description: "Number of records to process in each batch".to_string(),
+                json_type: "integer".to_string(),
+                validation_pattern: Some("1-100000".to_string()),
+            },
+            PropertyValidation {
+                key: "batch.timeout".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static("1000".to_string())),
+                description: "Maximum time to wait for batch to fill (milliseconds)".to_string(),
+                json_type: "integer".to_string(),
+                validation_pattern: Some("1-300000".to_string()),
+            },
+            PropertyValidation {
+                key: "batch.strategy".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static("FixedSize".to_string())),
+                description: "Batching strategy to use for processing".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some(
+                    "FixedSize|TimeWindow|AdaptiveSize|MemoryBased|LowLatency".to_string(),
+                ),
+            },
+        ]
+    }
+
+    fn supports_custom_properties() -> bool {
+        true // Allow custom batch.* properties for extensibility
+    }
+
+    fn resolve_property_with_inheritance(
+        &self,
+        key: &str,
+        local_value: Option<&str>,
+        global_context: &GlobalSchemaContext,
+    ) -> Result<Option<String>, String> {
+        // Local value takes precedence
+        if let Some(value) = local_value {
+            return Ok(Some(value.to_string()));
+        }
+
+        // Check global context for batch properties
+        if let Some(global_value) = global_context.global_properties.get(key) {
+            return Ok(Some(global_value.clone()));
+        }
+
+        // Use defaults from the BatchConfig implementation
+        match key {
+            "batch.size" => Ok(Some("100".to_string())),
+            "batch.timeout" => Ok(Some("1000".to_string())),
+            "batch.strategy" => Ok(Some("FixedSize".to_string())),
+            "batch.enable" => Ok(Some("true".to_string())),
+            "batch.max_size" => Ok(Some("1000".to_string())),
+            _ => Ok(None),
+        }
     }
 }

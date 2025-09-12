@@ -1,4 +1,6 @@
 pub mod common;
+// Configuration system tests - Tests for schema registry and validation
+pub mod config;
 // Generic datasource tests - Tests for datasource implementations
 pub mod datasource;
 pub mod kafka;

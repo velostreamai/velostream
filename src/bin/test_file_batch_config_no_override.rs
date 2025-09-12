@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::datasource::{
     config::{FileFormat, SinkConfig},
-    file::sink::FileSink,
+    file::data_sink::FileSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,
 };

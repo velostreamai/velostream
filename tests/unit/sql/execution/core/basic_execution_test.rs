@@ -68,6 +68,7 @@ async fn test_execute_simple_select() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -105,6 +106,7 @@ async fn test_execute_specific_columns() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -144,6 +146,7 @@ async fn test_execute_with_literals() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -181,6 +184,7 @@ async fn test_missing_column_returns_null() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
@@ -212,6 +216,7 @@ async fn test_multiple_records_processing() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     // Process multiple records
@@ -251,6 +256,7 @@ async fn test_null_value_handling() {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     };
 
     let record = create_test_record(1, 100, 299.99, None); // No status (null)

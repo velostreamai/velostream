@@ -1,9 +1,13 @@
 //! Kafka data source implementation
 
+use crate::ferris::config::{
+    ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
+};
 use crate::ferris::datasource::{DataReader, DataSource, SourceConfig, SourceMetadata};
 use crate::ferris::schema::{FieldDefinition, Schema};
 use crate::ferris::sql::ast::DataType;
 use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::HashMap;
 
 use super::error::KafkaDataSourceError;
@@ -475,6 +479,486 @@ impl DataSource for KafkaDataSource {
                 "headers".to_string(),
                 "partitioning".to_string(),
             ],
+        }
+    }
+}
+
+/// ConfigSchemaProvider implementation for KafkaDataSource
+/// This provides validation and schema information for Kafka data source configuration
+impl ConfigSchemaProvider for KafkaDataSource {
+    fn config_type_id() -> &'static str {
+        "kafka_source"
+    }
+
+    fn inheritable_properties() -> Vec<&'static str> {
+        vec![
+            "bootstrap.servers",
+            "security.protocol",
+            "sasl.mechanism",
+            "compression.type",
+            "schema.registry.url",
+            "batch.size",
+            "batch.timeout",
+            "batch.strategy",
+        ]
+    }
+
+    fn required_named_properties() -> Vec<&'static str> {
+        vec!["topic"]
+    }
+
+    fn optional_properties_with_defaults() -> HashMap<&'static str, PropertyDefault> {
+        let mut defaults = HashMap::new();
+        defaults.insert(
+            "bootstrap.servers",
+            PropertyDefault::GlobalLookup("kafka.bootstrap.servers".to_string()),
+        );
+        defaults.insert(
+            "auto.offset.reset",
+            PropertyDefault::Static("latest".to_string()),
+        );
+        defaults.insert(
+            "enable.auto.commit",
+            PropertyDefault::Static("true".to_string()),
+        );
+        defaults.insert(
+            "session.timeout.ms",
+            PropertyDefault::Static("30000".to_string()),
+        );
+        defaults.insert(
+            "heartbeat.interval.ms",
+            PropertyDefault::Static("3000".to_string()),
+        );
+        defaults.insert(
+            "value.serializer",
+            PropertyDefault::Static("json".to_string()),
+        );
+        defaults.insert(
+            "security.protocol",
+            PropertyDefault::Static("PLAINTEXT".to_string()),
+        );
+        defaults
+    }
+
+    fn validate_property(&self, key: &str, value: &str) -> Result<(), Vec<String>> {
+        match key {
+            "bootstrap.servers" | "brokers" => {
+                if value.is_empty() {
+                    return Err(vec!["bootstrap.servers cannot be empty".to_string()]);
+                }
+
+                // Validate each server in comma-separated list
+                for server in value.split(',') {
+                    let server = server.trim();
+                    if !server.contains(':') {
+                        return Err(vec![format!(
+                            "Invalid server format '{}'. Expected 'host:port'",
+                            server
+                        )]);
+                    }
+
+                    // Validate port is numeric
+                    if let Some(port_str) = server.split(':').nth(1) {
+                        if port_str.parse::<u16>().is_err() {
+                            return Err(vec![format!(
+                                "Invalid port '{}' in server '{}'. Port must be a number between 1-65535", 
+                                port_str, server
+                            )]);
+                        }
+                    }
+                }
+            }
+            "topic" => {
+                if value.is_empty() {
+                    return Err(vec!["topic cannot be empty".to_string()]);
+                }
+
+                // Kafka topic naming validation
+                let invalid_chars: Vec<char> = value
+                    .chars()
+                    .filter(|c| !c.is_alphanumeric() && !"-_.".contains(*c))
+                    .collect();
+
+                if !invalid_chars.is_empty() {
+                    return Err(vec![format!(
+                        "topic name '{}' contains invalid characters: {}. Use alphanumeric, '-', '_', or '.' only",
+                        value,
+                        invalid_chars.iter().collect::<String>()
+                    )]);
+                }
+
+                if value.len() > 249 {
+                    return Err(vec!["topic name cannot exceed 249 characters".to_string()]);
+                }
+            }
+            "group_id" | "group.id" => {
+                if value.is_empty() {
+                    return Err(vec!["group_id cannot be empty".to_string()]);
+                }
+
+                // Kafka consumer group naming validation
+                let invalid_chars: Vec<char> = value
+                    .chars()
+                    .filter(|c| !c.is_alphanumeric() && !"-_.".contains(*c))
+                    .collect();
+
+                if !invalid_chars.is_empty() {
+                    return Err(vec![format!(
+                        "group_id '{}' contains invalid characters: {}. Use alphanumeric, '-', '_', or '.' only",
+                        value,
+                        invalid_chars.iter().collect::<String>()
+                    )]);
+                }
+            }
+            "security.protocol" => {
+                let valid_protocols = ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"];
+                if !valid_protocols.contains(&value) {
+                    return Err(vec![format!(
+                        "security.protocol must be one of: {}. Got: '{}'",
+                        valid_protocols.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "sasl.mechanism" => {
+                let valid_mechanisms = [
+                    "PLAIN",
+                    "SCRAM-SHA-256",
+                    "SCRAM-SHA-512",
+                    "GSSAPI",
+                    "OAUTHBEARER",
+                ];
+                if !valid_mechanisms.contains(&value) {
+                    return Err(vec![format!(
+                        "sasl.mechanism must be one of: {}. Got: '{}'",
+                        valid_mechanisms.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "auto.offset.reset" => {
+                let valid_values = ["earliest", "latest", "none"];
+                if !valid_values.contains(&value) {
+                    return Err(vec![format!(
+                        "auto.offset.reset must be one of: {}. Got: '{}'",
+                        valid_values.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "value.serializer" | "value.format" => {
+                let valid_formats = ["json", "avro", "protobuf", "string", "bytes"];
+                if !valid_formats.contains(&value) {
+                    return Err(vec![format!(
+                        "value.serializer must be one of: {}. Got: '{}'",
+                        valid_formats.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "enable.auto.commit" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec![
+                        "enable.auto.commit must be 'true' or 'false'".to_string()
+                    ]);
+                }
+            }
+            key if key.ends_with(".timeout.ms") => {
+                if let Ok(timeout) = value.parse::<u32>() {
+                    if timeout == 0 {
+                        return Err(vec![format!("{} must be greater than 0", key)]);
+                    }
+                    if timeout > 3_600_000 {
+                        // 1 hour max
+                        return Err(vec![format!(
+                            "{} must not exceed 3,600,000ms (1 hour)",
+                            key
+                        )]);
+                    }
+                } else {
+                    return Err(vec![format!(
+                        "{} must be a valid timeout in milliseconds",
+                        key
+                    )]);
+                }
+            }
+            key if key.ends_with(".interval.ms") => {
+                if let Ok(interval) = value.parse::<u32>() {
+                    if interval == 0 {
+                        return Err(vec![format!("{} must be greater than 0", key)]);
+                    }
+                } else {
+                    return Err(vec![format!(
+                        "{} must be a valid interval in milliseconds",
+                        key
+                    )]);
+                }
+            }
+            key if key.starts_with("schema.") => {
+                // Allow schema-related properties for Avro/Protobuf
+                if value.is_empty() {
+                    return Err(vec![format!("{} cannot be empty", key)]);
+                }
+            }
+            key if key.starts_with("batch.") => {
+                // Delegate batch property validation to BatchConfig
+                // This will be handled by the batch config schema provider
+            }
+            _ => {
+                // Allow other Kafka client properties with basic validation
+                if value.is_empty() && !key.starts_with("custom.") {
+                    return Err(vec![format!("Property '{}' cannot be empty", key)]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn json_schema() -> Value {
+        serde_json::json!({
+            "type": "object",
+            "title": "Kafka Data Source Configuration Schema",
+            "description": "Configuration schema for Kafka data sources in FerrisStreams",
+            "properties": {
+                "bootstrap.servers": {
+                    "type": "string",
+                    "description": "Comma-separated list of Kafka broker endpoints in host:port format",
+                    "pattern": "^[^:]+:[0-9]+(,[^:]+:[0-9]+)*$",
+                    "examples": ["localhost:9092", "broker1:9092,broker2:9092"]
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Kafka topic name to consume from",
+                    "maxLength": 249,
+                    "pattern": "^[a-zA-Z0-9._-]+$",
+                    "examples": ["orders", "user-events", "inventory.updates"]
+                },
+                "group.id": {
+                    "type": "string",
+                    "description": "Kafka consumer group ID",
+                    "pattern": "^[a-zA-Z0-9._-]+$",
+                    "examples": ["analytics-group", "order-processor"]
+                },
+                "security.protocol": {
+                    "type": "string",
+                    "enum": ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"],
+                    "default": "PLAINTEXT",
+                    "description": "Security protocol for Kafka connection"
+                },
+                "sasl.mechanism": {
+                    "type": "string",
+                    "enum": ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI", "OAUTHBEARER"],
+                    "description": "SASL authentication mechanism (required when using SASL protocols)"
+                },
+                "auto.offset.reset": {
+                    "type": "string",
+                    "enum": ["earliest", "latest", "none"],
+                    "default": "latest",
+                    "description": "How to handle offset when no initial offset exists"
+                },
+                "value.serializer": {
+                    "type": "string",
+                    "enum": ["json", "avro", "protobuf", "string", "bytes"],
+                    "default": "json",
+                    "description": "Serialization format for message values"
+                },
+                "enable.auto.commit": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to enable automatic offset commits"
+                },
+                "session.timeout.ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600000,
+                    "default": 30000,
+                    "description": "Session timeout for consumer group coordination"
+                },
+                "heartbeat.interval.ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 3000,
+                    "description": "Heartbeat interval for consumer group coordination"
+                },
+                "schema.registry.url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL of the schema registry (for Avro/Protobuf)"
+                },
+                "avro.schema": {
+                    "type": "string",
+                    "description": "Inline Avro schema definition"
+                },
+                "avro.schema.file": {
+                    "type": "string",
+                    "description": "Path to Avro schema file"
+                },
+                "protobuf.schema": {
+                    "type": "string",
+                    "description": "Inline Protobuf schema definition"
+                },
+                "protobuf.schema.file": {
+                    "type": "string",
+                    "description": "Path to Protobuf schema file"
+                }
+            },
+            "required": ["topic"],
+            "additionalProperties": true
+        })
+    }
+
+    fn property_validations() -> Vec<PropertyValidation> {
+        vec![
+            PropertyValidation {
+                key: "bootstrap.servers".to_string(),
+                required: false,
+                default: Some(PropertyDefault::GlobalLookup(
+                    "kafka.bootstrap.servers".to_string(),
+                )),
+                description: "Comma-separated list of Kafka broker endpoints".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("^[^:]+:[0-9]+(,[^:]+:[0-9]+)*$".to_string()),
+            },
+            PropertyValidation {
+                key: "topic".to_string(),
+                required: true,
+                default: None,
+                description: "Kafka topic name to consume from".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("^[a-zA-Z0-9._-]+$".to_string()),
+            },
+            PropertyValidation {
+                key: "group.id".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Dynamic(|ctx| {
+                    let dev_default = "dev".to_string();
+                    let unknown_default = "unknown".to_string();
+                    let env = ctx
+                        .environment_variables
+                        .get("ENVIRONMENT")
+                        .unwrap_or(&dev_default);
+                    let job_id = ctx
+                        .system_defaults
+                        .get("job.id")
+                        .unwrap_or(&unknown_default);
+                    format!("ferris-{}-{}", env, job_id)
+                })),
+                description: "Kafka consumer group ID".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("^[a-zA-Z0-9._-]+$".to_string()),
+            },
+        ]
+    }
+
+    fn supports_custom_properties() -> bool {
+        true // Allow custom Kafka client properties
+    }
+
+    fn global_schema_dependencies() -> Vec<&'static str> {
+        vec!["kafka_global", "batch_config", "security_global"]
+    }
+
+    fn resolve_property_with_inheritance(
+        &self,
+        key: &str,
+        local_value: Option<&str>,
+        global_context: &GlobalSchemaContext,
+    ) -> Result<Option<String>, String> {
+        // Local value takes precedence
+        if let Some(value) = local_value {
+            return Ok(Some(value.to_string()));
+        }
+
+        // Property-specific inheritance logic
+        match key {
+            "bootstrap.servers" => {
+                // Try multiple global sources in order
+                for source_key in [
+                    "kafka.bootstrap.servers",
+                    "global.kafka.servers",
+                    "KAFKA_BROKERS",
+                ] {
+                    if let Some(value) = global_context
+                        .global_properties
+                        .get(source_key)
+                        .or_else(|| global_context.environment_variables.get(source_key))
+                    {
+                        return Ok(Some(value.clone()));
+                    }
+                }
+                // Default fallback
+                Ok(Some("localhost:9092".to_string()))
+            }
+            "security.protocol" => {
+                if let Some(global_security) =
+                    global_context.global_properties.get("security.protocol")
+                {
+                    return Ok(Some(global_security.clone()));
+                }
+                // Environment-based default
+                let dev_default = "dev".to_string();
+                let env_profile = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                let default_protocol = if env_profile == "production" {
+                    "SASL_SSL"
+                } else {
+                    "PLAINTEXT"
+                };
+                Ok(Some(default_protocol.to_string()))
+            }
+            "group.id" => {
+                let dev_default = "dev".to_string();
+                let unknown_default = "unknown".to_string();
+                let env = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                let job_id = global_context
+                    .system_defaults
+                    .get("job.id")
+                    .unwrap_or(&unknown_default);
+                Ok(Some(format!("ferris-{}-{}", env, job_id)))
+            }
+            "schema.registry.url" => {
+                // Check for schema registry URL in global config or environment
+                if let Some(registry_url) = global_context
+                    .global_properties
+                    .get("schema.registry.url")
+                    .or_else(|| {
+                        global_context
+                            .environment_variables
+                            .get("SCHEMA_REGISTRY_URL")
+                    })
+                {
+                    return Ok(Some(registry_url.clone()));
+                }
+                Ok(None) // Schema registry is optional
+            }
+            _ => {
+                // Check global properties for other keys
+                if let Some(global_value) = global_context.global_properties.get(key) {
+                    return Ok(Some(global_value.clone()));
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn schema_version() -> &'static str {
+        "2.0.0" // Updated version with enhanced validation
+    }
+}
+
+/// Default implementation for KafkaDataSource (required for schema registry)
+impl Default for KafkaDataSource {
+    fn default() -> Self {
+        Self {
+            brokers: "localhost:9092".to_string(),
+            topic: "default_topic".to_string(),
+            group_id: Some("default_group".to_string()),
+            config: HashMap::new(),
         }
     }
 }

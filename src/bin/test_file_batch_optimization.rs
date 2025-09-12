@@ -1,7 +1,5 @@
 use ferrisstreams::ferris::datasource::{
-    file::data_source::FileDataSource,
-    traits::{DataReader, DataSource},
-    BatchConfig, BatchStrategy,
+    file::data_source::FileDataSource, traits::DataSource, BatchConfig, BatchStrategy,
 };
 use std::error::Error;
 use std::time::Instant;

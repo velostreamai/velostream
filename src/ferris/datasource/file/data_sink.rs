@@ -6,6 +6,9 @@
 //! - Compression (gzip, snappy)
 //! - Buffering and batching optimizations
 
+use crate::ferris::config::{
+    ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
+};
 use crate::ferris::datasource::config::SinkConfig;
 use crate::ferris::datasource::traits::{DataSink, DataWriter};
 use crate::ferris::datasource::types::SinkMetadata;
@@ -14,6 +17,8 @@ use crate::ferris::schema::Schema;
 use crate::ferris::serialization::helpers::field_value_to_json;
 use crate::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -777,5 +782,450 @@ impl FileWriter {
         }
 
         Ok(())
+    }
+}
+
+/// ConfigSchemaProvider implementation for FileSink
+impl ConfigSchemaProvider for FileSink {
+    fn config_type_id() -> &'static str {
+        "file_sink"
+    }
+
+    fn inheritable_properties() -> Vec<&'static str> {
+        vec![
+            "buffer_size_bytes",
+            "batch.size",
+            "batch.timeout_ms",
+            "compression",
+            "writer_threads",
+            "max_file_size_bytes",
+        ]
+    }
+
+    fn required_named_properties() -> Vec<&'static str> {
+        vec!["path"]
+    }
+
+    fn optional_properties_with_defaults() -> HashMap<&'static str, PropertyDefault> {
+        let mut defaults = HashMap::new();
+        defaults.insert("format", PropertyDefault::Static("jsonlines".to_string()));
+        defaults.insert(
+            "append_if_exists",
+            PropertyDefault::Static("false".to_string()),
+        );
+        defaults.insert(
+            "buffer_size_bytes",
+            PropertyDefault::GlobalLookup("file.sink.buffer_size_bytes".to_string()),
+        );
+        defaults.insert("csv_delimiter", PropertyDefault::Static(",".to_string()));
+        defaults.insert(
+            "csv_has_header",
+            PropertyDefault::Static("true".to_string()),
+        );
+        defaults.insert(
+            "writer_threads",
+            PropertyDefault::GlobalLookup("file.sink.writer_threads".to_string()),
+        );
+        defaults.insert(
+            "compression",
+            PropertyDefault::GlobalLookup("file.sink.compression".to_string()),
+        );
+        defaults
+    }
+
+    fn validate_property(&self, key: &str, value: &str) -> Result<(), Vec<String>> {
+        match key {
+            "path" => {
+                if value.is_empty() {
+                    return Err(vec!["path cannot be empty".to_string()]);
+                }
+
+                // Validate output path - check for dangerous patterns
+                if value.contains("..") && !value.contains("%") {
+                    // Allow ".." in strftime patterns like "%Y-%m-%d/../../archive"
+                    return Err(vec![
+                        "path contains '..' which could be a security risk".to_string()
+                    ]);
+                }
+
+                // Validate path doesn't end with directory separator without filename
+                if value.ends_with('/') || value.ends_with('\\') {
+                    return Err(vec![
+                        "path must specify a filename, not just a directory".to_string()
+                    ]);
+                }
+            }
+            "format" => {
+                let valid_formats = ["json", "jsonlines", "csv", "csv_no_header"];
+                if !valid_formats.contains(&value) {
+                    return Err(vec![format!(
+                        "format must be one of: {}. Got: '{}'",
+                        valid_formats.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "append_if_exists" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec![format!(
+                        "append_if_exists must be 'true' or 'false'. Got: '{}'",
+                        value
+                    )]);
+                }
+            }
+            "buffer_size_bytes" => {
+                if let Ok(size) = value.parse::<u64>() {
+                    if size < 1024 {
+                        return Err(vec![
+                            "buffer_size_bytes must be at least 1024 bytes".to_string()
+                        ]);
+                    }
+                    if size > 1024 * 1024 * 1024 {
+                        // 1GB max
+                        return Err(vec![
+                            "buffer_size_bytes must not exceed 1GB (1,073,741,824 bytes)"
+                                .to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "buffer_size_bytes must be a valid number in bytes".to_string()
+                    ]);
+                }
+            }
+            "max_file_size_bytes" => {
+                if let Ok(size) = value.parse::<u64>() {
+                    if size < 1024 {
+                        return Err(vec![
+                            "max_file_size_bytes must be at least 1024 bytes".to_string()
+                        ]);
+                    }
+                    if size > 1024u64.pow(4) {
+                        // 1TB max
+                        return Err(vec!["max_file_size_bytes must not exceed 1TB".to_string()]);
+                    }
+                } else {
+                    return Err(vec![
+                        "max_file_size_bytes must be a valid number in bytes".to_string()
+                    ]);
+                }
+            }
+            "rotation_interval_ms" => {
+                if let Ok(interval) = value.parse::<u64>() {
+                    if interval < 1000 {
+                        return Err(vec![
+                            "rotation_interval_ms must be at least 1000ms (1 second)".to_string(),
+                        ]);
+                    }
+                    if interval > 86400000 {
+                        // 24 hours max
+                        return Err(vec![
+                            "rotation_interval_ms must not exceed 86,400,000ms (24 hours)"
+                                .to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "rotation_interval_ms must be a valid number in milliseconds".to_string(),
+                    ]);
+                }
+            }
+            "max_records_per_file" => {
+                if let Ok(max) = value.parse::<u64>() {
+                    if max == 0 {
+                        return Err(vec![
+                            "max_records_per_file must be greater than 0".to_string()
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "max_records_per_file must be a valid positive number".to_string()
+                    ]);
+                }
+            }
+            "compression" => {
+                let valid_compressions = ["none", "gzip", "snappy", "zstd"];
+                if !valid_compressions.contains(&value) {
+                    return Err(vec![format!(
+                        "compression must be one of: {}. Got: '{}'",
+                        valid_compressions.join(", "),
+                        value
+                    )]);
+                }
+            }
+            "csv_delimiter" => {
+                if value.len() != 1 {
+                    return Err(vec!["csv_delimiter must be a single character".to_string()]);
+                }
+                let delimiter_char = value.chars().next().unwrap();
+                if delimiter_char.is_alphabetic() || delimiter_char.is_numeric() {
+                    return Err(vec![
+                        "csv_delimiter should not be alphanumeric (could conflict with data)"
+                            .to_string(),
+                    ]);
+                }
+            }
+            "csv_has_header" => {
+                if !["true", "false"].contains(&value) {
+                    return Err(vec![format!(
+                        "csv_has_header must be 'true' or 'false'. Got: '{}'",
+                        value
+                    )]);
+                }
+            }
+            "writer_threads" => {
+                if let Ok(threads) = value.parse::<usize>() {
+                    if threads == 0 {
+                        return Err(vec!["writer_threads must be greater than 0".to_string()]);
+                    }
+                    if threads > 64 {
+                        return Err(vec![
+                            "writer_threads must not exceed 64 for performance reasons".to_string(),
+                        ]);
+                    }
+                } else {
+                    return Err(vec![
+                        "writer_threads must be a valid positive number".to_string()
+                    ]);
+                }
+            }
+            key if key.starts_with("batch.") => {
+                // Delegate batch property validation to BatchConfig
+                // This will be handled by the batch config schema provider
+            }
+            _ => {
+                // Allow other file-related properties with basic validation
+                if value.is_empty() && !key.starts_with("custom.") {
+                    return Err(vec![format!("Property '{}' cannot be empty", key)]);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn json_schema() -> Value {
+        serde_json::json!({
+            "type": "object",
+            "title": "File Data Sink Configuration Schema",
+            "description": "Configuration schema for file-based data sinks in FerrisStreams",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Output file path (supports strftime formatting for rotation)",
+                    "examples": [
+                        "./output.json",
+                        "/data/output-%Y-%m-%d.csv",
+                        "./logs/app-%H%M.jsonl"
+                    ]
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "jsonlines", "csv", "csv_no_header"],
+                    "default": "jsonlines",
+                    "description": "Output file format"
+                },
+                "append_if_exists": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to append to existing files or overwrite them"
+                },
+                "buffer_size_bytes": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 1073741824,
+                    "default": 65536,
+                    "description": "Buffer size for writing files (bytes)"
+                },
+                "max_file_size_bytes": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "description": "Maximum file size before rotation (bytes)"
+                },
+                "rotation_interval_ms": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 86400000,
+                    "description": "Time interval between file rotations (milliseconds)"
+                },
+                "max_records_per_file": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum records per file before rotation"
+                },
+                "compression": {
+                    "type": "string",
+                    "enum": ["none", "gzip", "snappy", "zstd"],
+                    "description": "Compression type for output files"
+                },
+                "csv_delimiter": {
+                    "type": "string",
+                    "maxLength": 1,
+                    "default": ",",
+                    "description": "CSV field delimiter character",
+                    "examples": [",", ";", "|", "\t"]
+                },
+                "csv_has_header": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether to write CSV header row"
+                },
+                "writer_threads": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 64,
+                    "default": 1,
+                    "description": "Number of writer threads for parallel writing"
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": true
+        })
+    }
+
+    fn property_validations() -> Vec<PropertyValidation> {
+        vec![
+            PropertyValidation {
+                key: "path".to_string(),
+                required: true,
+                default: None,
+                description: "Output file path (supports strftime formatting)".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: None,
+            },
+            PropertyValidation {
+                key: "format".to_string(),
+                required: false,
+                default: Some(PropertyDefault::Static("jsonlines".to_string())),
+                description: "Output file format".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("json|jsonlines|csv|csv_no_header".to_string()),
+            },
+            PropertyValidation {
+                key: "buffer_size_bytes".to_string(),
+                required: false,
+                default: Some(PropertyDefault::GlobalLookup(
+                    "file.sink.buffer_size_bytes".to_string(),
+                )),
+                description: "Buffer size for writing files in bytes".to_string(),
+                json_type: "integer".to_string(),
+                validation_pattern: Some(
+                    "^(?:102[4-9]|10[3-9][0-9]|1[1-9][0-9]{2}|[2-9][0-9]{3,9}|1073741824)$"
+                        .to_string(),
+                ),
+            },
+            PropertyValidation {
+                key: "compression".to_string(),
+                required: false,
+                default: Some(PropertyDefault::GlobalLookup(
+                    "file.sink.compression".to_string(),
+                )),
+                description: "Compression type for output files".to_string(),
+                json_type: "string".to_string(),
+                validation_pattern: Some("none|gzip|snappy|zstd".to_string()),
+            },
+        ]
+    }
+
+    fn supports_custom_properties() -> bool {
+        true // Allow custom file output properties
+    }
+
+    fn global_schema_dependencies() -> Vec<&'static str> {
+        vec!["batch_config", "file_global"]
+    }
+
+    fn resolve_property_with_inheritance(
+        &self,
+        key: &str,
+        local_value: Option<&str>,
+        global_context: &GlobalSchemaContext,
+    ) -> Result<Option<String>, String> {
+        // Local value takes precedence
+        if let Some(value) = local_value {
+            return Ok(Some(value.to_string()));
+        }
+
+        // Property-specific inheritance logic
+        match key {
+            "buffer_size_bytes" => {
+                if let Some(global_buffer) = global_context
+                    .global_properties
+                    .get("file.sink.buffer_size_bytes")
+                {
+                    return Ok(Some(global_buffer.clone()));
+                }
+                Ok(Some("65536".to_string())) // Default 64KB buffer
+            }
+            "compression" => {
+                if let Some(global_compression) = global_context
+                    .global_properties
+                    .get("file.sink.compression")
+                {
+                    return Ok(Some(global_compression.clone()));
+                }
+                // Environment-based compression defaults
+                let dev_default = "dev".to_string();
+                let env_profile = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                let default_compression = if env_profile == "production" {
+                    "gzip"
+                } else {
+                    "none"
+                };
+                Ok(Some(default_compression.to_string()))
+            }
+            "writer_threads" => {
+                if let Some(global_threads) = global_context
+                    .global_properties
+                    .get("file.sink.writer_threads")
+                {
+                    return Ok(Some(global_threads.clone()));
+                }
+                // Environment-based thread count
+                let dev_default = "dev".to_string();
+                let env_profile = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                let default_threads = if env_profile == "production" {
+                    "4"
+                } else {
+                    "1"
+                };
+                Ok(Some(default_threads.to_string()))
+            }
+            "max_file_size_bytes" => {
+                if let Some(global_max_size) = global_context
+                    .global_properties
+                    .get("file.sink.max_file_size_bytes")
+                {
+                    return Ok(Some(global_max_size.clone()));
+                }
+                // Environment-based file size limits
+                let dev_default = "dev".to_string();
+                let env_profile = global_context
+                    .environment_variables
+                    .get("ENVIRONMENT")
+                    .unwrap_or(&dev_default);
+                if env_profile == "production" {
+                    Ok(Some("1073741824".to_string())) // 1GB in production
+                } else {
+                    Ok(Some("10485760".to_string())) // 10MB in development
+                }
+            }
+            _ => {
+                // Check global properties for other keys
+                if let Some(global_value) = global_context.global_properties.get(key) {
+                    return Ok(Some(global_value.clone()));
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn schema_version() -> &'static str {
+        "2.0.0" // Updated version with comprehensive file sink validation
     }
 }

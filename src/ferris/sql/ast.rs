@@ -91,7 +91,8 @@ pub enum EmitMode {
 ///         window: None,
 ///         order_by: None,
 ///         limit: Some(100),
-///         emit_mode: None};
+///         emit_mode: None,
+///         properties: None};
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -128,6 +129,8 @@ pub enum StreamingQuery {
         limit: Option<u64>,
         /// Emission mode for controlling when results are emitted
         emit_mode: Option<EmitMode>,
+        /// Optional WITH clause properties for configuration
+        properties: Option<HashMap<String, String>>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
     ///

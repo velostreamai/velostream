@@ -1,5 +1,18 @@
 # FerrisStreams Development Guide for Claude
 
+
+## Behaviour
+Dont make assumptions about the behaviour of the project.
+Always run all of the tests, demos, examples and /bin' and check the documentation.
+Always check the code formatting.
+Always check the code for errors.
+Always check the code for bugs.
+Always check the code for security issues.
+Always check the code for performance issues.
+Always check the code for correctness.
+Always look for opportunities to improve the code. (refactoring, code restructuring, etc.)
+
+
 ## Project Overview
 
 FerrisStreams is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
@@ -395,9 +408,14 @@ cargo check
 # CRITICAL: Fix formatting issues (GitHub Actions requirement)
 cargo fmt --all
 
-# MANDATORY: Verify formatting and compilation before commit/push
-cargo fmt --all -- --check && cargo check 
-# Run this exact sequence before every commit to avoid CI failures
+# MANDATORY: Complete pre-commit verification sequence
+cargo fmt --all -- --check && cargo check && cargo test --no-default-features && cargo build --examples --no-default-features && cargo build --bins --no-default-features
+# Run this comprehensive check before every commit to ensure:
+# 1. Code formatting is correct
+# 2. All code compiles successfully  
+# 3. All tests pass (both unit and integration)
+# 4. All examples compile
+# 5. All binaries compile
 ```
 
 ## Architecture Principles

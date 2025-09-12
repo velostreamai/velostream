@@ -42,6 +42,7 @@ fn create_simple_query() -> ferrisstreams::ferris::sql::ast::StreamingQuery {
         order_by: None,
         limit: None,
         emit_mode: None,
+        properties: None,
     }
 }
 

@@ -18,7 +18,7 @@ fn create_test_record_with_timestamps() -> StreamRecord {
     let mut fields = HashMap::new();
 
     // Test timestamps: Jan 1, 2023 12:30:45.123 UTC and Jul 15, 2024 18:45:30.987 UTC
-    fields.insert("start_time".to_string(), FieldValue::Integer(1672575045123)); // 2023-01-01 12:30:45.123
+    fields.insert("start_time".to_string(), FieldValue::Integer(1672576245123)); // 2023-01-01 12:30:45.123
     fields.insert("end_time".to_string(), FieldValue::Integer(1721064330987)); // 2024-07-15 18:45:30.987
     fields.insert(
         "quarter_test".to_string(),
@@ -32,7 +32,7 @@ fn create_test_record_with_timestamps() -> StreamRecord {
     StreamRecord {
         fields,
         headers,
-        timestamp: 1672575045123, // 2023-01-01 12:30:45.123 UTC
+        timestamp: 1672576245123, // 2023-01-01 12:30:45.123 UTC
         offset: 1000,
         partition: 0,
     }
@@ -67,7 +67,7 @@ async fn test_extract_epoch() {
     // EPOCH should return Unix timestamp in seconds
     assert_eq!(
         results[0].fields.get("epoch_time"),
-        Some(&FieldValue::Integer(1672575045))
+        Some(&FieldValue::Integer(1672576245))
     ); // seconds, not milliseconds
 }
 
@@ -411,11 +411,11 @@ fn create_test_record_for_timestamp_functions() -> StreamRecord {
     // Test Unix timestamps
     fields.insert(
         "unix_timestamp".to_string(),
-        FieldValue::Integer(1672575045),
+        FieldValue::Integer(1672576245),
     ); // 2023-01-01 12:30:45 UTC
     fields.insert(
         "unix_timestamp_float".to_string(),
-        FieldValue::Float(1672575045.123),
+        FieldValue::Float(1672576245.123),
     ); // With fractional seconds
     fields.insert("invalid_timestamp".to_string(), FieldValue::Integer(-1)); // Invalid timestamp
     fields.insert("null_timestamp".to_string(), FieldValue::Null);
@@ -443,14 +443,13 @@ fn create_test_record_for_timestamp_functions() -> StreamRecord {
     StreamRecord {
         fields,
         headers,
-        timestamp: 1672575045000, // 2023-01-01 12:30:45 UTC in milliseconds
+        timestamp: 1672576245000, // 2023-01-01 12:30:45 UTC in milliseconds
         offset: 1001,
         partition: 0,
     }
 }
 
 #[tokio::test]
-#[ignore = "Test hanging - needs investigation"]
 async fn test_from_unixtime_basic() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -488,7 +487,6 @@ async fn test_from_unixtime_basic() {
 }
 
 #[tokio::test]
-#[ignore = "Test hanging - needs investigation"]
 async fn test_from_unixtime_float() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -520,8 +518,13 @@ async fn test_from_unixtime_float() {
             assert_eq!(dt.hour(), 12);
             assert_eq!(dt.minute(), 30);
             assert_eq!(dt.second(), 45);
-            // Check nanoseconds (123ms = 123,000,000ns)
-            assert_eq!(dt.nanosecond(), 123_000_000);
+            // Check nanoseconds (123ms = ~123,000,000ns, but floating point precision may cause small variations)
+            let actual_nanos = dt.nanosecond();
+            assert!(
+                (122_000_000..=124_000_000).contains(&actual_nanos),
+                "Nanoseconds should be approximately 123,000,000, got {}",
+                actual_nanos
+            );
         }
         other => panic!("Expected Timestamp, got {:?}", other),
     }
@@ -603,7 +606,6 @@ async fn test_unix_timestamp_no_args() {
 }
 
 #[tokio::test]
-#[ignore = "Test hanging - needs investigation"]
 async fn test_unix_timestamp_with_datetime() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -625,10 +627,10 @@ async fn test_unix_timestamp_with_datetime() {
 
     assert_eq!(results.len(), 1);
 
-    // Should convert back to Unix timestamp (2023-01-01 12:30:45 = 1672575045)
+    // Should convert back to Unix timestamp (2023-01-01 12:30:45 = 1672576245)
     assert_eq!(
         results[0].fields.get("converted_timestamp"),
-        Some(&FieldValue::Integer(1672575045))
+        Some(&FieldValue::Integer(1672576245))
     );
 }
 
@@ -701,7 +703,7 @@ async fn test_roundtrip_conversion() {
     // Should get back the original timestamp
     assert_eq!(
         results[0].fields.get("roundtrip"),
-        Some(&FieldValue::Integer(1672575045))
+        Some(&FieldValue::Integer(1672576245))
     );
 }
 
@@ -756,7 +758,6 @@ async fn test_practical_usage_example() {
 }
 
 #[tokio::test]
-#[ignore = "Test hanging - needs investigation"]
 async fn test_multiple_timestamp_functions_in_query() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -796,7 +797,7 @@ async fn test_multiple_timestamp_functions_in_query() {
     ));
     assert_eq!(
         results[0].fields.get("back_converted"),
-        Some(&FieldValue::Integer(1672575045))
+        Some(&FieldValue::Integer(1672576245))
     );
     assert!(matches!(
         results[0].fields.get("precise_time"),
