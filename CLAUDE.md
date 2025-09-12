@@ -113,6 +113,9 @@ Financial calculation patterns (price × quantity):
 ```bash
 # Run all tests
 cargo test
+2
+# Unit test
+cargo test --tests --verbose -- --skip integration:: --skip performance:: --skip comprehensive
 
 # Run specific test module
 cargo test unit::sql::execution::types -- --nocapture
