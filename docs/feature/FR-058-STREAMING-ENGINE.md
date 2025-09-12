@@ -193,6 +193,11 @@ async fn engine_task(mut receiver, output_sender) {
 - [ ] Modify `process_batch_with_output()` to use message-passing
 - [ ] Ensure `engine.start()` runs in background task
 - [ ] Add correlation IDs for async error handling
+- [ ] **CRITICAL**: Fix hanging tests disabled in commit 108d42b
+  - `test_simple_processor_sink_failure_continues_processing` - hangs due to unbounded channel loops
+  - `test_15_minute_moving_average` - timing/ordering issues with new channel system  
+  - `test_1_hour_moving_average` - timing/ordering issues with new channel system
+  - `test_4_hour_moving_average` - timing/ordering issues with new channel system
 
 ### Phase 2: Backpressure & Error Handling (Week 2)
 - [ ] Implement proper backpressure flow through bounded channels
