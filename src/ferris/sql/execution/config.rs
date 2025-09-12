@@ -40,6 +40,23 @@ pub struct StreamingConfig {
     /// Maximum number of concurrent operations
     /// Default: None (no limit)
     pub max_concurrent_operations: Option<usize>,
+
+    // === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
+    /// Enable circuit breaker protection for streaming operations
+    /// Default: false (no circuit breaker protection)
+    pub enable_circuit_breakers: bool,
+
+    /// Enable resource monitoring and alerting
+    /// Default: false (no resource monitoring)
+    pub enable_resource_monitoring: bool,
+
+    /// Circuit breaker configuration
+    /// Default: None (use default circuit breaker settings)
+    pub circuit_breaker_config: Option<CircuitBreakerConfig>,
+
+    /// Resource monitoring configuration
+    /// Default: None (use default monitoring settings)
+    pub resource_monitoring_config: Option<ResourceMonitoringConfig>,
 }
 
 impl Default for StreamingConfig {
@@ -54,6 +71,11 @@ impl Default for StreamingConfig {
             watermark_strategy: WatermarkStrategy::None,
             max_total_memory: None,
             max_concurrent_operations: None,
+            // Phase 2 defaults - all disabled for backward compatibility
+            enable_circuit_breakers: false,
+            enable_resource_monitoring: false,
+            circuit_breaker_config: None,
+            resource_monitoring_config: None,
         }
     }
 }
@@ -88,6 +110,11 @@ impl StreamingConfig {
             watermark_strategy: WatermarkStrategy::BoundedOutOfOrderness,
             max_total_memory: Some(2048 * 1024 * 1024), // 2GB for enhanced mode
             max_concurrent_operations: Some(100),
+            // Phase 2 enhanced features
+            enable_circuit_breakers: true,
+            enable_resource_monitoring: true,
+            circuit_breaker_config: Some(CircuitBreakerConfig::production()),
+            resource_monitoring_config: Some(ResourceMonitoringConfig::production()),
         }
     }
 
@@ -127,6 +154,42 @@ impl StreamingConfig {
     pub fn with_watermark_strategy(mut self, strategy: WatermarkStrategy) -> Self {
         self.watermark_strategy = strategy;
         self.enable_watermarks = true; // Auto-enable watermarks when strategy is set
+        self
+    }
+
+    // === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
+
+    /// Enable circuit breaker protection (Phase 2)
+    pub fn with_circuit_breakers(mut self) -> Self {
+        self.enable_circuit_breakers = true;
+        self
+    }
+
+    /// Enable circuit breakers with custom configuration (Phase 2)
+    pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
+        self.enable_circuit_breakers = true;
+        self.circuit_breaker_config = Some(config);
+        self
+    }
+
+    /// Enable resource monitoring and alerting (Phase 2)
+    pub fn with_resource_monitoring(mut self) -> Self {
+        self.enable_resource_monitoring = true;
+        self
+    }
+
+    /// Enable resource monitoring with custom configuration (Phase 2)
+    pub fn with_resource_monitoring_config(mut self, config: ResourceMonitoringConfig) -> Self {
+        self.enable_resource_monitoring = true;
+        self.resource_monitoring_config = Some(config);
+        self
+    }
+
+    /// Enable enhanced error handling with all Phase 2 features (Phase 2)
+    pub fn with_enhanced_error_handling(mut self) -> Self {
+        self.enable_enhanced_errors = true;
+        self.enable_circuit_breakers = true;
+        self.enable_resource_monitoring = true;
         self
     }
 }
@@ -240,6 +303,130 @@ impl ResourceLimits {
     }
 }
 
+// === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
+
+/// Circuit breaker configuration for Phase 2 error handling
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerConfig {
+    /// Number of consecutive failures before opening circuit
+    pub failure_threshold: u32,
+
+    /// Time to wait before attempting recovery
+    pub recovery_timeout_seconds: u64,
+
+    /// Number of successful calls in half-open state before closing circuit
+    pub success_threshold: u32,
+
+    /// Timeout for individual operations (seconds)
+    pub operation_timeout_seconds: u64,
+
+    /// Failure rate threshold (percentage) to open circuit
+    pub failure_rate_threshold: f64,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: 5,
+            recovery_timeout_seconds: 60,
+            success_threshold: 3,
+            operation_timeout_seconds: 10,
+            failure_rate_threshold: 50.0,
+        }
+    }
+}
+
+impl CircuitBreakerConfig {
+    /// Configuration optimized for development/testing
+    pub fn development() -> Self {
+        Self {
+            failure_threshold: 3,         // Fail faster in dev
+            recovery_timeout_seconds: 10, // Recover faster
+            success_threshold: 2,
+            operation_timeout_seconds: 5,
+            failure_rate_threshold: 40.0, // Lower threshold
+        }
+    }
+
+    /// Configuration optimized for production
+    pub fn production() -> Self {
+        Self {
+            failure_threshold: 10,         // More tolerant
+            recovery_timeout_seconds: 300, // 5 minutes recovery
+            success_threshold: 5,
+            operation_timeout_seconds: 30,
+            failure_rate_threshold: 60.0, // Higher threshold
+        }
+    }
+}
+
+/// Resource monitoring configuration for Phase 2
+#[derive(Debug, Clone)]
+pub struct ResourceMonitoringConfig {
+    /// How often to check resource usage (seconds)
+    pub check_interval_seconds: u64,
+
+    /// Warning threshold (percentage of limit)
+    pub warning_threshold_percent: f64,
+
+    /// Critical threshold (percentage of limit)
+    pub critical_threshold_percent: f64,
+
+    /// How long to keep resource history (minutes)
+    pub history_retention_minutes: u64,
+
+    /// Whether to enable automatic cleanup
+    pub enable_auto_cleanup: bool,
+
+    /// Maximum memory usage before triggering alerts (MB)
+    pub max_memory_mb: Option<u64>,
+
+    /// Maximum CPU usage before triggering alerts (percentage)
+    pub max_cpu_percent: Option<f64>,
+}
+
+impl Default for ResourceMonitoringConfig {
+    fn default() -> Self {
+        Self {
+            check_interval_seconds: 30,
+            warning_threshold_percent: 80.0,
+            critical_threshold_percent: 95.0,
+            history_retention_minutes: 60,
+            enable_auto_cleanup: false, // Conservative default
+            max_memory_mb: None,
+            max_cpu_percent: None,
+        }
+    }
+}
+
+impl ResourceMonitoringConfig {
+    /// Configuration optimized for development/testing
+    pub fn development() -> Self {
+        Self {
+            check_interval_seconds: 10, // Check more frequently
+            warning_threshold_percent: 70.0,
+            critical_threshold_percent: 85.0,
+            history_retention_minutes: 30,
+            enable_auto_cleanup: true, // Enable for testing
+            max_memory_mb: Some(512),  // 512MB limit
+            max_cpu_percent: Some(80.0),
+        }
+    }
+
+    /// Configuration optimized for production
+    pub fn production() -> Self {
+        Self {
+            check_interval_seconds: 60, // Less frequent checks
+            warning_threshold_percent: 85.0,
+            critical_threshold_percent: 98.0,
+            history_retention_minutes: 240, // 4 hours
+            enable_auto_cleanup: false,     // Manual control in prod
+            max_memory_mb: Some(4096),      // 4GB limit
+            max_cpu_percent: Some(90.0),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +444,11 @@ mod tests {
         assert!(matches!(config.watermark_strategy, WatermarkStrategy::None));
         assert!(config.max_total_memory.is_none());
         assert!(config.max_concurrent_operations.is_none());
+        // Phase 2 defaults
+        assert!(!config.enable_circuit_breakers);
+        assert!(!config.enable_resource_monitoring);
+        assert!(config.circuit_breaker_config.is_none());
+        assert!(config.resource_monitoring_config.is_none());
     }
 
     #[test]
@@ -297,5 +489,52 @@ mod tests {
         assert!(config.enable_resource_limits);
         assert_eq!(config.message_passing_mode, MessagePassingMode::Hybrid);
         assert_eq!(config.max_total_memory, Some(1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_enhanced_config_includes_phase2() {
+        let config = StreamingConfig::enhanced();
+
+        // Should enable all Phase 2 features
+        assert!(config.enable_circuit_breakers);
+        assert!(config.enable_resource_monitoring);
+        assert!(config.circuit_breaker_config.is_some());
+        assert!(config.resource_monitoring_config.is_some());
+    }
+
+    #[test]
+    fn test_phase2_fluent_api() {
+        let config = StreamingConfig::new()
+            .with_circuit_breakers()
+            .with_resource_monitoring()
+            .with_enhanced_error_handling();
+
+        assert!(config.enable_circuit_breakers);
+        assert!(config.enable_resource_monitoring);
+        assert!(config.enable_enhanced_errors);
+    }
+
+    #[test]
+    fn test_circuit_breaker_configs() {
+        let dev_config = CircuitBreakerConfig::development();
+        assert_eq!(dev_config.failure_threshold, 3);
+        assert_eq!(dev_config.recovery_timeout_seconds, 10);
+
+        let prod_config = CircuitBreakerConfig::production();
+        assert_eq!(prod_config.failure_threshold, 10);
+        assert_eq!(prod_config.recovery_timeout_seconds, 300);
+    }
+
+    #[test]
+    fn test_resource_monitoring_configs() {
+        let dev_config = ResourceMonitoringConfig::development();
+        assert_eq!(dev_config.check_interval_seconds, 10);
+        assert!(dev_config.enable_auto_cleanup);
+        assert_eq!(dev_config.max_memory_mb, Some(512));
+
+        let prod_config = ResourceMonitoringConfig::production();
+        assert_eq!(prod_config.check_interval_seconds, 60);
+        assert!(!prod_config.enable_auto_cleanup);
+        assert_eq!(prod_config.max_memory_mb, Some(4096));
     }
 }

@@ -51,6 +51,16 @@ pub mod types;
 pub mod utils;
 pub mod watermarks;
 
+// === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
+// Enhanced streaming error types with circuit breaker support
+pub mod error;
+
+// Resource management and monitoring system
+pub mod resource_manager;
+
+// Circuit breaker for fault tolerance and retry logic
+pub mod circuit_breaker;
+
 // Re-export public API only
 pub use config::StreamingConfig;
 pub use engine::StreamExecutionEngine;
