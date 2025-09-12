@@ -345,42 +345,35 @@ impl SimpleJobProcessor {
         Ok(())
     }
 
-    /// Simple commit operation with proper backpressure - only commit after successful write
-    /// This ensures proper batch-level backpressure: commit only after successful write completion
+    /// Simple commit operation - flush sink first, then commit source
+    /// Note: Unlike transactional mode, we don't rollback source if sink fails
     async fn commit_simple(
         &self,
         reader: &mut dyn DataReader,
         writer: Option<&mut dyn DataWriter>,
         job_name: &str,
     ) -> DataSourceResult<()> {
-        // Step 1: Flush writer/sink and ensure successful completion before commit
+        // Step 1: Flush writer/sink (best effort)
         if let Some(w) = writer {
             match w.flush().await {
                 Ok(()) => {
-                    debug!(
-                        "Job '{}': Sink flushed successfully - proceeding to commit source",
-                        job_name
-                    );
+                    debug!("Job '{}': Sink flushed successfully", job_name);
                 }
                 Err(e) => {
-                    // CRITICAL: With proper backpressure, we MUST NOT commit source if sink fails
-                    // This ensures we don't lose data by advancing source position before sink is ready
+                    // In simple mode, we log sink failures but still commit source
+                    // This prioritizes not losing read position over guaranteed delivery
                     error!(
-                        "Job '{}': Sink flush failed - refusing to commit source to maintain backpressure: {:?}",
+                        "Job '{}': Sink flush failed (continuing anyway): {:?}",
                         job_name, e
                     );
-                    return Err(format!("Sink flush failed, cannot commit source: {:?}", e).into());
                 }
             }
         }
 
-        // Step 2: Commit reader/source only after successful sink flush
+        // Step 2: Commit reader/source (always attempt)
         match reader.commit().await {
             Ok(()) => {
-                debug!(
-                    "Job '{}': Source committed after successful sink write",
-                    job_name
-                );
+                debug!("Job '{}': Source committed", job_name);
             }
             Err(e) => {
                 error!("Job '{}': Source commit failed: {:?}", job_name, e);
