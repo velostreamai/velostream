@@ -21,6 +21,7 @@ fn create_test_record() -> StreamRecord {
     StreamRecord {
         fields,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1234567890000,
         offset: 0,
         partition: 0,
@@ -87,6 +88,8 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         active_reader: None,
         active_writer: None,
         source_positions: HashMap::new(),
+        // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
+        watermark_manager: None,
     }
 }
 
@@ -429,6 +432,8 @@ async fn test_show_streams_empty_context() {
         active_reader: None,
         active_writer: None,
         source_positions: HashMap::new(),
+        // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
+        watermark_manager: None,
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

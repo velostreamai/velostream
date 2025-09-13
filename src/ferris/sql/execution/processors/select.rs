@@ -221,6 +221,7 @@ impl SelectProcessor {
                     offset: joined_record.offset,
                     partition: joined_record.partition,
                     headers: joined_record.headers.clone(),
+                    event_time: None,
                 };
 
                 if !ExpressionEvaluator::evaluate_expression(having_expr, &result_record)? {
@@ -245,6 +246,7 @@ impl SelectProcessor {
                 offset: joined_record.offset,
                 partition: joined_record.partition,
                 headers: joined_record.headers,
+                event_time: None,
             };
 
             Ok(ProcessorResult {
@@ -663,6 +665,7 @@ impl SelectProcessor {
                     offset: record.offset,
                     partition: record.partition,
                     headers: record.headers.clone(),
+                    event_time: None,
                 };
 
                 Ok(ProcessorResult {

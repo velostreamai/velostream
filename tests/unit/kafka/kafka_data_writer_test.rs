@@ -8,8 +8,6 @@
 //! - Batch operations
 
 use ferrisstreams::ferris::datasource::kafka::reader::SerializationFormat;
-use ferrisstreams::ferris::datasource::kafka::writer::KafkaDataWriter;
-use ferrisstreams::ferris::datasource::DataWriter;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
@@ -30,6 +28,7 @@ fn create_test_record(id: i64, name: &str, amount: f64, timestamp: i64) -> Strea
         timestamp,
         offset: id,
         partition: 0,
+        event_time: None,
     }
 }
 
@@ -50,6 +49,7 @@ fn create_financial_record(id: i64, price_cents: i64, quantity: i64) -> StreamRe
         timestamp: 1640995200000, // Fixed timestamp
         offset: id,
         partition: 0,
+        event_time: None,
     }
 }
 
@@ -327,6 +327,7 @@ mod kafka_data_writer_tests {
             timestamp: 0,
             offset: 0,
             partition: 0,
+            event_time: None,
         };
 
         // Should handle empty fields gracefully

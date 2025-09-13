@@ -1,3 +1,4 @@
+use ferrisstreams::ferris::sql::config::types::ValidationStats;
 use ferrisstreams::ferris::sql::config::*;
 
 #[test]

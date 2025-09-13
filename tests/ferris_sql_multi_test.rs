@@ -9,13 +9,12 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tokio::time::timeout;
 
 /// Test that the ferris-sql-multi binary can be built successfully
 #[test]
 fn test_ferris_sql_multi_binary_builds() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "build",
             "--bin",
             "ferris-sql-multi",

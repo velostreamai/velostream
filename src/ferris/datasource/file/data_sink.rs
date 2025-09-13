@@ -36,7 +36,7 @@ use super::error::FileDataSourceError;
 /// - CSV files with configurable headers
 /// - Parquet files (when feature enabled)
 /// - Compressed outputs (gzip, snappy)
-pub struct FileSink {
+pub struct FileDataSink {
     config: Option<FileSinkConfig>,
     metadata: Option<SinkMetadata>,
     active_writers: Arc<Mutex<Vec<FileWriterState>>>,
@@ -52,7 +52,7 @@ pub struct FileWriterState {
     last_rotation: SystemTime,
 }
 
-impl FileSink {
+impl FileDataSink {
     /// Create a new file sink
     pub fn new() -> Self {
         Self {
@@ -287,14 +287,14 @@ impl FileSink {
     }
 }
 
-impl Default for FileSink {
+impl Default for FileDataSink {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl DataSink for FileSink {
+impl DataSink for FileDataSink {
     async fn initialize(&mut self, config: SinkConfig) -> Result<(), Box<dyn Error + Send + Sync>> {
         let file_config = FileSinkConfig::from_generic(&config).map_err(|e| {
             Box::new(FileDataSourceError::UnsupportedFormat(e)) as Box<dyn Error + Send + Sync>
@@ -527,7 +527,7 @@ impl FileWriter {
     async fn open_new_file(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Generate filename (with rotation if needed)
         let path = if self.rotation_index > 0 {
-            FileSink::generate_rotated_filename(&self.current_path, self.rotation_index)
+            FileDataSink::generate_rotated_filename(&self.current_path, self.rotation_index)
         } else {
             self.current_path.clone()
         };
@@ -786,7 +786,7 @@ impl FileWriter {
 }
 
 /// ConfigSchemaProvider implementation for FileSink
-impl ConfigSchemaProvider for FileSink {
+impl ConfigSchemaProvider for FileDataSink {
     fn config_type_id() -> &'static str {
         "file_sink"
     }

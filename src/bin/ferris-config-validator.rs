@@ -5,11 +5,8 @@
 //! against the generated JSON Schema. Supports YAML and JSON config files.
 
 use clap::{Arg, Command};
-use ferrisstreams::ferris::config::{validate_configuration, HierarchicalSchemaRegistry};
-use ferrisstreams::ferris::datasource::file::data_sink::FileSink;
-use ferrisstreams::ferris::datasource::file::data_source::FileDataSource;
-use ferrisstreams::ferris::datasource::kafka::data_sink::KafkaDataSink;
-use ferrisstreams::ferris::datasource::kafka::data_source::KafkaDataSource;
+use ferrisstreams::ferris::config::schema_registry::validate_configuration;
+use ferrisstreams::ferris::config::HierarchicalSchemaRegistry;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;

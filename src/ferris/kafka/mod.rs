@@ -27,13 +27,10 @@ pub mod performance_presets;
 // Re-export main API
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
-pub use kafka_producer_def_context::LoggingProducerContext;
+pub use ktable::KTable;
 
 // Re-export Phase 2 Enhanced APIs
-pub use serialization::{
-    AvroSerializer, BytesSerializer, JsonSerializer, ProtoSerializer, SerializationError,
-    Serializer, StringSerializer,
-};
+pub use serialization::JsonSerializer;
 
 // Feature-gated exports
 pub use utils::convert_kafka_log_level;
@@ -42,13 +39,7 @@ pub use utils::convert_kafka_log_level;
 pub use headers::Headers;
 pub use message::Message;
 
-// Re-export admin client
+// Re-export admin client for examples and tests
 pub use admin_client::KafkaAdminClient;
-
-// Re-export KTable
-pub use ktable::KTable;
-
-// Re-export errors
-pub use kafka_error::{ConsumerError, KafkaClientError, ProducerError};
 
 // Conditional exports for feature-gated serializers

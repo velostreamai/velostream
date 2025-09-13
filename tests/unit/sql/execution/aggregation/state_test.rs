@@ -1,7 +1,7 @@
 //! Tests for aggregation state management
 
 use ferrisstreams::ferris::sql::ast::Expr;
-use ferrisstreams::ferris::sql::execution::aggregation::GroupByStateManager;
+use ferrisstreams::ferris::sql::execution::aggregation::state::GroupByStateManager;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
@@ -16,6 +16,7 @@ fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
         timestamp: 0,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

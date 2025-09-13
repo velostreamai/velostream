@@ -76,6 +76,7 @@ impl TestMessage {
             offset: self.id as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Use processing time by default
         }
     }
 }

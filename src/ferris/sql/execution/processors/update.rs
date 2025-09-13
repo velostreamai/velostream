@@ -94,6 +94,7 @@ impl UpdateProcessor {
                     headers.insert("updated_at".to_string(), chrono::Utc::now().to_rfc3339());
                     headers
                 },
+                event_time: None,
             };
 
             Ok(Some(updated_record))

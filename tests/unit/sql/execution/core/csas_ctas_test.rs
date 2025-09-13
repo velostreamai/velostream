@@ -1,8 +1,8 @@
 use ferrisstreams::ferris::serialization::JsonFormat;
+use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::ast::*;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::DataType;
 
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
@@ -20,6 +20,7 @@ fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: id,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

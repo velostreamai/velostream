@@ -9,7 +9,7 @@ use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
 use ferrisstreams::ferris::server::processors::{
     common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
-use ferrisstreams::ferris::sql::DataType;
+use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::{
     ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
     execution::types::{FieldValue, StreamRecord},

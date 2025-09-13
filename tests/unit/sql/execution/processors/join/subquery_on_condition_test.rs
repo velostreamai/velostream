@@ -28,6 +28,7 @@ fn create_test_record_for_on_condition() -> StreamRecord {
     StreamRecord {
         fields,
         headers: HashMap::new(),
+        event_time: None,
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,

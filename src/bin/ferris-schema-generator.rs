@@ -5,10 +5,8 @@
 //! This tool exports schemas from all registered ConfigSchemaProvider implementations.
 
 use ferrisstreams::ferris::config::{ConfigSchemaProvider, HierarchicalSchemaRegistry};
-use ferrisstreams::ferris::datasource::file::data_sink::FileSink;
-use ferrisstreams::ferris::datasource::file::data_source::FileDataSource;
-use ferrisstreams::ferris::datasource::kafka::data_sink::KafkaDataSink;
-use ferrisstreams::ferris::datasource::kafka::data_source::KafkaDataSource;
+use ferrisstreams::ferris::datasource::file::{FileDataSink, FileDataSource};
+use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use serde_json::{json, Map, Value};
 use std::fs;
 
@@ -55,7 +53,7 @@ fn register_all_providers(registry: &mut HierarchicalSchemaRegistry) {
 
     // Sink configurations
     registry.register_sink_schema::<KafkaDataSink>();
-    registry.register_sink_schema::<FileSink>();
+    registry.register_sink_schema::<FileDataSink>();
 
     println!("   ✓ Registered 4 schema providers");
 }
@@ -94,7 +92,7 @@ fn generate_comprehensive_json_schema(
     // Add sink configurations
     let mut sink_def = Map::new();
     sink_def.insert("kafka_sink".to_string(), KafkaDataSink::json_schema());
-    sink_def.insert("file_sink".to_string(), FileSink::json_schema());
+    sink_def.insert("file_sink".to_string(), FileDataSink::json_schema());
 
     properties.insert(
         "sinks".to_string(),

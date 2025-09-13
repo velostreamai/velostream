@@ -41,6 +41,7 @@ impl MockDataReader {
             records.push(StreamRecord {
                 fields,
                 headers: HashMap::new(),
+        event_time: None,
                 timestamp: 1640995200000 + (i as i64 * 1000),
                 offset: i as i64,
                 partition: 0,

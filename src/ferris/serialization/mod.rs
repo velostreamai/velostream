@@ -83,10 +83,12 @@ mod json;
 pub use json::JsonFormat;
 
 mod avro;
+pub use avro::AvroFormat;
 
 pub mod avro_codec;
 
 mod protobuf;
+pub use protobuf::ProtobufFormat;
 
 pub mod protobuf_codec;
 
@@ -99,13 +101,10 @@ pub mod helpers;
 pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
-// Re-export format implementations
-pub use avro::AvroFormat;
+// Re-export format implementations for examples and tests only
 pub use avro_codec::AvroCodec;
-pub use protobuf::ProtobufFormat;
-pub use protobuf_codec::ProtobufCodec;
-
 pub use json_codec::JsonCodec;
+pub use protobuf_codec::ProtobufCodec;
 
 // Serialization codec enum for Kafka integration
 use crate::ferris::kafka::serialization::Serializer;

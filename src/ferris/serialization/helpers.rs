@@ -1,6 +1,6 @@
 //! Helper functions for serialization conversions
 
-use super::{FieldValue, SerializationError};
+use super::{AvroCodec, FieldValue, ProtobufCodec, SerializationError};
 use std::collections::HashMap;
 
 // JSON conversion helpers
@@ -708,15 +708,12 @@ pub fn create_avro_codec(
 /// Create Protobuf codec with schema (optimized single codec creation)
 pub fn create_protobuf_codec(
     schema: Option<&str>,
-) -> Result<crate::ferris::serialization::ProtobufCodec, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<ProtobufCodec, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(proto_schema) = schema {
         // Extract message type from schema or use default
         let message_type =
             extract_message_type_from_schema(proto_schema).unwrap_or("Record".to_string());
-        Ok(crate::ferris::serialization::ProtobufCodec::new(
-            proto_schema,
-            &message_type,
-        )?)
+        Ok(ProtobufCodec::new(proto_schema, &message_type)?)
     } else {
         Err("Protobuf format REQUIRES a schema (.proto definition) to be provided".into())
     }

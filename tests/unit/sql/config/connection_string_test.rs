@@ -1,3 +1,4 @@
+use ferrisstreams::ferris::sql::config::connection_string::ParseError;
 use ferrisstreams::ferris::sql::config::*;
 
 #[test]

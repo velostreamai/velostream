@@ -35,6 +35,7 @@ async fn test_core_sql_engine_functionality() {
         timestamp: 1672531200,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
     
@@ -64,6 +65,7 @@ async fn test_financial_precision_maintained() {
         timestamp: 0,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
     
@@ -90,6 +92,7 @@ async fn test_window_functions_functionality() {
         timestamp: 0,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
     
@@ -119,6 +122,7 @@ async fn test_aggregation_functionality() {
             timestamp: i as i64,
             offset: i as i64,
             partition: 0,
+        event_time: None,
             headers: HashMap::new(),
         };
         
@@ -153,6 +157,7 @@ async fn test_complex_query_functionality() {
         timestamp: 1672531300,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
     
@@ -183,6 +188,7 @@ async fn test_error_handling_functionality() {
         timestamp: 0,
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
     
@@ -250,6 +256,7 @@ async fn test_performance_regression_check() {
             timestamp: i as i64,
             offset: i as i64,
             partition: 0,
+        event_time: None,
             headers: HashMap::new(),
         };
         
@@ -301,6 +308,7 @@ async fn test_end_to_end_integration() {
             timestamp: 1672531200,
             offset: results_received,
             partition: 0,
+        event_time: None,
             headers: HashMap::new(),
         };
         

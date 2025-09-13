@@ -50,6 +50,7 @@ pub type ConfigValidationResult<T = ()> = Result<T, Vec<ConfigValidationError>>;
 
 /// Default value resolution strategy for configuration properties
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum PropertyDefault {
     /// Static string value
     Static(String),
@@ -63,6 +64,7 @@ pub enum PropertyDefault {
 
 /// Global context available during schema validation and property resolution
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct GlobalSchemaContext {
     /// Global configuration properties
     pub global_properties: HashMap<String, String>,
@@ -76,6 +78,7 @@ pub struct GlobalSchemaContext {
 
 /// Property validation rule for configuration schema
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PropertyValidation {
     /// Property key name
     pub key: String,
@@ -194,6 +197,7 @@ pub struct PropertyInheritanceNode {
 }
 
 /// Registry for managing hierarchical configuration schemas
+#[allow(dead_code)]
 pub struct HierarchicalSchemaRegistry {
     /// Global schema providers
     global_schemas: HashMap<String, Arc<dyn ConfigSchemaProvider>>,
@@ -497,6 +501,7 @@ impl HierarchicalSchemaRegistry {
 
 /// Config file inheritance information
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConfigFileInheritance {
     /// Path to the config file
     pub config_file: String,
@@ -522,6 +527,7 @@ impl ConfigFileInheritance {
 
 /// Environment variable validation pattern
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct EnvironmentVariablePattern {
     /// Environment variable name pattern (supports wildcards like KAFKA_*_BROKERS)
     pub pattern: String,
@@ -761,7 +767,7 @@ impl HierarchicalSchemaRegistry {
         actual_env_vars: &HashMap<String, String>,
     ) -> ConfigValidationResult<()> {
         // Use the standalone function for validation
-        match crate::ferris::config::validate_environment_variables(patterns, actual_env_vars) {
+        match validate_environment_variables(patterns, actual_env_vars) {
             Ok(_resolved_config) => Ok(()),
             Err(errors) => {
                 // Convert string errors to ConfigValidationError

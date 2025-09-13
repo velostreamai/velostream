@@ -213,6 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             offset: 1,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         let evolved_record = evolution.evolve_record(test_record, &migration_plan)?;

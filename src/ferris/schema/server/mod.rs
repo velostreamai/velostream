@@ -11,8 +11,8 @@ pub mod backends;
 
 // Re-export main server interfaces
 pub use registry_backend::{
-    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
-    SchemaRegistryBackendFactory, SchemaResponse,
+    BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
+    SchemaRegistryBackendFactory,
 };
 
 // Re-export backend implementations

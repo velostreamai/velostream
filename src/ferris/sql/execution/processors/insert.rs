@@ -117,6 +117,7 @@ impl InsertProcessor {
                 offset: input_record.offset + (row_index as i64), // Increment offset for each row
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
+                event_time: None,
             };
 
             result_records.push(insert_record);
@@ -239,6 +240,7 @@ impl InsertProcessor {
             timestamp: select_record.timestamp.max(input_record.timestamp), // Use latest timestamp
             offset: input_record.offset,           // Preserve INSERT context offset
             partition: input_record.partition,     // Preserve INSERT context partition
+            event_time: None,
         })
     }
 

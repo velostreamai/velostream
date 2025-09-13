@@ -42,6 +42,7 @@ fn create_test_record(field_count: usize) -> StreamRecord {
             );
             headers
         },
+        event_time: None,
     }
 }
 
@@ -77,6 +78,7 @@ fn main() {
                 offset: record.offset,
                 partition: record.partition,
                 headers: record.headers.clone(),
+                event_time: record.event_time,
             };
             // Direct usage - no conversions
             let _result = record_clone;

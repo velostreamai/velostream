@@ -88,6 +88,7 @@ mod tests {
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 offset: i,
                 partition: 0,
+                event_time: None,
                 headers: HashMap::new(),
             };
             // Execute each record individually
@@ -131,6 +132,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record1).await.unwrap();
@@ -143,6 +145,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 2,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record2).await.unwrap();
@@ -155,6 +158,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 3,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record3).await.unwrap();
@@ -200,6 +204,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record).await.unwrap();
@@ -232,6 +237,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record1).await.unwrap();
@@ -244,6 +250,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 2,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record2).await.unwrap();
@@ -285,6 +292,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record1).await.unwrap();
@@ -296,6 +304,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 2,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         };
         engine.execute_with_record(&query, record2).await.unwrap();
@@ -341,6 +350,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 1,
             partition: 0,
+            event_time: None,
             headers: headers.clone(),
         };
         engine.execute_with_record(&query, record1).await.unwrap();
@@ -352,6 +362,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 2,
             partition: 0,
+            event_time: None,
             headers,
         };
         engine.execute_with_record(&query, record2).await.unwrap();

@@ -54,6 +54,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -104,6 +105,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -150,6 +152,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -197,6 +200,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -246,6 +250,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers: headers.clone(),
         };
 
@@ -270,6 +275,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
         let result = engine.execute_with_record(&query, record2).await;
@@ -305,6 +311,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -362,6 +369,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -456,6 +464,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 
@@ -502,6 +511,7 @@ mod tests {
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
+            event_time: None,
             headers,
         };
 

@@ -71,6 +71,7 @@ impl JobProcessor {
             offset: record.offset,
             partition: record.partition,
             headers: record.headers.clone(),
+            event_time: None,
         }))
     }
 
@@ -108,6 +109,7 @@ impl JobProcessor {
             offset: record.offset,
             partition: record.partition,
             headers: record.headers.clone(),
+            event_time: None,
         }))
     }
 
@@ -146,6 +148,7 @@ impl JobProcessor {
             offset: record.offset,
             partition: record.partition,
             headers: record.headers.clone(),
+            event_time: None,
         }))
     }
 
@@ -184,6 +187,7 @@ impl JobProcessor {
             offset: record.offset,
             partition: record.partition,
             headers: record.headers.clone(),
+            event_time: None,
         }))
     }
 
@@ -255,6 +259,7 @@ impl JobProcessor {
             offset: record.offset,
             partition: record.partition,
             headers: record.headers.clone(),
+            event_time: None,
         }))
     }
 
@@ -299,8 +304,10 @@ mod tests {
 
     #[test]
     fn test_job_processor_creation() {
-        let _processor = JobProcessor::new();
-        // Basic creation test
+        let processor = JobProcessor::new();
+        // Basic creation test - verify processor was created successfully
+        // JobProcessor is a unit struct, so we just verify it exists
+        let _processor_ref = &processor;
         assert!(true);
     }
 
@@ -315,6 +322,7 @@ mod tests {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         let query = StreamingQuery::Select {
@@ -359,6 +367,7 @@ mod tests {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         };
 
         let result = processor.process_stop_job("test_job", &false, &mut context, &record);

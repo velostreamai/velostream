@@ -838,6 +838,23 @@ pub struct StreamRecord {
     pub partition: i32,
     /// Message headers (key-value pairs) associated with this record
     pub headers: HashMap<String, String>,
+    /// Event-time timestamp for watermark-based processing (optional)
+    /// When None, processing-time (timestamp field) is used
+    /// When Some, this timestamp is used for event-time windowing and watermarks
+    pub event_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Default for StreamRecord {
+    fn default() -> Self {
+        Self {
+            fields: HashMap::new(),
+            timestamp: 0,
+            offset: 0,
+            partition: 0,
+            headers: HashMap::new(),
+            event_time: None, // Default to processing-time
+        }
+    }
 }
 
 impl StreamRecord {}
@@ -847,6 +864,7 @@ impl StreamRecord {
     ///
     /// This constructor creates a record with the specified field data and
     /// default values for metadata fields (timestamp=0, offset=0, partition=0, no headers).
+    /// Event-time is set to None (uses processing-time).
     pub fn new(fields: HashMap<String, FieldValue>) -> Self {
         Self {
             fields,
@@ -854,12 +872,14 @@ impl StreamRecord {
             offset: 0,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Default to processing-time
         }
     }
 
     /// Create a new StreamRecord with fields and metadata
     ///
     /// This constructor allows setting all record metadata along with the field data.
+    /// Event-time is set to None (uses processing-time).
     pub fn with_metadata(
         fields: HashMap<String, FieldValue>,
         timestamp: i64,
@@ -873,6 +893,111 @@ impl StreamRecord {
             offset,
             partition,
             headers,
+            event_time: None, // Default to processing-time
+        }
+    }
+
+    /// Create a StreamRecord with event-time for watermark-based processing
+    ///
+    /// This constructor allows specifying an event-time timestamp that will be used
+    /// for event-time windowing and watermark generation instead of processing-time.
+    pub fn with_event_time(
+        fields: HashMap<String, FieldValue>,
+        timestamp: i64,
+        offset: i64,
+        partition: i32,
+        headers: HashMap<String, String>,
+        event_time: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
+        Self {
+            fields,
+            timestamp,
+            offset,
+            partition,
+            headers,
+            event_time: Some(event_time),
+        }
+    }
+
+    /// Set the event-time for this record (fluent API)
+    ///
+    /// This method allows setting the event-time after record creation.
+    /// When event-time is set, it will be used for watermark-based processing.
+    pub fn with_event_time_fluent(mut self, event_time: chrono::DateTime<chrono::Utc>) -> Self {
+        self.event_time = Some(event_time);
+        self
+    }
+
+    /// Get the effective timestamp for time-based processing
+    ///
+    /// Returns the event-time if set, otherwise falls back to processing-time.
+    /// This is the timestamp that should be used for windowing and temporal operations.
+    pub fn get_event_time(&self) -> chrono::DateTime<chrono::Utc> {
+        match self.event_time {
+            Some(event_time) => event_time,
+            None => {
+                // Convert processing-time timestamp to DateTime
+                // Assume timestamp is milliseconds since epoch
+                chrono::DateTime::from_timestamp(
+                    self.timestamp / 1000,
+                    ((self.timestamp % 1000) * 1_000_000) as u32,
+                )
+                .unwrap_or_else(chrono::Utc::now)
+            }
+        }
+    }
+
+    /// Check if this record has explicit event-time set
+    pub fn has_event_time(&self) -> bool {
+        self.event_time.is_some()
+    }
+
+    /// Extract event-time from a field if present
+    ///
+    /// This method attempts to extract event-time from a specific field in the record.
+    /// Useful for parsing event-time from record data (e.g., "_timestamp" field).
+    ///
+    /// # Arguments
+    /// * `field_name` - Name of the field containing the timestamp
+    ///
+    /// # Returns
+    /// * `Some(DateTime)` if the field exists and can be parsed as a timestamp
+    /// * `None` if the field doesn't exist or can't be parsed
+    pub fn extract_event_time_from_field(
+        &mut self,
+        field_name: &str,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        match self.fields.get(field_name) {
+            Some(FieldValue::Integer(timestamp_ms)) => {
+                // Convert milliseconds to DateTime
+                let datetime = chrono::DateTime::from_timestamp(
+                    *timestamp_ms / 1000,
+                    ((*timestamp_ms % 1000) * 1_000_000) as u32,
+                );
+                if let Some(dt) = datetime {
+                    self.event_time = Some(dt);
+                    Some(dt)
+                } else {
+                    None
+                }
+            }
+            Some(FieldValue::Timestamp(naive_dt)) => {
+                // Convert NaiveDateTime to UTC DateTime
+                let dt = chrono::DateTime::from_naive_utc_and_offset(*naive_dt, chrono::Utc);
+                self.event_time = Some(dt);
+                Some(dt)
+            }
+            Some(FieldValue::String(timestamp_str)) => {
+                // Try to parse string as ISO 8601 timestamp
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                    let utc_dt = dt.with_timezone(&chrono::Utc);
+                    self.event_time = Some(utc_dt);
+                    Some(utc_dt)
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 

@@ -116,6 +116,7 @@ fn create_test_record() -> StreamRecord {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }

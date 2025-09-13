@@ -159,9 +159,9 @@ impl StreamJobServer {
                 let mut summary = format!("Active Jobs: {}\n", jobs.len());
                 for (name, job) in jobs.iter() {
                     summary.push_str(&format!(
-                        "  - {}: {} (records: {}, rps: {:.1})\n",
+                        "  - {}: {:?} (records: {}, rps: {:.1})\n",
                         name,
-                        format!("{:?}", job.status),
+                        job.status,
                         job.metrics.records_processed,
                         job.metrics.records_per_second
                     ));

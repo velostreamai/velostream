@@ -25,6 +25,7 @@ fn create_test_record(text_field: &str) -> StreamRecord {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }
@@ -46,6 +47,7 @@ fn create_edge_case_record() -> StreamRecord {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     }
 }
@@ -321,6 +323,7 @@ async fn test_in_operator_basic() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 
@@ -399,6 +402,7 @@ async fn test_not_in_operator_basic() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 
@@ -466,6 +470,7 @@ async fn test_in_operator_with_null_values() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 
@@ -551,6 +556,7 @@ async fn test_in_operator_edge_cases() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         offset: 0,
         partition: 0,
+        event_time: None,
         headers: HashMap::new(),
     };
 

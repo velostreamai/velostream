@@ -5,7 +5,7 @@
 
 use ferrisstreams::ferris::datasource::file::{
     config::{CompressionType, FileFormat, FileSinkConfig},
-    FileSink,
+    FileDataSink,
 };
 use ferrisstreams::ferris::datasource::traits::DataSink;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
@@ -43,7 +43,7 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
     .with_rotation_size(1024 * 1024) // 1MB files
     .with_compression(CompressionType::Gzip);
 
-    let mut sink = FileSink::new();
+    let mut sink = FileDataSink::new();
     sink.initialize(config.into())
         .await
         .map_err(|e| format!("Initialize error: {}", e))?;
@@ -86,6 +86,7 @@ async fn demo_json_sink() -> Result<(), Box<dyn std::error::Error>> {
             offset: i,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Use processing time by default
         };
         writer
             .write(record)
@@ -114,7 +115,7 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_compression(CompressionType::Snappy);
 
-    let mut sink = FileSink::new();
+    let mut sink = FileDataSink::new();
     sink.initialize(config.into())
         .await
         .map_err(|e| format!("Initialize error: {}", e))?;
@@ -157,6 +158,7 @@ async fn demo_csv_sink() -> Result<(), Box<dyn std::error::Error>> {
             offset: i,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None, // Use processing time by default
         };
         writer
             .write(record)
@@ -182,7 +184,7 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
     .with_rotation_size(5 * 1024 * 1024) // 5MB files
     .with_rotation_interval(60_000); // 1 minute rotation
 
-    let mut sink = FileSink::new();
+    let mut sink = FileDataSink::new();
     sink.initialize(config.into())
         .await
         .map_err(|e| format!("Initialize error: {}", e))?;
@@ -229,6 +231,7 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
                 offset: record_id,
                 partition: 0,
                 headers: HashMap::new(),
+                event_time: None, // Use processing time by default
             });
         }
 

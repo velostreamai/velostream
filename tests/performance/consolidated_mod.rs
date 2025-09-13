@@ -337,6 +337,7 @@ pub mod test_data {
                 offset: i as i64,
                 partition: (i % 4) as i32,
                 headers: HashMap::new(),
+                event_time: None,
             });
         }
 
@@ -398,6 +399,7 @@ pub mod test_data {
                     headers.insert("data_type".to_string(), "quote".to_string());
                     headers
                 },
+                event_time: None,
             });
         }
 

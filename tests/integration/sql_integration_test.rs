@@ -1,12 +1,12 @@
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
 use ferrisstreams::ferris::serialization::JsonFormat;
+use ferrisstreams::ferris::sql::ast::DataType;
 use ferrisstreams::ferris::sql::context::StreamingSqlContext;
 use ferrisstreams::ferris::sql::execution::{
     types::{FieldValue, StreamRecord},
     StreamExecutionEngine,
 };
 use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::sql::DataType;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -58,6 +58,7 @@ mod tests {
             timestamp: safe_timestamp,
             offset: order_id,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         }
     }
@@ -76,6 +77,7 @@ mod tests {
             timestamp: 1000 + user_id * 1000,
             offset: user_id,
             partition: 0,
+            event_time: None,
             headers: HashMap::new(),
         }
     }

@@ -30,6 +30,7 @@ fn create_test_record(field_count: usize) -> StreamRecord {
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
+        event_time: None,
     }
 }
 
@@ -52,17 +53,15 @@ fn main() {
             // 1. Take individual parameters
             let record_fields = record.fields.clone();
             let headers = record.headers.clone();
-            let timestamp = Some(record.timestamp);
-            let offset = Some(record.offset);
-            let partition = Some(record.partition);
 
             // 2. Reconstruct StreamRecord (line 448-454 in original code)
             let _reconstructed = StreamRecord {
                 fields: record_fields,
-                timestamp: timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
-                offset: offset.unwrap_or(0),
-                partition: partition.unwrap_or(0),
+                timestamp: record.timestamp,
+                offset: record.offset,
+                partition: record.partition,
                 headers,
+                event_time: None,
             };
         }
         let old_time = start.elapsed();

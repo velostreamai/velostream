@@ -1,4 +1,5 @@
-use super::*; // Use the re-exported items from integration::mod
+use super::*;
+use ferrisstreams::ferris::kafka::ConsumerBuilder; // Use the re-exported items from integration::mod
 use futures::StreamExt;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

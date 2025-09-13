@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::datasource::{
-    config::SinkConfig, file::data_sink::FileSink, kafka::data_sink::KafkaDataSink,
+    config::SinkConfig, file::data_sink::FileDataSink, kafka::data_sink::KafkaDataSink,
     traits::DataSink, BatchConfig, BatchStrategy,
 };
 use ferrisstreams::ferris::schema::{FieldDefinition, Schema};
@@ -123,7 +123,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
         batch_timeout: Duration::from_millis(2000),
     };
 
-    let mut file_sink = FileSink::new();
+    let mut file_sink = FileDataSink::new();
 
     let sink_config = SinkConfig::File {
         path: "./test_output_fixed.csv".to_string(),
@@ -161,7 +161,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
         batch_timeout: Duration::from_millis(50),
     };
 
-    let mut file_sink_ll = FileSink::new();
+    let mut file_sink_ll = FileDataSink::new();
 
     let sink_config_ll = SinkConfig::File {
         path: "./test_output_low_latency.json".to_string(),
@@ -191,7 +191,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
         batch_timeout: Duration::from_millis(30000),
     };
 
-    let mut file_sink_mem = FileSink::new();
+    let mut file_sink_mem = FileDataSink::new();
 
     let sink_config_mem = SinkConfig::File {
         path: "./test_output_memory.json".to_string(),
@@ -241,6 +241,7 @@ fn create_test_records(count: usize) -> Vec<StreamRecord> {
             offset: i as i64,
             partition: 0,
             headers: HashMap::new(),
+            event_time: None,
         });
     }
 

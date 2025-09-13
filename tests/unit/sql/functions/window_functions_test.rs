@@ -27,6 +27,7 @@ fn create_test_record(id: i64, value: i64, name: &str) -> StreamRecord {
         timestamp: 1734652800000 + (id * 1000), // Sequential timestamps
         offset: id,
         partition: 0,
+        event_time: None,
     }
 }
 

@@ -25,6 +25,7 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     StreamRecord {
         fields,
         headers: HashMap::new(),
+        event_time: None,
         timestamp,
         offset: id,
         partition: 0,

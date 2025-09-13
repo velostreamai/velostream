@@ -34,6 +34,7 @@
 //!     offset: 0,
 //!     partition: 0,
 //!     headers: Default::default(),
+//!     event_time: None,
 //! };
 //!
 //! // accumulator.increment_count();
@@ -50,7 +51,6 @@ use crate::ferris::sql::execution::internal::{GroupAccumulator, GroupByState};
 // Re-export key types for convenience
 pub use self::accumulator::*;
 pub use self::functions::*;
-pub use self::state::GroupByStateManager;
 
 /// Core aggregation engine for streaming SQL queries.
 ///

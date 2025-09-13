@@ -39,6 +39,7 @@
 
 pub mod aggregation;
 pub mod algorithms;
+pub mod config;
 pub mod engine;
 pub mod expression;
 pub mod internal;
@@ -48,6 +49,17 @@ pub mod processors;
 pub mod test_data_sources;
 pub mod types;
 pub mod utils;
+pub mod watermarks;
+
+// === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
+// Enhanced streaming error types with circuit breaker support
+pub mod error;
+
+// Resource management and monitoring system
+pub mod resource_manager;
+
+// Circuit breaker for fault tolerance and retry logic
+pub mod circuit_breaker;
 
 // Re-export public API only
 pub use engine::StreamExecutionEngine;

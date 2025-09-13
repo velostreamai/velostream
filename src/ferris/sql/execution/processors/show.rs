@@ -45,6 +45,7 @@ impl ShowProcessor {
                     offset: record.offset,
                     partition: record.partition,
                     headers: record.headers.clone(),
+                    event_time: None,
                 };
                 Ok(ProcessorResult {
                     record: Some(result_record),

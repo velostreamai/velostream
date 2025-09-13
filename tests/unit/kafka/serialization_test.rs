@@ -117,7 +117,7 @@ fn test_json_serializer_error_cases() {
 
 mod protobuf_tests {
     use super::*;
-    use ferrisstreams::ferris::kafka::ProtoSerializer;
+    use ferrisstreams::ferris::kafka::serialization::ProtoSerializer;
     use prost::Message;
 
     #[derive(Clone, PartialEq, Message)]
@@ -154,7 +154,7 @@ mod protobuf_tests {
 mod avro_tests {
     use super::*;
     use apache_avro::{types::Value as AvroValue, Schema as AvroSchema};
-    use ferrisstreams::ferris::kafka::AvroSerializer;
+    use ferrisstreams::ferris::kafka::serialization::AvroSerializer;
 
     #[test]
     fn test_avro_serializer() {

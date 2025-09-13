@@ -1,3 +1,4 @@
+use ferrisstreams::ferris::sql::config::environment::EnvironmentConfig;
 use ferrisstreams::ferris::sql::config::*;
 use std::env;
 

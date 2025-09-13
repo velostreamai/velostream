@@ -13,8 +13,8 @@ pub mod query_analyzer;
 pub mod validator;
 
 // Re-export main API
-pub use app_parser::{SqlApplication, SqlApplicationParser};
-pub use ast::{DataType, StreamingQuery};
+pub use app_parser::SqlApplication;
+pub use ast::StreamingQuery;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine};
 pub use parser::StreamingSqlParser;

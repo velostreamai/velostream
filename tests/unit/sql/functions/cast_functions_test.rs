@@ -19,6 +19,7 @@ fn create_mock_record() -> ferrisstreams::ferris::sql::execution::StreamRecord {
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
+        event_time: None,
     }
 }
 
