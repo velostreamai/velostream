@@ -70,6 +70,21 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+impl CircuitBreakerConfig {
+    /// Fast configuration for tests - completes in under 2 seconds
+    pub fn fast_test() -> Self {
+        Self {
+            failure_threshold: 2,
+            recovery_timeout: Duration::from_millis(100), // 100ms instead of 60s
+            success_threshold: 2,
+            operation_timeout: Duration::from_millis(50),  // 50ms instead of 10s
+            failure_rate_window: Duration::from_millis(500), // 500ms instead of 60s
+            min_calls_in_window: 2,
+            failure_rate_threshold: 50.0,
+        }
+    }
+}
+
 /// Circuit breaker for protecting streaming operations
 #[derive(Debug)]
 pub struct CircuitBreaker {
@@ -519,9 +534,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_operation() {
-        // Add timeout to prevent hanging in CI
-        let test_result = tokio::time::timeout(Duration::from_secs(5), async {
-            let mut breaker = CircuitBreaker::with_default_config("test_service".to_string());
+        // Add timeout to prevent hanging in CI  
+        let test_result = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut breaker = CircuitBreaker::new("test_service".to_string(), CircuitBreakerConfig::fast_test());
             breaker.enable();
 
             let result: Result<(), StreamingError> = breaker
@@ -550,11 +565,8 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_opens_after_failures() {
         // Add timeout to prevent hanging in CI
-        let test_result = tokio::time::timeout(Duration::from_secs(8), async {
-            let config = CircuitBreakerConfig {
-                failure_threshold: 2, // Open after 2 failures
-                ..Default::default()
-            };
+        let test_result = tokio::time::timeout(Duration::from_secs(2), async {
+            let config = CircuitBreakerConfig::fast_test();
             let mut breaker = CircuitBreaker::new("test_service".to_string(), config);
             breaker.enable();
 

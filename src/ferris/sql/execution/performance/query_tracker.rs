@@ -170,9 +170,9 @@ mod tests {
         tracker.add_records_processed(100);
         tracker.add_bytes_processed(1000);
 
-        let memory_metrics = MemoryMetrics { 
-            allocated_bytes: 2048, 
-            ..Default::default() 
+        let memory_metrics = MemoryMetrics {
+            allocated_bytes: 2048,
+            ..Default::default()
         };
         tracker.update_memory_metrics(memory_metrics);
 

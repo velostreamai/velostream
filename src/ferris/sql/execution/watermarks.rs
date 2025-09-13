@@ -368,8 +368,7 @@ impl WatermarkManager {
                 if lateness <= *grace_period {
                     // Calculate which window this record should have belonged to
                     let event_time = record.event_time.unwrap_or_else(|| {
-                        DateTime::from_timestamp_millis(record.timestamp)
-                            .unwrap_or_else(Utc::now)
+                        DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
                     });
                     LateDataAction::UpdatePrevious {
                         window_end: event_time,
