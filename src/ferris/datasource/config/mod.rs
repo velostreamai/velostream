@@ -12,7 +12,4 @@ pub mod unified;
 pub mod legacy;
 
 // Re-export configuration types from the legacy module for compatibility
-pub use legacy::{
-    BatchConfig, BatchStrategy, CdcFormat, CompressionType, ConnectionString, FileFormat,
-    SinkConfig, SourceConfig, WriteMode,
-};
+pub use legacy::{BatchConfig, BatchStrategy, ConnectionString, FileFormat, SinkConfig, SourceConfig};

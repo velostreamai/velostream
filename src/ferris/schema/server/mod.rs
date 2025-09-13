@@ -10,10 +10,7 @@ pub mod registry_backend;
 pub mod backends;
 
 // Re-export main server interfaces
-pub use registry_backend::{
-    BackendCapabilities, BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend,
-    SchemaRegistryBackendFactory, SchemaResponse,
-};
+pub use registry_backend::{BackendConfig, BackendMetadata, HealthStatus, SchemaRegistryBackend, SchemaRegistryBackendFactory};
 
 // Re-export backend implementations
 pub use backends::ConfluentAuth;

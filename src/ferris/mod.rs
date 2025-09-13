@@ -8,5 +8,5 @@ pub mod serialization;
 pub mod server;
 pub mod sql;
 
-// Re-export server types
+// Re-export server types for examples and tests
 pub use server::StreamJobServer;

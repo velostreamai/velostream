@@ -5,10 +5,8 @@
 //! This tool exports schemas from all registered ConfigSchemaProvider implementations.
 
 use ferrisstreams::ferris::config::{ConfigSchemaProvider, HierarchicalSchemaRegistry};
-use ferrisstreams::ferris::datasource::file::data_sink::FileSink;
-use ferrisstreams::ferris::datasource::file::data_source::FileDataSource;
-use ferrisstreams::ferris::datasource::kafka::data_sink::KafkaDataSink;
-use ferrisstreams::ferris::datasource::kafka::data_source::KafkaDataSource;
+use ferrisstreams::ferris::datasource::file::FileDataSource;
+use ferrisstreams::ferris::datasource::kafka::KafkaDataSource;
 use serde_json::{json, Map, Value};
 use std::fs;
 

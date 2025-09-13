@@ -99,12 +99,7 @@ pub mod helpers;
 pub use error::SerializationError;
 pub use traits::SerializationFormat;
 
-// Re-export format implementations
-pub use avro::AvroFormat;
-pub use avro_codec::AvroCodec;
-pub use protobuf::ProtobufFormat;
-pub use protobuf_codec::ProtobufCodec;
-
+// Re-export format implementations for examples and tests only
 pub use json_codec::JsonCodec;
 
 // Serialization codec enum for Kafka integration

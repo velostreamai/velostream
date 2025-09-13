@@ -20,13 +20,5 @@ pub mod reference_resolver;
 pub mod providers;
 
 // Re-export main client interfaces
-pub use reference_resolver::SchemaReferenceResolver;
-pub use registry_client::{RegistryClientConfig, SchemaRegistryClient};
-pub use unified_client::UnifiedSchemaRegistryClient;
-// Re-export provider types directly from registry
-pub use crate::ferris::schema::registry::{ProviderMetadata, SchemaProvider};
-
-// Re-export caching components
-pub use cache::SchemaCache;
-pub use enhanced_cache::EnhancedSchemaCache;
+pub use registry_client::RegistryClientConfig;
 pub use multilevel_cache::MultiLevelCacheConfig;

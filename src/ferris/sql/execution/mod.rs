@@ -62,7 +62,6 @@ pub mod resource_manager;
 pub mod circuit_breaker;
 
 // Re-export public API only
-pub use config::StreamingConfig;
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
 
