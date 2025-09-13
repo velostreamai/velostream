@@ -247,7 +247,33 @@ let result = circuit_breaker.execute(move || {
   - Scaling and maintenance procedures
   - Configuration management and deployment
 
-**Phase 4: Legacy Deprecation (Future)**
+## 🚀 Phase 4: Advanced Features & Observability (IN PROGRESS)
+
+**IMPLEMENTATION PLAN:**
+- [ ] Add OpenTelemetry integration for distributed tracing
+- [ ] Implement comprehensive metrics collection and export
+- [ ] Create real-time operations dashboard (Grafana/Prometheus)
+- [ ] Add performance profiling and automated bottleneck detection
+- [ ] Support concurrent engine instances with partition-based processing
+- [ ] Implement SQL query plan explanation and topology analysis
+- [ ] Create automated capacity planning and optimization suggestions
+- [ ] Build operational runbook automation and advanced monitoring
+
+**Phase 4A: Observability Infrastructure (Priority 1)**
+- [ ] OpenTelemetry SDK integration with trace span creation
+- [ ] Prometheus metrics export for streaming operations
+- [ ] Grafana dashboard configuration and topology visualization
+- [ ] Continuous profiling with automated bottleneck detection
+- [ ] Real-time performance monitoring and alerting
+
+**Phase 4B: Advanced Streaming Features (Priority 2)**
+- [ ] Multiple concurrent engine instances support
+- [ ] Partition-based processing for enhanced parallelism
+- [ ] SQL query plan explanation and optimization suggestions
+- [ ] Streaming topology introspection and change detection
+- [ ] Automated capacity planning and performance tuning
+
+**Phase 4C: Legacy Deprecation (Future)**
 - [ ] Remove backward compatibility layers after adoption period
 - [ ] Eliminate legacy MessagePassingMode::Legacy option
 - [ ] Remove optional watermark/resource manager flags
@@ -264,7 +290,7 @@ let result = circuit_breaker.execute(move || {
 - `src/ferris/sql/execution/mod.rs` - Updated exports
 
 **Current Status:**
-🎉 **ALL PHASES COMPLETED** - Complete streaming SQL engine with enhanced features, resource management, and production-ready testing infrastructure! 
+🚀 **PHASE 4 IN PROGRESS** - Adding advanced observability and enterprise features to the production-ready streaming SQL engine! 
 
 **Key Achievements:**
 
@@ -290,6 +316,14 @@ let result = circuit_breaker.execute(move || {
 - ✅ Type system conflicts resolved (WatermarkStrategy, CircuitBreakerConfig)
 - ✅ Circuit breaker closure borrowing patterns fixed
 - ✅ Complete CI/CD validation pipeline operational
+
+**Phase 4 (Advanced Features & Observability):**
+- 🚀 **IN PROGRESS**: OpenTelemetry integration for distributed tracing
+- 🚀 **IN PROGRESS**: Comprehensive observability and monitoring infrastructure
+- ⏳ **PLANNED**: Real-time operations dashboard (Grafana/Prometheus)
+- ⏳ **PLANNED**: Performance profiling and automated optimization
+- ⏳ **PLANNED**: Concurrent engine instances and advanced parallelism
+- ⏳ **PLANNED**: SQL query plan explanation and topology analysis
 
 **Production Status:**
 - ✅ 255+ unit tests passing with 0 failures

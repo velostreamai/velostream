@@ -57,6 +57,35 @@ pub struct StreamingConfig {
     /// Resource monitoring configuration
     /// Default: None (use default monitoring settings)
     pub resource_monitoring_config: Option<ResourceMonitoringConfig>,
+
+    // === PHASE 4: ADVANCED OBSERVABILITY ===
+    /// Enable OpenTelemetry distributed tracing
+    /// Default: false (no distributed tracing)
+    pub enable_distributed_tracing: bool,
+
+    /// Enable Prometheus metrics export
+    /// Default: false (no metrics export)
+    pub enable_prometheus_metrics: bool,
+
+    /// Enable performance profiling
+    /// Default: false (no continuous profiling)
+    pub enable_performance_profiling: bool,
+
+    /// Enable query plan explanation and topology analysis
+    /// Default: false (no query plan analysis)
+    pub enable_query_analysis: bool,
+
+    /// OpenTelemetry configuration
+    /// Default: None (use default tracing settings)
+    pub tracing_config: Option<TracingConfig>,
+
+    /// Prometheus metrics configuration
+    /// Default: None (use default metrics settings)
+    pub prometheus_config: Option<PrometheusConfig>,
+
+    /// Performance profiling configuration
+    /// Default: None (use default profiling settings)
+    pub profiling_config: Option<ProfilingConfig>,
 }
 
 impl Default for StreamingConfig {
@@ -76,6 +105,14 @@ impl Default for StreamingConfig {
             enable_resource_monitoring: false,
             circuit_breaker_config: None,
             resource_monitoring_config: None,
+            // Phase 4 defaults - all disabled for backward compatibility
+            enable_distributed_tracing: false,
+            enable_prometheus_metrics: false,
+            enable_performance_profiling: false,
+            enable_query_analysis: false,
+            tracing_config: None,
+            prometheus_config: None,
+            profiling_config: None,
         }
     }
 }
@@ -115,6 +152,14 @@ impl StreamingConfig {
             enable_resource_monitoring: true,
             circuit_breaker_config: Some(CircuitBreakerConfig::production()),
             resource_monitoring_config: Some(ResourceMonitoringConfig::production()),
+            // Phase 4 enhanced features - conservative defaults for production
+            enable_distributed_tracing: false, // Requires explicit opt-in due to overhead
+            enable_prometheus_metrics: true,
+            enable_performance_profiling: false, // Requires explicit opt-in due to overhead
+            enable_query_analysis: true,
+            tracing_config: None,
+            prometheus_config: Some(PrometheusConfig::enterprise()),
+            profiling_config: None,
         }
     }
 
@@ -191,6 +236,89 @@ impl StreamingConfig {
         self.enable_circuit_breakers = true;
         self.enable_resource_monitoring = true;
         self
+    }
+
+    // === PHASE 4: ADVANCED OBSERVABILITY ===
+
+    /// Enable OpenTelemetry distributed tracing (Phase 4)
+    pub fn with_distributed_tracing(mut self) -> Self {
+        self.enable_distributed_tracing = true;
+        self.tracing_config = Some(TracingConfig::default());
+        self
+    }
+
+    /// Enable distributed tracing with custom configuration (Phase 4)
+    pub fn with_tracing_config(mut self, config: TracingConfig) -> Self {
+        self.enable_distributed_tracing = true;
+        self.tracing_config = Some(config);
+        self
+    }
+
+    /// Enable Prometheus metrics export (Phase 4)
+    pub fn with_prometheus_metrics(mut self) -> Self {
+        self.enable_prometheus_metrics = true;
+        self.prometheus_config = Some(PrometheusConfig::default());
+        self
+    }
+
+    /// Enable Prometheus metrics with custom configuration (Phase 4)
+    pub fn with_prometheus_config(mut self, config: PrometheusConfig) -> Self {
+        self.enable_prometheus_metrics = true;
+        self.prometheus_config = Some(config);
+        self
+    }
+
+    /// Enable performance profiling (Phase 4)
+    pub fn with_performance_profiling(mut self) -> Self {
+        self.enable_performance_profiling = true;
+        self.profiling_config = Some(ProfilingConfig::default());
+        self
+    }
+
+    /// Enable performance profiling with custom configuration (Phase 4)
+    pub fn with_profiling_config(mut self, config: ProfilingConfig) -> Self {
+        self.enable_performance_profiling = true;
+        self.profiling_config = Some(config);
+        self
+    }
+
+    /// Enable query plan analysis and topology introspection (Phase 4)
+    pub fn with_query_analysis(mut self) -> Self {
+        self.enable_query_analysis = true;
+        self
+    }
+
+    /// Enable comprehensive observability with all Phase 4 features (Phase 4)
+    pub fn with_full_observability(mut self) -> Self {
+        self.enable_distributed_tracing = true;
+        self.enable_prometheus_metrics = true;
+        self.enable_performance_profiling = true;
+        self.enable_query_analysis = true;
+        self
+    }
+
+    /// Create observability-focused configuration (Phase 4)
+    /// Enables metrics and analysis but not heavy features like tracing/profiling
+    pub fn observability() -> Self {
+        Self {
+            enable_prometheus_metrics: true,
+            enable_query_analysis: true,
+            prometheus_config: Some(PrometheusConfig::default()),
+            ..Self::default()
+        }
+    }
+
+    /// Create enterprise-grade configuration (Phase 4)
+    /// Enables all observability features with production-ready defaults
+    pub fn enterprise() -> Self {
+        Self {
+            // Include all enhanced features
+            ..Self::enhanced()
+        }
+        .with_distributed_tracing()
+        .with_prometheus_metrics()
+        .with_query_analysis()
+        // Note: Profiling is opt-in due to performance overhead
     }
 }
 
@@ -427,6 +555,206 @@ impl ResourceMonitoringConfig {
     }
 }
 
+// === PHASE 4: OBSERVABILITY CONFIGURATION STRUCTS ===
+
+/// OpenTelemetry distributed tracing configuration
+#[derive(Debug, Clone, PartialEq)]
+pub struct TracingConfig {
+    /// Service name for tracing
+    pub service_name: String,
+    /// Service version for tracing
+    pub service_version: String,
+    /// OTLP endpoint for trace export
+    pub otlp_endpoint: Option<String>,
+    /// Sampling ratio (0.0 to 1.0)
+    pub sampling_ratio: f64,
+    /// Enable console output for traces
+    pub enable_console_output: bool,
+    /// Maximum span duration in seconds before timeout
+    pub max_span_duration_seconds: u64,
+    /// Batch export timeout in milliseconds
+    pub batch_export_timeout_ms: u64,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            service_name: "ferris-streams".to_string(),
+            service_version: "1.0.0".to_string(),
+            otlp_endpoint: None,
+            sampling_ratio: 0.1,
+            enable_console_output: false,
+            max_span_duration_seconds: 300,
+            batch_export_timeout_ms: 30000,
+        }
+    }
+}
+
+impl TracingConfig {
+    /// Development configuration with higher sampling and console output
+    pub fn development() -> Self {
+        Self {
+            service_name: "ferris-streams-dev".to_string(),
+            service_version: "dev".to_string(),
+            otlp_endpoint: Some("http://localhost:4317".to_string()),
+            sampling_ratio: 1.0,
+            enable_console_output: true,
+            max_span_duration_seconds: 60,
+            batch_export_timeout_ms: 5000,
+        }
+    }
+
+    /// Production configuration with optimized sampling
+    pub fn production() -> Self {
+        Self {
+            service_name: "ferris-streams".to_string(),
+            service_version: env!("CARGO_PKG_VERSION").to_string(),
+            otlp_endpoint: Some("https://traces.example.com:4317".to_string()),
+            sampling_ratio: 0.01,
+            enable_console_output: false,
+            max_span_duration_seconds: 300,
+            batch_export_timeout_ms: 30000,
+        }
+    }
+}
+
+/// Prometheus metrics export configuration
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrometheusConfig {
+    /// Metrics endpoint path
+    pub metrics_path: String,
+    /// Metrics server bind address
+    pub bind_address: String,
+    /// Metrics server port
+    pub port: u16,
+    /// Enable histogram metrics (higher memory usage)
+    pub enable_histograms: bool,
+    /// Enable detailed query metrics
+    pub enable_query_metrics: bool,
+    /// Enable streaming operation metrics
+    pub enable_streaming_metrics: bool,
+    /// Metrics collection interval in seconds
+    pub collection_interval_seconds: u64,
+    /// Maximum number of metrics labels per metric
+    pub max_labels_per_metric: usize,
+}
+
+impl Default for PrometheusConfig {
+    fn default() -> Self {
+        Self {
+            metrics_path: "/metrics".to_string(),
+            bind_address: "0.0.0.0".to_string(),
+            port: 9090,
+            enable_histograms: true,
+            enable_query_metrics: true,
+            enable_streaming_metrics: true,
+            collection_interval_seconds: 15,
+            max_labels_per_metric: 10,
+        }
+    }
+}
+
+impl PrometheusConfig {
+    /// Lightweight configuration for basic monitoring
+    pub fn lightweight() -> Self {
+        Self {
+            metrics_path: "/metrics".to_string(),
+            bind_address: "127.0.0.1".to_string(),
+            port: 9090,
+            enable_histograms: false,
+            enable_query_metrics: true,
+            enable_streaming_metrics: false,
+            collection_interval_seconds: 30,
+            max_labels_per_metric: 5,
+        }
+    }
+
+    /// Enterprise configuration with comprehensive metrics
+    pub fn enterprise() -> Self {
+        Self {
+            metrics_path: "/metrics".to_string(),
+            bind_address: "0.0.0.0".to_string(),
+            port: 9090,
+            enable_histograms: true,
+            enable_query_metrics: true,
+            enable_streaming_metrics: true,
+            collection_interval_seconds: 10,
+            max_labels_per_metric: 20,
+        }
+    }
+}
+
+/// Performance profiling configuration
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfilingConfig {
+    /// Enable CPU profiling
+    pub enable_cpu_profiling: bool,
+    /// Enable memory profiling
+    pub enable_memory_profiling: bool,
+    /// Profiling output directory
+    pub output_directory: String,
+    /// Profiling sample rate (samples per second)
+    pub sample_rate_hz: u32,
+    /// Enable flame graph generation
+    pub enable_flame_graphs: bool,
+    /// Profile data retention days
+    pub retention_days: u32,
+    /// Enable automatic bottleneck detection
+    pub enable_bottleneck_detection: bool,
+    /// CPU usage threshold for alerts (percentage)
+    pub cpu_threshold_percent: f64,
+    /// Memory usage threshold for alerts (percentage)
+    pub memory_threshold_percent: f64,
+}
+
+impl Default for ProfilingConfig {
+    fn default() -> Self {
+        Self {
+            enable_cpu_profiling: true,
+            enable_memory_profiling: true,
+            output_directory: "./profiling".to_string(),
+            sample_rate_hz: 100,
+            enable_flame_graphs: true,
+            retention_days: 7,
+            enable_bottleneck_detection: true,
+            cpu_threshold_percent: 80.0,
+            memory_threshold_percent: 85.0,
+        }
+    }
+}
+
+impl ProfilingConfig {
+    /// Development configuration with high-frequency profiling
+    pub fn development() -> Self {
+        Self {
+            enable_cpu_profiling: true,
+            enable_memory_profiling: true,
+            output_directory: "./dev-profiling".to_string(),
+            sample_rate_hz: 1000,
+            enable_flame_graphs: true,
+            retention_days: 3,
+            enable_bottleneck_detection: true,
+            cpu_threshold_percent: 70.0,
+            memory_threshold_percent: 75.0,
+        }
+    }
+
+    /// Production configuration with optimized overhead
+    pub fn production() -> Self {
+        Self {
+            enable_cpu_profiling: true,
+            enable_memory_profiling: false,
+            output_directory: "/var/log/ferris-profiling".to_string(),
+            sample_rate_hz: 50,
+            enable_flame_graphs: false,
+            retention_days: 30,
+            enable_bottleneck_detection: true,
+            cpu_threshold_percent: 90.0,
+            memory_threshold_percent: 95.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,5 +864,204 @@ mod tests {
         assert_eq!(prod_config.check_interval_seconds, 60);
         assert!(!prod_config.enable_auto_cleanup);
         assert_eq!(prod_config.max_memory_mb, Some(4096));
+    }
+
+    // === PHASE 4: OBSERVABILITY CONFIGURATION TESTS ===
+
+    #[test]
+    fn test_tracing_config_defaults() {
+        let config = TracingConfig::default();
+        assert_eq!(config.service_name, "ferris-streams");
+        assert_eq!(config.service_version, "1.0.0");
+        assert_eq!(config.sampling_ratio, 0.1);
+        assert!(!config.enable_console_output);
+        assert_eq!(config.max_span_duration_seconds, 300);
+    }
+
+    #[test]
+    fn test_tracing_config_development() {
+        let config = TracingConfig::development();
+        assert_eq!(config.service_name, "ferris-streams-dev");
+        assert_eq!(config.sampling_ratio, 1.0);
+        assert!(config.enable_console_output);
+        assert_eq!(
+            config.otlp_endpoint,
+            Some("http://localhost:4317".to_string())
+        );
+    }
+
+    #[test]
+    fn test_tracing_config_production() {
+        let config = TracingConfig::production();
+        assert_eq!(config.service_name, "ferris-streams");
+        assert_eq!(config.sampling_ratio, 0.01);
+        assert!(!config.enable_console_output);
+        assert_eq!(
+            config.otlp_endpoint,
+            Some("https://traces.example.com:4317".to_string())
+        );
+    }
+
+    #[test]
+    fn test_prometheus_config_defaults() {
+        let config = PrometheusConfig::default();
+        assert_eq!(config.metrics_path, "/metrics");
+        assert_eq!(config.bind_address, "0.0.0.0");
+        assert_eq!(config.port, 9090);
+        assert!(config.enable_histograms);
+        assert!(config.enable_query_metrics);
+        assert!(config.enable_streaming_metrics);
+        assert_eq!(config.collection_interval_seconds, 15);
+    }
+
+    #[test]
+    fn test_prometheus_config_lightweight() {
+        let config = PrometheusConfig::lightweight();
+        assert_eq!(config.bind_address, "127.0.0.1");
+        assert!(!config.enable_histograms);
+        assert!(config.enable_query_metrics);
+        assert!(!config.enable_streaming_metrics);
+        assert_eq!(config.collection_interval_seconds, 30);
+        assert_eq!(config.max_labels_per_metric, 5);
+    }
+
+    #[test]
+    fn test_prometheus_config_enterprise() {
+        let config = PrometheusConfig::enterprise();
+        assert_eq!(config.bind_address, "0.0.0.0");
+        assert!(config.enable_histograms);
+        assert!(config.enable_query_metrics);
+        assert!(config.enable_streaming_metrics);
+        assert_eq!(config.collection_interval_seconds, 10);
+        assert_eq!(config.max_labels_per_metric, 20);
+    }
+
+    #[test]
+    fn test_profiling_config_defaults() {
+        let config = ProfilingConfig::default();
+        assert!(config.enable_cpu_profiling);
+        assert!(config.enable_memory_profiling);
+        assert_eq!(config.output_directory, "./profiling");
+        assert_eq!(config.sample_rate_hz, 100);
+        assert!(config.enable_flame_graphs);
+        assert_eq!(config.retention_days, 7);
+        assert!(config.enable_bottleneck_detection);
+    }
+
+    #[test]
+    fn test_profiling_config_development() {
+        let config = ProfilingConfig::development();
+        assert_eq!(config.output_directory, "./dev-profiling");
+        assert_eq!(config.sample_rate_hz, 1000);
+        assert_eq!(config.retention_days, 3);
+        assert_eq!(config.cpu_threshold_percent, 70.0);
+        assert_eq!(config.memory_threshold_percent, 75.0);
+    }
+
+    #[test]
+    fn test_profiling_config_production() {
+        let config = ProfilingConfig::production();
+        assert!(config.enable_cpu_profiling);
+        assert!(!config.enable_memory_profiling);
+        assert_eq!(config.output_directory, "/var/log/ferris-profiling");
+        assert_eq!(config.sample_rate_hz, 50);
+        assert!(!config.enable_flame_graphs);
+        assert_eq!(config.retention_days, 30);
+        assert_eq!(config.cpu_threshold_percent, 90.0);
+    }
+
+    #[test]
+    fn test_phase4_config_helpers() {
+        let config = StreamingConfig::default()
+            .with_distributed_tracing()
+            .with_prometheus_metrics()
+            .with_performance_profiling()
+            .with_query_analysis();
+
+        assert!(config.enable_distributed_tracing);
+        assert!(config.enable_prometheus_metrics);
+        assert!(config.enable_performance_profiling);
+        assert!(config.enable_query_analysis);
+        assert!(config.tracing_config.is_some());
+        assert!(config.prometheus_config.is_some());
+        assert!(config.profiling_config.is_some());
+    }
+
+    #[test]
+    fn test_full_observability_config() {
+        let config = StreamingConfig::default().with_full_observability();
+
+        assert!(config.enable_distributed_tracing);
+        assert!(config.enable_prometheus_metrics);
+        assert!(config.enable_performance_profiling);
+        assert!(config.enable_query_analysis);
+
+        // Verify all configs are present
+        assert!(config.tracing_config.is_some());
+        assert!(config.prometheus_config.is_some());
+        assert!(config.profiling_config.is_some());
+
+        // Verify configs use default values
+        let tracing = config.tracing_config.unwrap();
+        assert_eq!(tracing.service_name, "ferris-streams");
+        assert_eq!(tracing.sampling_ratio, 0.1);
+    }
+
+    #[test]
+    fn test_observability_config() {
+        let config = StreamingConfig::observability();
+
+        assert!(!config.enable_distributed_tracing);
+        assert!(config.enable_prometheus_metrics);
+        assert!(!config.enable_performance_profiling);
+        assert!(config.enable_query_analysis);
+
+        // Only prometheus config should be present
+        assert!(config.tracing_config.is_none());
+        assert!(config.prometheus_config.is_some());
+        assert!(config.profiling_config.is_none());
+
+        // Verify prometheus uses lightweight config
+        let prometheus = config.prometheus_config.unwrap();
+        assert_eq!(prometheus.bind_address, "127.0.0.1");
+        assert!(!prometheus.enable_histograms);
+    }
+
+    #[test]
+    fn test_enterprise_config() {
+        let config = StreamingConfig::enterprise();
+
+        // All Phase 4 features should be enabled
+        assert!(config.enable_distributed_tracing);
+        assert!(config.enable_prometheus_metrics);
+        assert!(config.enable_performance_profiling);
+        assert!(config.enable_query_analysis);
+
+        // All configs should use production/enterprise settings
+        let tracing = config.tracing_config.unwrap();
+        assert_eq!(tracing.sampling_ratio, 0.01);
+
+        let prometheus = config.prometheus_config.unwrap();
+        assert_eq!(prometheus.max_labels_per_metric, 20);
+
+        let profiling = config.profiling_config.unwrap();
+        assert_eq!(profiling.sample_rate_hz, 50);
+        assert!(!profiling.enable_memory_profiling);
+    }
+
+    #[test]
+    fn test_phase4_backward_compatibility() {
+        let default_config = StreamingConfig::default();
+
+        // Phase 4 features should be disabled by default
+        assert!(!default_config.enable_distributed_tracing);
+        assert!(!default_config.enable_prometheus_metrics);
+        assert!(!default_config.enable_performance_profiling);
+        assert!(!default_config.enable_query_analysis);
+
+        // Phase 4 config objects should be None by default
+        assert!(default_config.tracing_config.is_none());
+        assert!(default_config.prometheus_config.is_none());
+        assert!(default_config.profiling_config.is_none());
     }
 }
