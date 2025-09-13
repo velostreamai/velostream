@@ -294,7 +294,11 @@ async fn run_latency_test(
 
                                 // Print metadata every 10,000 messages to minimize output noise during performance testing
                                 if message_counter % 10_000 == 0 {
-                                    println!("Message metadata ({}): {}", message_counter, message.metadata_string());
+                                    println!(
+                                        "Message metadata ({}): {}",
+                                        message_counter,
+                                        message.metadata_string()
+                                    );
                                 }
                             }
                             Err(e) => {
