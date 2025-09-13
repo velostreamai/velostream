@@ -603,4 +603,4 @@ impl StreamingConfig {
 - [Watermarks & Time Semantics](./WATERMARKS_TIME_SEMANTICS.md) - Detailed Phase 1B configuration
 - [Resource Management](./RESOURCE_MANAGEMENT.md) - Phase 2 configuration details
 - [Observability Guide](./OBSERVABILITY.md) - Phase 4 monitoring setup
-- [Advanced Query Features](./ADVANCED_QUERY_FEATURES.md) - Phase 3 SQL features
+- [Advanced Query Features](sql/ADVANCED_QUERY_FEATURES.md) - Phase 3 SQL features

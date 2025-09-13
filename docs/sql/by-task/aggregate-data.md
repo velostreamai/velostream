@@ -2,11 +2,27 @@
 
 Learn how to calculate totals, averages, counts and other aggregate functions with GROUP BY operations in streaming data.
 
+> **⚠️ Important**: All queries require CREATE STREAM statements with WITH clauses for data sources and sinks.
+
 ## Basic Grouping
 
 ### Count Records per Group
 ```sql
+-- Define data source and sink
+CREATE STREAM orders WITH (
+    topic = 'orders-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.deserializer = 'json'
+);
+
+CREATE STREAM customer_order_counts WITH (
+    topic = 'customer-counts-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.serializer = 'json'
+);
+
 -- Count orders per customer
+INSERT INTO customer_order_counts
 SELECT customer_id, COUNT(*) as order_count
 FROM orders
 GROUP BY customer_id;
@@ -14,7 +30,17 @@ GROUP BY customer_id;
 
 ### Multiple Aggregates
 ```sql
+-- Data sources
+CREATE STREAM transactions WITH (
+    config_file = 'configs/transactions-source.yaml'
+);
+
+CREATE STREAM category_stats WITH (
+    config_file = 'configs/category-stats-sink.yaml'
+);
+
 -- Multiple aggregation functions in one query
+INSERT INTO category_stats
 SELECT
     category,
     COUNT(*) as count,

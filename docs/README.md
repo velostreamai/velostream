@@ -16,7 +16,7 @@ This directory contains comprehensive documentation for FerrisStreams.
 
 ### Configuration Management
 - **[YAML Configuration Guide](YAML_CONFIGURATION_GUIDE.md)** - Complete guide to YAML configuration with inheritance using `extends:`
-- **[Kafka Schema Configuration](KAFKA_SCHEMA_CONFIGURATION.md)** - Schema configuration for Kafka data sources
+- **[Kafka Schema Configuration](developer/KAFKA_SCHEMA_CONFIGURATION.md)** - Schema configuration for Kafka data sources
 
 ### Serialization System
 - **[Serialization Guide](developer/SERIALIZATION_GUIDE.md)** - Complete guide to serialization formats (JSON, Avro, Protobuf)
@@ -25,7 +25,7 @@ This directory contains comprehensive documentation for FerrisStreams.
 
 ### SQL Streaming
 - **[SQL Reference Guide](SQL_REFERENCE_GUIDE.md)** - Complete SQL syntax and function reference
-- **[JOIN Operations Guide](JOIN_OPERATIONS_GUIDE.md)** - Comprehensive guide to JOIN operations and windowed JOINs
+- **[JOIN Operations Guide](sql/JOIN_OPERATIONS_GUIDE.md)** - Comprehensive guide to JOIN operations and windowed JOINs
 - **[SQL Feature Request](SQL_FEATURE_REQUEST.md)** - Comprehensive SQL implementation roadmap and current status
 
 ### Performance & Optimization

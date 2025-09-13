@@ -120,9 +120,12 @@ GROUP BY customer_id;
 - [Real-World Examples](examples/) - Copy-paste patterns for common use cases
 
 ### Complete Documentation
-- [SQL Reference Guide](../SQL_REFERENCE_GUIDE.md) - Complete language reference
-- [Data Sources Setup](../data/) - Kafka, files, and schema configuration
-- [Performance Tuning](../PERFORMANCE.md) - Optimization best practices
+- [Complete SQL Syntax](reference/complete-syntax.md) - Comprehensive syntax reference
+- [GROUP BY Reference](reference/group-by.md) - GROUP BY and aggregation operations
+- [EMIT Modes Reference](reference/emit-modes.md) - Window emission control
+- [SQL Validator](tools/validator.md) - Query validation and testing
+- [Native Deployment](deployment/native-deployment.md) - Production deployment guide
+- [Data Sources Integration](integration/data-sources.md) - Kafka and schema setup
 
 ## 🔗 Quick Navigation
 
@@ -133,7 +136,7 @@ GROUP BY customer_id;
 | **Calculations** | [Aggregate Data](by-task/aggregate-data.md) |
 | **Function help** | [Functions](functions/essential.md) |
 | **Working examples** | [Examples](examples/) |
-| **Complete reference** | [SQL Reference](../SQL_REFERENCE_GUIDE.md) |
+| **Complete reference** | [Complete SQL Syntax](reference/complete-syntax.md) |
 
 ---
 

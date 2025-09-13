@@ -62,7 +62,7 @@ let batch_config = BatchConfig {
 // Result: compression.type remains "zstd" (user choice preserved)
 ```
 
-See [docs/COMPRESSION_INDEPENDENCE.md](docs/COMPRESSION_INDEPENDENCE.md) for complete documentation.
+See [docs/COMPRESSION_INDEPENDENCE.md](docs/developer/COMPRESSION_INDEPENDENCE.md) for complete documentation.
 
 ### SerializationError Enhancement: Comprehensive Error Chaining
 
@@ -222,7 +222,7 @@ protobuf.schema.file: "./schemas/example.proto"
 - **Financial Precision**: Built-in support for decimal logical types in schemas
 - **Production Ready**: Schema Registry integration for centralized schema management
 
-See [docs/KAFKA_SCHEMA_CONFIGURATION.md](docs/KAFKA_SCHEMA_CONFIGURATION.md) for complete configuration guide.
+See [docs/KAFKA_SCHEMA_CONFIGURATION.md](docs/developer/KAFKA_SCHEMA_CONFIGURATION.md) for complete configuration guide.
 
 ## Code Organization
 

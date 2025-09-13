@@ -2,12 +2,29 @@
 
 Copy-paste SQL queries for detecting fraudulent activities and suspicious patterns in real-time.
 
+> **⚠️ Important**: All examples include required CREATE STREAM statements. These queries are ready to run in FerrisStreams.
+
 ## Transaction-Based Fraud Detection
 
 ### High-Risk Transaction Patterns
 
 ```sql
+-- Data source: incoming transactions
+CREATE STREAM transactions WITH (
+    topic = 'transactions-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.deserializer = 'json'
+);
+
+-- Data sink: flagged transactions
+CREATE STREAM fraud_alerts WITH (
+    topic = 'fraud-alerts-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.serializer = 'json'
+);
+
 -- Detect suspicious transaction patterns
+INSERT INTO fraud_alerts
 SELECT
     transaction_id,
     customer_id,

@@ -5,7 +5,6 @@ This directory contains all documentation related to the pluggable data sources 
 ## 📚 Documentation Structure
 
 ### Core Documentation
-- **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Guide for migrating existing Kafka applications
 - **[DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)** - Architecture overview and implementation guide
 - **[SQL_INTEGRATION_GUIDE.md](./SQL_INTEGRATION_GUIDE.md)** - Using pluggable data sources through SQL
 - **[SCHEMA_REGISTRY_GUIDE.md](./SCHEMA_REGISTRY_GUIDE.md)** - Schema management and evolution
@@ -14,8 +13,6 @@ This directory contains all documentation related to the pluggable data sources 
 
 ### Planning & Implementation
 - **[FEATURE_REQUEST_PLUGGABLE_DATASOURCES.md](FR-047_PLUGGABLE_DATASOURCES.md)** - Original feature request and requirements
-- **[ARCHITECTURAL_DECOUPLING_PLAN.md](./ARCHITECTURAL_DECOUPLING_PLAN.md)** - 10-day implementation plan ✅ **100% COMPLETE**
-- **[KAFKA_COUPLING_AUDIT.md](./KAFKA_COUPLING_AUDIT.md)** - Audit of existing Kafka dependencies
 
 ### Implementation Status
 

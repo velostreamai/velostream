@@ -1765,7 +1765,7 @@ Total Development Time:             13 weeks       96 dev-hours
 This feature request validates and enhances functionality documented in existing FerrisStreams guides:
 
 #### **Core Configuration Architecture**
-- **[MULTI_SOURCE_SINK_GUIDE.md](../MULTI_SOURCE_SINK_GUIDE.md)** - Primary source of truth for configuration patterns
+- **[MULTI_SOURCE_SINK_GUIDE.md](../data-sources/MULTI_SOURCE_SINK_GUIDE.md)** - Primary source of truth for configuration patterns
   - Named source/sink configuration with `.type` and `.config_file`
   - Global property inheritance and override precedence
   - Config file inheritance with `extends` and environment variables

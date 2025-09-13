@@ -23,7 +23,7 @@ Self-registering schema system where `KafkaDataSource`, `BatchConfig`, `FileSink
 ## Integration with Existing Architecture
 
 ### Supporting Documentation
-- **[MULTI_SOURCE_SINK_GUIDE.md](../MULTI_SOURCE_SINK_GUIDE.md)** - Validates named source/sink patterns, global inheritance, production examples
+- **[MULTI_SOURCE_SINK_GUIDE.md](../data-sources/MULTI_SOURCE_SINK_GUIDE.md)** - Validates named source/sink patterns, global inheritance, production examples
 - **[BATCH_CONFIGURATION_GUIDE.md](../BATCH_CONFIGURATION_GUIDE.md)** - Validates batch strategy and performance configurations
 - **Existing implementations** - Zero breaking changes, adds validation layer before existing `from_properties()` methods
 

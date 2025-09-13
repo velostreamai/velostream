@@ -356,7 +356,8 @@ impl CircuitBreaker {
             .filter(|call| call.timestamp > cutoff_time)
             .collect();
 
-        let current_failure_rate = if recent_calls.len() < self.config.min_calls_in_window as usize {
+        let current_failure_rate = if recent_calls.len() < self.config.min_calls_in_window as usize
+        {
             0.0 // Not enough data
         } else {
             let failure_count = recent_calls.iter().filter(|call| !call.success).count();
