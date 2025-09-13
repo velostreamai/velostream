@@ -7,7 +7,178 @@
 
 # 📋 **NUMBERED DEVELOPMENT OBJECTIVES**
 
-## 🎯 **OBJECTIVE 1: Batch Processing Implementation** ⚡ 
+## 🎯 **OBJECTIVE 1: SQL-FIRST DOCUMENTATION RESTRUCTURE** ⚡ **TOP PRIORITY**
+**Status**: 🔴 **URGENT** - Critical for new user adoption and onboarding
+**Timeline**: Week 1-2 implementation required
+**Impact**: **HIGHEST** - Directly affects new user success rate
+
+### 🚨 **CRITICAL PROBLEM**
+- **SQL Reference Guide is 4,587 lines** - Overwhelming for new users
+- **New users can't find basic examples** - Documentation is scattered across 80+ files
+- **No clear "Hello World" experience** - Users struggle to write first query
+- **Task-oriented organization missing** - Users can't find "how to do X" easily
+
+### 🎯 **SUCCESS METRICS**
+- **Time to first successful query: Under 2 minutes**
+- **Time to productive usage: Under 10 minutes**
+- **Documentation sections used by 80% of new users: 3-4 sections maximum**
+
+### 📋 **IMPLEMENTATION PLAN**
+
+#### **Phase 1: Create New SQL-First Structure (Week 1)**
+
+1. **Create Primary Entry Point**
+   ```
+   docs/sql/README.md - "Your First Query in 2 Minutes"
+   ```
+   **Content Requirements:**
+   - Working SELECT query example in first 30 seconds
+   - Copy-paste Kafka setup in 1 minute
+   - 3 most common query patterns with real data
+   - Quick navigation to task-oriented sections
+   - **NO THEORY** - Only working code examples
+
+2. **Extract Quick Start Content**
+   ```
+   docs/sql/quickstart/
+   ├── hello-world.md       # Basic SELECT, WHERE, LIMIT (from lines 40-100)
+   ├── basic-filtering.md   # AND, OR, BETWEEN examples (from lines 62-200)
+   ├── simple-aggregation.md # COUNT, SUM, GROUP BY (from lines 500-800)
+   └── joins-101.md         # Basic stream joins (from JOIN_OPERATIONS_GUIDE.md)
+   ```
+
+3. **Create Task-Oriented Sections**
+   ```
+   docs/sql/by-task/
+   ├── filter-data.md       # WHERE clauses, complex conditions
+   ├── aggregate-data.md    # GROUP BY, aggregation functions
+   ├── join-streams.md      # Stream joins with real examples
+   ├── window-analysis.md   # Time windows (TUMBLING, SLIDING, SESSION)
+   ├── detect-patterns.md   # Pattern detection and alerting
+   └── transform-data.md    # Data transformation queries
+   ```
+
+4. **Split Function Reference**
+   ```
+   docs/sql/functions/
+   ├── README.md           # Quick function lookup table
+   ├── essential.md        # Top 10 most-used functions with examples
+   ├── aggregation.md      # SUM, COUNT, AVG, MIN, MAX
+   ├── string.md          # SUBSTRING, CONCAT, UPPER, LOWER, REGEXP
+   ├── date-time.md       # DATE functions, INTERVAL arithmetic
+   ├── math.md            # Mathematical operations and calculations
+   ├── window.md          # ROW_NUMBER, RANK, LAG, LEAD, NTILE
+   ├── json.md            # JSON processing and extraction
+   └── advanced.md        # Complex and specialized functions
+   ```
+
+#### **Phase 2: Real-World Examples (Week 2)**
+
+5. **Create Copy-Paste Examples**
+   ```
+   docs/sql/examples/
+   ├── real-time-dashboard.md    # Dashboard queries for metrics
+   ├── fraud-detection.md        # Fraud detection patterns and alerts
+   ├── iot-analytics.md          # IoT sensor data analysis
+   ├── financial-trading.md      # Trading analytics and risk management
+   ├── user-behavior.md          # User behavior analysis and segmentation
+   └── operational-monitoring.md # System monitoring and alerting queries
+   ```
+
+   **Each example must include:**
+   - Complete working query
+   - Sample data setup
+   - Expected output
+   - Common variations
+   - Performance considerations
+
+#### **Phase 3: Reorganize Supporting Documentation**
+
+6. **Streamline Data Sources Documentation**
+   ```
+   docs/data/
+   ├── kafka-quick-setup.md     # 5-minute Kafka setup
+   ├── file-data.md            # CSV/JSON file processing
+   ├── schemas.md              # Schema configuration essentials
+   └── formats.md              # Serialization format guide
+   ```
+
+7. **Update Root Documentation**
+   ```
+   docs/
+   ├── README.md               # SQL examples in first 100 lines
+   ├── QUICK_START.md         # Complete 5-minute tutorial
+   ├── SQL_REFERENCE.md       # Reorganized master reference
+   └── SQL_EXAMPLES.md        # Most common patterns
+   ```
+
+### 🔧 **SPECIFIC EXTRACTION INSTRUCTIONS**
+
+#### **From SQL_REFERENCE_GUIDE.md (4,587 lines):**
+
+1. **Extract Lines 40-100** → `docs/sql/quickstart/hello-world.md`
+   - Basic SELECT syntax
+   - Simple WHERE clauses
+   - LIMIT usage
+   - Wildcard selection
+
+2. **Extract Lines 62-200** → `docs/sql/by-task/filter-data.md`
+   - AND/OR operators
+   - Comparison operators (=, !=, <, >, <=, >=)
+   - BETWEEN and IN operators
+   - Complex conditional logic
+
+3. **Extract Lines 500-800** → `docs/sql/by-task/aggregate-data.md`
+   - GROUP BY operations
+   - Aggregate functions (COUNT, SUM, AVG)
+   - HAVING clauses
+   - Statistical aggregations
+
+4. **Extract Function Sections** → `docs/sql/functions/*.md`
+   - Break down by function category
+   - Include practical examples for each function
+   - Cross-reference related functions
+
+#### **From Other SQL Files:**
+
+5. **From JOIN_OPERATIONS_GUIDE.md (419 lines)** → `docs/sql/by-task/join-streams.md`
+   - Inner, Left, Right, Full Outer joins
+   - Stream-to-stream joins
+   - Windowed joins
+   - Join performance optimization
+
+6. **From SQL_EMIT_MODES.md (278 lines)** → `docs/sql/streaming/emit-strategies.md`
+   - Emit mode concepts
+   - EMIT CHANGES vs EMIT ALL
+   - Late data handling
+   - Watermark configuration
+
+7. **From SQL_REFERENCE_GROUP_BY.md (202 lines)** → Merge into `docs/sql/by-task/aggregate-data.md`
+
+### 🎯 **VALIDATION CRITERIA**
+
+**Before marking complete, verify:**
+
+1. **New User Test**: Someone unfamiliar with FerrisStreams can write their first query in under 2 minutes using only the new documentation
+2. **Task Completion Test**: Users can find and complete these tasks in under 5 minutes each:
+   - Filter streaming data by multiple conditions
+   - Create a simple aggregation query
+   - Join two data streams
+   - Set up time-based windows
+3. **Copy-Paste Test**: All examples work without modification
+4. **Navigation Test**: Users can find any common task in under 30 seconds
+
+### 🚀 **IMMEDIATE NEXT ACTIONS**
+1. **Create `docs/sql/` directory structure**
+2. **Write `docs/sql/README.md` with 2-minute getting started experience**
+3. **Extract hello-world content from massive SQL reference**
+4. **Build first task-oriented guide (filter-data.md)**
+
+**This restructure is THE TOP PRIORITY** as it directly impacts new user adoption and time-to-value. All other objectives should be paused until this critical user experience improvement is complete.
+
+---
+
+## 🎯 **OBJECTIVE 2: Batch Processing Implementation** ⚡ 
 **Status**: 🟢 **99% COMPLETE** - All implementation complete, only performance validation remaining
 
 ### ✅ **Completed Components**

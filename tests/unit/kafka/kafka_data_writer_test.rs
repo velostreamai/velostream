@@ -8,8 +8,6 @@
 //! - Batch operations
 
 use ferrisstreams::ferris::datasource::kafka::reader::SerializationFormat;
-use ferrisstreams::ferris::datasource::kafka::writer::KafkaDataWriter;
-use ferrisstreams::ferris::datasource::DataWriter;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 

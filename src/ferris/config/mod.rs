@@ -10,6 +10,6 @@ pub mod schema_registry;
 pub use schema_registry::{
     is_schema_version_compatible, validate_config_file_inheritance, validate_configuration,
     validate_environment_variables, ConfigFileInheritance, ConfigSchemaProvider,
-    ConfigValidationError, ConfigValidationResult, EnvironmentVariablePattern, GlobalSchemaContext,
+    ConfigValidationError, EnvironmentVariablePattern, GlobalSchemaContext,
     HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
 };

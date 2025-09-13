@@ -3,14 +3,12 @@
 use ferrisstreams::ferris::config::{
     is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
     ConfigFileInheritance, ConfigSchemaProvider, ConfigValidationError, EnvironmentVariablePattern,
-    GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
+    GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
 };
 use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
-use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
-use serde_json::Value;
+use ferrisstreams::ferris::datasource::BatchConfig;
 use std::collections::HashMap;
-use std::time::Duration;
 
 #[test]
 fn test_batch_config_schema_provider_basic() {
