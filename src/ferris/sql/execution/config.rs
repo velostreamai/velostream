@@ -294,6 +294,18 @@ impl StreamingConfig {
         self.enable_prometheus_metrics = true;
         self.enable_performance_profiling = true;
         self.enable_query_analysis = true;
+
+        // Create default configs for all observability features
+        if self.tracing_config.is_none() {
+            self.tracing_config = Some(TracingConfig::default());
+        }
+        if self.prometheus_config.is_none() {
+            self.prometheus_config = Some(PrometheusConfig::default());
+        }
+        if self.profiling_config.is_none() {
+            self.profiling_config = Some(ProfilingConfig::default());
+        }
+
         self
     }
 
@@ -303,7 +315,7 @@ impl StreamingConfig {
         Self {
             enable_prometheus_metrics: true,
             enable_query_analysis: true,
-            prometheus_config: Some(PrometheusConfig::default()),
+            prometheus_config: Some(PrometheusConfig::lightweight()),
             ..Self::default()
         }
     }
@@ -312,13 +324,20 @@ impl StreamingConfig {
     /// Enables all observability features with production-ready defaults
     pub fn enterprise() -> Self {
         Self {
+            // Enable all Phase 4 observability features for enterprise
+            enable_distributed_tracing: true,
+            enable_prometheus_metrics: true,
+            enable_performance_profiling: true, // Enterprise includes profiling
+            enable_query_analysis: true,
+
+            // Use production-grade configs for enterprise
+            tracing_config: Some(TracingConfig::production()),
+            prometheus_config: Some(PrometheusConfig::enterprise()),
+            profiling_config: Some(ProfilingConfig::production()),
+
             // Include all enhanced features
             ..Self::enhanced()
         }
-        .with_distributed_tracing()
-        .with_prometheus_metrics()
-        .with_query_analysis()
-        // Note: Profiling is opt-in due to performance overhead
     }
 }
 
