@@ -316,16 +316,13 @@ impl CircuitBreaker {
         self.cleanup_call_history(&mut stats.call_history);
 
         let current_state = self.get_state();
-        match current_state {
-            CircuitBreakerState::HalfOpen => {
-                stats.consecutive_successes += 1;
-                if stats.consecutive_successes >= self.config.success_threshold {
-                    // Close the circuit
-                    drop(stats);
-                    *self.state.write().unwrap() = CircuitBreakerState::Closed;
-                }
+        if current_state == CircuitBreakerState::HalfOpen {
+            stats.consecutive_successes += 1;
+            if stats.consecutive_successes >= self.config.success_threshold {
+                // Close the circuit
+                drop(stats);
+                *self.state.write().unwrap() = CircuitBreakerState::Closed;
             }
-            _ => {}
         }
     }
 

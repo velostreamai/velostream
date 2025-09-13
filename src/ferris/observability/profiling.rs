@@ -475,7 +475,7 @@ mod tests {
         assert_ne!(HighCpuUsage, HighMemoryUsage);
 
         // Test that all variants can be created
-        let _types = vec![
+        let _types = [
             HighCpuUsage,
             HighMemoryUsage,
             SlowQueryExecution,
@@ -492,6 +492,6 @@ mod tests {
         assert_ne!(Warning, Critical);
 
         // Test that all variants can be created
-        let _severities = vec![Info, Warning, Critical];
+        let _severities = [Info, Warning, Critical];
     }
 }

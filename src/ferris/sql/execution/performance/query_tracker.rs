@@ -170,8 +170,10 @@ mod tests {
         tracker.add_records_processed(100);
         tracker.add_bytes_processed(1000);
 
-        let mut memory_metrics = MemoryMetrics::default();
-        memory_metrics.allocated_bytes = 2048;
+        let memory_metrics = MemoryMetrics { 
+            allocated_bytes: 2048, 
+            ..Default::default() 
+        };
         tracker.update_memory_metrics(memory_metrics);
 
         assert_eq!(tracker.performance.records_processed, 100);

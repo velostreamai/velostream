@@ -369,7 +369,7 @@ impl WatermarkManager {
                     // Calculate which window this record should have belonged to
                     let event_time = record.event_time.unwrap_or_else(|| {
                         DateTime::from_timestamp_millis(record.timestamp)
-                            .unwrap_or_else(|| Utc::now())
+                            .unwrap_or_else(Utc::now)
                     });
                     LateDataAction::UpdatePrevious {
                         window_end: event_time,
@@ -381,7 +381,7 @@ impl WatermarkManager {
 
             LateDataStrategy::Custom(handler) => {
                 let lateness = self.calculate_lateness(record).unwrap_or(Duration::ZERO);
-                let watermark = self.get_global_watermark().unwrap_or_else(|| Utc::now());
+                let watermark = self.get_global_watermark().unwrap_or_else(Utc::now);
 
                 handler.handle_late_record(record.clone(), watermark, lateness)
             }

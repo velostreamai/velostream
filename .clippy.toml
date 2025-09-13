@@ -1,0 +1,10 @@
+# Clippy configuration for FerrisStreams
+# Allow certain patterns that are common in streaming frameworks
+
+# Allow breaking exported API during development
+avoid-breaking-exported-api = true
+
+# Allow some complex patterns for performance-critical code
+too-many-arguments-threshold = 10
+type-complexity-threshold = 500
+cognitive-complexity-threshold = 50
