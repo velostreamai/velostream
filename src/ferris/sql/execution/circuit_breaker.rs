@@ -204,20 +204,21 @@ impl CircuitBreaker {
             Ok(operation())
         } else {
             // Use timeout with spawn_blocking to handle synchronous operations properly
-            match tokio::time::timeout(self.config.operation_timeout,
-                tokio::task::spawn_blocking(operation)
-            ).await {
-                Ok(task_result) => {
-                    match task_result {
-                        Ok(op_result) => Ok(op_result),
-                        Err(join_error) => Ok(Err(StreamingError::MessagePassingError {
-                            operation: "circuit_breaker_task_join".to_string(),
-                            message: format!("Task execution failed: {}", join_error),
-                            retry_possible: true,
-                        })),
-                    }
-                }
-                Err(_timeout_error) => Err(()) // Timeout occurred
+            match tokio::time::timeout(
+                self.config.operation_timeout,
+                tokio::task::spawn_blocking(operation),
+            )
+            .await
+            {
+                Ok(task_result) => match task_result {
+                    Ok(op_result) => Ok(op_result),
+                    Err(join_error) => Ok(Err(StreamingError::MessagePassingError {
+                        operation: "circuit_breaker_task_join".to_string(),
+                        message: format!("Task execution failed: {}", join_error),
+                        retry_possible: true,
+                    })),
+                },
+                Err(_timeout_error) => Err(()), // Timeout occurred
             }
         };
         let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
