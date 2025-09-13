@@ -544,7 +544,8 @@ mod tests {
             assert_eq!(stats.total_successes, 0);
             assert_eq!(stats.total_failures, 1);
             assert_eq!(stats.consecutive_failures, 1);
-        }).await;
+        })
+        .await;
 
         assert!(test_result.is_ok(), "Test timed out after 5 seconds");
     }
@@ -583,7 +584,8 @@ mod tests {
                 })
                 .await;
             assert_eq!(breaker.get_state(), CircuitBreakerState::Open);
-        }).await;
+        })
+        .await;
 
         assert!(test_result.is_ok(), "Test timed out after 8 seconds");
     }

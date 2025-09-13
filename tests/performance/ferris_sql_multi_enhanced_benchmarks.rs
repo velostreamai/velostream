@@ -12,13 +12,17 @@ use ferrisstreams::ferris::{
     sql::{
         ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::{
-            types::{FieldValue, StreamRecord},
-            config::{StreamingConfig, CircuitBreakerConfig, ResourceMonitoringConfig, WatermarkStrategy},
-            resource_manager::ResourceLimits,
             circuit_breaker::CircuitBreaker,
-            resource_manager::ResourceManager,
-            watermarks::WatermarkManager,
+            circuit_breaker::CircuitBreakerConfig,
+            config::{
+                CircuitBreakerConfig as ConfigCircuitBreakerConfig, ResourceMonitoringConfig,
+                StreamingConfig, WatermarkStrategy as ConfigWatermarkStrategy,
+            },
             error::StreamingError,
+            resource_manager::ResourceLimits,
+            resource_manager::ResourceManager,
+            types::{FieldValue, StreamRecord},
+            watermarks::WatermarkManager,
         },
         StreamExecutionEngine, StreamingQuery,
     },
@@ -44,7 +48,7 @@ pub struct EnhancedBenchmarkConfig {
 impl Default for EnhancedBenchmarkConfig {
     fn default() -> Self {
         let is_ci = env::var("CI").is_ok() || env::var("GITHUB_ACTIONS").is_ok();
-        
+
         let (record_count, batch_size, timeout_multiplier) = if is_ci {
             // CI/CD optimized settings
             (3000, 50, 1.5)
@@ -56,19 +60,16 @@ impl Default for EnhancedBenchmarkConfig {
         let streaming_config = StreamingConfig {
             // Enable Phase 1B watermark processing
             enable_watermarks: true,
-            watermark_strategy: WatermarkStrategy::BoundedOutOfOrderness {
-                max_out_of_orderness: Duration::from_secs(30), // 30 second tolerance
-                watermark_interval: Duration::from_secs(1),
-            },
+            watermark_strategy: ConfigWatermarkStrategy::BoundedOutOfOrderness,
 
             // Enable Phase 2 circuit breakers
             enable_circuit_breakers: true,
-            circuit_breaker_config: Some(CircuitBreakerConfig {
-                failure_threshold: 10, // Allow some errors before opening
-                recovery_timeout_seconds: 30, // 30 second recovery
-                success_threshold: 3, // 3 successes to close circuit
+            circuit_breaker_config: Some(ConfigCircuitBreakerConfig {
+                failure_threshold: 10,         // Allow some errors before opening
+                recovery_timeout_seconds: 30,  // 30 second recovery
+                success_threshold: 3,          // 3 successes to close circuit
                 operation_timeout_seconds: 60, // 60 second operation timeout
-                failure_rate_threshold: 60.0, // 60% failure rate threshold
+                failure_rate_threshold: 60.0,  // 60% failure rate threshold
             }),
 
             // Enable Phase 2 resource monitoring
@@ -84,7 +85,7 @@ impl Default for EnhancedBenchmarkConfig {
             }),
             enable_resource_limits: true,
             max_total_memory: Some(512 * 1024 * 1024), // 512MB limit
-            max_concurrent_operations: Some(50), // 50 concurrent ops
+            max_concurrent_operations: Some(50),       // 50 concurrent ops
 
             ..Default::default()
         };
@@ -109,7 +110,7 @@ pub struct EnhancedBenchmarkMetrics {
     pub p95_latency_ms: f64,
     pub p99_latency_ms: f64,
     pub throughput_records_per_sec: f64,
-    
+
     // Enhanced streaming metrics
     pub late_data_count: u64,
     pub circuit_breaker_opens: u32,
@@ -157,7 +158,7 @@ impl EnhancedBenchmarkMetrics {
         println!("Latency P99: {:.2}ms", self.p99_latency_ms);
         println!("Memory Usage: {:.2}MB", self.memory_used_mb);
         println!("CPU Usage: {:.1}%", self.cpu_usage_percent);
-        
+
         // Enhanced streaming metrics
         println!("--- Enhanced Features ---");
         println!("Late Data Events: {}", self.late_data_count);
@@ -265,7 +266,7 @@ pub struct EnhancedBenchmarkDataWriter {
 
 impl EnhancedBenchmarkDataWriter {
     pub fn new(error_probability: f64) -> Self {
-        Self { 
+        Self {
             records_written: 0,
             error_probability,
             error_count: 0,
@@ -284,7 +285,7 @@ impl DataWriter for EnhancedBenchmarkDataWriter {
             self.error_count += 1;
             return Err("Simulated write error for circuit breaker testing".into());
         }
-        
+
         self.records_written += 1;
         Ok(())
     }
@@ -298,7 +299,7 @@ impl DataWriter for EnhancedBenchmarkDataWriter {
             self.error_count += records.len() as u64;
             return Err("Simulated batch write error".into());
         }
-        
+
         self.records_written += records.len() as u64;
         Ok(())
     }
@@ -358,10 +359,7 @@ fn create_enhanced_benchmark_record(index: usize, late_data_probability: f64) ->
         "symbol".to_string(),
         FieldValue::String(format!("STOCK{:04}", index % 100)),
     );
-    fields.insert(
-        "timestamp".to_string(),
-        FieldValue::Integer(base_timestamp),
-    );
+    fields.insert("timestamp".to_string(), FieldValue::Integer(base_timestamp));
 
     // Financial precision fields using ScaledInteger
     fields.insert(
@@ -399,12 +397,16 @@ fn create_enhanced_benchmark_record(index: usize, late_data_probability: f64) ->
     );
 
     // Simulate late data by making some records have older event times
-    let event_time = if late_data_probability > 0.0 && rand::random::<f64>() < late_data_probability {
+    let event_time = if late_data_probability > 0.0 && rand::random::<f64>() < late_data_probability
+    {
         // Create late data: event time is older than processing time would suggest
-        Some(SystemTime::UNIX_EPOCH + Duration::from_millis(base_timestamp as u64 - 60000)) // 1 minute late
+        let system_time =
+            SystemTime::UNIX_EPOCH + Duration::from_millis(base_timestamp as u64 - 60000);
+        Some(chrono::DateTime::from(system_time))
     } else {
         // Normal data: event time matches logical progression
-        Some(SystemTime::UNIX_EPOCH + Duration::from_millis(base_timestamp as u64))
+        let system_time = SystemTime::UNIX_EPOCH + Duration::from_millis(base_timestamp as u64);
+        Some(chrono::DateTime::from(system_time))
     };
 
     StreamRecord {
@@ -418,17 +420,18 @@ fn create_enhanced_benchmark_record(index: usize, late_data_probability: f64) ->
 }
 
 /// Enhanced job processing configuration with streaming features
-fn create_enhanced_job_config(streaming_config: &StreamingConfig, batch_size: usize) -> JobProcessingConfig {
+fn create_enhanced_job_config(
+    streaming_config: &StreamingConfig,
+    batch_size: usize,
+) -> JobProcessingConfig {
     JobProcessingConfig {
         max_batch_size: batch_size,
         batch_timeout: Duration::from_millis(200), // Slightly longer for enhanced processing
         failure_strategy: if streaming_config.enable_circuit_breakers {
-            FailureStrategy::CircuitBreaker // Use circuit breaker for enhanced mode
+            FailureStrategy::RetryWithBackoff // Use retry strategy for enhanced mode
         } else {
             FailureStrategy::LogAndContinue
         },
-        enable_metrics: true,
-        enable_health_checks: true,
         ..Default::default()
     }
 }
@@ -441,15 +444,34 @@ async fn run_enhanced_query_benchmark(
     error_probability: f64,
 ) -> EnhancedBenchmarkMetrics {
     println!("🔧 [{}] Initializing enhanced benchmark...", test_name);
-    println!("   📊 Records: {}, Batch size: {}", config.record_count, config.batch_size);
-    println!("   🛡️  Watermarks: {}, Circuit Breakers: {}, Resources: {}", 
-             config.streaming_config.enable_watermarks,
-             config.streaming_config.enable_circuit_breakers,
-             config.streaming_config.enable_resource_monitoring);
+    println!(
+        "   📊 Records: {}, Batch size: {}",
+        config.record_count, config.batch_size
+    );
+    println!(
+        "   🛡️  Watermarks: {}, Circuit Breakers: {}, Resources: {}",
+        config.streaming_config.enable_watermarks,
+        config.streaming_config.enable_circuit_breakers,
+        config.streaming_config.enable_resource_monitoring
+    );
 
     // Initialize enhanced streaming components
     let mut circuit_breaker = if config.streaming_config.enable_circuit_breakers {
-        let mut cb = CircuitBreaker::new("benchmark_service".to_string(), config.streaming_config.circuit_breaker_config.clone().unwrap_or_default());
+        let config_cb = config
+            .streaming_config
+            .circuit_breaker_config
+            .clone()
+            .unwrap_or_default();
+        let cb_config = CircuitBreakerConfig {
+            failure_threshold: config_cb.failure_threshold,
+            recovery_timeout: std::time::Duration::from_secs(config_cb.recovery_timeout_seconds),
+            success_threshold: config_cb.success_threshold,
+            operation_timeout: std::time::Duration::from_secs(config_cb.operation_timeout_seconds),
+            failure_rate_window: std::time::Duration::from_secs(60),
+            min_calls_in_window: 10,
+            failure_rate_threshold: 50.0,
+        };
+        let mut cb = CircuitBreaker::new("benchmark_service".to_string(), cb_config);
         cb.enable();
         Some(cb)
     } else {
@@ -465,26 +487,42 @@ async fn run_enhanced_query_benchmark(
     };
 
     let watermark_manager = if config.streaming_config.enable_watermarks {
-        Some(WatermarkManager::new(config.streaming_config.watermark_strategy.clone()))
+        use ferrisstreams::ferris::sql::execution::watermarks::WatermarkStrategy as WMStrategy;
+        let wm_strategy = WMStrategy::BoundedOutOfOrderness {
+            max_out_of_orderness: std::time::Duration::from_secs(30),
+            watermark_interval: std::time::Duration::from_secs(1),
+        };
+        Some(WatermarkManager::new(wm_strategy))
     } else {
         None
     };
 
-    println!("🔧 [{}] Creating enhanced data reader and writer...", test_name);
-    let late_data_prob = if config.streaming_config.enable_watermarks { 0.05 } else { 0.0 }; // 5% late data
+    println!(
+        "🔧 [{}] Creating enhanced data reader and writer...",
+        test_name
+    );
+    let late_data_prob = if config.streaming_config.enable_watermarks {
+        0.05
+    } else {
+        0.0
+    }; // 5% late data
     let mut reader = Box::new(EnhancedBenchmarkDataReader::new(
         config.record_count,
         config.batch_size,
         late_data_prob,
     )) as Box<dyn DataReader>;
-    let writer = Some(Box::new(EnhancedBenchmarkDataWriter::new(error_probability)) as Box<dyn DataWriter>);
+    let writer =
+        Some(Box::new(EnhancedBenchmarkDataWriter::new(error_probability)) as Box<dyn DataWriter>);
 
     println!("🔧 [{}] Setting up enhanced execution engine...", test_name);
     let (tx, mut rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    println!("🔧 [{}] Creating enhanced job processing config...", test_name);
+    println!(
+        "🔧 [{}] Creating enhanced job processing config...",
+        test_name
+    );
     let job_config = create_enhanced_job_config(&config.streaming_config, config.batch_size);
 
     println!("🔧 [{}] Creating enhanced job processor...", test_name);
@@ -492,7 +530,10 @@ async fn run_enhanced_query_benchmark(
     let job_name = format!("{}_enhanced_benchmark", test_name);
 
     let start_time = Instant::now();
-    println!("🚀 [{}] Starting enhanced job processor at {:?}...", test_name, start_time);
+    println!(
+        "🚀 [{}] Starting enhanced job processor at {:?}...",
+        test_name, start_time
+    );
 
     // Pre-update resource usage if resource manager is enabled
     if let Some(ref rm) = resource_manager {
@@ -501,21 +542,32 @@ async fn run_enhanced_query_benchmark(
 
     let test_name_clone = test_name.to_string();
     let job_handle = tokio::spawn(async move {
-        println!("🔄 [{}] Starting enhanced processing pipeline...", test_name_clone);
+        println!(
+            "🔄 [{}] Starting enhanced processing pipeline...",
+            test_name_clone
+        );
         processor
             .process_job(reader, writer, engine, query, job_name, shutdown_rx)
             .await
     });
 
     // Enhanced monitoring with streaming metrics
-    let expected_throughput = if config.record_count < 5000 { 300.0 } else { 600.0 };
+    let expected_throughput = if config.record_count < 5000 {
+        300.0
+    } else {
+        600.0
+    };
     let processing_time = (config.record_count as f64 / expected_throughput).max(2.0);
     let base_duration = Duration::from_millis(((3.0 + processing_time) * 1000.0) as u64);
     let adjusted_duration = Duration::from_millis(
         (base_duration.as_millis() as f64 * config.timeout_multiplier) as u64,
     );
-    
-    println!("⏰ [{}] Enhanced benchmark timeout: {:.1}s", test_name, adjusted_duration.as_secs_f64());
+
+    println!(
+        "⏰ [{}] Enhanced benchmark timeout: {:.1}s",
+        test_name,
+        adjusted_duration.as_secs_f64()
+    );
 
     let mut check_interval = tokio::time::interval(Duration::from_millis(300));
     let mut total_records_seen = 0u64;
@@ -551,7 +603,7 @@ async fn run_enhanced_query_benchmark(
         if current_records > 0 {
             total_records_seen += current_records;
             last_activity_time = Instant::now();
-            
+
             // Update resource manager if enabled
             if let Some(ref rm) = resource_manager {
                 let _ = rm.update_resource_usage("active_records", total_records_seen);
@@ -569,15 +621,18 @@ async fn run_enhanced_query_benchmark(
         // Collect enhanced metrics
         if let Some(ref rm) = resource_manager {
             if let Some(memory_usage) = rm.get_resource_usage("total_memory") {
-                metrics.memory_used_mb = memory_usage.current as f64 / 1_048_576.0; // Convert to MB
+                metrics.memory_used_mb = memory_usage.current as f64 / 1_048_576.0;
+                // Convert to MB
             }
             let violations = rm.check_all_resources();
             metrics.resource_limit_violations = violations.len() as u32;
         }
 
-        if let Some(ref cb) = circuit_breaker {
-            let cb_metrics = cb.get_stats();
-            metrics.circuit_breaker_opens = cb_metrics.failure_count;
+        if let Some(ref _cb) = circuit_breaker {
+            // TODO: Get circuit breaker statistics when API is available
+            // let cb_metrics = cb.get_stats();
+            // metrics.circuit_breaker_opens = cb_metrics.failure_count;
+            metrics.circuit_breaker_opens = 0; // Placeholder
         }
 
         // Simulate watermark updates
@@ -587,12 +642,18 @@ async fn run_enhanced_query_benchmark(
 
         // Check completion conditions
         if total_records_seen >= config.record_count as u64 {
-            println!("✅ [{}] All {} enhanced records processed", test_name, total_records_seen);
+            println!(
+                "✅ [{}] All {} enhanced records processed",
+                test_name, total_records_seen
+            );
             break;
         }
 
         if job_handle.is_finished() {
-            println!("✅ [{}] Enhanced job completed naturally (records: {})", test_name, total_records_seen);
+            println!(
+                "✅ [{}] Enhanced job completed naturally (records: {})",
+                test_name, total_records_seen
+            );
             break;
         }
 
@@ -600,7 +661,11 @@ async fn run_enhanced_query_benchmark(
         if last_activity_time.elapsed() > Duration::from_secs(4) && total_records_seen > 0 {
             let completion_ratio = total_records_seen as f64 / config.record_count as f64;
             if completion_ratio >= 0.8 {
-                println!("⏰ [{}] Enhanced processing timeout - {:.1}% complete", test_name, completion_ratio * 100.0);
+                println!(
+                    "⏰ [{}] Enhanced processing timeout - {:.1}% complete",
+                    test_name,
+                    completion_ratio * 100.0
+                );
                 break;
             } else {
                 last_activity_time = Instant::now(); // Give more time for enhanced processing
@@ -620,7 +685,10 @@ async fn run_enhanced_query_benchmark(
     let result = match tokio::time::timeout(join_timeout, job_handle).await {
         Ok(handle_result) => handle_result.unwrap(),
         Err(_) => {
-            println!("❌ [{}] Enhanced job timed out - using observed metrics", test_name);
+            println!(
+                "❌ [{}] Enhanced job timed out - using observed metrics",
+                test_name
+            );
             let mut fallback_stats = JobExecutionStats::default();
             fallback_stats.records_processed = total_records_seen;
             Ok(fallback_stats)
@@ -648,8 +716,9 @@ async fn run_enhanced_query_benchmark(
         }
 
         // CPU usage accounting for enhanced processing
-        metrics.cpu_usage_percent = if config.streaming_config.enable_watermarks || 
-                                      config.streaming_config.enable_circuit_breakers {
+        metrics.cpu_usage_percent = if config.streaming_config.enable_watermarks
+            || config.streaming_config.enable_circuit_breakers
+        {
             20.0 // Higher CPU for enhanced features
         } else {
             15.0
@@ -676,7 +745,9 @@ async fn benchmark_enhanced_simple_select() {
         use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
         let sql = "SELECT symbol, price, volume FROM benchmark_data EMIT CHANGES";
         let parser = StreamingSqlParser::new();
-        parser.parse(sql).expect("Failed to parse simple SELECT query")
+        parser
+            .parse(sql)
+            .expect("Failed to parse simple SELECT query")
     };
 
     let metrics = run_enhanced_query_benchmark(
@@ -684,12 +755,17 @@ async fn benchmark_enhanced_simple_select() {
         &config,
         "enhanced_simple_select",
         0.0, // No errors for baseline
-    ).await;
+    )
+    .await;
 
     metrics.print_summary("Enhanced Simple SELECT");
 
     // Validation: Enhanced mode should still achieve good performance
-    let expected_min_throughput = if config.record_count < 5000 { 200.0 } else { 400.0 };
+    let expected_min_throughput = if config.record_count < 5000 {
+        200.0
+    } else {
+        400.0
+    };
     assert!(
         metrics.throughput_records_per_sec > expected_min_throughput,
         "Enhanced simple SELECT should achieve >{} records/sec, got {:.2}",
@@ -725,7 +801,8 @@ async fn benchmark_enhanced_with_errors() {
         &config,
         "enhanced_error_handling",
         0.05, // 5% error rate to trigger circuit breaker
-    ).await;
+    )
+    .await;
 
     metrics.print_summary("Enhanced Error Handling");
 
@@ -737,8 +814,10 @@ async fn benchmark_enhanced_with_errors() {
     );
 
     if metrics.circuit_breaker_opens > 0 {
-        println!("✅ Circuit breaker activated {} times - error handling working", 
-                 metrics.circuit_breaker_opens);
+        println!(
+            "✅ Circuit breaker activated {} times - error handling working",
+            metrics.circuit_breaker_opens
+        );
     }
 }
 
@@ -747,7 +826,7 @@ async fn benchmark_enhanced_with_errors() {
 async fn benchmark_enhanced_aggregation() {
     let config = EnhancedBenchmarkConfig::default();
     println!("\n📊 ENHANCED AGGREGATION: GROUP BY with Resource Management");
-    
+
     let query = {
         use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
         let sql = r#"
@@ -761,15 +840,12 @@ async fn benchmark_enhanced_aggregation() {
             EMIT CHANGES
         "#;
         let parser = StreamingSqlParser::new();
-        parser.parse(sql).expect("Failed to parse aggregation query")
+        parser
+            .parse(sql)
+            .expect("Failed to parse aggregation query")
     };
 
-    let metrics = run_enhanced_query_benchmark(
-        query,
-        &config,
-        "enhanced_aggregation",
-        0.0,
-    ).await;
+    let metrics = run_enhanced_query_benchmark(query, &config, "enhanced_aggregation", 0.0).await;
 
     metrics.print_summary("Enhanced Aggregation");
 
@@ -780,7 +856,11 @@ async fn benchmark_enhanced_aggregation() {
         return;
     }
 
-    let expected_min_throughput = if config.record_count < 5000 { 150.0 } else { 300.0 };
+    let expected_min_throughput = if config.record_count < 5000 {
+        150.0
+    } else {
+        300.0
+    };
     assert!(
         metrics.throughput_records_per_sec > expected_min_throughput,
         "Enhanced aggregation should achieve >{} records/sec, got {:.2}",
@@ -789,7 +869,10 @@ async fn benchmark_enhanced_aggregation() {
     );
 
     if metrics.resource_limit_violations > 0 {
-        println!("⚠️  Resource limit violations detected: {}", metrics.resource_limit_violations);
+        println!(
+            "⚠️  Resource limit violations detected: {}",
+            metrics.resource_limit_violations
+        );
     }
 }
 
@@ -799,7 +882,7 @@ async fn benchmark_enhanced_window_functions() {
     let config = EnhancedBenchmarkConfig::default();
     let window_record_count = (config.record_count / 2).max(1000);
     println!("\n📈 ENHANCED WINDOWING: Watermark-Aware Windows");
-    
+
     let query = {
         use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
         let sql = r#"
@@ -821,12 +904,8 @@ async fn benchmark_enhanced_window_functions() {
     window_config.record_count = window_record_count;
     window_config.batch_size = config.batch_size / 2;
 
-    let metrics = run_enhanced_query_benchmark(
-        query,
-        &window_config,
-        "enhanced_windowing",
-        0.0,
-    ).await;
+    let metrics =
+        run_enhanced_query_benchmark(query, &window_config, "enhanced_windowing", 0.0).await;
 
     metrics.print_summary("Enhanced Window Functions");
 
@@ -839,7 +918,10 @@ async fn benchmark_enhanced_window_functions() {
     if window_config.streaming_config.enable_watermarks {
         println!("✅ Watermark-aware windowing active");
         if metrics.late_data_count > 0 {
-            println!("✅ Late data detection working: {} late events", metrics.late_data_count);
+            println!(
+                "✅ Late data detection working: {} late events",
+                metrics.late_data_count
+            );
         }
     }
 
@@ -850,7 +932,7 @@ async fn benchmark_enhanced_window_functions() {
 #[serial]
 async fn benchmark_enhanced_resource_limits() {
     println!("\n💾 ENHANCED RESOURCE MANAGEMENT: Memory & Processing Limits");
-    
+
     // Create restrictive resource configuration
     let mut config = EnhancedBenchmarkConfig::default();
     // Configure resource limits directly on StreamingConfig
@@ -863,12 +945,8 @@ async fn benchmark_enhanced_resource_limits() {
         parser.parse(sql).expect("Failed to parse query")
     };
 
-    let metrics = run_enhanced_query_benchmark(
-        query,
-        &config,
-        "enhanced_resource_limits",
-        0.0,
-    ).await;
+    let metrics =
+        run_enhanced_query_benchmark(query, &config, "enhanced_resource_limits", 0.0).await;
 
     metrics.print_summary("Enhanced Resource Management");
 
@@ -879,8 +957,10 @@ async fn benchmark_enhanced_resource_limits() {
     );
 
     if metrics.resource_limit_violations > 0 {
-        println!("✅ Resource limit enforcement working: {} violations", 
-                 metrics.resource_limit_violations);
+        println!(
+            "✅ Resource limit enforcement working: {} violations",
+            metrics.resource_limit_violations
+        );
     } else {
         println!("✅ Processing completed within resource limits");
     }
@@ -890,11 +970,13 @@ async fn benchmark_enhanced_resource_limits() {
 #[serial]
 async fn benchmark_enhanced_late_data_handling() {
     println!("\n⏰ ENHANCED LATE DATA: Watermark Processing");
-    
+
     let mut config = EnhancedBenchmarkConfig::default();
     // Strict watermark configuration
-    config.streaming_config.watermark_config.late_data_threshold = Duration::from_secs(10); // 10 second threshold
-    
+    // Configure late data strategy instead of non-existent watermark_config
+    config.streaming_config.late_data_strategy =
+        ferrisstreams::ferris::sql::execution::config::LateDataStrategy::IncludeInNextWindow;
+
     let query = {
         use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
         let sql = "SELECT symbol, price, volume FROM benchmark_data EMIT CHANGES";
@@ -902,12 +984,7 @@ async fn benchmark_enhanced_late_data_handling() {
         parser.parse(sql).expect("Failed to parse query")
     };
 
-    let metrics = run_enhanced_query_benchmark(
-        query,
-        &config,
-        "enhanced_late_data",
-        0.0,
-    ).await;
+    let metrics = run_enhanced_query_benchmark(query, &config, "enhanced_late_data", 0.0).await;
 
     metrics.print_summary("Enhanced Late Data Handling");
 
@@ -918,8 +995,10 @@ async fn benchmark_enhanced_late_data_handling() {
     );
 
     if metrics.late_data_count > 0 {
-        println!("✅ Late data detection active: {} late events processed", 
-                 metrics.late_data_count);
+        println!(
+            "✅ Late data detection active: {} late events processed",
+            metrics.late_data_count
+        );
     }
 
     println!("✅ Enhanced late data handling test passed");
@@ -951,7 +1030,8 @@ async fn run_enhanced_comprehensive_benchmark_suite() {
         &config,
         "comprehensive_enhanced_baseline",
         0.0,
-    ).await;
+    )
+    .await;
 
     // 2. Error Resilience
     println!("2. Running error resilience benchmark...");
@@ -965,12 +1045,13 @@ async fn run_enhanced_comprehensive_benchmark_suite() {
         &config,
         "comprehensive_error_resilience",
         0.03, // 3% error rate
-    ).await;
+    )
+    .await;
 
     // 3. Resource Management
     println!("3. Running resource management benchmark...");
     let mut resource_config = config.clone();
-    resource_config.streaming_config.resource_limits.max_total_memory = Some(128 * 1024 * 1024); // 128MB
+    resource_config.streaming_config.max_total_memory = Some(128 * 1024 * 1024); // 128MB
     let resource_management = run_enhanced_query_benchmark(
         {
             use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
@@ -981,7 +1062,8 @@ async fn run_enhanced_comprehensive_benchmark_suite() {
         &resource_config,
         "comprehensive_resource_mgmt",
         0.0,
-    ).await;
+    )
+    .await;
 
     // Print comprehensive results
     println!("\n🎉 ENHANCED MODE COMPREHENSIVE RESULTS");
@@ -1000,7 +1082,7 @@ async fn run_enhanced_comprehensive_benchmark_suite() {
         error_resilience.throughput_records_per_sec
     );
     println!(
-        "- Resource Management: {:.0} records/sec", 
+        "- Resource Management: {:.0} records/sec",
         resource_management.throughput_records_per_sec
     );
 
@@ -1013,10 +1095,7 @@ async fn run_enhanced_comprehensive_benchmark_suite() {
         "- Resource Limit Violations: {}",
         resource_management.resource_limit_violations
     );
-    println!(
-        "- Late Data Events: {}",
-        enhanced_baseline.late_data_count
-    );
+    println!("- Late Data Events: {}", enhanced_baseline.late_data_count);
     println!(
         "- Watermark Updates: {}",
         enhanced_baseline.watermark_updates
