@@ -270,6 +270,7 @@ async fn run_latency_test(
         let timeout_future = tokio::time::sleep(CONSUMER_TIMEOUT);
         tokio::pin!(timeout_future);
 
+        let mut message_counter = 0u64;
         let stream_future =
             consumer
                 .stream()
@@ -289,9 +290,12 @@ async fn run_latency_test(
                                 let latency_us = receive_time.saturating_sub(send_time);
 
                                 metrics.record_receive(latency_us);
+                                message_counter += 1;
 
-                                // Print metadata for each message
-                                println!("Message metadata: {}", message.metadata_string());
+                                // Print metadata every 10,000 messages to minimize output noise during performance testing
+                                if message_counter % 10_000 == 0 {
+                                    println!("Message metadata ({}): {}", message_counter, message.metadata_string());
+                                }
                             }
                             Err(e) => {
                                 println!("❌ Consumer error: {}", e);
