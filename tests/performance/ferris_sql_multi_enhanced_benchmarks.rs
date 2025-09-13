@@ -951,10 +951,8 @@ async fn benchmark_enhanced_resource_limits() {
     metrics.print_summary("Enhanced Resource Management");
 
     // Should either process successfully or hit resource limits gracefully
-    assert!(
-        metrics.records_processed >= 0, // Allow 0 if resource limits prevent processing
-        "Resource management should handle limits gracefully"
-    );
+    // Note: records_processed is u64, so it's always >= 0
+    // Allow 0 if resource limits prevent processing
 
     if metrics.resource_limit_violations > 0 {
         println!(
