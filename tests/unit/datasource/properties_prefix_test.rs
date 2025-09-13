@@ -1,6 +1,6 @@
 //! Tests for datasource property loading with source./sink. prefix support
 
-use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
+use ferrisstreams::ferris::datasource::file::{FileDataSink, FileDataSource};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use std::collections::HashMap;
 
@@ -243,7 +243,7 @@ mod properties_prefix_tests {
         props.insert("sink.append".to_string(), "true".to_string());
         props.insert("sink.has_headers".to_string(), "false".to_string());
 
-        let file_sink = FileSink::from_properties(&props);
+        let file_sink = FileDataSink::from_properties(&props);
 
         // Verify configuration was applied
         let config = file_sink.config().unwrap();
@@ -262,7 +262,7 @@ mod properties_prefix_tests {
         props.insert("format".to_string(), "csv".to_string());
         props.insert("append".to_string(), "false".to_string());
 
-        let file_sink = FileSink::from_properties(&props);
+        let file_sink = FileDataSink::from_properties(&props);
 
         let config = file_sink.config().unwrap();
         assert_eq!(config.path, "output.json"); // Default
@@ -279,7 +279,7 @@ mod properties_prefix_tests {
         let mut props = HashMap::new();
         props.insert("sink.format".to_string(), "jsonlines".to_string());
 
-        let file_sink = FileSink::from_properties(&props);
+        let file_sink = FileDataSink::from_properties(&props);
 
         let config = file_sink.config().unwrap();
         assert!(matches!(

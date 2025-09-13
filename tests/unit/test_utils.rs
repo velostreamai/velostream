@@ -1,5 +1,6 @@
 // tests/ferris/kafka/test_utils.rs
 use crate::unit::test_messages::*;
+use ferrisstreams::ferris::kafka::serialization::Serializer;
 use ferrisstreams::ferris::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -127,8 +128,8 @@ pub(crate) async fn send_and_flush<K, V, KS, VS>(
     headers: Headers,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    KS: ferrisstreams::ferris::kafka::Serializer<K>,
-    VS: ferrisstreams::ferris::kafka::Serializer<V>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
 {
     producer.send(key, value, headers, None).await?;
     producer.flush(5000)?;
@@ -208,8 +209,8 @@ pub(crate) fn safe_commit<K, V, KS, VS>(
     consumer: &KafkaConsumer<K, V, KS, VS>,
     received_count: usize,
 ) where
-    KS: ferrisstreams::ferris::kafka::Serializer<K>,
-    VS: ferrisstreams::ferris::kafka::Serializer<V>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
 {
     if received_count > 0 {
         let _ = consumer.commit(); // Make commit optional

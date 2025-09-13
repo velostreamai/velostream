@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::datasource::{
-    config::{legacy::CompressionType, FileFormat, SinkConfig},
-    file::data_sink::FileSink,
+    config::{types::CompressionType, FileFormat, SinkConfig},
+    file::data_sink::FileDataSink,
     kafka::data_sink::KafkaDataSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,
@@ -94,7 +94,7 @@ async fn test_file_explicit_compression() -> Result<(), Box<dyn std::error::Erro
         "\n1. Testing explicit compression with MemoryBased strategy (should remain explicit)..."
     );
 
-    let mut file_sink = FileSink::new();
+    let mut file_sink = FileDataSink::new();
 
     let sink_config = SinkConfig::File {
         path: "./test_explicit_compression.json".to_string(),
@@ -120,7 +120,7 @@ async fn test_file_explicit_compression() -> Result<(), Box<dyn std::error::Erro
     // Test 2: No explicit compression with MemoryBased strategy should get suggested compression
     info!("\n2. Testing no explicit compression with MemoryBased strategy (should get suggested gzip)...");
 
-    let mut file_sink_auto = FileSink::new();
+    let mut file_sink_auto = FileDataSink::new();
 
     let sink_config_auto = SinkConfig::File {
         path: "./test_auto_compression.json".to_string(),

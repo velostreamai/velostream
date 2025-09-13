@@ -8,9 +8,8 @@
 
 use ferrisstreams::ferris::{
     datasource::{DataReader, DataWriter},
-    server::processors::{common::*, simple::*, transactional::*},
+    server::processors::{common::*, simple::*},
     sql::{
-        ast::{EmitMode, SelectField, StreamSource, WindowSpec},
         execution::{
             circuit_breaker::CircuitBreaker,
             circuit_breaker::CircuitBreakerConfig,
@@ -18,7 +17,6 @@ use ferrisstreams::ferris::{
                 CircuitBreakerConfig as ConfigCircuitBreakerConfig, ResourceMonitoringConfig,
                 StreamingConfig, WatermarkStrategy as ConfigWatermarkStrategy,
             },
-            error::StreamingError,
             resource_manager::ResourceLimits,
             resource_manager::ResourceManager,
             types::{FieldValue, StreamRecord},

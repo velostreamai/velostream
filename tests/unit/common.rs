@@ -3,12 +3,15 @@
 
 // Re-export commonly used Kafka items
 pub use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+pub use ferrisstreams::ferris::kafka::kafka_error::KafkaClientError;
 pub use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
 pub use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 pub use ferrisstreams::ferris::kafka::{
-    ConsumerBuilder, Headers, JsonSerializer, KafkaClientError, KafkaConsumer, KafkaProducer,
-    Message, ProducerBuilder, SerializationError, Serializer,
+    Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message, ProducerBuilder,
 };
+// Import from correct modules
+pub use ferrisstreams::ferris::kafka::serialization::Serializer;
+pub use ferrisstreams::ferris::serialization::SerializationError;
 
 // Re-export commonly used external crates
 pub use chrono::Utc;

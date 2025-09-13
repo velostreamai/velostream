@@ -88,6 +88,7 @@ pub use avro::AvroFormat;
 pub mod avro_codec;
 
 mod protobuf;
+pub use protobuf::ProtobufFormat;
 
 pub mod protobuf_codec;
 

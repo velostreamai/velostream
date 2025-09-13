@@ -263,7 +263,7 @@ impl ConfigSchemaProvider for FileSink {
 
 #### **3. Current BatchConfig Implementation Support**
 ```rust
-// Existing implementation in src/ferris/datasource/config/legacy.rs
+// Existing implementation in src/ferris/datasource/config/types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchConfig {
     pub strategy: BatchStrategy,

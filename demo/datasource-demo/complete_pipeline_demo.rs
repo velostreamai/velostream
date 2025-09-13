@@ -24,7 +24,7 @@
 use ferrisstreams::ferris::datasource::file::config::FileFormat;
 use ferrisstreams::ferris::datasource::file::{
     config::{CompressionType, FileSinkConfig, FileSourceConfig},
-    FileDataSource, FileSink,
+    FileDataSink, FileDataSource,
 };
 use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
 use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
@@ -355,7 +355,7 @@ async fn run_kafka_to_file_pipeline(
         .with_rotation_size(1024 * 1024) // 1MB rotation
         .with_compression(CompressionType::Gzip);
 
-    let mut file_sink = FileSink::new();
+    let mut file_sink = FileDataSink::new();
     file_sink
         .initialize(sink_config.into())
         .await

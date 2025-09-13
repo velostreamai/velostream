@@ -213,7 +213,6 @@ Apache Avro with **financial precision support** using decimal string fields.
 
 **Financial Schema Example (Industry Standard):**
 ```rust
-#[cfg(feature = "avro")]
 use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
 
 // Apache Flink/Kafka Connect compatible decimal schema
@@ -316,7 +315,6 @@ message FieldValue {
 
 **Usage Example:**
 ```rust
-#[cfg(feature = "protobuf")]
 use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
 
 let format = SerializationFormatFactory::create_format("protobuf")?;

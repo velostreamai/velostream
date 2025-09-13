@@ -9,9 +9,9 @@ pub mod unified;
 // Re-export commonly used types from the unified module
 
 // Import legacy configuration types
-pub mod legacy;
+pub mod types;
 
 // Re-export configuration types from the legacy module for compatibility
-pub use legacy::{
+pub use types::{
     BatchConfig, BatchStrategy, ConnectionString, FileFormat, SinkConfig, SourceConfig,
 };

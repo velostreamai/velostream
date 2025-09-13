@@ -5,7 +5,7 @@
 
 use crate::ferris::config::schema_registry::validate_configuration;
 use crate::ferris::config::HierarchicalSchemaRegistry;
-use crate::ferris::datasource::file::{FileDataSource, FileSink};
+use crate::ferris::datasource::file::{FileDataSink, FileDataSource};
 use crate::ferris::datasource::kafka::data_sink::KafkaDataSink;
 use crate::ferris::datasource::kafka::data_source::KafkaDataSource;
 use crate::ferris::kafka::serialization_format::SerializationConfig;
@@ -93,7 +93,7 @@ impl QueryAnalyzer {
         schema_registry.register_source_schema::<KafkaDataSource>();
         schema_registry.register_source_schema::<FileDataSource>();
         schema_registry.register_sink_schema::<KafkaDataSink>();
-        schema_registry.register_sink_schema::<FileSink>();
+        schema_registry.register_sink_schema::<FileDataSink>();
 
         Self {
             default_group_id,

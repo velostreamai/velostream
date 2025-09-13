@@ -1,7 +1,7 @@
 //! Tests for aggregation state management
 
 use ferrisstreams::ferris::sql::ast::Expr;
-use ferrisstreams::ferris::sql::execution::aggregation::GroupByStateManager;
+use ferrisstreams::ferris::sql::execution::aggregation::state::GroupByStateManager;
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 

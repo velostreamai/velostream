@@ -13,7 +13,7 @@
 use ferrisstreams::ferris::datasource::file::config::FileFormat;
 use ferrisstreams::ferris::datasource::file::{
     config::{CompressionType, FileSinkConfig, FileSourceConfig},
-    FileDataSource, FileSink,
+    FileDataSink, FileDataSource,
 };
 use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
 use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
@@ -299,7 +299,7 @@ async fn run_file_processing_pipeline(
         .with_rotation_size(1024 * 1024) // 1MB rotation
         .with_compression(CompressionType::Gzip);
 
-    let mut file_sink = FileSink::new();
+    let mut file_sink = FileDataSink::new();
     file_sink
         .initialize(sink_config.into())
         .await

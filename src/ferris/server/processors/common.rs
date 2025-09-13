@@ -4,7 +4,7 @@
 //! and non-transactional multi-job processors.
 
 use crate::ferris::datasource::{
-    file::{FileDataSource, FileSink},
+    file::{FileDataSink, FileDataSource},
     kafka::{KafkaDataSink, KafkaDataSource},
     DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
 };
@@ -561,7 +561,7 @@ async fn create_file_writer(
     batch_config: &Option<crate::ferris::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
     // Let FileSink handle its own configuration extraction
-    let mut datasink = FileSink::from_properties(props);
+    let mut datasink = FileDataSink::from_properties(props);
 
     // Initialize with File SinkConfig
     let config = SinkConfig::File {

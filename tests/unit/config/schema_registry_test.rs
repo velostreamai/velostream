@@ -1,11 +1,14 @@
 //! Unit tests for the self-registering configuration schema system
 
-use ferrisstreams::ferris::config::{
-    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
-    ConfigFileInheritance, ConfigSchemaProvider, ConfigValidationError, EnvironmentVariablePattern,
-    GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
+use ferrisstreams::ferris::config::schema_registry::{
+    is_schema_version_compatible, validate_config_file_inheritance, ConfigFileInheritance,
+    ConfigValidationError, EnvironmentVariablePattern,
 };
-use ferrisstreams::ferris::datasource::file::{FileDataSource, FileSink};
+use ferrisstreams::ferris::config::{
+    validate_environment_variables, ConfigSchemaProvider, GlobalSchemaContext,
+    HierarchicalSchemaRegistry, PropertyDefault,
+};
+use ferrisstreams::ferris::datasource::file::{FileDataSink, FileDataSource};
 use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use ferrisstreams::ferris::datasource::BatchConfig;
 use std::collections::HashMap;
@@ -970,13 +973,13 @@ fn test_file_data_source_registry_integration() {
 
 #[test]
 fn test_file_sink_schema_provider_basic() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Test config type ID
-    assert_eq!(FileSink::config_type_id(), "file_sink");
+    assert_eq!(FileDataSink::config_type_id(), "file_sink");
 
     // Test inheritable properties
-    let inheritable = FileSink::inheritable_properties();
+    let inheritable = FileDataSink::inheritable_properties();
     assert!(inheritable.contains(&"buffer_size_bytes"));
     assert!(inheritable.contains(&"batch.size"));
     assert!(inheritable.contains(&"batch.timeout_ms"));
@@ -985,11 +988,11 @@ fn test_file_sink_schema_provider_basic() {
     assert!(inheritable.contains(&"max_file_size_bytes"));
 
     // Test required properties
-    let required = FileSink::required_named_properties();
+    let required = FileDataSink::required_named_properties();
     assert_eq!(required, vec!["path"]);
 
     // Test optional properties with defaults
-    let optional = FileSink::optional_properties_with_defaults();
+    let optional = FileDataSink::optional_properties_with_defaults();
     assert!(optional.contains_key("format"));
     assert!(optional.contains_key("append_if_exists"));
     assert!(optional.contains_key("buffer_size_bytes"));
@@ -998,20 +1001,20 @@ fn test_file_sink_schema_provider_basic() {
     assert!(optional.contains_key("writer_threads"));
 
     // Test supports custom properties
-    assert!(FileSink::supports_custom_properties());
+    assert!(FileDataSink::supports_custom_properties());
 
     // Test global schema dependencies
-    let dependencies = FileSink::global_schema_dependencies();
+    let dependencies = FileDataSink::global_schema_dependencies();
     assert!(dependencies.contains(&"batch_config"));
     assert!(dependencies.contains(&"file_global"));
 
     // Test schema version
-    assert_eq!(FileSink::schema_version(), "2.0.0");
+    assert_eq!(FileDataSink::schema_version(), "2.0.0");
 }
 
 #[test]
 fn test_file_sink_path_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid paths
     assert!(file_sink.validate_property("path", "./output.json").is_ok());
@@ -1041,7 +1044,7 @@ fn test_file_sink_path_validation() {
 
 #[test]
 fn test_file_sink_format_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid formats
     assert!(file_sink.validate_property("format", "json").is_ok());
@@ -1060,7 +1063,7 @@ fn test_file_sink_format_validation() {
 
 #[test]
 fn test_file_sink_boolean_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid boolean values
     assert!(file_sink
@@ -1089,7 +1092,7 @@ fn test_file_sink_boolean_validation() {
 
 #[test]
 fn test_file_sink_numeric_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid buffer sizes
     assert!(file_sink
@@ -1179,7 +1182,7 @@ fn test_file_sink_numeric_validation() {
 
 #[test]
 fn test_file_sink_compression_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid compression types
     assert!(file_sink.validate_property("compression", "none").is_ok());
@@ -1196,7 +1199,7 @@ fn test_file_sink_compression_validation() {
 
 #[test]
 fn test_file_sink_csv_delimiter_validation() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Valid delimiters
     assert!(file_sink.validate_property("csv_delimiter", ",").is_ok());
@@ -1213,7 +1216,7 @@ fn test_file_sink_csv_delimiter_validation() {
 
 #[test]
 fn test_file_sink_property_inheritance() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
     let mut global_context = GlobalSchemaContext::default();
 
     // Test buffer_size_bytes inheritance
@@ -1243,7 +1246,7 @@ fn test_file_sink_property_inheritance() {
 
 #[test]
 fn test_file_sink_environment_based_defaults() {
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
     let mut global_context = GlobalSchemaContext::default();
 
     // Test production environment enables compression by default
@@ -1307,7 +1310,7 @@ fn test_file_sink_environment_based_defaults() {
 
 #[test]
 fn test_file_sink_json_schema_generation() {
-    let json_schema = FileSink::json_schema();
+    let json_schema = FileDataSink::json_schema();
 
     // Check schema structure
     assert_eq!(json_schema["type"], "object");
@@ -1350,7 +1353,7 @@ fn test_file_sink_json_schema_generation() {
 
 #[test]
 fn test_file_sink_property_validations() {
-    let validations = FileSink::property_validations();
+    let validations = FileDataSink::property_validations();
 
     // Should have key property validations
     assert!(!validations.is_empty());
@@ -1403,11 +1406,11 @@ fn test_file_sink_registry_integration() {
     let mut registry = HierarchicalSchemaRegistry::new();
 
     // Register FileSink schema
-    registry.register_sink_schema::<FileSink>();
+    registry.register_sink_schema::<FileDataSink>();
 
     // Test basic sink provider functionality without registry validation
     // (since the current registry implementation is focused on source validation)
-    let file_sink = FileSink::default();
+    let file_sink = FileDataSink::default();
 
     // Test individual property validations work correctly
     assert!(file_sink
@@ -1913,7 +1916,7 @@ fn test_phase_2_comprehensive_integration() {
     // Register schemas
     registry.register_source_schema::<KafkaDataSource>();
     registry.register_source_schema::<FileDataSource>();
-    registry.register_sink_schema::<FileSink>();
+    registry.register_sink_schema::<FileDataSink>();
 
     // Test config file inheritance
     let config_files = vec![
@@ -1966,5 +1969,5 @@ fn test_phase_2_comprehensive_integration() {
     // Test that all registered schemas have version info
     assert_eq!(KafkaDataSource::schema_version(), "2.0.0");
     assert_eq!(FileDataSource::schema_version(), "2.0.0");
-    assert_eq!(FileSink::schema_version(), "2.0.0");
+    assert_eq!(FileDataSink::schema_version(), "2.0.0");
 }

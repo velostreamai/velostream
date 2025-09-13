@@ -1,6 +1,6 @@
 use ferrisstreams::ferris::datasource::{
     config::{FileFormat, SinkConfig},
-    file::data_sink::FileSink,
+    file::data_sink::FileDataSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,
 };
@@ -31,7 +31,7 @@ async fn test_file_user_properties_not_overridden(
     let mut props = HashMap::new();
     props.insert("buffer_size_bytes".to_string(), "1048576".to_string()); // User wants 1MB buffer
 
-    let mut file_sink = FileSink::new();
+    let mut file_sink = FileDataSink::new();
 
     let sink_config = SinkConfig::File {
         path: "./test_no_override_1.json".to_string(),
@@ -60,7 +60,7 @@ async fn test_file_user_properties_not_overridden(
     props_mem.insert("buffer_size_bytes".to_string(), "2097152".to_string()); // User wants 2MB buffer
     props_mem.insert("compression".to_string(), "gzip".to_string()); // User wants compression
 
-    let mut file_sink_mem = FileSink::new();
+    let mut file_sink_mem = FileDataSink::new();
 
     let sink_config_mem = SinkConfig::File {
         path: "./test_no_override_2.json".to_string(),
@@ -90,7 +90,7 @@ async fn test_file_user_properties_not_overridden(
     let mut props_ll = HashMap::new();
     props_ll.insert("buffer_size_bytes".to_string(), "131072".to_string()); // User wants 128KB buffer
 
-    let mut file_sink_ll = FileSink::new();
+    let mut file_sink_ll = FileDataSink::new();
 
     let sink_config_ll = SinkConfig::File {
         path: "./test_no_override_3.csv".to_string(),
@@ -125,7 +125,7 @@ async fn test_file_user_properties_not_overridden(
     info!("\n4. Testing default buffer_size_bytes gets optimized by TimeWindow strategy...");
     let props_default = HashMap::new(); // No explicit buffer size - should use default (65536)
 
-    let mut file_sink_default = FileSink::new();
+    let mut file_sink_default = FileDataSink::new();
 
     let sink_config_default = SinkConfig::File {
         path: "./test_default_optimized.json".to_string(),
@@ -153,7 +153,7 @@ async fn test_file_user_properties_not_overridden(
     let mut props_disabled = HashMap::new();
     props_disabled.insert("buffer_size_bytes".to_string(), "524288".to_string()); // User wants 512KB buffer
 
-    let mut file_sink_disabled = FileSink::new();
+    let mut file_sink_disabled = FileDataSink::new();
 
     let sink_config_disabled = SinkConfig::File {
         path: "./test_no_override_disabled.json".to_string(),
