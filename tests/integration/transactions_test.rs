@@ -24,7 +24,7 @@ async fn test_transactional_producer_commit() {
         .transactional(transaction_id.clone())
         .idempotence(true)
         .acks(AckMode::All)
-        .transaction_timeout(Duration::from_secs(2)) // Fast timeout for tests  
+        .transaction_timeout(Duration::from_secs(2)) // Fast timeout for tests
         .request_timeout(Duration::from_secs(3)); // Fast request timeout
 
     let producer = match KafkaProducer::<String, TestMessage, _, _>::with_config(

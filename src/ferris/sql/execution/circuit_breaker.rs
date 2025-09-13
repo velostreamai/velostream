@@ -77,7 +77,7 @@ impl CircuitBreakerConfig {
             failure_threshold: 2,
             recovery_timeout: Duration::from_millis(100), // 100ms instead of 60s
             success_threshold: 2,
-            operation_timeout: Duration::from_millis(50),  // 50ms instead of 10s
+            operation_timeout: Duration::from_millis(50), // 50ms instead of 10s
             failure_rate_window: Duration::from_millis(500), // 500ms instead of 60s
             min_calls_in_window: 2,
             failure_rate_threshold: 50.0,
@@ -534,9 +534,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_operation() {
-        // Add timeout to prevent hanging in CI  
+        // Add timeout to prevent hanging in CI
         let test_result = tokio::time::timeout(Duration::from_secs(1), async {
-            let mut breaker = CircuitBreaker::new("test_service".to_string(), CircuitBreakerConfig::fast_test());
+            let mut breaker = CircuitBreaker::new(
+                "test_service".to_string(),
+                CircuitBreakerConfig::fast_test(),
+            );
             breaker.enable();
 
             let result: Result<(), StreamingError> = breaker
