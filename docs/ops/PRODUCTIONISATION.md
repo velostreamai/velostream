@@ -34,8 +34,8 @@ Errors are automatically categorized by severity for alerting:
 ### Client-Side Retry Logic
 Implement retry logic with exponential backoff for transient failures:
 
-**See:** [`tests/integration/failure_recovery_test.rs:9-85`](../tests/integration/failure_recovery_test.rs) - Retry logic test
-**See:** [`tests/integration/failure_recovery_test.rs:154-201`](../tests/integration/failure_recovery_test.rs) - Exponential backoff implementation
+**See:** [`tests/integration/failure_recovery_test.rs:9-85`](../../tests/integration/failure_recovery_test.rs) - Retry logic test
+**See:** [`tests/integration/failure_recovery_test.rs:154-201`](../../tests/integration/failure_recovery_test.rs) - Exponential backoff implementation
 
 ```rust
 let mut delay = Duration::from_millis(100);
@@ -55,7 +55,7 @@ for attempt in 1..=max_retries {
 ### Partial Broker Failures
 Handle scenarios where some brokers are down while others remain operational:
 
-**See:** [`tests/integration/failure_recovery_test.rs:205-302`](../tests/integration/failure_recovery_test.rs) - Partial broker failure scenarios
+**See:** [`tests/integration/failure_recovery_test.rs:205-302`](../../tests/integration/failure_recovery_test.rs) - Partial broker failure scenarios
 
 
 ## Performance Optimization
@@ -64,10 +64,10 @@ Handle scenarios where some brokers are down while others remain operational:
 Review performance-optimized implementations:
 
 **See:** [`examples/performance/`](../examples/performance/) - Performance test suite including:
-- [`json_performance_test.rs`](../examples/performance/json_performance_test.rs) - JSON serialization performance
-- [`latency_performance_test.rs`](../examples/performance/latency_performance_test.rs) - Latency optimization
-- [`simple_zero_copy_test.rs`](../examples/performance/simple_zero_copy_test.rs) - Zero-copy implementations
-- [`resource_monitoring_test.rs`](../examples/performance/resource_monitoring_test.rs) - Resource usage tracking
+- [`json_performance_test.rs`](../../examples/performance/json_performance_test.rs) - JSON serialization performance
+- [`latency_performance_test.rs`](../../examples/performance/latency_performance_test.rs) - Latency optimization
+- [`simple_zero_copy_test.rs`](../../examples/performance/simple_zero_copy_test.rs) - Zero-copy implementations
+- [`resource_monitoring_test.rs`](../../examples/performance/resource_monitoring_test.rs) - Resource usage tracking
 
 ### Client Instance Management
 Reuse producer/consumer instances rather than creating new ones per operation:
@@ -86,25 +86,25 @@ for message in messages {
 }
 ```
 
-**See:** [`tests/integration/failure_recovery_test.rs:205-302`](../tests/integration/failure_recovery_test.rs) - Multiple client instance patterns
+**See:** [`tests/integration/failure_recovery_test.rs:205-302`](../../tests/integration/failure_recovery_test.rs) - Multiple client instance patterns
 
 ### Configuration Examples
-**See:** [`examples/builder_configuration.rs`](../examples/builder_configuration.rs) - Advanced configuration patterns
-**See:** [`examples/fluent_api_example.rs`](../examples/fluent_api_example.rs) - Fluent API usage for production
+**See:** [`examples/builder_configuration.rs`](../../examples/builder_configuration.rs) - Advanced configuration patterns
+**See:** [`examples/fluent_api_example.rs`](../../examples/fluent_api_example.rs) - Fluent API usage for production
 
 ## Message Handling
 
 ### Headers & Metadata
 Implement proper message headers for tracing and routing:
 
-**See:** [`examples/headers_example.rs`](../examples/headers_example.rs) - Complete headers implementation
-**See:** [`examples/consumer_with_headers.rs`](../examples/consumer_with_headers.rs) - Consumer-side header processing
-**See:** [`examples/message_metadata_example.rs`](../examples/message_metadata_example.rs) - Message metadata patterns
+**See:** [`examples/headers_example.rs`](../../examples/headers_example.rs) - Complete headers implementation
+**See:** [`examples/consumer_with_headers.rs`](../../examples/consumer_with_headers.rs) - Consumer-side header processing
+**See:** [`examples/message_metadata_example.rs`](../../examples/message_metadata_example.rs) - Message metadata patterns
 
 ### Type Safety
 Use type-safe Kafka patterns for production reliability:
 
-**See:** [`examples/typed_kafka_example.rs`](../examples/typed_kafka_example.rs) - Type-safe Kafka implementation
+**See:** [`examples/typed_kafka_example.rs`](../../examples/typed_kafka_example.rs) - Type-safe Kafka implementation
 
 ### Transactions & Exactly-Once Semantics
 Enable true exactly-once processing with consumer-producer coordination:
@@ -252,7 +252,7 @@ loop {
 
 For applications requiring materialized views of Kafka topics, use KTables for efficient state management:
 
-**See:** [`tests/integration/ktable_test.rs`](../tests/integration/ktable_test.rs) - Complete KTable test suite
+**See:** [`tests/integration/ktable_test.rs`](../../tests/integration/ktable_test.rs) - Complete KTable test suite
 
 ### Basic KTable Usage
 
@@ -330,7 +330,7 @@ while let Some(order_result) = order_stream.next().await {
 Comprehensive integration tests that handle Kafka availability:
 
 **See:** [`tests/integration/kafka_integration_test.rs`](../tests/integration/kafka_integration_test.rs) - Basic integration patterns
-**See:** [`tests/integration/kafka_advanced_test.rs`](../tests/integration/kafka_advanced_test.rs) - Advanced integration scenarios
+**See:** [`tests/integration/kafka_advanced_test.rs`](../../tests/integration/kafka_advanced_test.rs) - Advanced integration scenarios
 
 ### Unit Testing Patterns
 **See:** [`tests/unit/`](../tests/unit/) - Complete unit test suite including:
@@ -382,7 +382,7 @@ async fn kafka_health_check() -> Result<(), KafkaClientError> {
 ```
 
 ### Resource Management
-**See:** [`examples/performance/resource_monitoring_test.rs`](../examples/performance/resource_monitoring_test.rs) - Resource usage monitoring
+**See:** [`examples/performance/resource_monitoring_test.rs`](../../examples/performance/resource_monitoring_test.rs) - Resource usage monitoring
 
 ## Observability
 
@@ -420,7 +420,7 @@ Track retry attempts and patterns:
 ### Consumer Resilience
 Handle consumer failures gracefully:
 
-**See:** [`tests/integration/failure_recovery_test.rs:88-151`](../tests/integration/failure_recovery_test.rs) - Consumer graceful degradation
+**See:** [`tests/integration/failure_recovery_test.rs:88-151`](../../tests/integration/failure_recovery_test.rs) - Consumer graceful degradation
 
 ### Error Chain Analysis
 Deep error analysis for production debugging:
@@ -434,12 +434,12 @@ Track detailed operational context:
 
 ## Documentation References
 
-- [Performance Configurations](KAFKA_PERFORMANCE_CONFIGS.md) - Detailed performance tuning
-- [Headers Guide](developer/HEADERS_GUIDE.md) - Message header patterns
-- [Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md) - Configuration patterns
-- [Type-Safe Kafka](feature/TYPE_SAFE_KAFKA.md) - Type safety patterns
+- [Performance Configurations](../developer/KAFKA_PERFORMANCE_CONFIGS.md) - Detailed performance tuning
+- [Headers Guide](../developer/HEADERS_GUIDE.md) - Message header patterns
+- [Builder Pattern Guide](../developer/BUILDER_PATTERN_GUIDE.md) - Configuration patterns
+- [Type-Safe Kafka](../feature/TYPE_SAFE_KAFKA.md) - Type safety patterns
 
 ## Support
 
 For production support and advanced configurations, refer to the test coverage improvement plan:
-**See:** [Test Coverage Improvement Plan](feature/TEST_COVERAGE_IMPROVEMENT_PLAN.md)
+**See:** [Test Coverage Improvement Plan](../feature/TEST_COVERAGE_IMPROVEMENT_PLAN.md)

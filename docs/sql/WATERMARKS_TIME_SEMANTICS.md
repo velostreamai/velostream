@@ -343,8 +343,8 @@ watermark_manager.log_watermark_status();
 
 ## Related Features
 
-- [Observability Guide](./OBSERVABILITY.md) - Monitoring watermark performance
-- [Resource Management](./RESOURCE_MANAGEMENT.md) - Memory management for windows
+- [Observability Guide](../ops/OBSERVABILITY.md) - Monitoring watermark performance
+- [Resource Management](../ops/RESOURCE_MANAGEMENT.md) - Memory management for windows
 - [Circuit Breakers](./CIRCUIT_BREAKERS.md) - Fault tolerance with watermarks
 
 ## References

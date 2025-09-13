@@ -120,8 +120,8 @@ consumer.stream()
 
 ## Examples
 
-- **[Basic Headers](../examples/headers_example.rs)**
-- **[Consumer with Headers](../examples/consumer_with_headers.rs)**
+- **[Basic Headers](../../examples/headers_example.rs)**
+- **[Consumer with Headers](../../examples/consumer_with_headers.rs)**
 - **[Integration Tests](../tests/integration/kafka_integration_test.rs)**
 
 ## Key Points

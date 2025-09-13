@@ -990,9 +990,9 @@ RUST_LOG=debug cargo test --test memory_pressure --release
 
 ## Related Documentation
 
-- [`TODO-optimisation-plan.MD`](../TODO-optimisation-plan.MD) - Detailed optimization roadmap
-- [`KAFKA_TRANSACTION_CONFIGURATION.md`](KAFKA_TRANSACTION_CONFIGURATION.md) - Transaction performance
-- [`CLAUDE.md`](../CLAUDE.md) - Development guidelines with performance focus
+- [`TODO-optimisation-plan.MD`](../../TODO-optimisation-plan.MD) - Detailed optimization roadmap
+- [`KAFKA_TRANSACTION_CONFIGURATION.md`](../KAFKA_TRANSACTION_CONFIGURATION.md) - Transaction performance
+- [`CLAUDE.md`](../../CLAUDE.md) - Development guidelines with performance focus
 
 ---
 

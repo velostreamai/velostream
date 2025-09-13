@@ -55,7 +55,17 @@ GROUP BY category;
 ## Multiple Column Grouping
 
 ```sql
+-- Data sources
+CREATE STREAM orders WITH (
+    config_file = 'configs/orders-source.yaml'
+);
+
+CREATE STREAM customer_status_summary WITH (
+    config_file = 'configs/customer-status-sink.yaml'
+);
+
 -- Group by customer and status
+INSERT INTO customer_status_summary
 SELECT customer_id, order_status, COUNT(*) as count, SUM(amount) as total
 FROM orders
 GROUP BY customer_id, order_status;
@@ -71,7 +81,21 @@ GROUP BY customer_id, order_status;
 
 ### Time-Based Grouping
 ```sql
+-- Data sources
+CREATE STREAM orders WITH (
+    topic = 'orders-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.deserializer = 'json'
+);
+
+CREATE STREAM monthly_summary WITH (
+    topic = 'monthly-summary-topic',
+    bootstrap.servers = 'localhost:9092',
+    value.serializer = 'json'
+);
+
 -- Group by year and month
+INSERT INTO monthly_summary
 SELECT
     YEAR(order_date) as year,
     MONTH(order_date) as month,

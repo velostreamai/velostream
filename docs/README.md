@@ -29,7 +29,7 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[SQL Feature Request](SQL_FEATURE_REQUEST.md)** - Comprehensive SQL implementation roadmap and current status
 
 ### Performance & Optimization
-- **[Performance Configs](KAFKA_PERFORMANCE_CONFIGS.md)** - Configuration guide for optimizing throughput
+- **[Performance Configs](developer/KAFKA_PERFORMANCE_CONFIGS.md)** - Configuration guide for optimizing throughput
 - **[Advanced Performance Optimizations](developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)** - Advanced techniques for maximum performance
 
 ### Development & Testing
@@ -37,13 +37,13 @@ This directory contains comprehensive documentation for FerrisStreams.
 - **[Docker Kafka Setup](developer/DOCKER_KAFKA.md)** - Quick Docker setup for development
 
 ### Quick Reference
-- **[Quick Reference](QUICK_REFERENCE.md)** - Common patterns and code snippets
+- **[Quick Reference](examples/QUICK_REFERENCE.md)** - Common patterns and code snippets
 
 ## 🚀 Getting Started
 
 New to FerrisStreams? Start with:
 1. [Main README](../README.md) - Project overview and installation
-2. [Quick Reference](QUICK_REFERENCE.md) - Common patterns
+2. [Quick Reference](examples/QUICK_REFERENCE.md) - Common patterns
 3. [Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md) - Core API patterns
 4. [SQL Reference Guide](SQL_REFERENCE_GUIDE.md) - **NEW!** SQL streaming capabilities
 5. [Examples](../examples/README.md) - Working code examples
@@ -100,7 +100,7 @@ ROLLBACK JOB user_analytics VERSION '0.9.0';
 ## 🔧 Performance Tuning
 
 For performance-critical applications:
-1. [Performance Configs](KAFKA_PERFORMANCE_CONFIGS.md) - Basic optimization
+1. [Performance Configs](developer/KAFKA_PERFORMANCE_CONFIGS.md) - Basic optimization
 2. [Advanced Performance Optimizations](developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md) - Advanced techniques
 3. [Performance Examples](../examples/performance/) - Benchmarking code
 

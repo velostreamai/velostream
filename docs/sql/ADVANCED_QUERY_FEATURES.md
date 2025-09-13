@@ -537,9 +537,9 @@ EMIT CHANGES;
 
 ## Related Features
 
-- [Watermarks & Time Semantics](../WATERMARKS_TIME_SEMANTICS.md) - Time-based operations
-- [Resource Management](../RESOURCE_MANAGEMENT.md) - Query resource limits  
-- [Observability Guide](../OBSERVABILITY.md) - Query performance monitoring
+- [Watermarks & Time Semantics](WATERMARKS_TIME_SEMANTICS.md) - Time-based operations
+- [Resource Management](../ops/RESOURCE_MANAGEMENT.md) - Query resource limits  
+- [Observability Guide](../ops/OBSERVABILITY.md) - Query performance monitoring
 
 ## References
 

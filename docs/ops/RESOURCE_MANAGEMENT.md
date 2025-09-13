@@ -454,8 +454,8 @@ let debug_config = StreamingConfig {
 
 ## Related Features
 
-- [Watermarks & Time Semantics](./WATERMARKS_TIME_SEMANTICS.md) - Memory management for windows
-- [Observability Guide](./OBSERVABILITY.md) - Monitoring resource usage
+- [Watermarks & Time Semantics](../sql/WATERMARKS_TIME_SEMANTICS.md) - Memory management for windows
+- [Observability Guide](OBSERVABILITY.md) - Monitoring resource usage
 - [Performance Optimization](./PERFORMANCE_OPTIMIZATION.md) - Resource optimization strategies
 
 ## References
