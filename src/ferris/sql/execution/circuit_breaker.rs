@@ -198,16 +198,27 @@ impl CircuitBreaker {
 
         let start_time = SystemTime::now();
 
-        // Execute with timeout but avoid spawn_blocking to prevent deadlocks
+        // Execute with timeout - use spawn_blocking for CPU-intensive operations
         let result = if self.config.operation_timeout.as_millis() <= 1 {
             // Very short timeout suggests this is a test that expects immediate execution
             Ok(operation())
         } else {
-            // Use timeout for production scenarios
-            tokio::time::timeout(self.config.operation_timeout, async move {
-                // Execute synchronous operation in async context
-                operation()
-            }).await
+            // Use timeout with spawn_blocking to handle synchronous operations properly
+            match tokio::time::timeout(self.config.operation_timeout,
+                tokio::task::spawn_blocking(operation)
+            ).await {
+                Ok(task_result) => {
+                    match task_result {
+                        Ok(op_result) => Ok(op_result),
+                        Err(join_error) => Ok(Err(StreamingError::MessagePassingError {
+                            operation: "circuit_breaker_task_join".to_string(),
+                            message: format!("Task execution failed: {}", join_error),
+                            retry_possible: true,
+                        })),
+                    }
+                }
+                Err(_timeout_error) => Err(()) // Timeout occurred
+            }
         };
         let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
 

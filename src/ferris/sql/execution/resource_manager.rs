@@ -317,6 +317,8 @@ impl ResourceManager {
         match resource_name {
             "total_memory" => self.limits.max_total_memory,
             "operator_memory" => self.limits.max_operator_memory,
+            // Handle dynamic memory types like "heap_memory", "stack_memory", etc.
+            name if name.ends_with("_memory") => self.limits.max_total_memory,
             "windows_per_key" => self.limits.max_windows_per_key.map(|v| v as u64),
             "aggregation_groups" => self.limits.max_aggregation_groups.map(|v| v as u64),
             "concurrent_operations" => self.limits.max_concurrent_operations.map(|v| v as u64),

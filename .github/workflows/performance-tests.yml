@@ -128,23 +128,17 @@ jobs:
         echo "🧪 Running ferris_sql_multi_benchmarks..."
         echo "Note: Running tests individually due to cargo test syntax limitations"
         
-        # Run baseline benchmark
-        echo "📊 Running benchmark_simple_select_baseline..."
-        echo "Command: timeout 300 cargo test --no-default-features benchmark_simple_select_baseline -- --ignored --nocapture"
+        # Run comprehensive benchmark suite that outputs the summary format expected by metrics extraction
+        echo "📊 Running run_comprehensive_benchmark_suite..."
+        echo "Command: timeout 300 cargo test --no-default-features run_comprehensive_benchmark_suite -- --nocapture"
         START_TIME=$(date +%s)
         BENCHMARK_EXIT_CODE=0
-        timeout 300 cargo test --no-default-features benchmark_simple_select_baseline -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || BENCHMARK_EXIT_CODE=$?
+        timeout 300 cargo test --no-default-features run_comprehensive_benchmark_suite -- --nocapture >> ferris_sql_benchmarks.txt 2>&1 || BENCHMARK_EXIT_CODE=$?
         END_TIME=$(date +%s)
-        echo "📊 benchmark_simple_select_baseline completed with exit code: $BENCHMARK_EXIT_CODE (${END_TIME} - ${START_TIME} = $((END_TIME - START_TIME))s)"
-        
-        # Run aggregation benchmark  
-        echo "📊 Running benchmark_complex_aggregation..."
-        echo "Command: timeout 300 cargo test --no-default-features benchmark_complex_aggregation -- --ignored --nocapture"
-        START_TIME=$(date +%s)
-        AGGREGATION_EXIT_CODE=0
-        timeout 300 cargo test --no-default-features benchmark_complex_aggregation -- --ignored --nocapture >> ferris_sql_benchmarks.txt 2>&1 || AGGREGATION_EXIT_CODE=$?
-        END_TIME=$(date +%s)
-        echo "📊 benchmark_complex_aggregation completed with exit code: $AGGREGATION_EXIT_CODE (${END_TIME} - ${START_TIME} = $((END_TIME - START_TIME))s)"
+        echo "📊 run_comprehensive_benchmark_suite completed with exit code: $BENCHMARK_EXIT_CODE (${END_TIME} - ${START_TIME} = $((END_TIME - START_TIME))s)"
+
+        # Set aggregation exit code same as benchmark for compatibility
+        AGGREGATION_EXIT_CODE=$BENCHMARK_EXIT_CODE
         
         # Combine exit codes for overall status
         OVERALL_EXIT_CODE=0
