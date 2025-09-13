@@ -20,5 +20,5 @@ pub mod reference_resolver;
 pub mod providers;
 
 // Re-export main client interfaces
-pub use registry_client::RegistryClientConfig;
 pub use multilevel_cache::MultiLevelCacheConfig;
+pub use registry_client::RegistryClientConfig;

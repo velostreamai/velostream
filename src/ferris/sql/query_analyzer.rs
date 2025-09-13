@@ -3,9 +3,9 @@
 //! This module analyzes parsed SQL queries to determine what Kafka consumers, producers,
 //! and serializers need to be created dynamically based on the query requirements.
 
-use crate::ferris::config::{validate_configuration, HierarchicalSchemaRegistry};
-use crate::ferris::datasource::file::data_sink::FileSink;
-use crate::ferris::datasource::file::data_source::FileDataSource;
+use crate::ferris::config::schema_registry::validate_configuration;
+use crate::ferris::config::HierarchicalSchemaRegistry;
+use crate::ferris::datasource::file::{FileDataSource, FileSink};
 use crate::ferris::datasource::kafka::data_sink::KafkaDataSink;
 use crate::ferris::datasource::kafka::data_source::KafkaDataSource;
 use crate::ferris::kafka::serialization_format::SerializationConfig;

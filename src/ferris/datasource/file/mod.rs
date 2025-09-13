@@ -72,4 +72,6 @@ pub mod reader;
 pub mod watcher;
 
 // Re-export key types for convenient access
+pub use config::{FileFormat, FileSourceConfig};
+pub use data_sink::FileSink;
 pub use data_source::FileDataSource;

@@ -1,5 +1,5 @@
 use ferrisstreams::ferris::datasource::{
-    config::{CompressionType, FileFormat, SinkConfig},
+    config::{legacy::CompressionType, FileFormat, SinkConfig},
     file::data_sink::FileSink,
     kafka::data_sink::KafkaDataSink,
     traits::DataSink,
