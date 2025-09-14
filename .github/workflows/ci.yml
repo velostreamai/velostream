@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: Main Pipeline
 
 on:
   push:
@@ -200,7 +200,7 @@ jobs:
           const quickStatus = quickCheck.status === 'passed' ? '✅' : '❌';
           const comprehensiveStatus = comprehensive.status === 'passed' ? '✅' : '❌';
 
-          const comment = `## 🧪 Test Results
+          const comment = `## 🧪 Main Pipeline Results
 
           ### Quick Check Tests ${quickStatus}
           - **Unit Tests**: ${quickCheck.passed} passed, ${quickCheck.failed} failed
