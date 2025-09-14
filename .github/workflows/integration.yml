@@ -105,8 +105,15 @@ jobs:
         }
 
         # Extract success information
-        PASSED=$(grep -o "test result: ok. [0-9]* passed" integration_results.txt | grep -o "[0-9]*" | head -1 || echo "0")
-        FAILED=$(grep -o "[0-9]* failed" integration_results.txt | grep -o "[0-9]*" | head -1 || echo "0")
+        PASSED=$(grep -E "test result:.*(ok|FAILED).*[0-9]+ passed" integration_results.txt | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1 || echo "0")
+        FAILED=$(grep -E "[0-9]+ failed" integration_results.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+
+        # Debug output
+        echo "Debug: Integration test results parsing"
+        echo "Raw output (last 10 lines):"
+        tail -10 integration_results.txt
+        echo "Parsed PASSED: $PASSED"
+        echo "Parsed FAILED: $FAILED"
 
         echo "status=passed" >> $GITHUB_OUTPUT
         echo "passed=${PASSED}" >> $GITHUB_OUTPUT

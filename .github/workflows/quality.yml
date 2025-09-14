@@ -13,6 +13,12 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
 jobs:
   security-audit:
     name: Security Audit
@@ -114,3 +120,51 @@ jobs:
 
     - name: Check MSRV compatibility
       run: cargo check --all-features --no-default-features
+
+  # Report quality results to PR
+  report-quality-results:
+    name: Report Quality Results
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [security-audit, documentation, code-coverage, msrv-check]
+
+    steps:
+    - name: Report quality status to PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const securityStatus = '${{ needs.security-audit.result }}';
+          const docsStatus = '${{ needs.documentation.result }}';
+          const coverageStatus = '${{ needs.code-coverage.result }}';
+          const msrvStatus = '${{ needs.msrv-check.result }}';
+
+          const getStatusIcon = (status) => status === 'success' ? '✅' : status === 'failure' ? '❌' : '⚠️';
+          const getStatusText = (status) => status === 'success' ? 'Passed' : status === 'failure' ? 'Failed' : 'Skipped';
+
+          const comment = `## 🔍 Quality & Security Report
+
+          ### 🛡️ Security Audit
+          **Status:** ${getStatusIcon(securityStatus)} ${getStatusText(securityStatus)}
+
+          ### 📚 Documentation
+          **Status:** ${getStatusIcon(docsStatus)} ${getStatusText(docsStatus)}
+
+          ### 📊 Code Coverage
+          **Status:** ${getStatusIcon(coverageStatus)} ${getStatusText(coverageStatus)}
+
+          ### 🦀 MSRV Compatibility
+          **Status:** ${getStatusIcon(msrvStatus)} ${getStatusText(msrvStatus)}
+
+          ### 📋 Summary
+          ${securityStatus === 'success' && docsStatus === 'success' && coverageStatus === 'success' && msrvStatus === 'success'
+            ? '✅ **All quality checks passed** - Code meets quality standards!'
+            : '❌ **Some quality checks failed** - Please review the workflow results'}
+
+          View detailed results in the [workflow run](${context.payload.pull_request.html_url}/checks).`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
