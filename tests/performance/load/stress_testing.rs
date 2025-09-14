@@ -106,36 +106,51 @@ async fn stress_test_resource_exhaustion() {
         (
             "Minimal Resources",
             ResourceLimits {
-                max_memory_mb: 50,
-                max_cpu_percent: 30.0,
-                max_connections: 10,
-                max_file_handles: 50,
+                max_total_memory: Some(50 * 1024 * 1024),    // 50MB
+                max_operator_memory: Some(10 * 1024 * 1024), // 10MB per operator
+                max_windows_per_key: Some(10),
+                max_aggregation_groups: Some(50),
+                max_concurrent_operations: Some(5),
+                max_processing_time_per_record: Some(100),
+                custom_limits: std::collections::HashMap::new(),
             },
         ),
         (
             "Low Resources",
             ResourceLimits {
-                max_memory_mb: 100,
-                max_cpu_percent: 50.0,
-                max_connections: 25,
-                max_file_handles: 100,
+                max_total_memory: Some(100 * 1024 * 1024),   // 100MB
+                max_operator_memory: Some(20 * 1024 * 1024), // 20MB per operator
+                max_windows_per_key: Some(25),
+                max_aggregation_groups: Some(100),
+                max_concurrent_operations: Some(10),
+                max_processing_time_per_record: Some(200),
+                custom_limits: std::collections::HashMap::new(),
             },
         ),
         (
             "Constrained Resources",
             ResourceLimits {
-                max_memory_mb: 200,
-                max_cpu_percent: 70.0,
-                max_connections: 50,
-                max_file_handles: 200,
+                max_total_memory: Some(200 * 1024 * 1024),   // 200MB
+                max_operator_memory: Some(40 * 1024 * 1024), // 40MB per operator
+                max_windows_per_key: Some(50),
+                max_aggregation_groups: Some(200),
+                max_concurrent_operations: Some(15),
+                max_processing_time_per_record: Some(500),
+                custom_limits: std::collections::HashMap::new(),
             },
         ),
     ];
 
     for (name, limits) in resource_limits {
         println!("\n📊 {}", name);
-        println!("   Max Memory: {} MB", limits.max_memory_mb);
-        println!("   Max CPU: {}%", limits.max_cpu_percent);
+        println!(
+            "   Max Memory: {} MB",
+            limits.max_total_memory.unwrap_or(0) / (1024 * 1024)
+        );
+        println!(
+            "   Max Operations: {}",
+            limits.max_concurrent_operations.unwrap_or(0)
+        );
 
         let test_config = TestRecordConfig::complex(100_000);
 
@@ -220,6 +235,8 @@ async fn stress_test_circuit_breaker_extreme_failures() {
             success_threshold: 2,
             operation_timeout: Duration::from_secs(15),
             failure_rate_window: Duration::from_secs(30),
+            min_calls_in_window: 5,
+            failure_rate_threshold: 25.0, // Very low tolerance
         };
 
         metrics.start();
@@ -289,10 +306,13 @@ async fn stress_test_comprehensive_stress() {
 
     let test_config = TestRecordConfig::complex(1_000_000);
     let limits = ResourceLimits {
-        max_memory_mb: 300,
-        max_cpu_percent: 60.0,
-        max_connections: 30,
-        max_file_handles: 150,
+        max_total_memory: Some(300 * 1024 * 1024),   // 300MB
+        max_operator_memory: Some(60 * 1024 * 1024), // 60MB per operator
+        max_windows_per_key: Some(30),
+        max_aggregation_groups: Some(150),
+        max_concurrent_operations: Some(15),
+        max_processing_time_per_record: Some(1000),
+        custom_limits: std::collections::HashMap::new(),
     };
 
     metrics.start();
@@ -420,6 +440,9 @@ async fn run_resource_exhaustion_test(
 ) -> Result<(u64, u64, u64), Box<dyn std::error::Error + Send + Sync>> {
     let records = generate_test_records(config);
 
+    // Clone the value we need before moving limits
+    let max_memory = limits.max_total_memory;
+
     let mut resource_manager = ResourceManager::new(limits);
     resource_manager.enable();
 
@@ -448,11 +471,13 @@ async fn run_resource_exhaustion_test(
         }
 
         // Check for resource pressure and degrade gracefully
-        if let Ok(memory_usage) = resource_manager.get_resource_usage("memory_mb") {
-            if memory_usage > limits.max_memory_mb / 2 {
-                // Simulate degraded processing under resource pressure
-                degradation_events += 1;
-                tokio::time::sleep(Duration::from_micros(100)).await;
+        if let Some(memory_usage) = resource_manager.get_resource_usage("total_memory") {
+            if let Some(max_memory_val) = max_memory {
+                if memory_usage.current > max_memory_val / 2 {
+                    // Simulate degraded processing under resource pressure
+                    degradation_events += 1;
+                    tokio::time::sleep(Duration::from_micros(100)).await;
+                }
             }
         }
 
@@ -478,7 +503,7 @@ async fn run_circuit_breaker_stress_test(
 ) -> Result<(u64, u64, u64, Duration), Box<dyn std::error::Error + Send + Sync>> {
     use ferrisstreams::ferris::sql::execution::error::StreamingError;
 
-    let circuit_breaker = CircuitBreaker::new("stress_test", config);
+    let circuit_breaker = CircuitBreaker::new("stress_test".to_string(), config);
 
     let mut attempted = 0u64;
     let mut successful = 0u64;
@@ -495,11 +520,15 @@ async fn run_circuit_breaker_stress_test(
 
         let operation_start = std::time::Instant::now();
         let result: Result<(), StreamingError> = circuit_breaker
-            .execute(|| {
+            .execute(move || {
                 if should_fail {
-                    Err(StreamingError::CircuitBreakerOpen(
-                        "Simulated extreme failure".to_string(),
-                    ))
+                    Err(StreamingError::CircuitBreakerOpen {
+                        service: "stress_test".to_string(),
+                        failure_count: 1,
+                        last_failure_time: std::time::SystemTime::now(),
+                        next_retry_time: std::time::SystemTime::now()
+                            + std::time::Duration::from_secs(1),
+                    })
                 } else {
                     Ok(())
                 }
@@ -544,23 +573,32 @@ async fn run_comprehensive_stress_test(
         success_threshold: 3,
         operation_timeout: Duration::from_secs(20),
         failure_rate_window: Duration::from_secs(60),
+        min_calls_in_window: 10,
+        failure_rate_threshold: 40.0,
     };
 
     // Split work among concurrent workers
-    let records_per_worker = records.len() / concurrency;
+    let total_records = records.len();
+    let records_per_worker = total_records / concurrency;
     let mut handles = Vec::new();
 
     for worker_id in 0..concurrency {
         let start_idx = worker_id * records_per_worker;
         let end_idx = if worker_id == concurrency - 1 {
-            records.len()
+            total_records
         } else {
             (worker_id + 1) * records_per_worker
         };
 
         let worker_records = records[start_idx..end_idx].to_vec();
         let worker_circuit =
-            CircuitBreaker::new(&format!("worker_{}", worker_id), circuit_config.clone());
+            CircuitBreaker::new(format!("worker_{}", worker_id), circuit_config.clone());
+
+        // Clone values needed in the async block
+        let worker_id_clone = worker_id;
+        let total_records_clone = total_records;
+        let records_per_worker_clone = records_per_worker;
+        let failure_rate_clone = failure_rate;
 
         let handle = tokio::spawn(async move {
             use ferrisstreams::ferris::sql::execution::error::StreamingError;
@@ -570,22 +608,32 @@ async fn run_comprehensive_stress_test(
             let mut pressure_events = 0u64;
 
             for (i, record) in worker_records.iter().enumerate() {
-                let should_fail = ((worker_id * records_per_worker + i) as f64
-                    / records.len() as f64)
-                    < failure_rate;
+                let should_fail = ((worker_id_clone * records_per_worker_clone + i) as f64
+                    / total_records_clone as f64)
+                    < failure_rate_clone;
+
+                // Clone values needed in the closure
+                let record_clone = record.clone();
+                let should_fail_clone = should_fail;
 
                 let result: Result<(), StreamingError> = worker_circuit
-                    .execute(|| {
-                        if should_fail {
-                            Err(StreamingError::CircuitBreakerOpen(
-                                "Comprehensive stress failure".to_string(),
-                            ))
+                    .execute(move || {
+                        if should_fail_clone {
+                            Err(StreamingError::CircuitBreakerOpen {
+                                service: "comprehensive_stress".to_string(),
+                                failure_count: 1,
+                                last_failure_time: std::time::SystemTime::now(),
+                                next_retry_time: std::time::SystemTime::now()
+                                    + std::time::Duration::from_secs(1),
+                            })
                         } else {
                             // Simulate resource-intensive processing
                             let mut result_fields = HashMap::new();
-                            for (key, value) in &record.fields {
-                                result_fields
-                                    .insert(format!("worker_{}_{}", worker_id, key), value.clone());
+                            for (key, value) in &record_clone.fields {
+                                result_fields.insert(
+                                    format!("worker_{}_{}", worker_id_clone, key),
+                                    value.clone(),
+                                );
                             }
                             let _processed_record = StreamRecord::new(result_fields);
                             Ok(())

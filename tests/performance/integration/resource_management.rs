@@ -91,6 +91,8 @@ async fn benchmark_circuit_breaker_performance() {
             success_threshold: 3,
             operation_timeout: Duration::from_secs(30),
             failure_rate_window: Duration::from_secs(60),
+            min_calls_in_window: 10,
+            failure_rate_threshold: 50.0,
         };
 
         metrics.start();
@@ -146,10 +148,13 @@ async fn benchmark_watermark_processing_performance() {
 
     // Test different watermark strategies
     let strategies = vec![
-        ("BoundedOutOfOrderness_Low", WatermarkStrategy::BoundedOutOfOrderness {
-            max_out_of_orderness: Duration::from_secs(5),
-            watermark_interval: Duration::from_secs(1),
-        }),
+        (
+            "BoundedOutOfOrderness_Low",
+            WatermarkStrategy::BoundedOutOfOrderness {
+                max_out_of_orderness: Duration::from_secs(5),
+                watermark_interval: Duration::from_secs(1),
+            },
+        ),
         (
             "BoundedOutOfOrderness_High",
             WatermarkStrategy::BoundedOutOfOrderness {
@@ -258,10 +263,13 @@ async fn benchmark_baseline_processing(record_count: usize) -> f64 {
 
 async fn benchmark_with_resource_management(record_count: usize) -> f64 {
     let limits = ResourceLimits {
-        max_memory_mb: 500,
-        max_cpu_percent: 80.0,
-        max_connections: 100,
-        max_file_handles: 1000,
+        max_total_memory: Some(500 * 1024 * 1024),    // 500MB
+        max_operator_memory: Some(100 * 1024 * 1024), // 100MB per operator
+        max_windows_per_key: Some(100),
+        max_aggregation_groups: Some(1000),
+        max_concurrent_operations: Some(10),
+        max_processing_time_per_record: Some(5000), // 5 seconds
+        custom_limits: std::collections::HashMap::new(),
     };
     let mut resource_manager = ResourceManager::new(limits);
     resource_manager.enable();
@@ -272,8 +280,10 @@ async fn benchmark_with_resource_management(record_count: usize) -> f64 {
         success_threshold: 3,
         operation_timeout: Duration::from_secs(30),
         failure_rate_window: Duration::from_secs(60),
+        min_calls_in_window: 10,
+        failure_rate_threshold: 50.0,
     };
-    let circuit_breaker = CircuitBreaker::new("benchmark", config);
+    let circuit_breaker = CircuitBreaker::new("benchmark".to_string(), config);
 
     let watermark_strategy = WatermarkStrategy::BoundedOutOfOrderness {
         max_out_of_orderness: Duration::from_secs(2),
@@ -319,7 +329,7 @@ async fn benchmark_circuit_breaker_with_failures(
     failure_rate: f64,
     config: CircuitBreakerConfig,
 ) -> Result<(u64, u64, f64), Box<dyn std::error::Error + Send + Sync>> {
-    let circuit_breaker = CircuitBreaker::new("test_failures", config);
+    let circuit_breaker = CircuitBreaker::new("test_failures".to_string(), config);
 
     let mut successful = 0u64;
     let mut failed = 0u64;
@@ -329,11 +339,15 @@ async fn benchmark_circuit_breaker_with_failures(
         let should_fail = (i as f64 / operations as f64) < failure_rate;
 
         let result: Result<(), StreamingError> = circuit_breaker
-            .execute(|| {
+            .execute(move || {
                 if should_fail {
-                    Err(StreamingError::CircuitBreakerOpen(
-                        "Simulated failure".to_string(),
-                    ))
+                    Err(StreamingError::CircuitBreakerOpen {
+                        service: "test_service".to_string(),
+                        failure_count: 1,
+                        last_failure_time: std::time::SystemTime::now(),
+                        next_retry_time: std::time::SystemTime::now()
+                            + std::time::Duration::from_secs(1),
+                    })
                 } else {
                     Ok(())
                 }
@@ -384,10 +398,13 @@ async fn benchmark_full_resource_monitoring(
     record_count: usize,
 ) -> Result<(u64, u64, f64), Box<dyn std::error::Error + Send + Sync>> {
     let limits = ResourceLimits {
-        max_memory_mb: 1000,
-        max_cpu_percent: 90.0,
-        max_connections: 200,
-        max_file_handles: 2000,
+        max_total_memory: Some(1000 * 1024 * 1024),   // 1000MB
+        max_operator_memory: Some(200 * 1024 * 1024), // 200MB per operator
+        max_windows_per_key: Some(200),
+        max_aggregation_groups: Some(2000),
+        max_concurrent_operations: Some(20),
+        max_processing_time_per_record: Some(1000), // 1 second
+        custom_limits: std::collections::HashMap::new(),
     };
     let mut resource_manager = ResourceManager::new(limits);
     resource_manager.enable();
@@ -398,8 +415,10 @@ async fn benchmark_full_resource_monitoring(
         success_threshold: 5,
         operation_timeout: Duration::from_secs(25),
         failure_rate_window: Duration::from_secs(60),
+        min_calls_in_window: 20,
+        failure_rate_threshold: 40.0,
     };
-    let circuit_breaker = CircuitBreaker::new("monitoring", config);
+    let circuit_breaker = CircuitBreaker::new("monitoring".to_string(), config);
 
     let watermark_strategy = WatermarkStrategy::BoundedOutOfOrderness {
         max_out_of_orderness: Duration::from_secs(5),
@@ -430,13 +449,13 @@ async fn benchmark_full_resource_monitoring(
         let _ = resource_manager.update_resource_usage("records_processed", i as u64 + 1);
         let _ = resource_manager.update_resource_usage("memory_mb", (i / 1000) as u64 + 10);
 
-        if let Ok(memory) = resource_manager.get_resource_usage("memory_mb") {
-            peak_memory = peak_memory.max(memory);
+        if let Some(memory) = resource_manager.get_resource_usage("total_memory") {
+            peak_memory = peak_memory.max(memory.current);
         }
 
         // Circuit breaker with occasional simulated issues
         let _: Result<(), StreamingError> = circuit_breaker
-            .execute(|| {
+            .execute(move || {
                 if i % 10000 == 0 {
                     // Simulate occasional resource pressure
                     std::thread::sleep(Duration::from_millis(1));

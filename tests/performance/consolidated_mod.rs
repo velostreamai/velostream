@@ -28,9 +28,9 @@ pub mod benchmarks {
     //! This module provides organized access to existing benchmarks
     //! and serves as a structure for future micro-benchmark additions.
 
-    // Re-export existing benchmarks from reorganized modules
-    pub use super::unit::financial_precision as financial_precision;
-    pub use super::unit::serialization_formats as serialization;
+    // Re-export existing benchmarks from reorganized modules (commented out due to import issues)
+    // pub use super::unit::financial_precision as financial_precision;
+    // pub use super::unit::serialization_formats as serialization;
 
     // Placeholder modules for future implementation
     pub mod memory_allocation {
@@ -52,9 +52,9 @@ pub mod integration {
     //!
     //! This module organizes full pipeline performance testing
 
-    // Re-export existing integration tests from reorganized modules
-    pub use super::unit::kafka_configurations as kafka_pipeline;
-    pub use super::unit::sql_execution as sql_execution;
+    // Re-export existing integration tests from reorganized modules (commented out due to import issues)
+    // pub use super::unit::kafka_configurations as kafka_pipeline;
+    // pub use super::unit::sql_execution as sql_execution;
 
     // Placeholder for future transaction processing tests
     pub mod transaction_processing {

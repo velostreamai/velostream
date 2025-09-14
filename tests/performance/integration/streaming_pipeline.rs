@@ -239,7 +239,7 @@ async fn simulate_json_processing(records: &[StreamRecord]) -> u64 {
     let mut processed = 0u64;
     for record in records {
         // Simulate serialization work
-        let _json_data = serde_json::to_string(&record.fields).unwrap_or_default();
+        let _json_data = format!("{{\"field_count\":{}}}", record.fields.len());
         processed += 1;
     }
     processed

@@ -141,7 +141,7 @@ async fn load_test_sustained_throughput() {
     let min_throughput = batch_throughputs
         .iter()
         .fold(f64::INFINITY, |a, &b| a.min(b));
-    let max_throughput = batch_throughputs.iter().fold(0.0, |a, &b| a.max(b));
+    let max_throughput = batch_throughputs.iter().fold(0.0_f64, |a, &b| a.max(b));
     let throughput_variance = (max_throughput - min_throughput) / avg_throughput * 100.0;
 
     println!("\n📈 Sustained Performance Summary:");
