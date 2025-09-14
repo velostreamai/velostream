@@ -1,0 +1,116 @@
+name: Quality & Security
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Mondays at 6 AM UTC
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: stable
+        cache-suffix: security
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Security audit
+      run: cargo audit
+
+    - name: Check for known vulnerabilities
+      run: |
+        # Additional security checks
+        echo "🔍 Checking for potential security issues..."
+
+        # Check for hardcoded secrets (basic patterns)
+        if grep -r -E "(password|secret|key|token).*=.*['\"][^'\"]{8,}['\"]" src/ --exclude-dir=target; then
+          echo "⚠️ Potential hardcoded credentials found"
+        else
+          echo "✅ No obvious hardcoded credentials detected"
+        fi
+
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: stable
+        cache-suffix: docs
+
+    - name: Check documentation
+      run: cargo doc --all-features --no-deps --document-private-items
+
+
+  code-coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: stable
+        components: llvm-tools-preview
+        cache-suffix: coverage
+
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+
+    - name: Generate code coverage
+      run: |
+        echo "📊 Generating code coverage for fast tests..."
+        cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info \
+          --no-default-features -- --skip integration:: --skip performance:: --skip comprehensive
+      env:
+        SKIP_KAFKA_TESTS: "1"
+      timeout-minutes: 15
+
+    - name: Upload coverage results
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-results
+        path: lcov.info
+
+  msrv-check:
+    name: MSRV Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: 1.85.0  # Minimum Supported Rust Version
+        cache-suffix: msrv
+
+    - name: Check MSRV compatibility
+      run: cargo check --all-features --no-default-features

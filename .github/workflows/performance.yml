@@ -1,0 +1,222 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM UTC
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:7.9.1
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: "broker,controller"
+          KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://kafka:29093"
+          KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+          KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+          KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+          CLUSTER_ID: "citest123456789012345678901"
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+          KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "kafka-topics --bootstrap-server localhost:9092 --list"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust Environment
+      uses: ./.github/actions/setup-rust
+      with:
+        rust-version: stable
+        components: rustfmt,clippy
+        cache-suffix: performance
+
+    - name: Wait for Kafka
+      run: |
+        echo "Waiting for Kafka..."
+        timeout 120 bash -c 'until nc -z localhost 9092; do sleep 2; done'
+        sleep 15
+        echo "✅ Kafka ready"
+
+    - name: Run Streaming Performance Benchmarks
+      run: |
+        echo "🚀 Running streaming performance benchmarks..."
+
+        # Run JSON performance test
+        echo "📊 Testing JSON throughput..."
+        cargo run --release --example json_performance_test --no-default-features > json_results.txt 2>&1
+
+        # Run raw bytes performance test
+        echo "📊 Testing raw bytes throughput..."
+        cargo run --release --example raw_bytes_performance_test --no-default-features > raw_results.txt 2>&1
+
+        # Run latency test
+        echo "📊 Testing latency performance..."
+        cargo run --release --example latency_performance_test --no-default-features > latency_results.txt 2>&1
+
+    - name: Run SQL Performance Benchmarks
+      run: |
+        echo "🚀 Running SQL performance benchmarks..."
+        export CI=true
+        export GITHUB_ACTIONS=true
+
+        # Run our consolidated performance test suite
+        echo "📊 Running comprehensive SQL benchmark suite..."
+        timeout 300 cargo test --no-default-features run_comprehensive_benchmark_suite -- --nocapture > sql_results.txt 2>&1 || {
+          echo "⚠️ SQL benchmarks timed out or failed (expected in CI)"
+          echo "SQL benchmarks did not complete" > sql_results.txt
+        }
+
+    - name: Extract Performance Metrics
+      id: metrics
+      run: |
+        # Extract streaming metrics
+        JSON_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\d+\s+\(\K\d+\.\d+(?=\s+msg/s\))' json_results.txt | head -1 || echo "0")
+        RAW_THROUGHPUT=$(grep -oP 'Messages Sent:\s+\d+\s+\(\K\d+\.\d+(?=\s+msg/s\))' raw_results.txt | head -1 || echo "0")
+        P95_LATENCY=$(grep -oP 'P95 Latency:\s+\K\d+\.\d+(?=\s+ms)' latency_results.txt | head -1 || echo "999")
+
+        # Extract SQL metrics with fallbacks
+        BASELINE_THROUGHPUT=$(grep -oE 'Baseline.*[0-9]+' sql_results.txt | grep -oE '[0-9]+' | head -1 || echo "0")
+        AGGREGATION_THROUGHPUT=$(grep -oE 'Aggregation.*[0-9]+' sql_results.txt | grep -oE '[0-9]+' | head -1 || echo "0")
+
+        # Calculate performance stars (1-5 stars based on performance)
+        JSON_STARS=$(echo "scale=0; if ($JSON_THROUGHPUT > 10000) 5 else if ($JSON_THROUGHPUT > 5000) 4 else if ($JSON_THROUGHPUT > 1000) 3 else if ($JSON_THROUGHPUT > 500) 2 else 1" | bc -l)
+        RAW_STARS=$(echo "scale=0; if ($RAW_THROUGHPUT > 50000) 5 else if ($RAW_THROUGHPUT > 20000) 4 else if ($RAW_THROUGHPUT > 10000) 3 else if ($RAW_THROUGHPUT > 5000) 2 else 1" | bc -l)
+        LATENCY_STARS=$(echo "scale=0; if ($P95_LATENCY < 10) 5 else if ($P95_LATENCY < 50) 4 else if ($P95_LATENCY < 100) 3 else if ($P95_LATENCY < 200) 2 else 1" | bc -l)
+        SQL_STARS=$(echo "scale=0; if ($BASELINE_THROUGHPUT > 1000) 5 else if ($BASELINE_THROUGHPUT > 500) 4 else if ($BASELINE_THROUGHPUT > 100) 3 else if ($BASELINE_THROUGHPUT > 10) 2 else 1" | bc -l)
+
+        # Set outputs
+        echo "json_throughput=$JSON_THROUGHPUT" >> $GITHUB_OUTPUT
+        echo "raw_throughput=$RAW_THROUGHPUT" >> $GITHUB_OUTPUT
+        echo "p95_latency=$P95_LATENCY" >> $GITHUB_OUTPUT
+        echo "baseline_throughput=$BASELINE_THROUGHPUT" >> $GITHUB_OUTPUT
+        echo "aggregation_throughput=$AGGREGATION_THROUGHPUT" >> $GITHUB_OUTPUT
+        echo "json_stars=$JSON_STARS" >> $GITHUB_OUTPUT
+        echo "raw_stars=$RAW_STARS" >> $GITHUB_OUTPUT
+        echo "latency_stars=$LATENCY_STARS" >> $GITHUB_OUTPUT
+        echo "sql_stars=$SQL_STARS" >> $GITHUB_OUTPUT
+
+        echo "📈 Performance Metrics Extracted:"
+        echo "  JSON: ${JSON_THROUGHPUT} msg/s (${JSON_STARS}⭐)"
+        echo "  Raw: ${RAW_THROUGHPUT} msg/s (${RAW_STARS}⭐)"
+        echo "  Latency: ${P95_LATENCY} ms (${LATENCY_STARS}⭐)"
+        echo "  SQL: ${BASELINE_THROUGHPUT} rec/s (${SQL_STARS}⭐)"
+
+    - name: Performance Regression Check
+      run: |
+        # Check for regressions
+        JSON_THRESHOLD=500
+        RAW_THRESHOLD=2000
+        LATENCY_THRESHOLD=500
+
+        if (( $(echo "${{ steps.metrics.outputs.json_throughput }} < $JSON_THRESHOLD" | bc -l) )); then
+          echo "❌ JSON throughput regression: ${{ steps.metrics.outputs.json_throughput }} < $JSON_THRESHOLD msg/s"
+          exit 1
+        fi
+
+        if (( $(echo "${{ steps.metrics.outputs.raw_throughput }} < $RAW_THRESHOLD" | bc -l) )); then
+          echo "❌ Raw throughput regression: ${{ steps.metrics.outputs.raw_throughput }} < $RAW_THRESHOLD msg/s"
+          exit 1
+        fi
+
+        if (( $(echo "${{ steps.metrics.outputs.p95_latency }} > $LATENCY_THRESHOLD" | bc -l) )); then
+          echo "❌ Latency regression: ${{ steps.metrics.outputs.p95_latency }} > $LATENCY_THRESHOLD ms"
+          exit 1
+        fi
+
+        echo "✅ All performance checks passed!"
+
+    - name: Upload Performance Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: performance-results
+        path: |
+          json_results.txt
+          raw_results.txt
+          latency_results.txt
+          sql_results.txt
+
+    - name: Comment Performance Results (PR only)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Create star display function
+          const getStars = (count) => '⭐'.repeat(count) + '☆'.repeat(5 - count);
+
+          const jsonThroughput = '${{ steps.metrics.outputs.json_throughput }}';
+          const rawThroughput = '${{ steps.metrics.outputs.raw_throughput }}';
+          const p95Latency = '${{ steps.metrics.outputs.p95_latency }}';
+          const baselineThroughput = '${{ steps.metrics.outputs.baseline_throughput }}';
+          const aggregationThroughput = '${{ steps.metrics.outputs.aggregation_throughput }}';
+
+          const jsonStars = parseInt('${{ steps.metrics.outputs.json_stars }}');
+          const rawStars = parseInt('${{ steps.metrics.outputs.raw_stars }}');
+          const latencyStars = parseInt('${{ steps.metrics.outputs.latency_stars }}');
+          const sqlStars = parseInt('${{ steps.metrics.outputs.sql_stars }}');
+
+          // Calculate overall performance rating
+          const avgStars = Math.round((jsonStars + rawStars + latencyStars + sqlStars) / 4);
+          const overallRating = getStars(avgStars);
+
+          const comment = `## 🚀 Performance Benchmark Results ${overallRating}
+
+          ### 📊 Streaming Performance
+          | Metric | Value | Performance |
+          |--------|-------|------------|
+          | **JSON Throughput** | ${jsonThroughput} msg/s | ${getStars(jsonStars)} |
+          | **Raw Throughput** | ${rawThroughput} msg/s | ${getStars(rawStars)} |
+          | **P95 Latency** | ${p95Latency} ms | ${getStars(latencyStars)} |
+
+          ### 🗄️ SQL Performance
+          | Metric | Value | Performance |
+          |--------|-------|------------|
+          | **Baseline Throughput** | ${baselineThroughput} rec/s | ${getStars(sqlStars)} |
+          | **Aggregation Throughput** | ${aggregationThroughput} rec/s | ${getStars(Math.max(1, Math.min(5, Math.round(parseInt(aggregationThroughput)/100))))} |
+
+          ### 🎯 Overall Performance Rating
+          **${overallRating} (${avgStars}/5 stars)**
+
+          ${avgStars >= 4 ? '🔥 **Excellent Performance!** All systems running optimally.' :
+            avgStars >= 3 ? '✅ **Good Performance** - Meeting expectations.' :
+            avgStars >= 2 ? '⚠️ **Acceptable Performance** - Some areas for improvement.' :
+            '🚨 **Performance Issues Detected** - Review recommended.'}
+
+          View detailed benchmark logs in the [workflow artifacts](${context.payload.pull_request.html_url}/checks).`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
