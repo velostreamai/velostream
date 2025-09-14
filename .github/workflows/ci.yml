@@ -49,7 +49,6 @@ jobs:
     - name: Run unit tests
       id: unit-tests
       run: |
-        echo "test-results-start" >> $GITHUB_OUTPUT
         cargo test --lib --no-default-features --quiet > test_results.txt 2>&1 || {
           echo "❌ Unit tests failed"
           cat test_results.txt
