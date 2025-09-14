@@ -56,14 +56,26 @@ jobs:
           exit 1
         }
 
-        # Extract test results with robust parsing
-        PASSED=$(grep -E "test result:.*(ok|FAILED).*[0-9]+ passed" test_results.txt | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1 || echo "0")
-        FAILED=$(grep -E "[0-9]+ failed" test_results.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+        # Extract test results using awk for precise parsing
+        TEST_RESULT_LINE=$(grep -E "test result:.*(ok|FAILED)" test_results.txt | tail -1)
+        PASSED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="passed") print $i}' || echo "0")
+        FAILED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="failed") print $i}' || echo "0")
+
+        # Handle case where no failures (0 failed might not appear)
+        if [[ -z "$FAILED" ]]; then
+          FAILED="0"
+        fi
+        if [[ -z "$PASSED" ]]; then
+          PASSED="0"
+        fi
 
         # Debug output
         echo "Debug: Test results parsing"
         echo "Raw output (last 10 lines):"
         tail -10 test_results.txt
+        echo "Test result line: $TEST_RESULT_LINE"
+        echo "Awk debug - looking for word 'passed' after numbers:"
+        echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/) print "Found number:", $i, "followed by:", $(i+1)}'
         echo "Parsed PASSED: $PASSED"
         echo "Parsed FAILED: $FAILED"
 
@@ -121,14 +133,26 @@ jobs:
           exit 1
         }
 
-        # Extract results with robust parsing
-        PASSED=$(grep -E "test result:.*(ok|FAILED).*[0-9]+ passed" comprehensive_results.txt | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1 || echo "0")
-        FAILED=$(grep -E "[0-9]+ failed" comprehensive_results.txt | grep -oE "[0-9]+" | head -1 || echo "0")
+        # Extract results using awk for precise parsing
+        TEST_RESULT_LINE=$(grep -E "test result:.*(ok|FAILED)" comprehensive_results.txt | tail -1)
+        PASSED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="passed") print $i}' || echo "0")
+        FAILED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="failed") print $i}' || echo "0")
+
+        # Handle case where no failures (0 failed might not appear)
+        if [[ -z "$FAILED" ]]; then
+          FAILED="0"
+        fi
+        if [[ -z "$PASSED" ]]; then
+          PASSED="0"
+        fi
 
         # Debug output
         echo "Debug: Comprehensive test results parsing"
         echo "Raw output (last 10 lines):"
         tail -10 comprehensive_results.txt
+        echo "Test result line: $TEST_RESULT_LINE"
+        echo "Awk debug - looking for word 'passed' after numbers:"
+        echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/) print "Found number:", $i, "followed by:", $(i+1)}'
         echo "Parsed PASSED: $PASSED"
         echo "Parsed FAILED: $FAILED"
 
