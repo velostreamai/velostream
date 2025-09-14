@@ -106,8 +106,8 @@ jobs:
 
         # Extract success information
         TEST_RESULT_LINE=$(grep -E "test result:.*(ok|FAILED)" integration_results.txt | tail -1)
-        PASSED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="passed") print $i}' || echo "0")
-        FAILED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && $(i+1)=="failed") print $i}' || echo "0")
+        PASSED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && ($(i+1)=="passed" || $(i+1)=="passed;")) print $i}' || echo "0")
+        FAILED=$(echo "$TEST_RESULT_LINE" | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+$/ && ($(i+1)=="failed" || $(i+1)=="failed;")) print $i}' || echo "0")
 
         # Handle case where no failures (0 failed might not appear)
         if [[ -z "$FAILED" ]]; then
@@ -184,7 +184,13 @@ jobs:
       uses: actions/github-script@v7
       with:
         script: |
-          const results = ${{ toJson(needs.integration-tests.outputs.test-results) }} || {status: "failed", passed: "0", failed: "1"};
+          // Parse JSON string from workflow output
+          let results;
+          try {
+            results = JSON.parse('${{ needs.integration-tests.outputs.test-results }}');
+          } catch (e) {
+            results = {status: "failed", passed: "0", failed: "1"};
+          }
           const status = results.status === 'passed' ? '✅' : '❌';
           const needsReview = results.status === 'failed';
 
