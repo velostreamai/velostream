@@ -11,8 +11,9 @@ pub use super::query_performance_tests;
 pub use super::serialization_performance_tests;
 
 // Re-export new comprehensive benchmark modules
-pub use super::ferris_sql_multi_benchmarks;
+// CONSOLIDATION COMPLETE: ferris_sql_multi_benchmarks.rs merged into unified_sql_benchmarks.rs
 pub use super::transactional_processor_benchmarks;
+pub use super::unified_sql_benchmarks;
 
 // Core Performance Test Modules (Future expansion structure)
 pub mod benchmarks {
