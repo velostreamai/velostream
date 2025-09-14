@@ -6,7 +6,7 @@
 //!
 //! Provides comprehensive SQL performance testing with unified measurement framework.
 
-use super::common::{
+use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
 use ferrisstreams::ferris::{

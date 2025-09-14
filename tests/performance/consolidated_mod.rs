@@ -4,16 +4,22 @@
 //! organized by functional area with clear separation between unit benchmarks,
 //! integration tests, and production simulations.
 
-// Re-export existing test modules for immediate use
-pub use super::financial_precision_benchmark;
-pub use super::kafka_performance_tests;
-pub use super::query_performance_tests;
-pub use super::serialization_performance_tests;
+// Re-export reorganized test modules from unit category
+pub use super::unit::financial_precision;
+pub use super::unit::kafka_configurations;
+pub use super::unit::query_processing;
+pub use super::unit::serialization_formats;
+pub use super::unit::sql_execution;
 
-// Re-export new comprehensive benchmark modules
-// CONSOLIDATION COMPLETE: ferris_sql_multi_benchmarks.rs merged into unified_sql_benchmarks.rs
-pub use super::transactional_processor_benchmarks;
-pub use super::unified_sql_benchmarks;
+// Re-export integration test modules
+pub use super::integration::resource_management;
+pub use super::integration::streaming_pipeline;
+pub use super::integration::transaction_processing;
+
+// Re-export load test modules
+pub use super::load::concurrent_access;
+pub use super::load::high_throughput;
+pub use super::load::stress_testing;
 
 // Core Performance Test Modules (Future expansion structure)
 pub mod benchmarks {
@@ -22,9 +28,9 @@ pub mod benchmarks {
     //! This module provides organized access to existing benchmarks
     //! and serves as a structure for future micro-benchmark additions.
 
-    // Re-export existing financial precision benchmarks
-    pub use super::super::financial_precision_benchmark as financial_precision;
-    pub use super::super::serialization_performance_tests as serialization;
+    // Re-export existing benchmarks from reorganized modules
+    pub use super::unit::financial_precision as financial_precision;
+    pub use super::unit::serialization_formats as serialization;
 
     // Placeholder modules for future implementation
     pub mod memory_allocation {
@@ -46,9 +52,9 @@ pub mod integration {
     //!
     //! This module organizes full pipeline performance testing
 
-    // Re-export existing integration tests
-    pub use super::super::kafka_performance_tests as kafka_pipeline;
-    pub use super::super::query_performance_tests as sql_execution;
+    // Re-export existing integration tests from reorganized modules
+    pub use super::unit::kafka_configurations as kafka_pipeline;
+    pub use super::unit::sql_execution as sql_execution;
 
     // Placeholder for future transaction processing tests
     pub mod transaction_processing {
