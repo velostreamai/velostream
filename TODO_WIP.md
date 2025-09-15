@@ -7,7 +7,225 @@
 
 # 📋 **NUMBERED DEVELOPMENT OBJECTIVES**
 
-## 🎯 **OBJECTIVE 1: PERFORMANCE TEST CONSOLIDATION** ⚡ **COMPLETED**
+## 🎯 **OBJECTIVE 1: Exactly-Once Semantics** 🔐 **NEXT PRIORITY**
+**Status**: 🔴 **0% COMPLETE** - Design phase, high priority implementation
+
+### 📋 **Implementation Tasks**
+1. **Design Transactional Commit Architecture**
+   - Create commit strategy framework (PerRecord, PerBatch, Hybrid)
+   - Define failure handling options (SkipAndLog, SendToDLQ, FailBatch, RetryWithBackoff)
+   - Design atomic processing + offset management
+
+2. **Implement Dead Letter Queue (DLQ) Support**
+   - Failed record routing to separate Kafka topics
+   - Failure metadata capture (error type, timestamp, retry count)
+   - DLQ processing and replay capabilities
+
+3. **Add Proper Kafka Offset Management**
+   - Manual commit with rollback on processing failures
+   - Transactional producer/consumer configuration validation
+   - Commit lag tracking and monitoring
+
+4. **Test Failure Scenarios & Recovery**
+   - Transient errors (network timeouts, temporary unavailability)
+   - Permanent errors (malformed data, schema violations)
+   - System errors (out of memory, disk full)
+   - Partial batch failures in multi-record processing
+
+### 🎯 **Success Criteria**
+- **100% Data Consistency**: Exactly-once delivery when enabled
+- **<10ms Additional Latency**: Transactional guarantees overhead
+- **Complete Error Handling**: All failure scenarios covered
+- **Recovery Time**: <30s job recovery after failures
+
+---
+
+## 🎯 **OBJECTIVE 2: Advanced Performance Optimization** 📊
+**Status**: 🔵 **PLANNED** - After core objectives complete
+
+### 📋 **Optimization Areas**
+1. **Zero-Copy Processing**
+   - Investigate zero-copy paths for large field values
+   - Memory mapping for file-based sources
+   - Eliminate unnecessary string allocations
+
+2. **Memory Pool Optimization**
+   - Record processing memory pools
+   - StreamRecord reuse patterns
+   - HashMap optimization for field collections
+
+3. **Stream-Based Consumption**
+   - Replace consumer.poll() with stream-based consumption
+   - Async stream processing for improved throughput
+   - Backpressure handling optimization
+
+### 🎯 **Success Criteria**
+- **<100ns per field**: Conversion performance target
+- **>100K records/sec**: Ultimate throughput target per job
+- **Memory Efficiency**: <50MB per job baseline
+
+---
+
+## 🎯 **OBJECTIVE 3: Production Enterprise Features** 🏢
+**Status**: 🔵 **PLANNED** - Production deployment requirements
+
+### 📋 **Feature Areas**
+1. **Configuration & Deployment**
+   - Job-specific configuration overrides
+   - Environment-based configuration profiles
+   - Configuration hot-reload support
+   - Configuration templating and inheritance
+
+2. **Monitoring & Observability**
+   - Comprehensive structured logging
+   - Metrics export (Prometheus, OpenTelemetry)
+   - Health checks and readiness probes
+   - Resource usage monitoring and alerting
+
+3. **Advanced Error Handling**
+   - Circuit breaker patterns for failing datasources
+   - Enhanced error propagation with context
+   - Advanced retry logic with exponential backoff
+   - Error categorization and routing
+
+### 🎯 **Success Criteria**
+- **99.9% Uptime**: Job availability during normal operations
+- **Complete Observability**: Full metrics and logging coverage
+- **Enterprise Ready**: Production deployment documentation
+
+---
+
+# ⏰ **PRIORITY TIMELINE**
+
+## 🗓️ **Phase 3: Exactly-Once Semantics** (March 2025)
+**Duration**: 3-4 weeks
+**Focus**: Complete Objective 1 (Exactly-Once Semantics)
+
+### Week 1: Architecture Design
+- [ ] Design transactional commit architecture
+- [ ] Create failure handling strategy framework
+- [ ] Design DLQ and error routing patterns
+- [ ] Implement transactional configuration validation
+
+### Week 2: Core Implementation
+- [ ] Implement transactional processors
+- [ ] Add Kafka offset management with rollback
+- [ ] Create DLQ routing and metadata capture
+- [ ] Implement state persistence for recovery
+
+### Week 3: Testing & Validation
+- [ ] Comprehensive failure scenario testing
+- [ ] Recovery time validation (<30s target)
+- [ ] Latency impact measurement (<10ms target)
+- [ ] Integration testing with performance tests
+
+### Week 4: Documentation & Polish
+- [ ] Complete exactly-once semantics documentation
+- [ ] Update configuration reference
+- [ ] Create deployment and operation guides
+
+## 🗓️ **Phase 4: Advanced Performance Optimization** (April 2025)
+**Duration**: 2-3 weeks
+**Focus**: Complete Objective 2 (Advanced Optimization)
+
+### Advanced Optimization Implementation
+- [ ] Zero-copy processing investigation and implementation
+- [ ] Memory pool optimization for high-throughput scenarios
+- [ ] Stream-based consumption replacement for poll-based
+- [ ] Ultimate performance target validation (>100K records/sec)
+
+## 🗓️ **Phase 5: Enterprise Production** (May 2025)
+**Duration**: 3-4 weeks
+**Focus**: Complete Objective 3 (Enterprise Features)
+
+### Enterprise Features
+- [ ] Advanced configuration management system
+- [ ] Complete monitoring and observability stack
+- [ ] Production deployment automation
+- [ ] Enterprise documentation and support guides
+
+---
+
+# 📊 **CURRENT PROJECT STATUS**
+
+## ✅ **COMPLETED ACHIEVEMENTS**
+
+### 🎯 **Unified Configuration Management System** (September 2025)
+- **90% Code Reduction**: KafkaDataWriter simplified from 150+ lines to ~10 lines
+- **Production Ready**: PropertySuggestor trait, ConfigFactory, ConfigLogger
+- **Zero Configuration Override**: User settings always preserved
+- **Enhanced Debugging**: Clear "(user)" vs "(suggested)" annotations
+
+### 🎯 **Multi-Job Server Architecture** (September 2025)
+- **Complete Refactoring**: Modern stream_job_server architecture
+- **Unified Processors**: SimpleJobProcessor, TransactionalJobProcessor with smart dispatch
+- **Resource Isolation**: Confirmed proper job failure isolation
+- **Production Ready**: End-to-end job deployment and lifecycle management
+
+### 🎯 **SQL-First Documentation Restructure** (January 2025) ✅ **COMPLETED**
+- **Complete Documentation System**: 22 files created covering all SQL streaming use cases
+- **2-Minute Getting Started**: New users can write first query in under 2 minutes
+- **Task-Oriented Structure**: 6 by-task guides + 9 function references + 6 real-world examples
+- **Production Examples**: Copy-paste ready queries for fraud detection, IoT, financial trading, etc.
+- **User Adoption Solution**: Solved overwhelming 4,587-line reference guide problem
+- **Impact**: New users can now find basic examples and write their first query in under 2 minutes using the comprehensive SQL-first documentation structure
+
+### 🎯 **GitHub Actions CI/CD Infrastructure** (September 2025) ✅ **COMPLETED**
+- **Complete Workflow Suite**: Main Pipeline, Performance, Integration, Quality & Security workflows
+- **Performance Monitoring**: 1-5 ⭐ star rating system with CI-optimized thresholds
+- **PR Status Reporting**: All workflows report comprehensive status to Pull Requests
+- **Optimized Test Execution**: Binary pre-building reduces test time from 30s to 22ms
+- **Accurate Test Parsing**: Fixed JSON parsing and awk patterns for reliable test counts
+- **Production Ready**: All workflows validated and operational for CI/CD
+
+### 🎯 **Batch Processing Infrastructure** (Current)
+- **All 5 Strategies**: FixedSize, TimeWindow, AdaptiveSize, MemoryBased, LowLatency
+- **DataSource Integration**: Code-level batch configuration working
+- **Configuration Architecture**: Comprehensive PropertySuggestor system
+- **Test Coverage**: All batch strategies validated in integration tests
+
+## 🚀 **PRODUCTION READINESS STATUS**
+
+**FerrisStreams is currently PRODUCTION READY for:**
+- ✅ Multi-job SQL stream processing
+- ✅ Kafka and File data sources/sinks
+- ✅ Advanced SQL features (window functions, aggregations, joins)
+- ✅ Unified configuration management
+- ✅ Resource isolation and error handling
+- ✅ Comprehensive test coverage (all tests passing)
+- ✅ Complete SQL-first documentation system
+- ✅ **NEW**: Production-grade CI/CD with GitHub Actions workflows
+- ✅ **NEW**: Performance monitoring with star ratings and regression detection
+- ✅ **NEW**: Automated PR status reporting and quality checks
+- ✅ **NEW**: Complete SQL batch configuration with WITH clause support
+
+**Next Production Milestone**: Complete Objective 1 (Exactly-Once Semantics) for mission-critical applications
+
+---
+
+# 🎯 **SUCCESS METRICS TRACKING**
+
+## Performance Targets
+| Metric | Current | Target | Status |
+|--------|---------|--------|--------|
+| Records/sec per job | ~365K (batched) | 50K (5x) | ✅ **EXCEEDED** |
+| Conversion overhead | ~520ns/field | <100ns/field | 🔴 Needs optimization |
+| Memory per job | ~100MB | <100MB | ✅ Target met |
+| Batch processing | **SQL configurable** | SQL configurable | ✅ **COMPLETE** |
+
+## Reliability Targets
+| Metric | Current | Target | Status |
+|--------|---------|--------|--------|
+| Test coverage | 883/883 passing | 100% | ✅ Complete |
+| Job uptime | High | 99.9% | ✅ Architecture ready |
+| Recovery time | Unknown | <30s | 🔴 Needs implementation |
+| Data consistency | At-least-once | Exactly-once | 🔴 Objective 1 |
+
+---
+
+# 📋 **COMPLETED OBJECTIVES** (Moved to End)
+
+## ✅ **OBJECTIVE 1 (COMPLETED): PERFORMANCE TEST CONSOLIDATION** ⚡ **COMPLETED**
 **Status**: ✅ **COMPLETED** - GitHub Actions optimized, test infrastructure production-ready
 **Timeline**: 3 weeks total consolidation completed
 **Impact**: **HIGH** - 30% code reduction, optimized CI/CD, complete performance coverage
@@ -145,7 +363,7 @@
 
 ---
 
-## ✅ **OBJECTIVE 2: Batch Processing Implementation** ✅ **COMPLETED**
+## ✅ **OBJECTIVE 2 (COMPLETED): Batch Processing Implementation** ✅ **COMPLETED**
 **Status**: 🟢 **100% COMPLETE** - All SQL configuration integration completed
 
 ### ✅ **Completed Components**
@@ -192,259 +410,6 @@ The SQL batch configuration layer is **fully functional and optimized**. The lim
 1. **Bottleneck is not in SQL configuration** - All batch strategies perform similarly
 2. **System-level optimization needed** - 5x requires I/O pipeline optimization (actual Kafka writes, serialization, etc.)
 3. **Simulation vs Production** - Current benchmark simulates processing; real 5x gains come from reduced I/O calls
-
----
-
-## 🎯 **OBJECTIVE 3: Exactly-Once Semantics** 🔐
-**Status**: 🔴 **0% COMPLETE** - Design phase, high priority after Performance Test Consolidation
-
-### 📋 **Implementation Tasks**
-1. **Design Transactional Commit Architecture**
-   - Create commit strategy framework (PerRecord, PerBatch, Hybrid)
-   - Define failure handling options (SkipAndLog, SendToDLQ, FailBatch, RetryWithBackoff)
-   - Design atomic processing + offset management
-
-2. **Implement Dead Letter Queue (DLQ) Support**
-   - Failed record routing to separate Kafka topics
-   - Failure metadata capture (error type, timestamp, retry count)
-   - DLQ processing and replay capabilities
-
-3. **Add Proper Kafka Offset Management**
-   - Manual commit with rollback on processing failures
-   - Transactional producer/consumer configuration validation
-   - Commit lag tracking and monitoring
-
-4. **Test Failure Scenarios & Recovery**
-   - Transient errors (network timeouts, temporary unavailability)
-   - Permanent errors (malformed data, schema violations)
-   - System errors (out of memory, disk full)
-   - Partial batch failures in multi-record processing
-
-### 🎯 **Success Criteria**
-- **100% Data Consistency**: Exactly-once delivery when enabled
-- **<10ms Additional Latency**: Transactional guarantees overhead
-- **Complete Error Handling**: All failure scenarios covered
-- **Recovery Time**: <30s job recovery after failures
-
----
-
-## 🎯 **OBJECTIVE 4: Advanced Performance Optimization** 📊
-**Status**: 🔵 **PLANNED** - After core objectives complete
-
-### 📋 **Optimization Areas**
-1. **Zero-Copy Processing**
-   - Investigate zero-copy paths for large field values
-   - Memory mapping for file-based sources
-   - Eliminate unnecessary string allocations
-
-2. **Memory Pool Optimization**
-   - Record processing memory pools
-   - StreamRecord reuse patterns
-   - HashMap optimization for field collections
-
-3. **Stream-Based Consumption**
-   - Replace consumer.poll() with stream-based consumption
-   - Async stream processing for improved throughput
-   - Backpressure handling optimization
-
-### 🎯 **Success Criteria**
-- **<100ns per field**: Conversion performance target
-- **>100K records/sec**: Ultimate throughput target per job
-- **Memory Efficiency**: <50MB per job baseline
-
----
-
-## 🎯 **OBJECTIVE 5: Production Enterprise Features** 🏢
-**Status**: 🔵 **PLANNED** - Production deployment requirements
-
-### 📋 **Feature Areas**
-1. **Configuration & Deployment**
-   - Job-specific configuration overrides
-   - Environment-based configuration profiles
-   - Configuration hot-reload support
-   - Configuration templating and inheritance
-
-2. **Monitoring & Observability**
-   - Comprehensive structured logging
-   - Metrics export (Prometheus, OpenTelemetry)
-   - Health checks and readiness probes
-   - Resource usage monitoring and alerting
-
-3. **Advanced Error Handling**
-   - Circuit breaker patterns for failing datasources
-   - Enhanced error propagation with context
-   - Advanced retry logic with exponential backoff
-   - Error categorization and routing
-
-### 🎯 **Success Criteria**
-- **99.9% Uptime**: Job availability during normal operations
-- **Complete Observability**: Full metrics and logging coverage
-- **Enterprise Ready**: Production deployment documentation
-
----
-
-# ⏰ **PRIORITY TIMELINE**
-
-## 🗓️ **Phase 1: Performance Test Consolidation** (January 2025)
-**Duration**: 2-3 weeks
-**Focus**: Complete Objective 1 (Performance Test Consolidation)
-
-### Week 1: Immediate Consolidation 🔄 **IN PROGRESS**
-- [x] **Analysis Complete** - Identified 30% code duplication across 10 files
-- [ ] Merge duplicate SQL benchmarks (ferris_sql_multi_benchmarks.rs + ferris_sql_multi_enhanced_benchmarks.rs)
-- [ ] Standardize configuration & data generation (create unified BenchmarkMode enum)
-- [ ] Extract common utilities (timing/metrics logic to common/metrics.rs)
-- [ ] Create shared test data generators
-
-### Week 2: Architectural Improvements
-- [ ] Implement test hierarchy (common/, unit/, integration/, load/ structure)
-- [ ] Eliminate duplicate files (remove 2 large files, replace with organized structure)
-- [ ] Consolidate phase_3_benchmarks.rs content into appropriate files
-- [ ] Create consistent module exports and organization
-
-### Week 3: Fill Coverage Gaps
-- [ ] Add missing integration tests (end-to-end Kafka → SQL → Kafka pipeline)
-- [ ] Implement production scenarios (web analytics, fraud detection, IoT)
-- [ ] Complete framework implementation (memory profiling, CPU profiling, load testing)
-- [ ] Validate 30% code reduction and unified measurement framework
-
-## 🗓️ **Phase 2: Batch Processing Implementation** (February 2025)
-**Duration**: 2-3 weeks
-**Focus**: Complete Objective 2 (Batch Processing)
-
-### Week 1: Performance Validation
-- [ ] Benchmark 5x throughput improvement target (>50K records/sec per job)
-- [ ] Memory usage optimization with different batch strategies
-- [ ] CPU utilization analysis and optimization
-
-### Week 2: SQL Integration Completion
-- [ ] Complete SQL WITH clause parsing for batch configuration
-- [ ] Implement failure strategy configuration support
-- [ ] Add comprehensive SQL batch configuration tests
-- [ ] Update documentation with batch examples
-
-## 🗓️ **Phase 3: Exactly-Once Semantics** (March 2025)
-**Duration**: 3-4 weeks
-**Focus**: Complete Objective 3 (Exactly-Once Semantics)
-
-### Week 1: Architecture Design
-- [ ] Design transactional commit architecture
-- [ ] Create failure handling strategy framework
-- [ ] Design DLQ and error routing patterns
-- [ ] Implement transactional configuration validation
-
-### Week 2: Core Implementation
-- [ ] Implement transactional processors
-- [ ] Add Kafka offset management with rollback
-- [ ] Create DLQ routing and metadata capture
-- [ ] Implement state persistence for recovery
-
-### Week 3: Testing & Validation
-- [ ] Comprehensive failure scenario testing
-- [ ] Recovery time validation (<30s target)
-- [ ] Latency impact measurement (<10ms target)
-- [ ] Integration testing with performance tests
-
-### Week 4: Documentation & Polish
-- [ ] Complete exactly-once semantics documentation
-- [ ] Update configuration reference
-- [ ] Create deployment and operation guides
-
-## 🗓️ **Phase 4: Advanced Performance Optimization** (April 2025)
-**Duration**: 2-3 weeks
-**Focus**: Complete Objective 4 (Advanced Optimization)
-
-### Advanced Optimization Implementation
-- [ ] Zero-copy processing investigation and implementation
-- [ ] Memory pool optimization for high-throughput scenarios
-- [ ] Stream-based consumption replacement for poll-based
-- [ ] Ultimate performance target validation (>100K records/sec)
-
-## 🗓️ **Phase 5: Enterprise Production** (May 2025)
-**Duration**: 3-4 weeks
-**Focus**: Complete Objective 5 (Enterprise Features)
-
-### Enterprise Features
-- [ ] Advanced configuration management system
-- [ ] Complete monitoring and observability stack
-- [ ] Production deployment automation
-- [ ] Enterprise documentation and support guides
-
----
-
-# 📊 **CURRENT PROJECT STATUS**
-
-## ✅ **COMPLETED ACHIEVEMENTS**
-
-### 🎯 **Unified Configuration Management System** (September 2025)
-- **90% Code Reduction**: KafkaDataWriter simplified from 150+ lines to ~10 lines
-- **Production Ready**: PropertySuggestor trait, ConfigFactory, ConfigLogger
-- **Zero Configuration Override**: User settings always preserved
-- **Enhanced Debugging**: Clear "(user)" vs "(suggested)" annotations
-
-### 🎯 **Multi-Job Server Architecture** (September 2025)  
-- **Complete Refactoring**: Modern stream_job_server architecture
-- **Unified Processors**: SimpleJobProcessor, TransactionalJobProcessor with smart dispatch
-- **Resource Isolation**: Confirmed proper job failure isolation
-- **Production Ready**: End-to-end job deployment and lifecycle management
-
-### 🎯 **SQL-First Documentation Restructure** (January 2025) ✅ **COMPLETED**
-- **Complete Documentation System**: 22 files created covering all SQL streaming use cases
-- **2-Minute Getting Started**: New users can write first query in under 2 minutes
-- **Task-Oriented Structure**: 6 by-task guides + 9 function references + 6 real-world examples
-- **Production Examples**: Copy-paste ready queries for fraud detection, IoT, financial trading, etc.
-- **User Adoption Solution**: Solved overwhelming 4,587-line reference guide problem
-- **Impact**: New users can now find basic examples and write their first query in under 2 minutes using the comprehensive SQL-first documentation structure
-
-### 🎯 **GitHub Actions CI/CD Infrastructure** (September 2025) ✅ **COMPLETED**
-- **Complete Workflow Suite**: Main Pipeline, Performance, Integration, Quality & Security workflows
-- **Performance Monitoring**: 1-5 ⭐ star rating system with CI-optimized thresholds
-- **PR Status Reporting**: All workflows report comprehensive status to Pull Requests
-- **Optimized Test Execution**: Binary pre-building reduces test time from 30s to 22ms
-- **Accurate Test Parsing**: Fixed JSON parsing and awk patterns for reliable test counts
-- **Production Ready**: All workflows validated and operational for CI/CD
-
-### 🎯 **Batch Processing Infrastructure** (Current)
-- **All 5 Strategies**: FixedSize, TimeWindow, AdaptiveSize, MemoryBased, LowLatency
-- **DataSource Integration**: Code-level batch configuration working
-- **Configuration Architecture**: Comprehensive PropertySuggestor system
-- **Test Coverage**: All batch strategies validated in integration tests
-
-## 🚀 **PRODUCTION READINESS STATUS**
-
-**FerrisStreams is currently PRODUCTION READY for:**
-- ✅ Multi-job SQL stream processing
-- ✅ Kafka and File data sources/sinks
-- ✅ Advanced SQL features (window functions, aggregations, joins)
-- ✅ Unified configuration management
-- ✅ Resource isolation and error handling
-- ✅ Comprehensive test coverage (all tests passing)
-- ✅ Complete SQL-first documentation system
-- ✅ **NEW**: Production-grade CI/CD with GitHub Actions workflows
-- ✅ **NEW**: Performance monitoring with star ratings and regression detection
-- ✅ **NEW**: Automated PR status reporting and quality checks
-
-**Next Production Milestone**: Complete Objective 2 (Batch Processing) SQL configuration implementation
-
----
-
-# 🎯 **SUCCESS METRICS TRACKING**
-
-## Performance Targets
-| Metric | Current | Target | Status |
-|--------|---------|--------|--------|
-| Records/sec per job | ~10K | 50K (5x) | 🟡 In Progress |
-| Conversion overhead | ~520ns/field | <100ns/field | 🔴 Needs optimization |
-| Memory per job | ~100MB | <100MB | ✅ Target met |
-| Batch processing | Code-level only | SQL configurable | 🟢 95% complete |
-
-## Reliability Targets  
-| Metric | Current | Target | Status |
-|--------|---------|--------|--------|
-| Test coverage | 883/883 passing | 100% | ✅ Complete |
-| Job uptime | High | 99.9% | ✅ Architecture ready |
-| Recovery time | Unknown | <30s | 🔴 Needs implementation |
-| Data consistency | At-least-once | Exactly-once | 🔴 Objective 2 |
 
 ---
 
