@@ -4,8 +4,8 @@ use super::stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_source_read_failure_scenario, AdvancedMockDataReader,
-    AdvancedMockDataWriter, StreamJobProcessor,
+    test_source_read_failure_scenario, AdvancedMockDataReader, AdvancedMockDataWriter,
+    StreamJobProcessor,
 };
 
 use async_trait::async_trait;
@@ -14,10 +14,7 @@ use ferrisstreams::ferris::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     transactional::TransactionalJobProcessor,
 };
-use ferrisstreams::ferris::sql::{
-    ast::StreamingQuery,
-    execution::engine::StreamExecutionEngine,
-};
+use ferrisstreams::ferris::sql::{ast::StreamingQuery, execution::engine::StreamExecutionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -163,11 +160,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
 
     // Test FailBatch strategy
     println!("=== Test: TransactionalJobProcessor FailBatch Strategy ===");
-    run_comprehensive_failure_tests(
-        &fail_batch_processor,
-        "TransactionalJobProcessor_FailBatch",
-    )
-    .await;
+    run_comprehensive_failure_tests(&fail_batch_processor, "TransactionalJobProcessor_FailBatch")
+        .await;
     println!("✅ TransactionalJobProcessor FailBatch tests completed successfully");
 
     println!("✅ All comprehensive failure scenarios completed successfully!");
