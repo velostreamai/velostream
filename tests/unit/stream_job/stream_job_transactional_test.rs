@@ -92,14 +92,18 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = run_comprehensive_failure_tests(
         &log_continue_processor,
         "TransactionalJobProcessor_LogAndContinue",
-    ).await;
+    )
+    .await;
 
     match result {
         Ok(()) => {
             println!("✅ TransactionalJobProcessor LogAndContinue tests completed successfully");
         }
         Err(e) => {
-            panic!("❌ TransactionalJobProcessor LogAndContinue tests failed: {:?}", e);
+            panic!(
+                "❌ TransactionalJobProcessor LogAndContinue tests failed: {:?}",
+                e
+            );
         }
     }
 
@@ -123,7 +127,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = test_source_read_failure_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
-    ).await;
+    )
+    .await;
     match result {
         Ok(()) => println!("✅ Source read failure scenario completed"),
         Err(e) => panic!("❌ Source read failure scenario failed: {:?}", e),
@@ -133,7 +138,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = test_network_partition_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
-    ).await;
+    )
+    .await;
     match result {
         Ok(()) => println!("✅ Network partition scenario completed"),
         Err(e) => panic!("❌ Network partition scenario failed: {:?}", e),
@@ -143,7 +149,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = test_partial_batch_failure_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
-    ).await;
+    )
+    .await;
     match result {
         Ok(()) => println!("✅ Partial batch failure scenario completed"),
         Err(e) => panic!("❌ Partial batch failure scenario failed: {:?}", e),
@@ -153,7 +160,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = test_shutdown_signal_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
-    ).await;
+    )
+    .await;
     match result {
         Ok(()) => println!("✅ Shutdown signal scenario completed"),
         Err(e) => panic!("❌ Shutdown signal scenario failed: {:?}", e),
@@ -163,7 +171,8 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let result = test_empty_batch_handling_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
-    ).await;
+    )
+    .await;
     match result {
         Ok(()) => println!("✅ Empty batch handling scenario completed"),
         Err(e) => panic!("❌ Empty batch handling scenario failed: {:?}", e),
@@ -184,13 +193,20 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
 
     // Test FailBatch strategy
     println!("=== Test: TransactionalJobProcessor FailBatch Strategy ===");
-    let result = run_comprehensive_failure_tests(&fail_batch_processor, "TransactionalJobProcessor_FailBatch").await;
+    let result = run_comprehensive_failure_tests(
+        &fail_batch_processor,
+        "TransactionalJobProcessor_FailBatch",
+    )
+    .await;
     match result {
         Ok(()) => {
             println!("✅ TransactionalJobProcessor FailBatch tests completed successfully");
         }
         Err(e) => {
-            panic!("❌ TransactionalJobProcessor FailBatch tests failed: {:?}", e);
+            panic!(
+                "❌ TransactionalJobProcessor FailBatch tests failed: {:?}",
+                e
+            );
         }
     }
 
@@ -236,14 +252,16 @@ async fn test_transactional_processor_rollback_behavior() {
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor.process_job(
-        reader,
-        Some(writer),
-        engine,
-        query,
-        "test_transactional_rollback".to_string(),
-        shutdown_rx,
-    ).await;
+    let result = processor
+        .process_job(
+            reader,
+            Some(writer),
+            engine,
+            query,
+            "test_transactional_rollback".to_string(),
+            shutdown_rx,
+        )
+        .await;
 
     println!("Transactional rollback test result: {:?}", result);
 
@@ -253,8 +271,10 @@ async fn test_transactional_processor_rollback_behavior() {
             println!("✅ Test completed successfully with stats: {:?}", stats);
             // In transactional mode, some batches may have failed due to write failures
             // but the processor should handle it gracefully
-            assert!(stats.batches_processed > 0 || stats.batches_failed > 0,
-                   "Expected some batch processing activity");
+            assert!(
+                stats.batches_processed > 0 || stats.batches_failed > 0,
+                "Expected some batch processing activity"
+            );
         }
         Err(e) => {
             println!("❌ Test failed with error: {:?}", e);
@@ -358,25 +378,35 @@ async fn test_transactional_processor_with_non_transactional_datasources() {
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = processor.process_job(
-        reader,
-        Some(writer),
-        engine,
-        query,
-        "test_non_transactional_datasources".to_string(),
-        shutdown_rx,
-    ).await;
+    let result = processor
+        .process_job(
+            reader,
+            Some(writer),
+            engine,
+            query,
+            "test_non_transactional_datasources".to_string(),
+            shutdown_rx,
+        )
+        .await;
 
     // Should handle gracefully and fall back to simple mode
     match result {
         Ok(stats) => {
-            println!("✅ Non-transactional datasources test completed successfully: {:?}", stats);
-            assert!(stats.batches_processed > 0 || stats.batches_failed >= 0,
-                   "Expected some processing activity");
+            println!(
+                "✅ Non-transactional datasources test completed successfully: {:?}",
+                stats
+            );
+            assert!(
+                stats.batches_processed > 0 || stats.batches_failed >= 0,
+                "Expected some processing activity"
+            );
         }
         Err(e) => {
             println!("❌ Test failed with error: {:?}", e);
-            panic!("Should handle non-transactional datasources gracefully: {:?}", e);
+            panic!(
+                "Should handle non-transactional datasources gracefully: {:?}",
+                e
+            );
         }
     }
 }

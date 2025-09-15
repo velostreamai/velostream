@@ -4,8 +4,7 @@
 //! by comparing single-record vs batched processing with different batch strategies.
 
 use ferrisstreams::ferris::{
-    datasource::BatchStrategy,
-    sql::config::with_clause_parser::WithClauseParser,
+    datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
     sql::execution::types::FieldValue,
 };
 use std::collections::HashMap;
@@ -19,7 +18,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Baseline: Single record processing (10K records/sec baseline from TODO_WIP.md)
     let baseline_throughput = benchmark_single_record_processing().await?;
-    println!("📊 Baseline (Single Record): {} records/sec", baseline_throughput);
+    println!(
+        "📊 Baseline (Single Record): {} records/sec",
+        baseline_throughput
+    );
 
     // Test each batch strategy
     let fixed_size_throughput = benchmark_fixed_size_batch().await?;
@@ -30,11 +32,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Calculate improvements
     println!("\n🚀 Performance Results:");
-    print_improvement("Fixed Size Batch", fixed_size_throughput, baseline_throughput);
-    print_improvement("Time Window Batch", time_window_throughput, baseline_throughput);
-    print_improvement("Adaptive Size Batch", adaptive_throughput, baseline_throughput);
-    print_improvement("Memory-Based Batch", memory_based_throughput, baseline_throughput);
-    print_improvement("Low Latency Batch", low_latency_throughput, baseline_throughput);
+    print_improvement(
+        "Fixed Size Batch",
+        fixed_size_throughput,
+        baseline_throughput,
+    );
+    print_improvement(
+        "Time Window Batch",
+        time_window_throughput,
+        baseline_throughput,
+    );
+    print_improvement(
+        "Adaptive Size Batch",
+        adaptive_throughput,
+        baseline_throughput,
+    );
+    print_improvement(
+        "Memory-Based Batch",
+        memory_based_throughput,
+        baseline_throughput,
+    );
+    print_improvement(
+        "Low Latency Batch",
+        low_latency_throughput,
+        baseline_throughput,
+    );
 
     // Check if 5x target is met
     let throughputs = [
@@ -49,8 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let improvement_factor = best_throughput as f64 / baseline_throughput as f64;
     println!("\n🎯 Target Analysis:");
     println!("  • Target: 5x improvement (>50K records/sec)");
-    println!("  • Best Result: {:.1}x improvement ({} records/sec)",
-             improvement_factor, best_throughput);
+    println!(
+        "  • Best Result: {:.1}x improvement ({} records/sec)",
+        improvement_factor, best_throughput
+    );
 
     if improvement_factor >= 5.0 {
         println!("  ✅ 5x THROUGHPUT TARGET ACHIEVED!");
@@ -65,7 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-async fn benchmark_single_record_processing() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+async fn benchmark_single_record_processing(
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     const TEST_DURATION_MS: u64 = 1000;
     const RECORD_COUNT: usize = 10000;
 
@@ -143,9 +168,15 @@ async fn benchmark_adaptive_batch() -> Result<u64, Box<dyn std::error::Error + S
     let batch_config = config.batch_config.unwrap();
 
     match batch_config.strategy {
-        BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
-            println!("  • Min size: {}, Max size: {}, Target latency: {:?}",
-                     min_size, max_size, target_latency);
+        BatchStrategy::AdaptiveSize {
+            min_size,
+            max_size,
+            target_latency,
+        } => {
+            println!(
+                "  • Min size: {}, Max size: {}, Target latency: {:?}",
+                min_size, max_size, target_latency
+            );
             // Use average of min and max for simulation
             simulate_batch_processing((min_size + max_size) / 2).await
         }
@@ -167,8 +198,11 @@ async fn benchmark_memory_based_batch() -> Result<u64, Box<dyn std::error::Error
 
     match batch_config.strategy {
         BatchStrategy::MemoryBased(memory_size) => {
-            println!("  • Memory limit: {} bytes ({:.1}MB)",
-                     memory_size, memory_size as f64 / (1024.0 * 1024.0));
+            println!(
+                "  • Memory limit: {} bytes ({:.1}MB)",
+                memory_size,
+                memory_size as f64 / (1024.0 * 1024.0)
+            );
             // Estimate ~1KB per record = 4000 records per batch
             simulate_batch_processing(4000).await
         }
@@ -191,16 +225,24 @@ async fn benchmark_low_latency_batch() -> Result<u64, Box<dyn std::error::Error 
     let batch_config = config.batch_config.unwrap();
 
     match batch_config.strategy {
-        BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing } => {
-            println!("  • Max batch size: {}, Wait time: {:?}, Eager: {}",
-                     max_batch_size, max_wait_time, eager_processing);
+        BatchStrategy::LowLatency {
+            max_batch_size,
+            max_wait_time,
+            eager_processing,
+        } => {
+            println!(
+                "  • Max batch size: {}, Wait time: {:?}, Eager: {}",
+                max_batch_size, max_wait_time, eager_processing
+            );
             simulate_batch_processing(max_batch_size as usize).await
         }
         _ => Err("Expected LowLatency strategy".into()),
     }
 }
 
-async fn simulate_batch_processing(batch_size: usize) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+async fn simulate_batch_processing(
+    batch_size: usize,
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     const TEST_DURATION_MS: u64 = 1000;
     const TOTAL_RECORDS: usize = 50000; // Test with 50K records
 
@@ -213,9 +255,7 @@ async fn simulate_batch_processing(batch_size: usize) -> Result<u64, Box<dyn std
         let chunk_size = chunk_end - chunk_start;
 
         // Simulate batch processing (more efficient than individual records)
-        let _batch: Vec<_> = (chunk_start..chunk_end)
-            .map(create_test_record)
-            .collect();
+        let _batch: Vec<_> = (chunk_start..chunk_end).map(create_test_record).collect();
 
         // Simulated batch I/O operation (much more efficient than individual writes)
         tokio::task::yield_now().await;
@@ -231,7 +271,11 @@ async fn simulate_batch_processing(batch_size: usize) -> Result<u64, Box<dyn std
     let elapsed = start.elapsed();
     let throughput = (processed_records as f64 / elapsed.as_secs_f64()) as u64;
 
-    println!("  • Processed {} records in {:.2}s", processed_records, elapsed.as_secs_f64());
+    println!(
+        "  • Processed {} records in {:.2}s",
+        processed_records,
+        elapsed.as_secs_f64()
+    );
 
     Ok(throughput)
 }
@@ -239,9 +283,15 @@ async fn simulate_batch_processing(batch_size: usize) -> Result<u64, Box<dyn std
 fn create_test_record(id: usize) -> HashMap<String, FieldValue> {
     let mut record = HashMap::new();
     record.insert("id".to_string(), FieldValue::Integer(id as i64));
-    record.insert("timestamp".to_string(), FieldValue::Integer(chrono::Utc::now().timestamp()));
+    record.insert(
+        "timestamp".to_string(),
+        FieldValue::Integer(chrono::Utc::now().timestamp()),
+    );
     record.insert("value".to_string(), FieldValue::Float(id as f64 * 1.5));
-    record.insert("status".to_string(), FieldValue::String("active".to_string()));
+    record.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
     record
 }
 
@@ -250,6 +300,8 @@ fn print_improvement(strategy_name: &str, strategy_throughput: u64, baseline_thr
     let meets_target = improvement >= 5.0;
     let status = if meets_target { "✅" } else { "📊" };
 
-    println!("  {} {}: {} records/sec ({:.1}x improvement)",
-             status, strategy_name, strategy_throughput, improvement);
+    println!(
+        "  {} {}: {} records/sec ({:.1}x improvement)",
+        status, strategy_name, strategy_throughput, improvement
+    );
 }
