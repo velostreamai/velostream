@@ -1,7 +1,8 @@
 //! Transactional multi-job SQL processing
 //!
-//! This module provides transactional job processing with exactly-once semantics.
-//! It uses datasource and sink transaction capabilities to ensure atomicity.
+//! This module provides transactional job processing with at-least-once delivery semantics.
+//! It uses datasource and sink transaction capabilities to ensure ACID atomicity within
+//! each batch, but may deliver duplicates on retry scenarios (at-least-once guarantee).
 
 use crate::ferris::datasource::{DataReader, DataWriter};
 use crate::ferris::server::processors::common::*;
@@ -12,7 +13,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
-/// Transactional job processor
+/// Transactional job processor with at-least-once delivery semantics
+///
+/// Provides ACID transaction boundaries for batch processing but does not guarantee
+/// exactly-once semantics. Records may be reprocessed on retry, making this suitable
+/// for idempotent operations or scenarios where occasional duplicates are acceptable.
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
 }
@@ -28,6 +33,9 @@ impl TransactionalJobProcessor {
     }
 
     /// Process records from multiple datasources with multiple sinks (transactional multi-source processing)
+    ///
+    /// Provides at-least-once delivery with ACID transaction boundaries. If any part of the
+    /// batch fails, all transactions are rolled back. On retry, some records may be reprocessed.
     pub async fn process_multi_job(
         &self,
         readers: HashMap<String, Box<dyn DataReader>>,
@@ -147,6 +155,10 @@ impl TransactionalJobProcessor {
     }
 
     /// Process records from a datasource with transactional guarantees
+    ///
+    /// Provides at-least-once delivery semantics with ACID transaction boundaries.
+    /// Each batch is processed atomically - either all records succeed or the entire
+    /// batch is rolled back. On failure with RetryWithBackoff, batches may be reprocessed.
     pub async fn process_job(
         &self,
         mut reader: Box<dyn DataReader>,
@@ -247,7 +259,11 @@ impl TransactionalJobProcessor {
         Ok(stats)
     }
 
-    /// Process a single transactional batch
+    /// Process a single transactional batch with at-least-once semantics
+    ///
+    /// This method processes one batch with ACID transaction boundaries but does not
+    /// prevent duplicate processing on retry. If sink commits but source commit fails,
+    /// data may be duplicated on the next retry attempt.
     async fn process_transactional_batch(
         &self,
         reader: &mut dyn DataReader,
@@ -406,8 +422,10 @@ impl TransactionalJobProcessor {
         Ok(())
     }
 
-    /// Commit all active transactions with proper ordering
-    /// CRITICAL: Datasink must commit first, then datasource only commits if sink succeeds
+    /// Commit all active transactions with proper ordering (at-least-once semantics)
+    /// CRITICAL: Datasink must commit first, then datasource only commits if sink succeeds.
+    /// If sink commits but source commit fails, this results in at-least-once delivery
+    /// as the data will be reprocessed on the next batch attempt.
     async fn commit_transactions(
         &self,
         reader: &mut dyn DataReader,
@@ -913,16 +931,22 @@ impl TransactionalJobProcessor {
     }
 }
 
-/// Create a transactional job processor with default configuration
+/// Create a transactional job processor with default configuration (at-least-once semantics)
+///
+/// Uses FailBatch strategy which provides strong consistency within each batch but
+/// allows duplicate processing on retry scenarios.
 pub fn create_transactional_processor() -> TransactionalJobProcessor {
     TransactionalJobProcessor::new(JobProcessingConfig {
         use_transactions: true,
-        failure_strategy: FailureStrategy::FailBatch, // Strict for exactly-once
+        failure_strategy: FailureStrategy::FailBatch, // Strict consistency per batch
         ..Default::default()
     })
 }
 
-/// Create a transactional job processor with best-effort semantics
+/// Create a transactional job processor with best-effort semantics (at-least-once)
+///
+/// Uses LogAndContinue strategy which is more lenient with individual record failures
+/// but still maintains at-least-once delivery guarantees for the overall batch.
 pub fn create_best_effort_transactional_processor() -> TransactionalJobProcessor {
     TransactionalJobProcessor::new(JobProcessingConfig {
         use_transactions: true,

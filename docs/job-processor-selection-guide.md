@@ -11,7 +11,7 @@ This guide helps you select the appropriate job processor for your FerrisStreams
 | **Use Case** | **Processor** | **Why** |
 |--------------|---------------|---------|
 | **High-throughput analytics** | SimpleJobProcessor | Maximum performance, acceptable data loss |
-| **Financial transactions** | TransactionalJobProcessor | Exactly-once guarantees required |
+| **Financial transactions** | TransactionalJobProcessor | ACID transactions with at-least-once delivery |
 | **Real-time dashboards** | SimpleJobProcessor | Speed over perfect consistency |
 | **Audit trails** | TransactionalJobProcessor | No data loss acceptable |
 | **IoT sensor data** | SimpleJobProcessor | Volume over perfect accuracy |
@@ -84,10 +84,10 @@ let stats = processor.process_multi_job(
 
 ### **TransactionalJobProcessor** 🔐
 
-**Best for**: Mission-critical applications requiring exactly-once processing guarantees
+**Best for**: Mission-critical applications requiring ACID transaction guarantees and at-least-once delivery
 
 #### **Characteristics**
-- **Processing Model**: Exactly-once delivery with full ACID guarantees
+- **Processing Model**: At-least-once delivery with full ACID transaction boundaries
 - **Performance**: Higher latency but guaranteed consistency
 - **Complexity**: Transaction coordination, rollback handling
 - **Failure Handling**: Atomic rollback, precise error recovery
@@ -97,11 +97,11 @@ let stats = processor.process_multi_job(
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Data Source   │───▶│ Transactional    │───▶│   Data Sink     │
-│  (Exactly-once) │    │    Process       │    │  (Exactly-once) │
+│ (At-least-once) │    │    Process       │    │ (At-least-once) │
 │                 │    │                  │    │                 │
-│ • Read committed│    │ • Atomic batches │    │ • Transactional │
-│ • Offset mgmt   │    │ • Rollback on    │    │   commits       │
-│                 │    │   failure        │    │ • Idempotent    │
+│ • Transactional │    │ • Atomic batches │    │ • Transactional │
+│   reads         │    │ • Rollback on    │    │   commits       │
+│ • Retry batches │    │   failure        │    │ • May see dups  │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
@@ -116,7 +116,7 @@ let stats = processor.process_multi_job(
 use ferrisstreams::ferris::server::processors::transactional::TransactionalJobProcessor;
 use ferrisstreams::ferris::server::processors::common::JobProcessingConfig;
 
-// Create transactional processor for exactly-once processing
+// Create transactional processor for at-least-once processing with ACID boundaries
 let config = JobProcessingConfig {
     batch_size: 500,  // Smaller batches for faster rollback
     batch_timeout: Duration::from_millis(200),
@@ -130,7 +130,7 @@ let config = JobProcessingConfig {
 
 let processor = TransactionalJobProcessor::new(config);
 
-// Process with exactly-once guarantees
+// Process with at-least-once guarantees and ACID transaction boundaries
 let stats = processor.process_multi_job(
     readers,
     writers,
@@ -173,7 +173,7 @@ fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig 
 
 // Processor selection happens here:
 if use_transactions {
-    let processor = TransactionalJobProcessor::new(config);  // Exactly-once semantics
+    let processor = TransactionalJobProcessor::new(config);  // At-least-once with ACID transactions
 } else {
     let processor = SimpleJobProcessor::new(config);         // Best-effort processing
 }
@@ -251,7 +251,7 @@ SELECT
     CURRENT_TIMESTAMP as processed_at
 FROM kafka_transactions
 WITH (
-    -- Exactly-once processing required
+    -- At-least-once processing with ACID transactions required
     'use_transactions' = 'true',
     'failure_strategy' = 'FailBatch',      -- Atomic: entire batch fails if any record fails
     'max_retries' = '10',                  -- Aggressive retries for financial data
@@ -344,7 +344,7 @@ job_config:
 **Recommended**: TransactionalJobProcessor
 
 **Requirements**:
-- Exactly-once processing for payment transactions
+- At-least-once processing with ACID boundaries for payment transactions
 - Audit trail compliance (SOX, PCI DSS)
 - No tolerance for duplicate or lost transactions
 - Regulatory reporting accuracy
@@ -428,7 +428,7 @@ WITH (
 
 **Requirements**:
 - Complete audit trail for regulatory compliance
-- Exactly-once processing for legal record keeping
+- At-least-once processing with transaction boundaries for legal record keeping
 - Data integrity for compliance reporting
 - Disaster recovery with no data loss
 
@@ -502,7 +502,7 @@ WITH ('processor.type' = 'simple');  -- ❌ Wrong for financial data
 -- Financial data with transactional processor
 CREATE STREAM bank_transfers AS
 SELECT * FROM kafka_payments
-WITH ('processor.type' = 'transactional');  -- ✅ Exactly-once guaranteed
+WITH ('processor.type' = 'transactional');  -- ✅ At-least-once with ACID guarantees
 ```
 
 ### **Using TransactionalJobProcessor for High-Volume Analytics**
@@ -565,7 +565,7 @@ metrics! {
     "transaction_success_rate" => tx_stats.transaction_success_rate,
     "rollback_frequency" => tx_stats.rollbacks_per_hour,
     "transaction_duration_p95" => tx_stats.tx_duration_p95,
-    "exactly_once_guarantee" => tx_stats.duplicate_detection_rate,
+    "at_least_once_guarantee" => tx_stats.transaction_success_rate,
 }
 ```
 
@@ -593,8 +593,8 @@ ferris-sql --config transactional-config.yaml --job-name "payment-tx-v2"
 # 2. Compare outputs between simple and transactional processors
 ferris-compare --job1 "payment-simple" --job2 "payment-tx-v2" --duration 1h
 
-# 3. Verify exactly-once semantics
-ferris-validate --processor transactional --check duplicates,gaps,ordering
+# 3. Verify at-least-once semantics and transaction boundaries
+ferris-validate --processor transactional --check gaps,ordering,transactions
 
 # 4. Switch traffic and monitor
 ferris-deploy --switch-to transactional --monitor-duration 24h
