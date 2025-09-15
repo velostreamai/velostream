@@ -114,7 +114,7 @@
 ## 🎯 **PRIORITY 2: FR-061 Kubernetes-Native Distributed Processing** ☸️ **MAIN OBJECTIVE**
 **Status**: 🟡 **READY AFTER PRIORITY 1** - Cluster ops foundation enables full K8s integration
 **Effort**: 4-6 weeks | **Impact**: CRITICAL (Production-ready distributed streaming SQL)
-**Source**: `docs/feature/FR-061-DISTRIBUTED-PROCESSING.md`
+**Source**: `docs/feature/fr-061-distributed-processing.md`
 
 ### **📋 FR-061 Implementation Phases**
 - [ ] **Phase 1: Kubernetes Integration Foundation**
