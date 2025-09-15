@@ -13,11 +13,12 @@ FR-061 builds upon the solid foundation of FR-058's single-instance streaming SQ
 
 ## Architecture Philosophy
 
-### Leverage Existing Infrastructure
+### Leverage Existing Infrastructure + Cluster Operations Foundation
 - **Kafka Consumer Groups**: Automatic partition assignment and rebalancing
-- **Kubernetes HPA**: Metrics-driven pod autoscaling
-- **Prometheus Metrics**: Custom metrics from FR-058's observability system
-- **Zero Custom Coordination**: No complex distributed system code needed
+- **Kubernetes HPA**: Metrics-driven pod autoscaling (requires cluster-wide job visibility)
+- **Prometheus Metrics**: Custom metrics from FR-058's observability system + distributed collection
+- **Cluster Operations**: SHOW commands, node discovery, distributed scheduling (Priority 1 foundation)
+- **Zero Custom Coordination**: No complex distributed system code needed beyond cluster ops
 
 ### Design Principles
 - **Cloud-Native**: Kubernetes-first deployment patterns
@@ -25,10 +26,124 @@ FR-061 builds upon the solid foundation of FR-058's single-instance streaming SQ
 - **Metrics-Driven**: Scale based on actual SQL performance characteristics
 - **Cost-Optimized**: Scale down during off-peak, use spot instances where appropriate
 
+## How Cluster Operations Foundation Enables Kubernetes Integration
+
+### Current State (Post-Priority 1)
+The cluster operations foundation provides essential primitives that Kubernetes integration builds upon:
+
+#### 1. **Distributed Job Visibility** → **Kubernetes Pod Orchestration**
+```sql
+-- Cluster Operations Foundation:
+SHOW JOBS;  -- Returns jobs across all nodes with placement info
+SHOW JOB STATUS 'trading-job';  -- Detailed job metrics and resource usage
+
+-- Kubernetes Integration Uses This For:
+-- • HPA decision making based on actual job performance
+-- • Pod placement optimization using job resource profiles
+-- • Workload classification for automatic scaling policies
+```
+
+#### 2. **Node Discovery & Registration** → **Kubernetes Service Mesh**
+```rust
+// Cluster Operations Foundation:
+pub struct NodeMetrics {
+    pub node_id: String,              // Maps to Kubernetes pod name
+    pub assigned_jobs: Vec<String>,   // Current workload on this pod
+    pub resource_capacity: Resources, // CPU, memory available for HPA
+    pub health_status: NodeHealthStatus,
+}
+
+// Kubernetes Integration Uses This For:
+impl KubernetesHPAMetrics {
+    pub fn collect_custom_metrics(&self) -> Vec<CustomMetric> {
+        // Use node discovery to collect metrics across all pods
+        let nodes = self.cluster_discovery.list_active_nodes().await;
+        nodes.into_iter().map(|node| CustomMetric {
+            pod_name: node.node_id,
+            workload_type: self.classify_workload(&node.assigned_jobs),
+            current_load: node.calculate_load_percentage(),
+            recommended_replicas: self.calculate_replicas(&node),
+        }).collect()
+    }
+}
+```
+
+#### 3. **Cross-Node Metadata Synchronization** → **HPA Custom Metrics**
+```yaml
+# Cluster Operations provides distributed metadata store (etcd/consul)
+# Kubernetes HPA consumes this as custom metrics:
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ferris-trading-hpa
+spec:
+  metrics:
+  - type: Pods
+    pods:
+      metric:
+        name: ferris_cluster_job_queue_depth    # From cluster ops metadata
+        selector:
+          matchLabels:
+            workload: trading
+      target:
+        type: AverageValue
+        averageValue: "10"  # Scale when >10 queued jobs per pod
+```
+
+#### 4. **REST API Endpoints** → **Kubernetes Service Discovery**
+```rust
+// Cluster Operations Foundation provides REST APIs:
+// GET /api/v1/jobs              - List all jobs across cluster
+// GET /api/v1/nodes             - Node discovery and capacity
+// GET /api/v1/metrics/workload  - Workload-specific metrics
+// POST /api/v1/jobs/deploy      - Distributed job deployment
+
+// Kubernetes Integration extends these:
+impl KubernetesClusterAPI {
+    // Kubernetes-native endpoints that wrap cluster ops APIs
+    async fn get_workload_metrics(&self, workload: &str) -> WorkloadMetrics {
+        let cluster_jobs = self.cluster_ops_client.list_jobs().await?;
+        let workload_jobs = cluster_jobs.filter_by_workload(workload);
+
+        WorkloadMetrics {
+            total_pods: workload_jobs.len(),
+            avg_cpu_usage: workload_jobs.average_cpu(),
+            avg_memory_usage: workload_jobs.average_memory(),
+            queue_depth: workload_jobs.total_queue_depth(),
+            recommended_replicas: self.calculate_hpa_replicas(&workload_jobs),
+        }
+    }
+}
+```
+
+### Integration Architecture Flow
+
+```
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│   SQL Developer     │    │  Kubernetes HPA     │    │   Cluster Ops       │
+│                     │    │                     │    │   Foundation        │
+│ @ferris:workload=   │───▶│ Reads custom        │───▶│ SHOW JOBS          │
+│ trading             │    │ metrics from        │    │ Node Discovery     │
+│ @ferris:sla.        │    │ cluster ops API     │    │ Metadata Sync      │
+│ latency_p95_ms=100  │    │                     │    │ REST APIs          │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+           │                           │                           │
+           │                           │                           │
+           ▼                           ▼                           ▼
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│ ferris-k8s-deploy   │    │  Pod Scaling        │    │ StreamJobServer     │
+│                     │    │                     │    │ (Enhanced)          │
+│ Generates K8s YAML  │◀───│ • Scale up/down     │◀───│ • Cross-node jobs   │
+│ from SQL hints      │    │ • Workload-aware    │    │ • Distributed       │
+│                     │    │ • Cost-optimized    │    │   scheduling        │
+└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+```
+
 ## Implementation Phases
 
 ### Phase 1: Kubernetes Integration Foundation
-**Status**: PLANNED
+**Status**: PLANNED (Requires cluster operations foundation from Priority 1)
+**Prerequisites**: Cluster-wide SHOW commands, node discovery, distributed job scheduling
 
 #### Core Deliverables
 
@@ -88,10 +203,16 @@ pub fn generate_workload_deployment(
 ```
 
 #### Success Criteria
-- [x] K8s-native configuration loading from environment variables
-- [x] Workload-specific deployment YAML generation
-- [x] Enhanced metrics exposure for HPA consumption  
-- [x] Graceful pod termination and startup procedures
+- [ ] K8s-native configuration loading from environment variables
+- [ ] Workload-specific deployment YAML generation
+- [ ] Enhanced metrics exposure for HPA consumption
+- [ ] Graceful pod termination and startup procedures
+
+#### Dependencies on Cluster Operations Foundation
+1. **SHOW JOBS Integration**: Kubernetes pods must expose job status via cluster-wide SHOW commands
+2. **Node Discovery**: Pod registration requires distributed node discovery system
+3. **Metadata Synchronization**: HPA metrics require cross-pod metadata sharing
+4. **REST API Endpoints**: K8s service mesh integration needs cluster coordination APIs
 
 ### Phase 2: Workload-Specific Scaling Strategies
 **Status**: PLANNED
@@ -220,10 +341,16 @@ spec:
 ```
 
 #### Success Criteria
-- [x] Workload-specific HPA configurations for different SQL use cases
-- [x] Custom metrics integration with Prometheus adapter
-- [x] Node affinity rules for optimal resource allocation
-- [x] Cost optimization through appropriate scaling policies
+- [ ] Workload-specific HPA configurations for different SQL use cases
+- [ ] Custom metrics integration with Prometheus adapter
+- [ ] Node affinity rules for optimal resource allocation
+- [ ] Cost optimization through appropriate scaling policies
+
+#### How This Builds on Cluster Operations
+1. **Job Placement Logic**: Uses distributed scheduling from cluster ops foundation
+2. **Workload Discovery**: Leverages SHOW STREAMS/TABLES for automatic workload classification
+3. **Capacity Management**: Extends node capacity tracking to workload-specific resource allocation
+4. **Failover Integration**: HPA policies use cluster failover logic for pod replacement
 
 ### Phase 3: Enhanced Observability for Distributed Systems
 **Status**: PLANNED
