@@ -2,9 +2,9 @@
 
 use super::stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
-    test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
+    test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
+    test_source_read_failure_scenario, AdvancedMockDataReader,
     AdvancedMockDataWriter, StreamJobProcessor,
 };
 
@@ -15,13 +15,9 @@ use ferrisstreams::ferris::server::processors::{
     transactional::TransactionalJobProcessor,
 };
 use ferrisstreams::ferris::sql::{
-    ast::{SelectField, StreamSource, StreamingQuery},
-    execution::{
-        engine::StreamExecutionEngine,
-        types::{FieldValue, StreamRecord},
-    },
+    ast::StreamingQuery,
+    execution::engine::StreamExecutionEngine,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -89,23 +85,12 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
 
     // Test LogAndContinue strategy
     println!("=== Test: TransactionalJobProcessor LogAndContinue Strategy ===");
-    let result = run_comprehensive_failure_tests(
+    run_comprehensive_failure_tests(
         &log_continue_processor,
         "TransactionalJobProcessor_LogAndContinue",
     )
     .await;
-
-    match result {
-        Ok(()) => {
-            println!("✅ TransactionalJobProcessor LogAndContinue tests completed successfully");
-        }
-        Err(e) => {
-            panic!(
-                "❌ TransactionalJobProcessor LogAndContinue tests failed: {:?}",
-                e
-            );
-        }
-    }
+    println!("✅ TransactionalJobProcessor LogAndContinue tests completed successfully");
 
     // Test with RetryWithBackoff strategy
     let retry_backoff_config = JobProcessingConfig {
@@ -124,59 +109,44 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     println!("=== Test: TransactionalJobProcessor RetryWithBackoff Strategy ===");
 
     println!("Testing source read failure scenario...");
-    let result = test_source_read_failure_scenario(
+    test_source_read_failure_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    match result {
-        Ok(()) => println!("✅ Source read failure scenario completed"),
-        Err(e) => panic!("❌ Source read failure scenario failed: {:?}", e),
-    }
+    println!("✅ Source read failure scenario completed");
 
     println!("Testing network partition scenario...");
-    let result = test_network_partition_scenario(
+    test_network_partition_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    match result {
-        Ok(()) => println!("✅ Network partition scenario completed"),
-        Err(e) => panic!("❌ Network partition scenario failed: {:?}", e),
-    }
+    println!("✅ Network partition scenario completed");
 
     println!("Testing partial batch failure scenario...");
-    let result = test_partial_batch_failure_scenario(
+    test_partial_batch_failure_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    match result {
-        Ok(()) => println!("✅ Partial batch failure scenario completed"),
-        Err(e) => panic!("❌ Partial batch failure scenario failed: {:?}", e),
-    }
+    println!("✅ Partial batch failure scenario completed");
 
     println!("Testing shutdown signal scenario...");
-    let result = test_shutdown_signal_scenario(
+    test_shutdown_signal_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    match result {
-        Ok(()) => println!("✅ Shutdown signal scenario completed"),
-        Err(e) => panic!("❌ Shutdown signal scenario failed: {:?}", e),
-    }
+    println!("✅ Shutdown signal scenario completed");
 
     println!("Testing empty batch handling scenario...");
-    let result = test_empty_batch_handling_scenario(
+    test_empty_batch_handling_scenario(
         &retry_backoff_processor,
         "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    match result {
-        Ok(()) => println!("✅ Empty batch handling scenario completed"),
-        Err(e) => panic!("❌ Empty batch handling scenario failed: {:?}", e),
-    }
+    println!("✅ Empty batch handling scenario completed");
 
     // Test with FailBatch strategy
     let fail_batch_config = JobProcessingConfig {
@@ -193,22 +163,12 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
 
     // Test FailBatch strategy
     println!("=== Test: TransactionalJobProcessor FailBatch Strategy ===");
-    let result = run_comprehensive_failure_tests(
+    run_comprehensive_failure_tests(
         &fail_batch_processor,
         "TransactionalJobProcessor_FailBatch",
     )
     .await;
-    match result {
-        Ok(()) => {
-            println!("✅ TransactionalJobProcessor FailBatch tests completed successfully");
-        }
-        Err(e) => {
-            panic!(
-                "❌ TransactionalJobProcessor FailBatch tests failed: {:?}",
-                e
-            );
-        }
-    }
+    println!("✅ TransactionalJobProcessor FailBatch tests completed successfully");
 
     println!("✅ All comprehensive failure scenarios completed successfully!");
 }
@@ -397,7 +357,7 @@ async fn test_transactional_processor_with_non_transactional_datasources() {
                 stats
             );
             assert!(
-                stats.batches_processed > 0 || stats.batches_failed >= 0,
+                stats.batches_processed > 0 || stats.batches_failed > 0,
                 "Expected some processing activity"
             );
         }
