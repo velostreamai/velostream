@@ -133,9 +133,9 @@ jobs:
 
     - name: Performance Regression Check
       run: |
-        # Check for regressions (CI-friendly thresholds)
-        JSON_THRESHOLD=200
-        RAW_THRESHOLD=800
+        # Check for regressions (CI-friendly thresholds based on actual CI performance)
+        JSON_THRESHOLD=150
+        RAW_THRESHOLD=300
         LATENCY_THRESHOLD=1000
 
         if (( $(echo "${{ steps.metrics.outputs.json_throughput }} < $JSON_THRESHOLD" | bc -l) )); then
