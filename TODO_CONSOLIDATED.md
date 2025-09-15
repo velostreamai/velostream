@@ -1,6 +1,6 @@
 # FerrisStreams Consolidated Development TODO
 
-**Last Updated**: January 2025
+**Last Updated**: September 2025
 **Status**: 🚀 **PRODUCTION READY** - Core infrastructure complete, ready for advanced optimization
 **Current Priority**: **Phase 3: Cost-Based Query Optimization**
 
@@ -303,78 +303,78 @@
 
 # ⏰ **RECOMMENDED TIMELINE**
 
-## 🗓️ **Phase 1: Working Demos & Gap Detection** (February 2025) **CURRENT**
-**Duration**: 1-2 weeks
+## 🗓️ **Phase 1: Working Demos & Gap Detection** **CURRENT**
+**Duration**: 1-2 weeks (7-14 days)
 **Focus**: Validate system with real-world scenarios, expose integration gaps
 
-### **Week 1**: Financial Trading Demo (Protobuf Focus)
+### **Days 1-7**: Financial Trading Demo (Protobuf Focus)
 - [ ] Fix Grafana startup and dependencies
 - [ ] Convert market data to Protobuf messages
 - [ ] Implement ScaledInteger showcase for financial precision
 - [ ] Add Protobuf schema evolution example
 - [ ] Document setup and troubleshooting
 
-### **Week 2**: File Demo & Gap Documentation
+### **Days 8-14**: File Demo & Gap Documentation
 - [ ] Fix file data source demo scripts
 - [ ] Create 5-minute getting started experience
 - [ ] Build end-to-end SQL demo
 - [ ] Document all gaps discovered
 - [ ] Performance benchmark integration
 
-## 🗓️ **Phase 2: Cluster Operations & Visibility** (March 2025)
-**Duration**: 2-3 weeks
+## 🗓️ **Phase 2: Cluster Operations & Visibility**
+**Duration**: 2-3 weeks (14-21 days)
 **Focus**: FR-061 foundation - cluster management (informed by demo gaps)
 
-### **Week 1**: Command Implementation & REST APIs
+### **Days 1-7**: Command Implementation & REST APIs
 - [ ] Implement SHOW JOBS with cluster-wide visibility
 - [ ] Enhanced SHOW STREAMS/TABLES/TOPICS with metadata
 - [ ] REST API endpoints for cluster coordination
 - [ ] Node registration and heartbeat system
 
-### **Week 2-3**: Distributed Metadata & Scheduling
+### **Days 8-21**: Distributed Metadata & Scheduling
 - [ ] Distributed job scheduling and placement
 - [ ] Node discovery and capacity management
 - [ ] Cross-node metadata synchronization (etcd/consul)
 - [ ] Failover and rebalancing logic
 
-## 🗓️ **Phase 3: FR-061 Kubernetes Integration** (April-May 2025)
-**Duration**: 4-6 weeks
+## 🗓️ **Phase 3: FR-061 Kubernetes Integration**
+**Duration**: 4-6 weeks (28-42 days)
 **Focus**: Complete Kubernetes-native distributed processing
 
-### **Week 1-2**: K8s Foundation & Workload Types
+### **Days 1-14**: K8s Foundation & Workload Types
 - [ ] Kubernetes configuration module implementation
 - [ ] Environment-based configuration loading
 - [ ] Enhanced metrics for HPA consumption
 - [ ] Workload-specific deployment templates
 
-### **Week 3-4**: HPA & Scaling Strategies
+### **Days 15-28**: HPA & Scaling Strategies
 - [ ] Trading workload HPA (P95 latency < 100ms)
 - [ ] Analytics workload HPA (memory-based scaling)
 - [ ] Reporting workload HPA (cost-optimized, spot instances)
 - [ ] Real-time workload HPA (throughput-based)
 
-### **Week 5-6**: SQL Hints & CLI Tools
+### **Days 29-42**: SQL Hints & CLI Tools
 - [ ] SQL hint parsing system (`@ferris:workload=trading`)
 - [ ] Automatic K8s deployment generation from SQL
 - [ ] CLI tools (`ferris-k8s-deploy`, `ferris-k8s-monitor`)
 - [ ] CI/CD pipeline integration
 
-## 🗓️ **Phase 3: Advanced Performance Optimization** (May 2025)
-**Duration**: 3-4 weeks
+## 🗓️ **Phase 4: Advanced Performance Optimization**
+**Duration**: 3-4 weeks (21-28 days)
 **Focus**: Query optimization (post-distributed processing)
 
-### **Week 1-2**: JOIN & Query Optimization
+### **Days 1-14**: JOIN & Query Optimization
 - [ ] JOIN ordering algorithm implementation
 - [ ] Predicate pushdown implementation
 - [ ] Cost model development
 
-### **Week 3-4**: EXPLAIN PLAN & Validation
+### **Days 15-28**: EXPLAIN PLAN & Validation
 - [ ] EXPLAIN PLAN functionality
 - [ ] Performance validation (20-30% improvement target)
 - [ ] Comprehensive benchmarking
 
-## 🗓️ **Phase 4: Enterprise Production Features** (June 2025)
-**Duration**: 3-4 weeks
+## 🗓️ **Phase 5: Enterprise Production Features**
+**Duration**: 3-4 weeks (21-28 days)
 **Focus**: Production deployment requirements
 
 ### **Enterprise Readiness**
@@ -399,7 +399,7 @@
 
 ## ✅ **PRODUCTION READY ACHIEVEMENTS**
 
-### 🎯 **Infrastructure Complete** (January 2025) ✅
+### 🎯 **Infrastructure Complete** ✅
 - **Unit Test Fixes**: All compilation errors resolved, race conditions fixed
 - **Performance Monitoring**: Complete infrastructure with hash join optimization
 - **Documentation**: Accurate semantics, strategic architecture for exactly-once
