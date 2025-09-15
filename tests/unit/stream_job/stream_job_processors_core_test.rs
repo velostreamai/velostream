@@ -455,7 +455,9 @@ async fn test_simple_processor_with_transaction_capable_sources() {
 async fn test_transactional_processor_mixed_transaction_support() {
     // Test transactional reader with non-transactional writer
     let batch1 = create_test_records(3);
-    let mock_reader = MockDataReader::new(vec![batch1]).with_transaction_support(); // Reader supports transactions
+    let batch2 = create_test_records(5);
+    let batch3 = create_test_records(2);
+    let mock_reader = MockDataReader::new(vec![batch1, batch2, batch3]).with_transaction_support(); // Reader supports transactions
 
     let mock_writer = MockDataWriter::new(); // Writer does NOT support transactions
 
@@ -464,31 +466,19 @@ async fn test_transactional_processor_mixed_transaction_support() {
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
-    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    let job_handle = tokio::spawn({
-        let engine = engine.clone();
-        let query = query.clone();
-        async move {
-            processor
-                .process_job(
-                    Box::new(mock_reader),
-                    Some(Box::new(mock_writer)),
-                    engine,
-                    query,
-                    "mixed_tx_test".to_string(),
-                    shutdown_rx,
-                )
-                .await
-        }
-    });
-
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    shutdown_tx.send(()).await.expect("Should send shutdown");
-
-    let stats = job_handle
+    // Run the job directly without spawning to avoid race conditions
+    let stats = processor
+        .process_job(
+            Box::new(mock_reader),
+            Some(Box::new(mock_writer)),
+            engine,
+            query,
+            "mixed_tx_test".to_string(),
+            shutdown_rx,
+        )
         .await
-        .expect("Job should complete")
         .expect("Job should succeed");
 
     // Should work with mixed transaction support
