@@ -186,6 +186,23 @@ impl TransactionalJobProcessor {
                 break;
             }
 
+            // Check if there's more data to process
+            match reader.has_more().await {
+                Ok(false) => {
+                    info!("Job '{}' completed - no more data available", job_name);
+                    break;
+                }
+                Ok(true) => {
+                    // Continue processing
+                }
+                Err(e) => {
+                    warn!("Job '{}' error checking for more data: {:?}", job_name, e);
+                    stats.batches_failed += 1;
+                    tokio::time::sleep(self.config.retry_backoff).await;
+                    continue;
+                }
+            }
+
             // Process one transactional batch
             match self
                 .process_transactional_batch(
@@ -280,10 +297,9 @@ impl TransactionalJobProcessor {
         // Step 2: Read batch from datasource
         let batch = reader.read().await?;
         if batch.is_empty() {
-            // No data available - abort any active transactions
+            // No data available - abort any active transactions and return
             self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 
