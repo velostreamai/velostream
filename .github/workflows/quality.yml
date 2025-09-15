@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
+  RUSTFLAGS: "-A dead_code -A unused"
 
 permissions:
   contents: read

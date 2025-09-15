@@ -13,6 +13,7 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0
   RUST_BACKTRACE: 1
+  RUSTFLAGS: "-A dead_code -A unused"
 
 permissions:
   contents: read
