@@ -2,10 +2,10 @@
 
 use super::stream_job_test_infrastructure::{
     create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
-    test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
+    test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
-    AdvancedMockDataWriter, StreamJobProcessor,
+    test_source_read_failure_scenario, AdvancedMockDataReader, AdvancedMockDataWriter,
+    StreamJobProcessor,
 };
 
 use async_trait::async_trait;
@@ -14,14 +14,7 @@ use ferrisstreams::ferris::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     transactional::TransactionalJobProcessor,
 };
-use ferrisstreams::ferris::sql::{
-    ast::{SelectField, StreamSource, StreamingQuery},
-    execution::{
-        engine::StreamExecutionEngine,
-        types::{FieldValue, StreamRecord},
-    },
-};
-use std::collections::HashMap;
+use ferrisstreams::ferris::sql::{ast::StreamingQuery, execution::engine::StreamExecutionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -71,10 +64,6 @@ impl StreamJobProcessor for TransactionalJobProcessorWrapper {
 // =====================================================
 
 #[tokio::test]
-#[cfg_attr(
-    not(feature = "comprehensive-tests"),
-    ignore = "comprehensive: Slow test with 40+ second runtime - use cargo test --features comprehensive-tests"
-)]
 async fn test_transactional_processor_comprehensive_failure_scenarios() {
     let _ = env_logger::builder().is_test(true).try_init();
 
@@ -91,21 +80,14 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     };
     let log_continue_processor = TransactionalJobProcessorWrapper::new(log_continue_config);
 
-    // Add timeout to prevent hanging
-    let result = tokio::time::timeout(
-        Duration::from_secs(30),
-        run_comprehensive_failure_tests(
-            &log_continue_processor,
-            "TransactionalJobProcessor_LogAndContinue",
-        ),
+    // Test LogAndContinue strategy
+    println!("=== Test: TransactionalJobProcessor LogAndContinue Strategy ===");
+    run_comprehensive_failure_tests(
+        &log_continue_processor,
+        "TransactionalJobProcessor_LogAndContinue",
     )
     .await;
-
-    if result.is_err() {
-        println!(
-            "⚠️  TransactionalJobProcessor LogAndContinue comprehensive tests timed out after 30s"
-        );
-    }
+    println!("✅ TransactionalJobProcessor LogAndContinue tests completed successfully");
 
     // Test with RetryWithBackoff strategy
     let retry_backoff_config = JobProcessingConfig {
@@ -120,72 +102,48 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
     };
     let retry_backoff_processor = TransactionalJobProcessorWrapper::new(retry_backoff_config);
 
-    // Run individual tests for RetryWithBackoff with timeouts (some may timeout, which is expected)
-    println!("Running TransactionalJobProcessor RetryWithBackoff scenarios with 10s timeouts...");
+    // Test RetryWithBackoff strategy scenarios
+    println!("=== Test: TransactionalJobProcessor RetryWithBackoff Strategy ===");
 
-    // Test each scenario with timeout
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        test_source_read_failure_scenario(
-            &retry_backoff_processor,
-            "TransactionalJobProcessor_RetryWithBackoff",
-        ),
+    println!("Testing source read failure scenario...");
+    test_source_read_failure_scenario(
+        &retry_backoff_processor,
+        "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor RetryWithBackoff source_read scenario timed out after 10s (expected)");
-    }
+    println!("✅ Source read failure scenario completed");
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        test_network_partition_scenario(
-            &retry_backoff_processor,
-            "TransactionalJobProcessor_RetryWithBackoff",
-        ),
+    println!("Testing network partition scenario...");
+    test_network_partition_scenario(
+        &retry_backoff_processor,
+        "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor RetryWithBackoff network_partition scenario timed out after 10s (expected)");
-    }
+    println!("✅ Network partition scenario completed");
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        test_partial_batch_failure_scenario(
-            &retry_backoff_processor,
-            "TransactionalJobProcessor_RetryWithBackoff",
-        ),
+    println!("Testing partial batch failure scenario...");
+    test_partial_batch_failure_scenario(
+        &retry_backoff_processor,
+        "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor RetryWithBackoff partial_batch scenario timed out after 10s (expected)");
-    }
+    println!("✅ Partial batch failure scenario completed");
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        test_shutdown_signal_scenario(
-            &retry_backoff_processor,
-            "TransactionalJobProcessor_RetryWithBackoff",
-        ),
+    println!("Testing shutdown signal scenario...");
+    test_shutdown_signal_scenario(
+        &retry_backoff_processor,
+        "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor RetryWithBackoff shutdown_signal scenario timed out after 10s (expected)");
-    }
+    println!("✅ Shutdown signal scenario completed");
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        test_empty_batch_handling_scenario(
-            &retry_backoff_processor,
-            "TransactionalJobProcessor_RetryWithBackoff",
-        ),
+    println!("Testing empty batch handling scenario...");
+    test_empty_batch_handling_scenario(
+        &retry_backoff_processor,
+        "TransactionalJobProcessor_RetryWithBackoff",
     )
     .await;
-    if result.is_err() {
-        println!("⚠️  TransactionalJobProcessor RetryWithBackoff empty_batch scenario timed out after 10s (expected)");
-    }
-
-    // Note: Skip disk_full and sink_write_failure for RetryWithBackoff as they may timeout
-    println!("⚠️  Skipping disk_full and sink_write_failure tests for RetryWithBackoff (expected to timeout)");
+    println!("✅ Empty batch handling scenario completed");
 
     // Test with FailBatch strategy
     let fail_batch_config = JobProcessingConfig {
@@ -199,8 +157,14 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
         log_progress: true,
     };
     let fail_batch_processor = TransactionalJobProcessorWrapper::new(fail_batch_config);
+
+    // Test FailBatch strategy
+    println!("=== Test: TransactionalJobProcessor FailBatch Strategy ===");
     run_comprehensive_failure_tests(&fail_batch_processor, "TransactionalJobProcessor_FailBatch")
         .await;
+    println!("✅ TransactionalJobProcessor FailBatch tests completed successfully");
+
+    println!("✅ All comprehensive failure scenarios completed successfully!");
 }
 
 // =====================================================
@@ -242,29 +206,35 @@ async fn test_transactional_processor_rollback_behavior() {
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(30),
-        processor.process_job(
+    let result = processor
+        .process_job(
             reader,
             Some(writer),
             engine,
             query,
             "test_transactional_rollback".to_string(),
             shutdown_rx,
-        ),
-    )
-    .await;
-
-    let result = match result {
-        Ok(res) => res,
-        Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios");
-            return;
-        }
-    };
+        )
+        .await;
 
     println!("Transactional rollback test result: {:?}", result);
-    // In transactional mode, sink failures should trigger rollbacks
+
+    // Validate the results
+    match result {
+        Ok(stats) => {
+            println!("✅ Test completed successfully with stats: {:?}", stats);
+            // In transactional mode, some batches may have failed due to write failures
+            // but the processor should handle it gracefully
+            assert!(
+                stats.batches_processed > 0 || stats.batches_failed > 0,
+                "Expected some batch processing activity"
+            );
+        }
+        Err(e) => {
+            println!("❌ Test failed with error: {:?}", e);
+            panic!("Transactional rollback test should not fail: {:?}", e);
+        }
+    }
 }
 
 #[tokio::test]
@@ -362,33 +332,37 @@ async fn test_transactional_processor_with_non_transactional_datasources() {
     let query = create_test_query();
     let (_, shutdown_rx) = mpsc::channel::<()>(1);
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(15),
-        processor.process_job(
+    let result = processor
+        .process_job(
             reader,
             Some(writer),
             engine,
             query,
             "test_non_transactional_datasources".to_string(),
             shutdown_rx,
-        ),
-    )
-    .await;
-
-    let result = match result {
-        Ok(res) => res,
-        Err(_) => {
-            println!("⚠️  Test timed out after 15 seconds - this is acceptable for transactional mode with non-transactional datasources");
-            return;
-        }
-    };
+        )
+        .await;
 
     // Should handle gracefully and fall back to simple mode
-    assert!(
-        result.is_ok(),
-        "Should handle non-transactional datasources gracefully"
-    );
-    println!("Non-transactional datasources test completed: {:?}", result);
+    match result {
+        Ok(stats) => {
+            println!(
+                "✅ Non-transactional datasources test completed successfully: {:?}",
+                stats
+            );
+            assert!(
+                stats.batches_processed > 0 || stats.batches_failed > 0,
+                "Expected some processing activity"
+            );
+        }
+        Err(e) => {
+            println!("❌ Test failed with error: {:?}", e);
+            panic!(
+                "Should handle non-transactional datasources gracefully: {:?}",
+                e
+            );
+        }
+    }
 }
 
 // =====================================================

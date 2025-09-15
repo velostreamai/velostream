@@ -1,24 +1,29 @@
-// Performance Tests Module
-//
-// This module contains performance-related tests organized by component.
-// Heavy benchmarks are run as examples in the performance-tests.yml workflow.
-// Hash join performance tests are located in tests/unit/sql/execution/algorithms/
+//! Performance Test Suite for FerrisStreams
+//!
+//! This module contains comprehensive performance benchmarks organized by test hierarchy:
+//! - `unit/`: Component-specific benchmarks for individual FerrisStreams components
+//! - `integration/`: End-to-end benchmarks testing multiple components together
+//! - `load/`: High-throughput and stress testing for extreme conditions
+//!
+//! Heavy benchmarks are run as examples in the performance-tests.yml workflow.
+//! Hash join performance tests are located in tests/unit/sql/execution/algorithms/
 
-// Existing test modules (maintained for backward compatibility)
-pub mod financial_precision_benchmark;
-pub mod kafka_performance_tests;
-pub mod query_performance_tests;
-pub mod serialization_performance_tests;
+// Common utilities for unified performance testing (Phase 1)
+pub mod common;
 
-// New comprehensive benchmark modules
-pub mod ferris_sql_multi_benchmarks;
-pub mod ferris_sql_multi_enhanced_benchmarks;
+// Organized test hierarchy (Phase 2)
+pub mod integration; // End-to-end pipeline benchmarks
+pub mod load;
+pub mod unit; // Component-specific benchmarks // High-throughput and stress testing
 
-pub mod transactional_processor_benchmarks;
-
-// New consolidated performance testing framework
+// Legacy modules (maintained for compatibility during transition)
 pub mod consolidated_mod;
-mod phase_3_benchmarks;
 
-// Re-export consolidated structure for easier access
+// Re-export organized structure for easier access
 pub use consolidated_mod::*;
+pub use integration::*;
+pub use load::*;
+pub use unit::*;
+
+// Re-export common utilities for external use
+pub use common::{BenchmarkConfig, BenchmarkMode, MetricsCollector};
