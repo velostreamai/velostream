@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/ferrisstreams.svg)](https://crates.io/crates/ferrisstreams)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](./LICENSE)
 
-A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams** with full support for **keys, values, headers**, and **comprehensive SQL streaming with JOIN operations**.
+A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams** with full support for **keys, values, headers**, and **comprehensive SQL streaming with JOIN operations**. 
 
 ## 🌟 Key Features
 
