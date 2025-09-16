@@ -7,7 +7,9 @@
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
-use ferrisstreams::ferris::sql::execution::{
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use velostream::velostream::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     config::{LateDataStrategy, StreamingConfig, WatermarkStrategy as ConfigWatermarkStrategy},
     error::StreamingError,
@@ -15,8 +17,6 @@ use ferrisstreams::ferris::sql::execution::{
     types::{FieldValue, StreamRecord},
     watermarks::{WatermarkManager, WatermarkStrategy},
 };
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 
 /// Benchmark resource management overhead under various loads
 #[tokio::test]

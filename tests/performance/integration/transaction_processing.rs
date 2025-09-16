@@ -3,7 +3,14 @@
 //! Comprehensive benchmarks comparing SimpleJobProcessor vs TransactionalJobProcessor
 //! to validate transaction overhead and exactly-once semantics performance impact
 
-use ferrisstreams::ferris::{
+use std::{
+    collections::HashMap,
+    env,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::{
     datasource::{DataReader, DataWriter},
     server::processors::{common::*, simple::*, transactional::*},
     sql::{
@@ -12,13 +19,6 @@ use ferrisstreams::ferris::{
         StreamExecutionEngine, StreamingQuery,
     },
 };
-use std::{
-    collections::HashMap,
-    env,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::sync::{mpsc, Mutex};
 
 /// Configuration parameters that adjust based on CI/CD vs manual execution
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ impl DataReader for TransactionalBenchmarkReader {
 
     async fn seek(
         &mut self,
-        _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+        _offset: velostream::velostream::datasource::types::SourceOffset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

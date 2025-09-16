@@ -1,6 +1,6 @@
 //! Tests for file data source configuration
 
-use ferrisstreams::ferris::datasource::file::{FileFormat, FileSourceConfig};
+use velostream::velostream::datasource::file::{FileFormat, FileSourceConfig};
 
 #[cfg(test)]
 mod file_config_tests {
@@ -323,7 +323,7 @@ mod file_config_tests {
 
     #[test]
     fn test_source_config_conversion() {
-        use ferrisstreams::ferris::sql::datasource::config::SourceConfig;
+        use velostream::velostream::sql::datasource::config::SourceConfig;
 
         let file_config = FileSourceConfig::new("/data/test.csv".to_string(), FileFormat::Csv);
         let source_config: SourceConfig = file_config.into();

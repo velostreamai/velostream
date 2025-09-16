@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::kafka::producer_config::ProducerConfig;
 use std::time::Duration;
+use velostream::velostream::kafka::producer_config::ProducerConfig;
 
 /// Debug test to verify timeout configuration is working
 #[tokio::test]

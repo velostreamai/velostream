@@ -81,7 +81,7 @@ Generic producer with automatic serialization:
 - **C**: Context (defaults to `LoggingProducerContext`)
 
 ```rust
-use ferrisstreams::{KafkaProducer, JsonSerializer};
+use velostream::{KafkaProducer, JsonSerializer};
 
 let producer = KafkaProducer::<MyMessage, _>::new(
     "localhost:9092",
@@ -103,7 +103,7 @@ Generic consumer with automatic deserialization:
 - `raw_stream()` - Returns raw Kafka messages for advanced use cases that need metadata
 
 ```rust
-use ferrisstreams::{KafkaConsumer, JsonSerializer};
+use velostream::{KafkaConsumer, JsonSerializer};
 use futures::StreamExt;
 use rdkafka::message::Message;
 
@@ -214,7 +214,7 @@ consumer.stream()
 
 ### **Basic Producer/Consumer**
 ```rust
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer};
 use futures::StreamExt;
 use rdkafka::message::Message;
 use serde::{Serialize, Deserialize};
@@ -265,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### **Builder Pattern**
 ```rust
-use ferrisstreams::{ProducerBuilder, ConsumerBuilder, JsonSerializer};
+use velostream::{ProducerBuilder, ConsumerBuilder, JsonSerializer};
 
 // Producer builder
 let producer = ProducerBuilder::<User, _>::new(
@@ -284,7 +284,7 @@ let consumer = ConsumerBuilder::<User, _>::new(
 
 ### **Convenience Trait**
 ```rust
-use ferrisstreams::KafkaConsumable;
+use velostream::KafkaConsumable;
 
 // Create consumer via trait method
 let consumer = User::consumer("localhost:9092", "group", JsonSerializer)?;

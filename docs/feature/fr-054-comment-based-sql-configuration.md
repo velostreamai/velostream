@@ -2,11 +2,11 @@
 
 ## Overview
 
-Add support for comment-based configuration syntax in FerrisStreams SQL files to enable inline configuration directly within SQL scripts, making them more self-contained and easier to deploy.
+Add support for comment-based configuration syntax in VeloStream SQL files to enable inline configuration directly within SQL scripts, making them more self-contained and easier to deploy.
 
 ## Current State
 
-FerrisStreams currently supports configuration through:
+VeloStream currently supports configuration through:
 - WITH clause configuration within SQL statements
 - External YAML configuration files
 - Configuration inheritance via extends pattern
@@ -103,7 +103,7 @@ SELECT customer_id, SUM(amount) FROM transactions GROUP BY customer_id;
 ## Technical Implementation
 
 ### 1. **Parser Enhancement**
-Extend the SQL parser (`src/ferris/sql/parser.rs`) to:
+Extend the SQL parser (`src/velo/sql/parser.rs`) to:
 - Extract configuration comments before parsing SQL statements
 - Parse `-- CONFIG:` and `-- JOB:` directives
 - Build configuration objects from parsed directives
@@ -241,7 +241,7 @@ FROM orders GROUP BY customer_id;
 
 ## References
 
-- Current WITH clause implementation: `src/ferris/sql/config/with_clause_parser.rs`
-- SQL parser: `src/ferris/sql/parser.rs`  
-- Configuration system: `src/ferris/sql/config/`
+- Current WITH clause implementation: `src/velo/sql/config/with_clause_parser.rs`
+- SQL parser: `src/velo/sql/parser.rs`  
+- Configuration system: `src/velo/sql/config/`
 - Multi-job documentation: `docs/MULTI_JOB_SQL_GUIDE.md`

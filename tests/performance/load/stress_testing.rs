@@ -1,19 +1,19 @@
 //! Stress Testing Benchmarks
 //!
-//! Extreme load testing to validate FerrisStreams behavior under stress conditions,
+//! Extreme load testing to validate VeloStream behavior under stress conditions,
 //! including memory pressure, CPU saturation, and resource exhaustion scenarios.
 
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
-use ferrisstreams::ferris::sql::execution::{
+use std::collections::HashMap;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     resource_manager::{ResourceLimits, ResourceManager},
     types::{FieldValue, StreamRecord},
 };
-use std::collections::HashMap;
-use std::time::Duration;
-use tokio::sync::mpsc;
 
 /// Stress test with extremely large datasets
 #[tokio::test]
@@ -501,7 +501,7 @@ async fn run_circuit_breaker_stress_test(
     failure_rate: f64,
     config: CircuitBreakerConfig,
 ) -> Result<(u64, u64, u64, Duration), Box<dyn std::error::Error + Send + Sync>> {
-    use ferrisstreams::ferris::sql::execution::error::StreamingError;
+    use velostream::velostream::sql::execution::error::StreamingError;
 
     let circuit_breaker = CircuitBreaker::new("stress_test".to_string(), config);
 
@@ -601,7 +601,7 @@ async fn run_comprehensive_stress_test(
         let failure_rate_clone = failure_rate;
 
         let handle = tokio::spawn(async move {
-            use ferrisstreams::ferris::sql::execution::error::StreamingError;
+            use velostream::velostream::sql::execution::error::StreamingError;
 
             let mut processed = 0u64;
             let mut failures = 0u64;

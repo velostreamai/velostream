@@ -1,6 +1,6 @@
 # Kafka Schema Configuration Guide
 
-FerrisStreams supports multiple serialization formats for Kafka data sources and sinks. This guide explains how to configure schemas for Avro and Protobuf formats.
+VeloStream supports multiple serialization formats for Kafka data sources and sinks. This guide explains how to configure schemas for Avro and Protobuf formats.
 
 ## Schema Configuration Keys
 

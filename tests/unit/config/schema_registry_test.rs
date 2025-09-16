@@ -1,17 +1,17 @@
 //! Unit tests for the self-registering configuration schema system
 
-use ferrisstreams::ferris::config::schema_registry::{
+use std::collections::HashMap;
+use velostream::velostream::config::schema_registry::{
     is_schema_version_compatible, validate_config_file_inheritance, ConfigFileInheritance,
     ConfigValidationError, EnvironmentVariablePattern,
 };
-use ferrisstreams::ferris::config::{
+use velostream::velostream::config::{
     validate_environment_variables, ConfigSchemaProvider, GlobalSchemaContext,
     HierarchicalSchemaRegistry, PropertyDefault,
 };
-use ferrisstreams::ferris::datasource::file::{FileDataSink, FileDataSource};
-use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
-use ferrisstreams::ferris::datasource::BatchConfig;
-use std::collections::HashMap;
+use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
+use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
+use velostream::velostream::datasource::BatchConfig;
 
 #[test]
 fn test_batch_config_schema_provider_basic() {
@@ -419,7 +419,7 @@ fn test_property_inheritance_resolution() {
     let result = kafka_source
         .resolve_property_with_inheritance("group.id", None, &global_context)
         .unwrap();
-    assert_eq!(result, Some("ferris-production-test-job".to_string()));
+    assert_eq!(result, Some("velo-production-test-job".to_string()));
 }
 
 #[test]
@@ -467,10 +467,7 @@ fn test_schema_registry_complete_json_schema_generation() {
         complete_schema["$schema"],
         "https://json-schema.org/draft/2020-12/schema"
     );
-    assert_eq!(
-        complete_schema["title"],
-        "FerrisStreams Configuration Schema"
-    );
+    assert_eq!(complete_schema["title"], "VeloStream Configuration Schema");
     assert!(complete_schema["definitions"].is_object());
     assert!(complete_schema["definitions"]["batch_config"].is_object());
     assert!(complete_schema["definitions"]["kafka_source"].is_object());

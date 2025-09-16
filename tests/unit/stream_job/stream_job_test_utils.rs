@@ -4,15 +4,15 @@
 //! used across multiple processor test files to avoid duplication.
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
-use ferrisstreams::ferris::server::processors::{
+use std::collections::HashMap;
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::{
     common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::types::{FieldValue, StreamRecord},
 };
-use std::collections::HashMap;
 
 /// Mock datasource reader for testing
 pub struct MockDataReader {
@@ -83,7 +83,7 @@ impl DataReader for MockDataReader {
 
     async fn seek(
         &mut self,
-        _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+        _offset: velostream::velostream::datasource::types::SourceOffset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

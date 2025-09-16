@@ -9,7 +9,7 @@ and compares performance/accuracy of different numeric representations:
 - RustDecimal (exact decimal arithmetic)
 - i128 scaled integers (high precision)
 
-Issue: https://github.com/bluemonk3y/ferris_streams/issues/19
+Issue: https://github.com/bluemonk3y/velo_streams/issues/19
 */
 
 use rust_decimal::prelude::*; // Includes ToPrimitive trait for to_f64()
@@ -472,7 +472,7 @@ mod performance_benchmarks {
 mod integration_tests {
     use super::*;
 
-    /// Test how different numeric types would integrate with FerrisStreams aggregations
+    /// Test how different numeric types would integrate with VeloStream aggregations
     #[test]
     fn test_aggregation_accuracy_real_world() {
         println!("\n=== REAL-WORLD FINANCIAL AGGREGATION TEST ===");

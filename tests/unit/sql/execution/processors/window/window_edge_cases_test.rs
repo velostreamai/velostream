@@ -1,6 +1,6 @@
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Create record with null values for edge case testing
 fn create_null_record(id: i64, timestamp_seconds: i64) -> StreamRecord {

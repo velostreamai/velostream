@@ -4,10 +4,10 @@
 Comprehensive test suite for ARRAY, MAP, and STRUCT data types and their operations.
 */
 
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record_with_advanced_types() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -58,7 +58,7 @@ async fn execute_query(
 ) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format =
-        std::sync::Arc::new(ferrisstreams::ferris::serialization::JsonFormat);
+        std::sync::Arc::new(velostream::velostream::serialization::JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 

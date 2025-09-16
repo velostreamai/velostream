@@ -3,14 +3,14 @@
 //! This binary demonstrates the comprehensive configuration system functionality
 //! including URI parsing, validation, builder patterns, and environment configuration.
 
-use ferrisstreams::ferris::sql::config::{builder::DataSourceConfigBuilder, *};
 use std::env;
 use std::fs;
 use std::time::{Duration, Instant};
+use velostream::velostream::sql::config::{builder::DataSourceConfigBuilder, *};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔧 Testing FerrisStreams Configuration & URI Parsing System");
+    println!("🔧 Testing VeloStream Configuration & URI Parsing System");
     println!("===========================================================");
 
     // Test 1: URI Parsing
@@ -305,9 +305,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut env_config = environment::EnvironmentConfig::new();
 
     // Set some test environment variables
-    env::set_var("FERRIS_KAFKA_HOST", "env-kafka-host");
-    env::set_var("FERRIS_KAFKA_PORT", "19092");
-    env::set_var("FERRIS_KAFKA_GROUP_ID", "env-group");
+    env::set_var("VELO_KAFKA_HOST", "env-kafka-host");
+    env::set_var("VELO_KAFKA_PORT", "19092");
+    env::set_var("VELO_KAFKA_GROUP_ID", "env-group");
     env::set_var("TEST_TEMPLATE_VAR", "expanded_value");
 
     println!("✅ Environment configuration created");
@@ -315,7 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   • Config files: {}", env_config.config_files.len());
 
     // Test template expansion
-    env_config.set_template_var("APP_NAME", "ferrisstreams");
+    env_config.set_template_var("APP_NAME", "velostream");
     env_config.set_template_var("VERSION", "1.0.0");
 
     let template_tests = vec![
@@ -354,7 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create a test TOML config file
     let test_config_content = r#"
-# Test FerrisStreams Configuration
+# Test VeloStream Configuration
 
 [kafka]
 host = "config-file-host"
@@ -370,7 +370,7 @@ timeout_ms = 60000
 max_retries = 5
 "#;
 
-    let test_config_path = "./test-ferrisstreams.toml";
+    let test_config_path = "./test-velostream.toml";
     fs::write(test_config_path, test_config_content)?;
     env_config.add_config_file(test_config_path);
 

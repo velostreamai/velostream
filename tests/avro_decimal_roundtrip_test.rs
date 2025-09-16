@@ -4,9 +4,9 @@
 //! Tests that ScaledInteger can properly serialize/deserialize through Avro with schema-aware precision/scale
 
 mod avro_decimal_tests {
-    use ferrisstreams::ferris::serialization::AvroFormat;
-    use ferrisstreams::ferris::serialization::{FieldValue, SerializationFormat};
     use std::collections::HashMap;
+    use velostream::velostream::serialization::AvroFormat;
+    use velostream::velostream::serialization::{FieldValue, SerializationFormat};
 
     #[test]
     pub fn test_price_decimal_roundtrip() {

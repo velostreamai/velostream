@@ -7,11 +7,11 @@ Tests both string-based and bytes-based decimal logical type support.
 
 mod avro_tests {
     use apache_avro::types::Value as AvroValue;
-    use ferrisstreams::ferris::serialization::helpers::{
+    use std::collections::HashMap;
+    use velostream::velostream::serialization::helpers::{
         avro_value_to_field_value, field_value_to_avro, field_value_to_avro_with_schema,
     };
-    use ferrisstreams::ferris::sql::execution::FieldValue;
-    use std::collections::HashMap;
+    use velostream::velostream::sql::execution::FieldValue;
 
     /// Test ScaledInteger serialization to Avro string format
     #[test]

@@ -1,4 +1,4 @@
-# Prometheus configuration for FerrisStreams Demo monitoring
+# Prometheus configuration for VeloStream Demo monitoring
 
 global:
   scrape_interval: 15s
@@ -30,8 +30,8 @@ scrape_configs:
     scrape_interval: 30s
     scrape_timeout: 10s
 
-  # FerrisStreams application metrics (if exposed)
-  - job_name: 'ferrisstreams'
+  # VeloStream application metrics (if exposed)
+  - job_name: 'velostream'
     static_configs:
       - targets: ['host.docker.internal:8888']  # Adjust port as needed
     metrics_path: /metrics
@@ -65,55 +65,55 @@ scrape_configs:
       - targets: ['node-exporter:9100']
     scrape_interval: 30s
 
-# Custom recording rules for FerrisStreams metrics
+# Custom recording rules for VeloStream metrics
 recording_rules:
-  - name: ferrisstreams_aggregations
+  - name: velostream_aggregations
     rules:
       # Calculate processing rate over 5 minutes
-      - record: ferrisstreams:processing_rate_5m
-        expr: rate(ferrisstreams_records_processed_total[5m])
+      - record: velostream:processing_rate_5m
+        expr: rate(velostream_records_processed_total[5m])
         
       # Calculate error rate percentage
-      - record: ferrisstreams:error_rate_percent_5m  
-        expr: rate(ferrisstreams_errors_total[5m]) / rate(ferrisstreams_records_processed_total[5m]) * 100
+      - record: velostream:error_rate_percent_5m  
+        expr: rate(velostream_errors_total[5m]) / rate(velostream_records_processed_total[5m]) * 100
         
       # Average processing latency
-      - record: ferrisstreams:avg_latency_5m
-        expr: rate(ferrisstreams_processing_latency_seconds_sum[5m]) / rate(ferrisstreams_processing_latency_seconds_count[5m])
+      - record: velostream:avg_latency_5m
+        expr: rate(velostream_processing_latency_seconds_sum[5m]) / rate(velostream_processing_latency_seconds_count[5m])
 
 # Alerting rules for demo monitoring
 alerting_rules:
-  - name: ferrisstreams_alerts
+  - name: velostream_alerts
     rules:
       # High error rate alert
       - alert: HighErrorRate
-        expr: ferrisstreams:error_rate_percent_5m > 5
+        expr: velostream:error_rate_percent_5m > 5
         for: 2m
         labels:
           severity: warning
-          service: ferrisstreams
+          service: velostream
         annotations:
           summary: "High error rate detected"
           description: "Error rate is {{ $value }}% over the last 5 minutes"
           
       # Low throughput alert  
       - alert: LowThroughput
-        expr: ferrisstreams:processing_rate_5m < 10
+        expr: velostream:processing_rate_5m < 10
         for: 5m
         labels:
           severity: warning
-          service: ferrisstreams
+          service: velostream
         annotations:
           summary: "Low processing throughput"
           description: "Processing rate is {{ $value }} records/sec"
           
       # High processing latency
       - alert: HighLatency
-        expr: ferrisstreams:avg_latency_5m > 0.1  # 100ms
+        expr: velostream:avg_latency_5m > 0.1  # 100ms
         for: 3m
         labels:
           severity: warning  
-          service: ferrisstreams
+          service: velostream
         annotations:
           summary: "High processing latency"
           description: "Average latency is {{ $value }}s over the last 5 minutes"

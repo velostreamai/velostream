@@ -1,6 +1,6 @@
 # Developer Guide: Implementing New Data Sources
 
-This guide shows how to implement new data source adapters using the FerrisStreams pluggable architecture.
+This guide shows how to implement new data source adapters using the VeloStream pluggable architecture.
 
 ## 📋 Overview
 
@@ -34,11 +34,11 @@ Let's implement a CSV file data source step by step:
 ### Step 1: Define the Data Source
 
 ```rust
-use crate::ferris::sql::datasource::{
+use crate::velo::sql::datasource::{
     DataSource, DataReader, SourceConfig, SourceMetadata
 };
-use crate::ferris::sql::schema::Schema;
-use crate::ferris::sql::execution::types::StreamRecord;
+use crate::velo::sql::schema::Schema;
+use crate::velo::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
 use std::error::Error;
 
@@ -275,7 +275,7 @@ impl DataReader for CsvFileDataReader {
 
 ```rust
 // Register with the data source registry
-use crate::ferris::sql::datasource::registry::DataSourceRegistry;
+use crate::velo::sql::datasource::registry::DataSourceRegistry;
 
 pub fn register_csv_source(registry: &mut DataSourceRegistry) {
     registry.register_source("csv", |uri: &str| {
@@ -320,7 +320,7 @@ impl PostgreSqlCdcDataSource {
         Self {
             connection_string,
             table,
-            replication_slot: format!("ferris_cdc_{}", table),
+            replication_slot: format!("velo_cdc_{}", table),
             client: None,
         }
     }
@@ -379,7 +379,7 @@ impl DataSource for PostgreSqlCdcDataSource {
             let data_type: String = row.get(1);
             let is_nullable: String = row.get(2);
             
-            let ferris_type = match data_type.as_str() {
+            let velo_type = match data_type.as_str() {
                 "integer" | "bigint" => DataType::Integer,
                 "text" | "varchar" => DataType::String,
                 "boolean" => DataType::Boolean,
@@ -389,7 +389,7 @@ impl DataSource for PostgreSqlCdcDataSource {
             };
             
             let nullable = is_nullable == "YES";
-            fields.push(FieldDefinition::new(column_name, ferris_type, nullable));
+            fields.push(FieldDefinition::new(column_name, velo_type, nullable));
         }
         
         Ok(Schema::new(fields))
@@ -601,7 +601,7 @@ let csv_reader = csv::Reader::from_reader(buf_reader);
 2. **Follow the implementation checklist** above
 3. **Write comprehensive tests** for your implementation
 4. **Register with the DataSourceRegistry**
-5. **Submit a pull request** to add your data source to FerrisStreams
+5. **Submit a pull request** to add your data source to VeloStream
 
 The pluggable architecture makes it easy to add new data sources while maintaining compatibility with the existing ecosystem.
 
@@ -1395,7 +1395,7 @@ path: /data/logs/app.log
 format: json
 position_tracking:
   enabled: true
-  checkpoint_dir: /var/lib/ferris/checkpoints
+  checkpoint_dir: /var/lib/velo/checkpoints
   checkpoint_interval: 1000  # Save every 1000 records
   
 watching:
@@ -1436,7 +1436,7 @@ bucket: data-lake
 prefix: events/2024/
 format: parquet
 position_tracking:
-  state_file: /var/lib/ferris/s3_state.json
+  state_file: /var/lib/velo/s3_state.json
   track_processed: true
   
 scanning:

@@ -1,6 +1,6 @@
 # GROUP BY SQL Reference
 
-Quick reference for GROUP BY operations in FerrisStreams SQL.
+Quick reference for GROUP BY operations in VeloStream SQL.
 
 ## Syntax
 
@@ -17,7 +17,7 @@ ORDER BY column1, ...
 
 ### EMIT Modes (Optional)
 
-FerrisStreams supports KSQL-style EMIT clauses to control when GROUP BY results are emitted:
+VeloStream supports KSQL-style EMIT clauses to control when GROUP BY results are emitted:
 
 - **`EMIT CHANGES`** - Continuous emission of results as data arrives (CDC-style)
 - **`EMIT FINAL`** - Emission of final results only when windows close (requires WINDOW clause)

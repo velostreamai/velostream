@@ -4,21 +4,21 @@
 //! that can be used across different stream job processor implementations.
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter, SourceOffset};
-use ferrisstreams::ferris::server::processors::common::{
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
+use velostream::velostream::server::processors::common::{
     FailureStrategy, JobExecutionStats, JobProcessingConfig,
 };
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
 
 // =====================================================
 // SHARED MOCK INFRASTRUCTURE

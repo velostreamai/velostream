@@ -3,9 +3,9 @@
 //! This module tests basic DECIMAL type implementation that works with
 //! the current codebase structure.
 
-use ferrisstreams::ferris::sql::ast::{DataType, Expr, LiteralValue, SelectField, StreamingQuery};
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::ast::{DataType, Expr, LiteralValue, SelectField, StreamingQuery};
+use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod decimal_simple_tests {

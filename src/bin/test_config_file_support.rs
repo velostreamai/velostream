@@ -1,10 +1,10 @@
-use ferrisstreams::ferris::kafka::serialization_format::SerializationConfig;
-use ferrisstreams::ferris::sql::query_analyzer::{
-    DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer,
-};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use velostream::velostream::kafka::serialization_format::SerializationConfig;
+use velostream::velostream::sql::query_analyzer::{
+    DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing named source/sink config_file functionality...\n");

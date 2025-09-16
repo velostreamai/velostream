@@ -2,7 +2,7 @@
 
 ## Overview
 
-FerrisStreams supports independent compression configuration that works alongside batch strategies. Users can specify compression settings explicitly, and these settings will never be overridden by batch configuration optimizations. When no explicit compression is configured, batch strategies provide intelligent compression suggestions based on performance characteristics.
+VeloStream supports independent compression configuration that works alongside batch strategies. Users can specify compression settings explicitly, and these settings will never be overridden by batch configuration optimizations. When no explicit compression is configured, batch strategies provide intelligent compression suggestions based on performance characteristics.
 
 ## Key Principle: Suggestion vs Override
 
@@ -53,7 +53,7 @@ File sinks support compression for output files, configurable independently from
 
 #### Configuration Method
 ```rust
-use ferrisstreams::ferris::datasource::config::CompressionType;
+use velostream::velo::datasource::config::CompressionType;
 
 let config = SinkConfig::File {
     path: "./output.json".to_string(),
@@ -109,7 +109,7 @@ Batch strategies **suggest** optimal compression based on performance characteri
 ### Example 1: Independent Kafka Compression
 
 ```rust
-use ferrisstreams::ferris::datasource::{
+use velostream::velo::datasource::{
     kafka::data_sink::KafkaDataSink,
     BatchConfig, BatchStrategy,
     config::SinkConfig,
@@ -151,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ### Example 2: Independent File Compression
 
 ```rust
-use ferrisstreams::ferris::datasource::{
+use velostream::velo::datasource::{
     file::sink::FileSink,
     BatchConfig, BatchStrategy,
     config::{SinkConfig, FileFormat, CompressionType},

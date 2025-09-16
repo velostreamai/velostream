@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::sql::config::builder::*;
+use velostream::velostream::sql::config::builder::*;
 
 #[test]
 fn test_basic_builder() {

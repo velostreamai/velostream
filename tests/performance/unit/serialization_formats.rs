@@ -5,9 +5,9 @@ Tests for serialization format performance and memory efficiency.
 Heavy benchmarks are run as examples in the performance-tests.yml workflow.
 */
 
-use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
+use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+use velostream::velostream::sql::FieldValue;
 
 fn create_test_data_small() -> HashMap<String, FieldValue> {
     let mut data = HashMap::new();

@@ -1,8 +1,8 @@
-use ferrisstreams::ferris::datasource::kafka::reader::KafkaDataReader;
-use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
-use ferrisstreams::ferris::kafka::serialization_format::SerializationFormat;
 use log::info;
 use std::time::Duration;
+use velostream::velostream::datasource::kafka::reader::KafkaDataReader;
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+use velostream::velostream::kafka::serialization_format::SerializationFormat;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

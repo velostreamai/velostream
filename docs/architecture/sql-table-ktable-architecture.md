@@ -1,14 +1,14 @@
-# FerrisStreams SQL Table Architecture
+# VeloStream SQL Table Architecture
 
 ## Overview
 
-FerrisStreams implements SQL tables as materialized views with **datasource-agnostic** state management. The system provides a unified SQL interface while delegating state management to pluggable datasource implementations. This architecture enables high-performance stream-table joins, real-time aggregations, and stateful stream processing across heterogeneous data sources including Kafka, files, databases, and more.
+VeloStream implements SQL tables as materialized views with **datasource-agnostic** state management. The system provides a unified SQL interface while delegating state management to pluggable datasource implementations. This architecture enables high-performance stream-table joins, real-time aggregations, and stateful stream processing across heterogeneous data sources including Kafka, files, databases, and more.
 
 ## Architecture Components
 
 ### 1. Unified SQL Interface
 
-SQL tables in FerrisStreams are created using `CREATE TABLE AS SELECT` statements that work with **any datasource**:
+SQL tables in VeloStream are created using `CREATE TABLE AS SELECT` statements that work with **any datasource**:
 
 ```sql
 -- File-based materialized table
@@ -39,7 +39,7 @@ GROUP BY user_id;
 The core table processing is completely **datasource-agnostic**:
 
 ```rust
-// From src/ferris/sql/execution/processors/mod.rs
+// From src/velo/sql/execution/processors/mod.rs
 StreamingQuery::CreateTable { as_select, .. } => {
     // For CREATE TABLE AS SELECT, delegate to SelectProcessor for the inner query
     SelectProcessor::process(as_select, record, context)
@@ -53,7 +53,7 @@ StreamingQuery::CreateTable { as_select, .. } => {
 The SQL parser creates datasource-agnostic AST nodes:
 
 ```rust
-// From src/ferris/sql/ast.rs
+// From src/velo/sql/ast.rs
 CreateTable {
     name: String,                           // Table name (e.g., "user_analytics")
     columns: Option<Vec<ColumnDef>>,        // Optional column definitions
@@ -68,7 +68,7 @@ State management varies by datasource implementation:
 
 #### Kafka Implementation (KTable)
 ```rust
-// From src/ferris/kafka/ktable.rs
+// From src/velo/kafka/ktable.rs
 pub struct KTable<K, V, KS, VS> {
     consumer: Arc<KafkaConsumer<K, V, KS, VS>>,     // Kafka consumer for state updates
     state: Arc<RwLock<HashMap<K, V>>>,              // In-memory materialized state
@@ -80,7 +80,7 @@ pub struct KTable<K, V, KS, VS> {
 
 #### File Implementation
 ```rust
-// From src/ferris/datasource/file/data_source.rs
+// From src/velo/datasource/file/data_source.rs
 pub struct FileDataSource {
     config: Option<FileSourceConfig>,               // File path, format, etc.
     metadata: Option<SourceMetadata>,               // Schema and stats
@@ -336,7 +336,7 @@ impl DataSourceStats for FileDataSource {
 
 ## Integration with Financial Precision
 
-FerrisStreams' financial precision system works across **all datasource types**:
+VeloStream' financial precision system works across **all datasource types**:
 
 ```rust
 // ScaledInteger maintains exact precision regardless of storage

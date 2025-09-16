@@ -1,5 +1,5 @@
 # File source configuration for raw transaction data
-# Flat structure with dot-notation properties as expected by FerrisStreams
+# Flat structure with dot-notation properties as expected by VeloStream
 
 # Source type (required)
 type: "file_source"

@@ -1,6 +1,6 @@
 //! Consolidated Performance Test Suite
 //!
-//! This module provides a unified structure for all FerrisStreams performance tests,
+//! This module provides a unified structure for all VeloStream performance tests,
 //! organized by functional area with clear separation between unit benchmarks,
 //! integration tests, and production simulations.
 
@@ -311,8 +311,8 @@ pub mod utils {
 
 /// Test data generators for consistent performance testing
 pub mod test_data {
-    use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
     use std::collections::HashMap;
+    use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
     /// Generate test records for performance testing
     pub fn generate_test_records(count: usize) -> Vec<StreamRecord> {

@@ -1,8 +1,8 @@
 //! Tests for datasource property loading with source./sink. prefix support
 
-use ferrisstreams::ferris::datasource::file::{FileDataSink, FileDataSource};
-use ferrisstreams::ferris::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use std::collections::HashMap;
+use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
+use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 
 #[cfg(test)]
 mod properties_prefix_tests {
@@ -107,7 +107,7 @@ mod properties_prefix_tests {
         assert_eq!(kafka_source.topic(), "default_topic");
         assert_eq!(
             kafka_source.group_id(),
-            &Some("ferris-sql-test_job".to_string())
+            &Some("velo-sql-test_job".to_string())
         );
     }
 
@@ -163,7 +163,7 @@ mod properties_prefix_tests {
         assert_eq!(config.path, "/path/to/source.csv");
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::Csv
+            velostream::velostream::datasource::file::FileFormat::Csv
         ));
         assert!(config.watch_for_changes);
         assert!(!config.csv_has_header);
@@ -184,7 +184,7 @@ mod properties_prefix_tests {
         assert_eq!(config.path, "/fallback/path.json");
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::Json
+            velostream::velostream::datasource::file::FileFormat::Json
         ));
         assert!(!config.watch_for_changes);
         assert!(config.csv_has_header);
@@ -229,7 +229,7 @@ mod properties_prefix_tests {
         assert_eq!(config.path, "./demo_data/sample.csv");
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::Csv
+            velostream::velostream::datasource::file::FileFormat::Csv
         ));
         assert!(!config.watch_for_changes);
         assert!(config.csv_has_header);
@@ -250,7 +250,7 @@ mod properties_prefix_tests {
         assert_eq!(config.path, "/output/sink.json");
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::Json
+            velostream::velostream::datasource::file::FileFormat::Json
         ));
         assert!(config.append_if_exists);
         assert!(!config.csv_has_header);
@@ -268,7 +268,7 @@ mod properties_prefix_tests {
         assert_eq!(config.path, "output.json"); // Default
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::Csv
+            velostream::velostream::datasource::file::FileFormat::Csv
         ));
         assert!(!config.append_if_exists);
         assert!(config.csv_has_header); // Default
@@ -284,7 +284,7 @@ mod properties_prefix_tests {
         let config = file_sink.config().unwrap();
         assert!(matches!(
             config.format,
-            ferrisstreams::ferris::datasource::file::FileFormat::JsonLines
+            velostream::velostream::datasource::file::FileFormat::JsonLines
         ));
     }
 

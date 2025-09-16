@@ -1,8 +1,8 @@
-# FerrisStreams Observability Guide
+# VeloStream Observability Guide
 
 ## Overview
 
-FerrisStreams Phase 4 provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
+VeloStream Phase 4 provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
 
 ## Architecture
 
@@ -11,17 +11,17 @@ The observability system consists of three main components:
 ### 1. Distributed Tracing (OpenTelemetry Compatible)
 - **Purpose**: Track SQL query execution and streaming operations across components
 - **Implementation**: Simplified logging-based spans with structured telemetry data
-- **Provider**: `TelemetryProvider` in `src/ferris/observability/telemetry.rs`
+- **Provider**: `TelemetryProvider` in `src/velo/observability/telemetry.rs`
 
 ### 2. Metrics Collection (Prometheus)
 - **Purpose**: Collect and export SQL, streaming, and system metrics
 - **Implementation**: Prometheus metrics with histograms, counters, and gauges
-- **Provider**: `MetricsProvider` in `src/ferris/observability/metrics.rs`
+- **Provider**: `MetricsProvider` in `src/velo/observability/metrics.rs`
 
 ### 3. Performance Profiling
 - **Purpose**: Detect bottlenecks and generate performance reports
 - **Implementation**: CPU/memory monitoring with automated report generation
-- **Provider**: `ProfilingProvider` in `src/ferris/observability/profiling.rs`
+- **Provider**: `ProfilingProvider` in `src/velo/observability/profiling.rs`
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ The observability system consists of three main components:
 Add observability configuration to your `StreamingConfig`:
 
 ```rust
-use ferrisstreams::ferris::sql::execution::config::*;
+use velostream::velo::sql::execution::config::*;
 
 let config = StreamingConfig {
     // ... other config
@@ -43,7 +43,7 @@ let config = StreamingConfig {
 ### 2. Initialize Observability
 
 ```rust
-use ferrisstreams::ferris::observability::ObservabilityManager;
+use velostream::velo::observability::ObservabilityManager;
 
 let mut obs_manager = ObservabilityManager::new(config).await?;
 obs_manager.initialize().await?;
@@ -63,7 +63,7 @@ docker-compose up -d
 Access:
 - **Grafana Dashboard**: http://localhost:3000 (admin/admin)
 - **Prometheus**: http://localhost:9090
-- **FerrisStreams Metrics**: http://localhost:9091/metrics
+- **VeloStream Metrics**: http://localhost:9091/metrics
 
 ## Metrics Reference
 
@@ -71,27 +71,27 @@ Access:
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `ferris_sql_queries_total` | Counter | Total number of SQL queries executed |
-| `ferris_sql_query_duration_seconds` | Histogram | SQL query execution time |
-| `ferris_sql_query_errors_total` | Counter | Total number of SQL query errors |
-| `ferris_sql_records_processed_total` | Counter | Total records processed by SQL queries |
+| `velo_sql_queries_total` | Counter | Total number of SQL queries executed |
+| `velo_sql_query_duration_seconds` | Histogram | SQL query execution time |
+| `velo_sql_query_errors_total` | Counter | Total number of SQL query errors |
+| `velo_sql_records_processed_total` | Counter | Total records processed by SQL queries |
 
 ### Streaming Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `ferris_streaming_operations_total` | Counter | Total number of streaming operations |
-| `ferris_streaming_duration_seconds` | Histogram | Streaming operation duration |
-| `ferris_streaming_throughput_rps` | Gauge | Current streaming throughput in records/sec |
-| `ferris_streaming_records_total` | Counter | Total number of records streamed |
+| `velo_streaming_operations_total` | Counter | Total number of streaming operations |
+| `velo_streaming_duration_seconds` | Histogram | Streaming operation duration |
+| `velo_streaming_throughput_rps` | Gauge | Current streaming throughput in records/sec |
+| `velo_streaming_records_total` | Counter | Total number of records streamed |
 
 ### System Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `ferris_cpu_usage_percent` | Gauge | Current CPU usage percentage |
-| `ferris_memory_usage_bytes` | Gauge | Current memory usage in bytes |
-| `ferris_active_connections` | Gauge | Number of active connections |
+| `velo_cpu_usage_percent` | Gauge | Current CPU usage percentage |
+| `velo_memory_usage_bytes` | Gauge | Current memory usage in bytes |
+| `velo_active_connections` | Gauge | Number of active connections |
 
 ## Configuration Options
 
@@ -253,7 +253,7 @@ metrics_provider.update_system_metrics(
 
 1. **Metrics Not Appearing**
    - Verify Prometheus is scraping correct endpoint
-   - Check FerrisStreams is exposing metrics on configured port
+   - Check VeloStream is exposing metrics on configured port
    - Ensure firewall allows access to metrics endpoint
 
 2. **High Memory Usage**
@@ -310,7 +310,7 @@ Add custom business metrics:
 ```rust
 // Register custom metric
 let custom_counter = register_int_counter_with_registry!(
-    Opts::new("ferris_custom_events_total", "Custom business events"),
+    Opts::new("velo_custom_events_total", "Custom business events"),
     &metrics_provider.registry
 )?;
 
@@ -326,4 +326,4 @@ For observability-related issues:
 3. Review logs in `profiling.output_directory`
 4. Use debug-level logging for detailed trace information
 
-The observability system is designed to be lightweight and minimally invasive while providing comprehensive insights into FerrisStreams performance and behavior.
+The observability system is designed to be lightweight and minimally invasive while providing comprehensive insights into VeloStream performance and behavior.

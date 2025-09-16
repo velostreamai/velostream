@@ -1,12 +1,12 @@
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrisstreams::ferris::serialization::JsonFormat;
+    use velostream::velostream::serialization::JsonFormat;
 
     #[test]
     fn test_header_function_parsing() {

@@ -1,14 +1,14 @@
 //! Integration Test for Schema Registry with SQL Execution Engine
 //!
 //! This test demonstrates the integration of the pluggable Schema Registry
-//! with the FerrisStreams SQL execution engine, showing performance
+//! with the VeloStream SQL execution engine, showing performance
 //! characteristics and real-world usage patterns.
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use ferrisstreams::ferris::schema::client::registry_client::SchemaReference;
-use ferrisstreams::ferris::schema::server::{
+use velostream::velostream::schema::client::registry_client::SchemaReference;
+use velostream::velostream::schema::server::{
     BackendConfig, SchemaRegistryBackend, SchemaRegistryBackendFactory,
 };
 
@@ -42,7 +42,7 @@ async fn test_filesystem_backend_performance() -> Result<(String, f64), Box<dyn 
 {
     println!("🗃️  Testing FileSystem Backend Performance");
 
-    let temp_path = std::env::temp_dir().join("ferris_schema_test_fs");
+    let temp_path = std::env::temp_dir().join("velo_schema_test_fs");
     std::fs::create_dir_all(&temp_path)?;
 
     let backend = SchemaRegistryBackendFactory::create(BackendConfig::FileSystem {
@@ -83,7 +83,7 @@ async fn test_multi_backend_comparison() -> Result<(String, f64), Box<dyn std::e
         ("Large", create_test_schema(200)),
     ];
 
-    let temp_path = std::env::temp_dir().join("ferris_schema_test_multi");
+    let temp_path = std::env::temp_dir().join("velo_schema_test_multi");
     std::fs::create_dir_all(&temp_path)?;
 
     let filesystem_backend = SchemaRegistryBackendFactory::create(BackendConfig::FileSystem {
@@ -143,7 +143,7 @@ async fn test_multi_backend_comparison() -> Result<(String, f64), Box<dyn std::e
 async fn test_unified_client_integration() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔗 Testing Direct Backend Integration");
 
-    let temp_path = std::env::temp_dir().join("ferris_schema_test_unified");
+    let temp_path = std::env::temp_dir().join("velo_schema_test_unified");
     std::fs::create_dir_all(&temp_path)?;
 
     // Create backend directly to avoid stack overflow

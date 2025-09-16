@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Build FerrisStreams CLI Tool
-# Makes the ferris-cli available for use in the trading demo
+# Build VeloStream CLI Tool
+# Makes the velo-cli available for use in the trading demo
 
 set -e
 
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🔨 Building FerrisStreams CLI Tool${NC}"
+echo -e "${BLUE}🔨 Building VeloStream CLI Tool${NC}"
 echo -e "${BLUE}=================================${NC}"
 echo ""
 
@@ -24,9 +24,9 @@ if [ ! -f "../../Cargo.toml" ]; then
 fi
 
 # Build the CLI in release mode
-echo -e "${YELLOW}📦 Building ferris-cli in release mode...${NC}"
+echo -e "${YELLOW}📦 Building velo-cli in release mode...${NC}"
 cd ../..
-cargo build --release --bin ferris-cli
+cargo build --release --bin velo-cli
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Build successful!${NC}"
@@ -40,22 +40,22 @@ cd demo/trading
 
 # Create symlink for easy access
 echo -e "${YELLOW}🔗 Creating convenient access link...${NC}"
-if [ -L "./ferris-cli" ]; then
-    rm ./ferris-cli
+if [ -L "./velo-cli" ]; then
+    rm ./velo-cli
 fi
-ln -s ../../target/release/ferris-cli ./ferris-cli
+ln -s ../../target/release/velo-cli ./velo-cli
 
 # Make sure it's executable
-chmod +x ../../target/release/ferris-cli
+chmod +x ../../target/release/velo-cli
 
-echo -e "${GREEN}🎉 FerrisStreams CLI ready!${NC}"
+echo -e "${GREEN}🎉 VeloStream CLI ready!${NC}"
 echo ""
 echo -e "${BLUE}Usage:${NC}"
-echo "• Quick health check: ${YELLOW}./ferris-cli health${NC}"
-echo "• System status: ${YELLOW}./ferris-cli status --verbose${NC}"
-echo "• Real-time monitoring: ${YELLOW}./ferris-cli status --refresh 5${NC}"
-echo "• Kafka topics: ${YELLOW}./ferris-cli kafka --topics${NC}"
-echo "• Docker containers: ${YELLOW}./ferris-cli docker --ferris-only${NC}"
-echo "• Full help: ${YELLOW}./ferris-cli --help${NC}"
+echo "• Quick health check: ${YELLOW}./velo-cli health${NC}"
+echo "• System status: ${YELLOW}./velo-cli status --verbose${NC}"
+echo "• Real-time monitoring: ${YELLOW}./velo-cli status --refresh 5${NC}"
+echo "• Kafka topics: ${YELLOW}./velo-cli kafka --topics${NC}"
+echo "• Docker containers: ${YELLOW}./velo-cli docker --velo-only${NC}"
+echo "• Full help: ${YELLOW}./velo-cli --help${NC}"
 echo ""
-echo -e "${GREEN}✨ You can now use './ferris-cli' directly from the demo/trading directory!${NC}"
+echo -e "${GREEN}✨ You can now use './velo-cli' directly from the demo/trading directory!${NC}"

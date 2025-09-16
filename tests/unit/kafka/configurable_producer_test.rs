@@ -3,12 +3,12 @@
 //! These tests validate the ConfigurableKafkaProducerBuilder and related
 //! functionality for runtime serialization format selection.
 
-use ferrisstreams::ferris::kafka::{
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use velostream::velostream::kafka::{
     configurable_producer::ConfigurableKafkaProducerBuilder,
     serialization_format::{SerializationConfig, SerializationFormat},
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct TestMessage {

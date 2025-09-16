@@ -1,6 +1,6 @@
 # JSON Functions
 
-Complete reference for JSON processing functions in FerrisStreams. Use these functions to extract, query, and validate JSON data in your streaming queries.
+Complete reference for JSON processing functions in VeloStream. Use these functions to extract, query, and validate JSON data in your streaming queries.
 
 ## JSON Value Extraction
 

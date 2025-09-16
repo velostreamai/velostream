@@ -14,7 +14,7 @@ Replace the current basic CSV string-splitting implementation with a production-
 
 ### Current Limitations
 
-The existing CSV file processing in `src/ferris/datasource/file/reader.rs` uses basic string splitting:
+The existing CSV file processing in `src/velo/datasource/file/reader.rs` uses basic string splitting:
 
 ```rust
 // Current implementation (line 226)
@@ -42,7 +42,7 @@ For financial data processing, these limitations create:
 
 ### Overview
 
-Implement a comprehensive CSV codec (`CsvCodec`) that integrates with FerrisStreams' existing serialization architecture, providing:
+Implement a comprehensive CSV codec (`CsvCodec`) that integrates with VeloStream' existing serialization architecture, providing:
 
 1. **RFC 4180 Compliant Parsing**
 2. **Automatic Schema Inference** 
@@ -53,7 +53,7 @@ Implement a comprehensive CSV codec (`CsvCodec`) that integrates with FerrisStre
 ### Technical Architecture
 
 ```
-src/ferris/serialization/
+src/velo/serialization/
 ├── csv_codec.rs              # Main CSV codec implementation
 ├── csv_config.rs             # Configuration structures  
 ├── csv_inference.rs          # Schema inference logic
@@ -74,7 +74,7 @@ pub struct CsvCodec {
     type_mapping: HashMap<String, DataType>,
     metadata: Option<csv_sniffer::Metadata>,
     
-    // FerrisStreams integration
+    // VeloStream integration
     financial_precision: bool,
     timestamp_formats: Vec<String>,
     error_recovery: CsvErrorRecovery,
@@ -351,7 +351,7 @@ thiserror = "1.0"        # Enhanced error types
 - [RFC 4180: Common Format and MIME Type for CSV Files](https://tools.ietf.org/html/rfc4180)
 - [csv crate documentation](https://docs.rs/csv/)
 - [csv-sniffer crate documentation](https://docs.rs/csv-sniffer/)
-- [FerrisStreams SerializationCodec Architecture](../architecture/SERIALIZATION_ARCHITECTURE.md)
+- [VeloStream SerializationCodec Architecture](../architecture/SERIALIZATION_ARCHITECTURE.md)
 - [Financial Precision Implementation Guide](../guides/FINANCIAL_PRECISION_GUIDE.md)
 
 ---

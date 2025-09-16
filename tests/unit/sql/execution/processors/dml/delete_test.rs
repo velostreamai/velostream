@@ -4,10 +4,10 @@
 Comprehensive test suite for DELETE operations.
 */
 
-use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
-use ferrisstreams::ferris::sql::execution::processors::DeleteProcessor;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::{Expr, LiteralValue};
+use velostream::velostream::sql::execution::processors::DeleteProcessor;
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -40,7 +40,7 @@ async fn test_delete_with_where_match() {
     let table_name = "users";
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(100))),
     });
     let input_record = create_test_record();
@@ -92,7 +92,7 @@ async fn test_delete_with_where_no_match() {
     let table_name = "users";
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(999))), // No match
     });
     let input_record = create_test_record();
@@ -133,13 +133,13 @@ async fn test_delete_with_complex_where() {
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::BinaryOp {
             left: Box::new(Expr::Column("age".to_string())),
-            op: ferrisstreams::ferris::sql::ast::BinaryOperator::GreaterThan,
+            op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
             right: Box::new(Expr::Literal(LiteralValue::Integer(18))),
         }),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::And,
+        op: velostream::velostream::sql::ast::BinaryOperator::And,
         right: Box::new(Expr::BinaryOp {
             left: Box::new(Expr::Column("status".to_string())),
-            op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+            op: velostream::velostream::sql::ast::BinaryOperator::Equal,
             right: Box::new(Expr::Literal(LiteralValue::String("pending".to_string()))),
         }),
     });
@@ -267,7 +267,7 @@ async fn test_delete_validation_valid() {
     let table_name = "valid_table";
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::GreaterThan,
+        op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
         right: Box::new(Expr::Literal(LiteralValue::Integer(0))),
     });
 
@@ -281,7 +281,7 @@ async fn test_delete_validation_valid() {
 async fn test_matches_where_clause() {
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("active".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Boolean(true))),
     });
     let input_record = create_test_record(); // active = true
@@ -294,7 +294,7 @@ async fn test_matches_where_clause() {
     // Test no match
     let no_match_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("active".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Boolean(false))),
     });
 
@@ -310,10 +310,10 @@ async fn test_get_referenced_columns() {
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::BinaryOp {
             left: Box::new(Expr::Column("age".to_string())),
-            op: ferrisstreams::ferris::sql::ast::BinaryOperator::GreaterThan,
+            op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
             right: Box::new(Expr::Literal(LiteralValue::Integer(18))),
         }),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::And,
+        op: velostream::velostream::sql::ast::BinaryOperator::And,
         right: Box::new(Expr::Column("status".to_string())),
     });
 
@@ -384,7 +384,7 @@ async fn test_delete_with_in_condition() {
     // WHERE id IN (100, 200, 300)
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::In,
+        op: velostream::velostream::sql::ast::BinaryOperator::In,
         right: Box::new(Expr::List(vec![
             Expr::Literal(LiteralValue::Integer(100)),
             Expr::Literal(LiteralValue::Integer(200)),
@@ -412,7 +412,7 @@ async fn test_delete_with_not_condition() {
     let table_name = "users";
     // WHERE NOT active
     let where_clause = Some(Expr::UnaryOp {
-        op: ferrisstreams::ferris::sql::ast::UnaryOperator::Not,
+        op: velostream::velostream::sql::ast::UnaryOperator::Not,
         expr: Box::new(Expr::Column("active".to_string())),
     });
     let input_record = create_test_record(); // active = true

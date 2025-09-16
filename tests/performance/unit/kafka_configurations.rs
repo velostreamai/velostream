@@ -5,7 +5,7 @@ Tests for Kafka-related performance configurations and lightweight performance u
 Heavy benchmarks are run as examples in the performance-tests.yml workflow.
 */
 
-use ferrisstreams::ferris::kafka::{
+use velostream::velostream::kafka::{
     performance_presets::PerformancePresets, producer_config::ProducerConfig,
 };
 

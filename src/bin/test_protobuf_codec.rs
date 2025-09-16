@@ -1,8 +1,8 @@
 //! Test binary for protobuf codec functionality
 
-use ferrisstreams::ferris::serialization::protobuf_codec::ProtobufCodec;
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::collections::HashMap;
+use velostream::velostream::serialization::protobuf_codec::ProtobufCodec;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Testing Protobuf Codec Functionality");

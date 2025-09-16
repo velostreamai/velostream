@@ -2,12 +2,12 @@
 
 ## Overview
 
-FerrisStreams provides comprehensive support for Kafka transactions to enable exactly-once processing semantics. This guide covers the transaction-enabled consumer and producer configurations for financial-grade data processing.
+VeloStream provides comprehensive support for Kafka transactions to enable exactly-once processing semantics. This guide covers the transaction-enabled consumer and producer configurations for financial-grade data processing.
 
 ## Transaction Architecture
 
 ```
-Transactional Consumer → FerrisStreams Engine → Transactional Producer
+Transactional Consumer → VeloStream Engine → Transactional Producer
        ↓                        ↓                        ↓
   Read Committed         Transaction Boundary      Exactly-Once Delivery
     Messages               Management                  Guarantees
@@ -25,7 +25,7 @@ datasource:
   consumer_config:
     isolation_level: "read_committed"  # Only committed transactions
     enable_auto_commit: false          # Manual commit control
-    group_id: "ferris-tx-consumer-group"
+    group_id: "velo-tx-consumer-group"
 ```
 
 **Key Features:**
@@ -43,7 +43,7 @@ datasink:
   type: kafka
   producer_config:
     enable_idempotence: true
-    transactional_id: "ferris-tx-producer-1"
+    transactional_id: "velo-tx-producer-1"
     acks: "all"
     max_in_flight_requests_per_connection: 1
 ```
@@ -105,14 +105,14 @@ datasink:
     linger_ms: 50
   ```
 
-## FerrisStreams Integration
+## VeloStream Integration
 
 ### Multi-Job Processor Configuration
 
-Transaction configurations integrate with FerrisStreams' transactional job processor:
+Transaction configurations integrate with VeloStream' transactional job processor:
 
 ```yaml
-ferris_integration:
+velo_integration:
   processor_type: "transactional"
   job_config:
     use_transactions: true
@@ -125,7 +125,7 @@ ferris_integration:
 
 1. **Begin Transaction**: Producer starts transaction
 2. **Process Batch**: Consumer reads committed messages
-3. **Execute SQL**: FerrisStreams processes data
+3. **Execute SQL**: VeloStream processes data
 4. **Produce Results**: Write to output topics
 5. **Commit Transaction**: Atomically commit all operations
 6. **Handle Failures**: Abort and retry on errors
@@ -141,7 +141,7 @@ All transactional messages include metadata envelope:
   "transaction_id": "tx-12345678-1234-1234-1234-123456789012",
   "sequence_number": 1001,
   "timestamp": 1672531200000,
-  "producer_id": "ferris-tx-producer-1",
+  "producer_id": "velo-tx-producer-1",
   "payload": "{actual_message_data}",
   "checksum": "sha256_hash"
 }
@@ -176,7 +176,7 @@ error_handling:
   transaction_failure_strategy: "abort_and_retry"
   max_transaction_retries: 3
   producer_recovery_strategy: "recreate_producer"
-  dlq_topic: "ferris-tx-producer-dlq"
+  dlq_topic: "velo-tx-producer-dlq"
 ```
 
 ### Consumer Recovery
@@ -186,7 +186,7 @@ error_handling:
   transaction_failure_strategy: "abort_and_retry"
   max_retries: 3
   retry_backoff_ms: 1000
-  dlq_topic: "ferris-tx-dlq"
+  dlq_topic: "velo-tx-dlq"
 ```
 
 ## Security Configuration
@@ -341,7 +341,7 @@ consumer_metrics:
 docker-compose -f docker-compose.yml up -d
 
 # Use development profile
-cargo run --bin ferris-sql-multi -- \
+cargo run --bin velo-sql-multi -- \
   --consumer-config configs/transaction-consumer.yaml \
   --producer-config configs/transaction-producer.yaml \
   --profile development
@@ -351,7 +351,7 @@ cargo run --bin ferris-sql-multi -- \
 
 ```bash
 # Production deployment with monitoring
-cargo run --bin ferris-sql-multi -- \
+cargo run --bin velo-sql-multi -- \
   --consumer-config configs/transaction-consumer.yaml \
   --producer-config configs/transaction-producer.yaml \
   --profile financial_critical \
@@ -388,11 +388,11 @@ cargo run --bin ferris-sql-multi -- \
 ```bash
 # Check transaction state
 kafka-transactions.sh --bootstrap-server localhost:9092 \
-  --describe --transactional-id ferris-tx-producer-1
+  --describe --transactional-id velo-tx-producer-1
 
 # Monitor consumer lag
 kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-  --describe --group ferris-tx-consumer-group
+  --describe --group velo-tx-consumer-group
 
 # Check topic configuration
 kafka-topics.sh --bootstrap-server localhost:9092 \

@@ -1,7 +1,7 @@
-# FerrisStreams Performance Guide
+# VeloStream Performance Guide
 
 > **Unified Performance Documentation**  
-> This guide consolidates all performance-related information for FerrisStreams,
+> This guide consolidates all performance-related information for VeloStream,
 > replacing scattered documentation with a single comprehensive resource.
 
 ## Table of Contents
@@ -16,7 +16,7 @@
 
 ## Performance Overview
 
-FerrisStreams is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with **883/883 tests passing (100% success rate)**.
+VeloStream is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with **883/883 tests passing (100% success rate)**.
 
 ### Architecture Performance Profile
 
@@ -181,7 +181,7 @@ async fn process_batch_pipeline(
 ### 3. Unified Configuration System (✅ Implemented)
 
 #### Configuration Management Architecture
-FerrisStreams now features a comprehensive unified configuration system that dramatically simplifies configuration management while ensuring user settings are never overridden.
+VeloStream now features a comprehensive unified configuration system that dramatically simplifies configuration management while ensuring user settings are never overridden.
 
 **Key Benefits:**
 - **90% Code Reduction**: KafkaDataWriter reduced from 150+ lines to 10 lines
@@ -215,7 +215,7 @@ if batch_config.enable_batching {
 
 ### Overview
 
-FerrisStreams provides five distinct batch processing strategies, each optimized for different use cases. This section provides complete configuration details, default values, and SQL examples for each strategy across all source and sink types.
+VeloStream provides five distinct batch processing strategies, each optimized for different use cases. This section provides complete configuration details, default values, and SQL examples for each strategy across all source and sink types.
 
 ### Batch Strategy Configuration in SQL
 
@@ -788,12 +788,12 @@ pub enum BatchStrategy {
 
 ### Performance Monitoring Integration
 
-FerrisStreams includes comprehensive performance monitoring with HTTP endpoints:
+VeloStream includes comprehensive performance monitoring with HTTP endpoints:
 
 #### SQL Server Monitoring
 ```bash
 # Start server with metrics
-cargo run --bin ferris-sql server --enable-metrics --metrics-port 9080
+cargo run --bin velo-sql server --enable-metrics --metrics-port 9080
 ```
 
 **Endpoints:**
@@ -804,7 +804,7 @@ cargo run --bin ferris-sql server --enable-metrics --metrics-port 9080
 #### Multi-Job Server Monitoring
 ```bash
 # Start with job-level metrics
-cargo run --bin ferris-sql-multi server --enable-metrics
+cargo run --bin velo-sql-multi server --enable-metrics
 ```
 
 **Additional Endpoints:**
@@ -845,7 +845,7 @@ cargo run --bin ferris-sql-multi server --enable-metrics
 
 ### Criterion Integration
 
-FerrisStreams uses Criterion.rs for statistical benchmarking:
+VeloStream uses Criterion.rs for statistical benchmarking:
 
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BatchSize};

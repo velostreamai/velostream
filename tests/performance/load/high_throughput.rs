@@ -1,15 +1,15 @@
 //! High Throughput Load Testing
 //!
-//! Benchmarks designed to test FerrisStreams under extreme throughput conditions,
+//! Benchmarks designed to test VeloStream under extreme throughput conditions,
 //! validating performance with large datasets and high-speed data ingestion.
 
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
-use ferrisstreams::ferris::sql::execution::{types::FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{types::FieldValue, StreamRecord};
 
 /// Test maximum throughput with large datasets
 #[tokio::test]

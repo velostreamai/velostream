@@ -3,19 +3,19 @@
 //! This example demonstrates the file sink implementation for writing streaming data
 //! to files with various formats and rotation strategies.
 
-use ferrisstreams::ferris::datasource::file::{
-    config::{CompressionType, FileFormat, FileSinkConfig},
-    FileDataSink,
-};
-use ferrisstreams::ferris::datasource::traits::DataSink;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
+use velostream::velostream::datasource::file::{
+    config::{CompressionType, FileFormat, FileSinkConfig},
+    FileDataSink,
+};
+use velostream::velostream::datasource::traits::DataSink;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 FerrisStreams File Sink Demo");
+    println!("🚀 VeloStream File Sink Demo");
     println!("=================================");
 
     // Demo 1: JSON Lines output with file rotation

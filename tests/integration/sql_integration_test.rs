@@ -1,15 +1,15 @@
-use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::{
-    types::{FieldValue, StreamRecord},
-    StreamExecutionEngine,
-};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::context::StreamingSqlContext;
+use velostream::velostream::sql::execution::{
+    types::{FieldValue, StreamRecord},
+    StreamExecutionEngine,
+};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {

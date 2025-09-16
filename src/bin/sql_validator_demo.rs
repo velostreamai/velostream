@@ -2,7 +2,7 @@
 //!
 //! This demo program shows the internal workings of SQL validation step by step.
 
-use ferrisstreams::ferris::sql::{query_analyzer::QueryAnalyzer, StreamingSqlParser};
+use velostream::velostream::sql::{query_analyzer::QueryAnalyzer, StreamingSqlParser};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 SQL Validator Internal Process Demo");

@@ -3,8 +3,8 @@
 //! This module tests the integration of batch configuration with SQL WITH clauses,
 //! ensuring that batch settings can be specified and parsed correctly in streaming queries.
 
-use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
-use ferrisstreams::ferris::sql::config::with_clause_parser::{WithClauseParser, WithClauseError};
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+use velostream::velostream::sql::config::with_clause_parser::{WithClauseParser, WithClauseError};
 use std::time::Duration;
 
 #[test]

@@ -2,14 +2,14 @@
 
 ## Overview
 
-This guide provides practical examples for using the FerrisStreams Schema Registry system with its advanced caching and reference resolution capabilities.
+This guide provides practical examples for using the VeloStream Schema Registry system with its advanced caching and reference resolution capabilities.
 
 ## Basic Setup
 
 ### 1. Create Schema Registry Client
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{
+use velostream::velo::sql::schema::{
     SchemaRegistryClient, AuthConfig, RegistryClientConfig
 };
 
@@ -41,7 +41,7 @@ let client = SchemaRegistryClient::with_config(
 ### 2. Setup Enhanced Caching
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{
+use velostream::velo::sql::schema::{
     EnhancedSchemaCache, EnhancedCacheConfig
 };
 
@@ -58,7 +58,7 @@ let cache_config = EnhancedCacheConfig {
     refresh_interval_seconds: 300,    // 5 minutes
     max_prefetch_depth: 5,           // Prefetch depth
     enable_persistence: true,         // Disk persistence
-    persistence_path: Some("/var/cache/ferris/schemas.json".to_string()),
+    persistence_path: Some("/var/cache/velo/schemas.json".to_string()),
 };
 
 let cache = EnhancedSchemaCache::with_config(cache_config);
@@ -67,7 +67,7 @@ let cache = EnhancedSchemaCache::with_config(cache_config);
 ### 3. Initialize Reference Resolver
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{
+use velostream::velo::sql::schema::{
     SchemaReferenceResolver, ResolverConfig
 };
 use std::sync::Arc;
@@ -107,7 +107,7 @@ println!("Dependencies: {}", resolved.dependencies.len());
 ### Schema Registration
 
 ```rust
-use ferrisstreams::ferris::sql::schema::SchemaReference;
+use velostream::velo::sql::schema::SchemaReference;
 
 // Simple schema registration
 let schema_json = r#"{
@@ -199,7 +199,7 @@ for step in &migration_plan.migration_steps {
 ### Rollout Strategies
 
 ```rust
-use ferrisstreams::ferris::sql::schema::RolloutStrategy;
+use velostream::velo::sql::schema::RolloutStrategy;
 
 // Canary deployment
 let canary_plan = resolver.create_rollout_plan(
@@ -255,7 +255,7 @@ cache.load().await?;     // Load from disk
 
 ```rust
 // This would be the integration pattern (implementation in Phase 2.5d)
-use ferrisstreams::ferris::kafka::ConfigurableKafkaConsumer;
+use velostream::velo::kafka::ConfigurableKafkaConsumer;
 
 let consumer = ConfigurableKafkaConsumer::builder()
     .brokers("localhost:9092")
@@ -370,7 +370,7 @@ tokio::spawn(async move {
 ### Comprehensive Error Handling
 
 ```rust
-use ferrisstreams::ferris::sql::schema::SchemaError;
+use velostream::velo::sql::schema::SchemaError;
 
 match client.get_schema(schema_id).await {
     Ok(schema) => {

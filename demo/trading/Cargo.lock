@@ -543,7 +543,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "ferrisstreams"
+name = "velostream"
 version = "0.1.0"
 dependencies = [
  "apache-avro",
@@ -2296,7 +2296,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "env_logger 0.11.8",
- "ferrisstreams",
+ "velostream",
  "log",
  "rand 0.8.5",
  "rdkafka",

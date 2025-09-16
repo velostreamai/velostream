@@ -1,10 +1,10 @@
 # Bring Your Own Serializer Guide
 
-This guide shows you how to integrate custom serialization formats with the FerrisStreams SQL engine.
+This guide shows you how to integrate custom serialization formats with the VeloStream SQL engine.
 
 ## Overview
 
-FerrisStreams uses a trait-based serialization system that allows you to plug in any serialization format while maintaining full SQL engine compatibility. Your custom serializer integrates seamlessly with:
+VeloStream uses a trait-based serialization system that allows you to plug in any serialization format while maintaining full SQL engine compatibility. Your custom serializer integrates seamlessly with:
 
 - ✅ **SQL Engine**: Full query processing capabilities
 - ✅ **Type Safety**: Strong typing between external format and SQL engine
@@ -16,8 +16,8 @@ FerrisStreams uses a trait-based serialization system that allows you to plug in
 ### 1. Implement the SerializationFormat Trait
 
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormat, SerializationError};
-use ferrisstreams::ferris::sql::FieldValue;
+use velostream::velostream::serialization::{SerializationFormat, SerializationError};
+use velostream::velostream::sql::FieldValue;
 use std::collections::HashMap;
 
 pub struct MyCustomSerializer {
@@ -75,7 +75,7 @@ impl SerializationFormat for MyCustomSerializer {
 
 ### 2. Handle Type Mapping
 
-You need to convert between FerrisStreams' `FieldValue` enum and your format:
+You need to convert between VeloStream' `FieldValue` enum and your format:
 
 ```rust
 // FieldValue types you need to support:
@@ -122,7 +122,7 @@ impl MyCustomSerializer {
 ### Basic Integration
 
 ```rust
-use ferrisstreams::ferris::sql::StreamExecutionEngine;
+use velostream::velostream::sql::StreamExecutionEngine;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Advanced Kafka Integration
 
 ```rust
-use ferrisstreams::ferris::multi_job_server::MultiJobSqlServer;
+use velostream::velostream::multi_job_server::MultiJobSqlServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -279,7 +279,7 @@ impl SerializationFormat for MessagePackFormat {
 Extend the factory to support your format:
 
 ```rust
-use ferrisstreams::ferris::serialization::SerializationFormatFactory;
+use velostream::velostream::serialization::SerializationFormatFactory;
 
 impl SerializationFormatFactory {
     pub fn create_my_custom_format(config: MyCustomConfig) -> Result<Box<dyn SerializationFormat>, SerializationError> {
@@ -299,7 +299,7 @@ Use the same test patterns as built-in formats:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ferrisstreams::ferris::serialization::test_helpers::*;
+    use velostream::velostream::serialization::test_helpers::*;
 
     #[tokio::test]
     async fn test_my_custom_serializer_round_trip() {
@@ -431,4 +431,4 @@ impl MyCustomSerializer {
 }
 ```
 
-The FerrisStreams architecture makes it straightforward to plug in any serialization format while maintaining full SQL engine functionality and type safety.
+The VeloStream architecture makes it straightforward to plug in any serialization format while maintaining full SQL engine functionality and type safety.

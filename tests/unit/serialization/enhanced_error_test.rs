@@ -3,8 +3,8 @@
 //! These tests validate that the enhanced error system preserves
 //! error source chains and provides proper error context.
 
-use ferrisstreams::ferris::serialization::SerializationError;
 use std::error::Error;
+use velostream::velostream::serialization::SerializationError;
 
 #[cfg(test)]
 mod enhanced_error_tests {

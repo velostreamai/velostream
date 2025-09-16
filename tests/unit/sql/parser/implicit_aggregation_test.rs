@@ -2,7 +2,7 @@
 Test implicit emit mode behavior based on SQL structure
 */
 
-use ferrisstreams::ferris::sql::{ast::EmitMode, parser::StreamingSqlParser};
+use velostream::velostream::sql::{ast::EmitMode, parser::StreamingSqlParser};
 
 #[tokio::test]
 async fn test_implicit_continuous_mode_no_window() {
@@ -15,7 +15,7 @@ async fn test_implicit_continuous_mode_no_window() {
     assert!(result.is_ok(), "Query parsing should succeed");
 
     if let Ok(query) = result {
-        if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+        if let velostream::velostream::sql::ast::StreamingQuery::Select {
             emit_mode,
             window,
             group_by,
@@ -45,7 +45,7 @@ async fn test_implicit_windowed_mode_with_window() {
     // Note: This might fail if WINDOW parsing isn't fully implemented
     // but the concept test is what matters
     if let Ok(query) = result {
-        if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+        if let velostream::velostream::sql::ast::StreamingQuery::Select {
             emit_mode,
             window,
             group_by,
@@ -72,7 +72,7 @@ async fn test_explicit_emit_mode_overrides_default() {
     assert!(result.is_ok(), "Query parsing should succeed");
 
     if let Ok(query) = result {
-        if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+        if let velostream::velostream::sql::ast::StreamingQuery::Select {
             emit_mode,
             window,
             group_by,
@@ -98,7 +98,7 @@ async fn test_emit_changes_with_window_override() {
     let result = parser.parse(query_str);
 
     if let Ok(query) = result {
-        if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+        if let velostream::velostream::sql::ast::StreamingQuery::Select {
             emit_mode,
             window,
             group_by,

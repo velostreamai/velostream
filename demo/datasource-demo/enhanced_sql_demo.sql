@@ -1,11 +1,11 @@
 -- SQL Application: enhanced file processing financial_transaction_processing_demo
 -- Description: Enhanced Financial Transaction Processing Demo  
--- Description: Demonstrates FerrisStreams advanced SQL capabilities with file data sources
+-- Description: Demonstrates VeloStream advanced SQL capabilities with file data sources
 -- Version: 4.1.0
 -- Author: Quantitative Trading Team
 -- Data Sources: Named sources and sinks with individual config files
 -- Config Directory: demo/datasource-demo/configs/
--- Schema: JSON Schema validation available at ferrisstreams-config.schema.json
+-- Schema: JSON Schema validation available at velostream-config.schema.json
 -- Tag: latency:ultra-low
 -- Tag: compliance:regulatory
 

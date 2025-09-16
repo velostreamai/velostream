@@ -1,10 +1,10 @@
-// tests/ferris/kafka/test_utils.rs
+// tests/velo/kafka/test_utils.rs
 use crate::unit::test_messages::*;
-use ferrisstreams::ferris::kafka::serialization::Serializer;
-use ferrisstreams::ferris::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
+use velostream::velostream::kafka::serialization::Serializer;
+use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 
 /// Helper functions
 pub(crate) fn is_kafka_running() -> bool {

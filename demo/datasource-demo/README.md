@@ -1,6 +1,6 @@
-# FerrisStreams DataSource Pipeline Demo
+# VeloStream DataSource Pipeline Demo
 
-This demo showcases FerrisStreams' data processing capabilities with **both Rust and SQL interfaces**, demonstrating:
+This demo showcases VeloStream' data processing capabilities with **both Rust and SQL interfaces**, demonstrating:
 
 - ✅ **Exact DECIMAL arithmetic** for precise financial calculations
 - ✅ **Real-time streaming** with configurable backpressure  
@@ -33,12 +33,12 @@ cargo run --bin file_processing_demo --no-default-features
 cd demo/datasource-demo
 ./generate_demo_data.sh
 
-# Step 2: Start FerrisStreams SQL server  
-cargo run --bin ferris-sql-multi --no-default-features -- server
+# Step 2: Start VeloStream SQL server  
+cargo run --bin velo-sql-multi --no-default-features -- server
 
 # Step 3: Run the SQL demo (copy/paste from file_processing_sql_demo.sql)
 # OR execute directly:
-# ferris-sql-multi deploy-app --file ./demo/datasource-demo/file_processing_sql_demo.sql
+# velo-sql-multi deploy-app --file ./demo/datasource-demo/file_processing_sql_demo.sql
 ```
 
 ### Option 3: Full Pipeline with Kafka (Advanced)
@@ -91,7 +91,7 @@ rm -rf demo_data demo_output
 
 ## Financial Precision Features
 
-The demo specifically showcases FerrisStreams' financial precision capabilities:
+The demo specifically showcases VeloStream' financial precision capabilities:
 
 ### ScaledInteger Arithmetic (Exact Precision)
 
@@ -320,4 +320,4 @@ let sink_config = FileSinkConfig::new(path, format)
     .with_compression(CompressionType::Snappy);
 ```
 
-This demo provides a complete foundation for building production financial data pipelines with FerrisStreams, showcasing the 42x performance improvement and exact precision that makes it ideal for financial applications.
+This demo provides a complete foundation for building production financial data pipelines with VeloStream, showcasing the 42x performance improvement and exact precision that makes it ideal for financial applications.

@@ -1,4 +1,4 @@
-# Simple Docker Compose for FerrisStreams Pipeline Demo
+# Simple Docker Compose for VeloStream Pipeline Demo
 # Usage: docker-compose -f docker-compose.demo.yml up -d
 version: '3.8'
 

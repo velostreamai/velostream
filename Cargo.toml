@@ -1,12 +1,12 @@
 [package]
-name = "ferrisstreams"
+name = "velostream"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.70.0"
 license = "Apache-2.0"
-authors = ["FerrisStreams Contributors"]
+authors = ["VeloStream Contributors"]
 description = "High-performance stream processing engine with SQL support"
-repository = "https://github.com/bluemonk3y/ferris_streams"
+repository = "https://github.com/velostreamai/velostream"
 keywords = ["streaming", "sql", "kafka", "data-processing", "real-time"]
 categories = ["database-implementations", "asynchronous", "data-structures"]
 
@@ -90,13 +90,13 @@ path = "examples/performance/quick_performance_test.rs"
 
 # Multi-Job SQL Server Binary
 [[bin]]
-name = "ferris-sql-multi"
-path = "src/bin/ferris-sql-multi.rs"
+name = "velo-sql-multi"
+path = "src/bin/velo-sql-multi.rs"
 
-# FerrisStreams CLI Binary
+# VeloStream CLI Binary
 [[bin]]
-name = "ferris-cli"
-path = "src/bin/ferris_cli.rs"
+name = "velo-cli"
+path = "src/bin/velo_cli.rs"
 
 # File Processing Demo Binary
 [[bin]]

@@ -23,19 +23,19 @@ including late data handling and event-time semantics.
 */
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use ferrisstreams::ferris::sql::execution::config::{
-    LateDataStrategy as ConfigLateDataStrategy, StreamingConfig,
-};
-use ferrisstreams::ferris::sql::execution::processors::context::ProcessorContext;
-use ferrisstreams::ferris::sql::execution::processors::window::WindowProcessor;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::execution::watermarks::{
-    LateDataAction, LateDataStrategy, WatermarkManager, WatermarkStrategy,
-};
-use ferrisstreams::ferris::sql::{ast::WindowSpec, SqlError, StreamingQuery};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use velostream::velostream::sql::execution::config::{
+    LateDataStrategy as ConfigLateDataStrategy, StreamingConfig,
+};
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::processors::window::WindowProcessor;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::watermarks::{
+    LateDataAction, LateDataStrategy, WatermarkManager, WatermarkStrategy,
+};
+use velostream::velostream::sql::{ast::WindowSpec, SqlError, StreamingQuery};
 
 /// Helper function to create a test StreamRecord with event time
 fn create_test_record_with_event_time(
@@ -278,7 +278,7 @@ async fn test_window_processor_watermark_aware_processing() {
 
     let query = StreamingQuery::Select {
         fields: vec![], // Simplified for test
-        from: ferrisstreams::ferris::sql::ast::StreamSource::Table("test_stream".to_string()),
+        from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,
         where_clause: None,
         group_by: None,
@@ -350,7 +350,7 @@ async fn test_backward_compatibility() {
 
     let query = StreamingQuery::Select {
         fields: vec![],
-        from: ferrisstreams::ferris::sql::ast::StreamSource::Table("test_stream".to_string()),
+        from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,
         where_clause: None,
         group_by: None,

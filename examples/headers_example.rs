@@ -1,6 +1,6 @@
 //! # Headers Usage Example
 //!
-//! This example demonstrates how to work with Kafka message headers in ferrisstreams:
+//! This example demonstrates how to work with Kafka message headers in velostream:
 //! - Creating and sending messages with rich header metadata  
 //! - Consuming messages and accessing header information
 //! - Using headers for message routing and metadata
@@ -34,9 +34,9 @@
 //! - `consumer_with_headers.rs` - More comprehensive header processing
 //! - `fluent_api_example.rs` - Stream-based header filtering
 
-use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use velostream::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {

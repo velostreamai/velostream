@@ -4,16 +4,16 @@
 Unit tests for the multi-source processing capabilities of SimpleJobProcessor and TransactionalJobProcessor.
 */
 
-use ferrisstreams::ferris::server::processors::{
+use velostream::velostream::server::processors::{
     SimpleJobProcessor, TransactionalJobProcessor, JobProcessingConfig, FailureStrategy,
     create_multi_source_readers, create_multi_sink_writers,
 };
-use ferrisstreams::ferris::sql::query_analyzer::{
+use velostream::velostream::sql::query_analyzer::{
     DataSourceRequirement, DataSinkRequirement, DataSourceType, DataSinkType,
 };
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::{StreamExecutionEngine, StreamingSqlParser};
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter, BatchConfig};
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
+use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
+use velostream::velostream::datasource::{DataReader, DataWriter, BatchConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -347,7 +347,7 @@ async fn test_multi_source_creation_helpers() {
     ];
 
     let batch_config = Some(BatchConfig {
-        strategy: ferrisstreams::ferris::datasource::BatchStrategy::FixedSize,
+        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize,
         max_batch_size: Some(100),
         batch_timeout: Some(Duration::from_millis(1000)),
         memory_limit_mb: Some(50),

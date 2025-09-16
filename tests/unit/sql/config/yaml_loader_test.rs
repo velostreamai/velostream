@@ -1,8 +1,8 @@
 //! Tests for YAML configuration loader with extends support
 
-use ferrisstreams::ferris::sql::config::yaml_loader::{YamlConfigError, YamlConfigLoader};
 use std::fs;
 use tempfile::TempDir;
+use velostream::velostream::sql::config::yaml_loader::{YamlConfigError, YamlConfigLoader};
 
 #[test]
 fn test_simple_config_loading() {

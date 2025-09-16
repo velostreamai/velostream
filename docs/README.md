@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains comprehensive documentation for FerrisStreams.
+This directory contains comprehensive documentation for VeloStream.
 
 ## 📚 Available Documentation
 
@@ -41,7 +41,7 @@ This directory contains comprehensive documentation for FerrisStreams.
 
 ## 🚀 Getting Started
 
-New to FerrisStreams? Start with:
+New to VeloStream? Start with:
 1. [Main README](../README.md) - Project overview and installation
 2. [Quick Reference](examples/QUICK_REFERENCE.md) - Common patterns
 3. [Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md) - Core API patterns
@@ -50,7 +50,7 @@ New to FerrisStreams? Start with:
 
 ## 🔥 New Features: SQL Streaming
 
-FerrisStreams now includes a comprehensive SQL interface for stream processing:
+VeloStream now includes a comprehensive SQL interface for stream processing:
 
 ### Key Capabilities
 - **Enterprise Job Management**: Complete lifecycle with versioning, deployment strategies (Blue-Green, Canary, Rolling)

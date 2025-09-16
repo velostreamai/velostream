@@ -1,6 +1,6 @@
 # Transaction-Enabled Kafka Producer Configuration
 # Optimized for exactly-once delivery with transactional guarantees
-# Compatible with FerrisStreams transactional multi-job processing
+# Compatible with VeloStream transactional multi-job processing
 
 datasink:
   type: kafka
@@ -11,7 +11,7 @@ datasink:
     
     # Exactly-once semantics configuration
     enable_idempotence: true              # Required for transactions
-    transactional_id: "ferris-tx-producer-1"  # Unique per producer instance
+    transactional_id: "velo-tx-producer-1"  # Unique per producer instance
     transaction_timeout_ms: 60000         # 1 minute transaction timeout
     
     # Acknowledgment and retry settings for reliability
@@ -90,7 +90,7 @@ datasink:
     
   # Message headers for transaction tracking
   headers:
-    producer_instance: "ferris-tx-producer-1"
+    producer_instance: "velo-tx-producer-1"
     schema_version: "1.0"
     serialization_format: "json"
     transaction_enabled: "true"
@@ -120,7 +120,7 @@ delivery_profiles:
     # Maximum reliability for financial transactions
     acks: "all"
     enable_idempotence: true
-    transactional_id: "ferris-financial-tx"
+    transactional_id: "velo-financial-tx"
     transaction_timeout_ms: 60000
     delivery_timeout_ms: 180000
     retries: 2147483647
@@ -132,7 +132,7 @@ delivery_profiles:
     # Optimized for batch transaction processing
     acks: "all"
     enable_idempotence: true
-    transactional_id: "ferris-batch-tx"
+    transactional_id: "velo-batch-tx"
     transaction_timeout_ms: 300000      # 5 minutes for large batches
     delivery_timeout_ms: 600000         # 10 minutes delivery timeout
     retries: 100
@@ -145,7 +145,7 @@ delivery_profiles:
     # Low latency with transaction guarantees
     acks: "all"
     enable_idempotence: true
-    transactional_id: "ferris-stream-tx"
+    transactional_id: "velo-stream-tx"
     transaction_timeout_ms: 30000
     delivery_timeout_ms: 60000
     retries: 50
@@ -157,7 +157,7 @@ delivery_profiles:
     # Maximum throughput with transactions
     acks: "all"
     enable_idempotence: true
-    transactional_id: "ferris-throughput-tx"
+    transactional_id: "velo-throughput-tx"
     transaction_timeout_ms: 120000      # 2 minutes
     delivery_timeout_ms: 300000         # 5 minutes
     retries: 1000
@@ -179,15 +179,15 @@ error_handling:
   
   # Dead letter topic for failed transactions
   dlq_enabled: true
-  dlq_topic: "ferris-tx-producer-dlq"
+  dlq_topic: "velo-tx-producer-dlq"
   dlq_headers:
     failure_reason: "transaction_send_failure"
     original_topic: "#{target_topic}"
     failure_timestamp: "#{current_timestamp}"
     retry_count: "#{retry_attempt}"
 
-# FerrisStreams integration configuration
-ferris_integration:
+# VeloStream integration configuration
+velo_integration:
   processor_type: "transactional"
   
   # Multi-job processor settings

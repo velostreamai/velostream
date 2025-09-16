@@ -9,8 +9,11 @@
 //! ```
 
 use clap::Parser;
-use ferrisstreams::ferris::{
-    error::FerrisResult,
+use log::{error, info, warn};
+use std::{collections::HashMap, fs, sync::Arc};
+use tokio::sync::mpsc;
+use velostream::velostream::{
+    error::VeloResult,
     serialization::JsonFormat,
     sql::{
         ast::StreamingQuery,
@@ -21,9 +24,6 @@ use ferrisstreams::ferris::{
         StreamingSqlParser,
     },
 };
-use log::{error, info, warn};
-use std::{collections::HashMap, fs, sync::Arc};
-use tokio::sync::mpsc;
 
 #[derive(Parser)]
 #[command(name = "sql-batch")]
@@ -281,7 +281,7 @@ async fn generate_sample_data_for_query(
 // No longer needed since we use StreamRecord directly without conversions
 
 #[tokio::main]
-async fn main() -> FerrisResult<()> {
+async fn main() -> VeloResult<()> {
     let cli = Cli::parse();
 
     // Initialize logging based on verbosity

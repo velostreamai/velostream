@@ -5,10 +5,10 @@ Benchmarks to validate the performance improvements of hash join over nested loo
 Tests various dataset sizes and join selectivities.
 */
 
-use ferrisstreams::ferris::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy, JoinStatistics};
-use ferrisstreams::ferris::sql::execution::processors::{JoinProcessor, ProcessorContext};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
-use ferrisstreams::ferris::sql::ast::{JoinClause, JoinType, Expr, BinaryOperator, StreamSource};
+use velostream::velostream::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy, JoinStatistics};
+use velostream::velostream::sql::execution::processors::{JoinProcessor, ProcessorContext};
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
+use velostream::velostream::sql::ast::{JoinClause, JoinType, Expr, BinaryOperator, StreamSource};
 use std::collections::HashMap;
 use std::time::Instant;
 

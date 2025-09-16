@@ -62,7 +62,7 @@ SELECT * FROM topic2 WHERE condition2;
 
 ```bash
 # Deploy from a .sql application file
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers localhost:9092 \
   --default-topic orders
@@ -72,13 +72,13 @@ ferris-sql-multi deploy-app \
 
 ```bash
 # Start StreamJobServer first
-ferris-sql-multi server \
+velo-sql-multi server \
   --brokers localhost:9092 \
   --max-jobs 20 \
   --port 8080
 
 # Then deploy application (in another terminal)
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/iot_monitoring.sql \
   --brokers localhost:9092 \
   --default-topic sensor_data
@@ -97,7 +97,7 @@ ferris-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete e-commerce analytics platform
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers kafka-prod:9092 \
   --default-topic orders
@@ -114,7 +114,7 @@ ferris-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete IoT monitoring platform
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/iot_monitoring.sql \
   --brokers kafka-iot:9092 \
   --default-topic sensor_data
@@ -131,7 +131,7 @@ ferris-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete trading analytics platform
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/financial_trading.sql \
   --brokers kafka-trading:9092 \
   --default-topic market_data
@@ -148,7 +148,7 @@ ferris-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete social media analytics platform
-ferris-sql-multi deploy-app \
+velo-sql-multi deploy-app \
   --file examples/social_media_analytics.sql \
   --brokers kafka-social:9092 \
   --default-topic social_posts
@@ -308,10 +308,10 @@ Applications continue deploying jobs even if individual jobs fail:
 
 ```bash
 # 1. Build the StreamJobServer
-cargo build --release --bin ferris-sql-multi
+cargo build --release --bin velo-sql-multi
 
 # 2. Deploy a complete application
-./target/release/ferris-sql-multi deploy-app \
+./target/release/velo-sql-multi deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers localhost:9092 \
   --default-topic orders

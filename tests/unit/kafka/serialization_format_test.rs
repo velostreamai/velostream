@@ -3,11 +3,11 @@
 //! These tests validate the configurable serialization functionality that enables
 //! runtime format selection via SQL WITH clauses.
 
-use ferrisstreams::ferris::kafka::serialization::SerializationError;
-use ferrisstreams::ferris::kafka::serialization_format::{
+use std::collections::HashMap;
+use velostream::velostream::kafka::serialization::SerializationError;
+use velostream::velostream::kafka::serialization_format::{
     SerializationConfig, SerializationFactory, SerializationFormat,
 };
-use std::collections::HashMap;
 
 #[cfg(test)]
 mod serialization_format_tests {
@@ -336,7 +336,7 @@ mod serialization_format_tests {
 
     #[test]
     fn test_serialization_factory_json_serializer_creation() {
-        use ferrisstreams::ferris::kafka::serialization::JsonSerializer;
+        use velostream::velostream::kafka::serialization::JsonSerializer;
 
         let _serializer = SerializationFactory::json_serializer::<serde_json::Value>();
 
@@ -344,7 +344,7 @@ mod serialization_format_tests {
         let serializer: JsonSerializer = SerializationFactory::json_serializer::<String>();
 
         // Basic functionality test
-        use ferrisstreams::ferris::kafka::serialization::Serializer;
+        use velostream::velostream::kafka::serialization::Serializer;
         let test_data = "Hello, World!".to_string();
         let serialized = serializer.serialize(&test_data).unwrap();
         let deserialized: String = serializer.deserialize(&serialized).unwrap();

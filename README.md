@@ -1,7 +1,7 @@
-# ferris streams
+# VeloStream
 
-![Rust CI](https://github.com/bluemonk3y/ferrisstreams/workflows/Rust%20CI/badge.svg)
-[![Crates.io](https://img.shields.io/crates/v/ferrisstreams.svg)](https://crates.io/crates/ferrisstreams)
+![Rust CI](https://github.com/bluemonk3y/velostream/workflows/Rust%20CI/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/velostream.svg)](https://crates.io/crates/velostream)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](./LICENSE)
 
 A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance, fault-tolerant, and flexible processing of **multiple Kafka topics and data streams** with full support for **keys, values, headers**, and **comprehensive SQL streaming with JOIN operations**. 
@@ -191,11 +191,11 @@ for (key, value) in headers.iter() {
 
 ## 🚀 Quick Start
 
-Add `ferrisstreams` to your `Cargo.toml`:
+Add `velostream` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferrisstreams = "0.1.0"
+velostream = "0.1.0"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 ```
@@ -203,8 +203,8 @@ serde = { version = "1.0", features = ["derive"] }
 ### Simple Producer Example
 
 ```rust
-use ferrisstreams::{KafkaProducer, JsonSerializer};
-use ferrisstreams::ferris::kafka::Headers;
+use velostream::{KafkaProducer, JsonSerializer};
+use velostream::velo::kafka::Headers;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
@@ -247,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Simple Consumer Example
 
 ```rust
-use ferrisstreams::{KafkaConsumer, JsonSerializer};
+use velostream::{KafkaConsumer, JsonSerializer};
 use std::time::Duration;
 
 #[tokio::main]
@@ -285,7 +285,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### SQL Streaming API
 
 ```rust
-use ferrisstreams::ferris::sql::{StreamExecutionEngine, StreamingSqlParser};
+use velostream::velo::sql::{StreamExecutionEngine, StreamingSqlParser};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -330,12 +330,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 🛠️ FerrisStreams CLI
+## 🛠️ VeloStream CLI
 
-FerrisStreams includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
+VeloStream includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
 
 ### Features
-- **Health Monitoring**: Real-time health checks of all FerrisStreams components
+- **Health Monitoring**: Real-time health checks of all VeloStream components
 - **Job Management**: Monitor SQL jobs, data generators, and streaming tasks
 - **Kafka Monitoring**: Topic inspection, consumer group monitoring, and cluster health
 - **Remote Support**: Connect to production servers via HTTP APIs
@@ -347,13 +347,13 @@ FerrisStreams includes a powerful CLI tool for monitoring and managing deploymen
 ./demo/trading/build_cli.sh
 
 # Local monitoring
-./ferris-cli health
-./ferris-cli status --verbose
-./ferris-cli jobs --sql --topics
+./velo-cli health
+./velo-cli status --verbose
+./velo-cli jobs --sql --topics
 
 # Remote production monitoring
-./ferris-cli --remote --sql-host prod-server.com health
-./ferris-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+./velo-cli --remote --sql-host prod-server.com health
+./velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
 ```
 
 ### Available Commands

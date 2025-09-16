@@ -8,7 +8,7 @@ datasource:
     # Kafka connection settings
     bootstrap_servers: "localhost:9092"
     topic: "demo-transactions"
-    group_id: "ferrisstreams-demo-consumer"
+    group_id: "velostream-demo-consumer"
     
     # Consumer configuration
     consumer:

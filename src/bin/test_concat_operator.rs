@@ -1,10 +1,10 @@
 // Simple test binary to verify || concatenation operator
-use ferrisstreams::ferris::sql::{
+use std::collections::HashMap;
+use velostream::velostream::sql::{
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamingQuery},
     execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
     parser::StreamingSqlParser,
 };
-use std::collections::HashMap;
 
 fn main() {
     println!("Testing || concatenation operator implementation...");

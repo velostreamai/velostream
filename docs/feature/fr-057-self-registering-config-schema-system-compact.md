@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-Implement a self-registering configuration schema system to prevent configuration drift and automate validation for FerrisStreams' multi-source/multi-sink architecture. Each config-consuming class owns its validation schema, ensuring consistency and preventing deployment failures.
+Implement a self-registering configuration schema system to prevent configuration drift and automate validation for VeloStream' multi-source/multi-sink architecture. Each config-consuming class owns its validation schema, ensuring consistency and preventing deployment failures.
 
 ## Problem & Solution
 
@@ -100,7 +100,7 @@ impl HierarchicalSchemaRegistry {
 |----------------------|----------|-------------------|-----------------|
 | **IDE Integration** | Real-time typing | Language Server Protocol | < 100ms |
 | **SQL Validator** | File validation | Enhanced SqlValidator + schema registry | < 100ms |
-| **CLI Tools** | `ferris-sql-multi validate --file` | StreamJobServer + SqlValidator | < 100ms |
+| **CLI Tools** | `velo-sql-multi validate --file` | StreamJobServer + SqlValidator | < 100ms |
 | **CI/CD Pipeline** | Every commit/PR | GitHub Actions/GitLab CI | < 5s |
 | **REST API** | `/api/jobs/validate` | HTTP validation endpoint | < 100ms |
 | **Pre-deployment** | Before job deployment | StreamJobServer integration | < 100ms |
@@ -126,11 +126,11 @@ impl SqlValidator {
 ### CLI Integration
 ```bash
 # Combined SQL + Config validation
-ferris-sql-multi validate --file ./demo.sql
-ferris-sql-multi deploy-app --file ./demo.sql  # Auto-validates before deploy
+velo-sql-multi validate --file ./demo.sql
+velo-sql-multi deploy-app --file ./demo.sql  # Auto-validates before deploy
 
 # Standalone config validation
-ferris-config validate ./configs/ --check-inheritance
+velo-config validate ./configs/ --check-inheritance
 ```
 
 ## Enhanced Features
@@ -240,7 +240,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
 
 ### Phase 3: Tooling & Integration (2-3 weeks)
 - Generate JSON Schema for IDE integration  
-- Create `ferris-config` CLI validation tool
+- Create `velo-config` CLI validation tool
 - Add CI/CD pipeline integration examples
 - Performance optimization (< 50ms validation time)
 
@@ -282,15 +282,15 @@ Development (IDE) → CI/CD (Automated) → API (External) → Deployment (Manda
 
 ## Technical References
 
-### FerrisStreams Documentation  
+### VeloStream Documentation  
 - **MULTI_SOURCE_SINK_GUIDE.md** - Primary configuration patterns  
 - **BATCH_CONFIGURATION_GUIDE.md** - Batch processing configuration  
 - **Existing source files** - Current `from_properties()` implementations  
 - **Test files** - Configuration validation patterns  
 
 ### Implementation Evidence  
-- **`src/ferris/datasource/kafka/data_source.rs`** - KafkaDataSource implementation  
-- **`src/ferris/sql/query_analyzer.rs`** - Configuration extraction from SQL  
+- **`src/velo/datasource/kafka/data_source.rs`** - KafkaDataSource implementation  
+- **`src/velo/sql/query_analyzer.rs`** - Configuration extraction from SQL  
 - **`tests/unit/sql/config_file_test.rs`** - Config file loading patterns  
 
 ### External References  
@@ -324,4 +324,4 @@ Development (IDE) → CI/CD (Automated) → API (External) → Deployment (Manda
 
 ---
 
-This self-registering schema system provides comprehensive configuration validation while maintaining full compatibility with FerrisStreams' existing sophisticated multi-source/multi-sink architecture documented in MULTI_SOURCE_SINK_GUIDE.md.
+This self-registering schema system provides comprehensive configuration validation while maintaining full compatibility with VeloStream' existing sophisticated multi-source/multi-sink architecture documented in MULTI_SOURCE_SINK_GUIDE.md.

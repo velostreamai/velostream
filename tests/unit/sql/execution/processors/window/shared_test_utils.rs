@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use ferrisstreams::ferris::{
+use velostream::velostream::{
     serialization::JsonFormat,
     sql::{
         execution::{

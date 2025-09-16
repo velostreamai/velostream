@@ -2,7 +2,7 @@
 Test EMIT clause parsing and functionality
 */
 
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     ast::{EmitMode, StreamingQuery},
     parser::StreamingSqlParser,
 };
@@ -130,13 +130,13 @@ fn test_emit_final_parsing_without_window() {
 
     #[tokio::test]
     async fn test_emit_final_validation_error() {
-        use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-        use ferrisstreams::ferris::sql::execution::{
-            FieldValue, StreamExecutionEngine, StreamRecord,
-        };
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::mpsc;
+        use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+        use velostream::velostream::sql::execution::{
+            FieldValue, StreamExecutionEngine, StreamRecord,
+        };
 
         let parser = StreamingSqlParser::new();
         let (tx, _rx) = mpsc::unbounded_channel();

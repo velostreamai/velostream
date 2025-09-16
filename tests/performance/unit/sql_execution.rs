@@ -1,21 +1,13 @@
-//! Unified SQL Performance Benchmarks for FerrisStreams
+//! Unified SQL Performance Benchmarks for VeloStream
 //!
 //! This module consolidates the previously duplicated benchmark functions from:
-//! - ferris_sql_multi_benchmarks.rs (basic benchmarks)
-//! - ferris_sql_multi_enhanced_benchmarks.rs (enhanced with error handling)
+//! - velo_sql_multi_benchmarks.rs (basic benchmarks)
+//! - velo_sql_multi_enhanced_benchmarks.rs (enhanced with error handling)
 //!
 //! Provides comprehensive SQL performance testing with unified measurement framework.
 
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
-};
-use ferrisstreams::ferris::{
-    datasource::{DataReader, DataWriter},
-    server::processors::{common::*, simple::*},
-    sql::{
-        execution::types::{FieldValue, StreamRecord},
-        StreamExecutionEngine,
-    },
 };
 use serial_test::serial;
 use std::{
@@ -24,6 +16,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::{
+    datasource::{DataReader, DataWriter},
+    server::processors::{common::*, simple::*},
+    sql::{
+        execution::types::{FieldValue, StreamRecord},
+        StreamExecutionEngine,
+    },
+};
 
 /// Unified simple SELECT benchmark combining basic and enhanced modes
 #[tokio::test]

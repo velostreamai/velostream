@@ -1,6 +1,6 @@
-# 🏦 FerrisStreams Financial Trading Demo
+# 🏦 VeloStream Financial Trading Demo
 
-A comprehensive demonstration of real-time financial trading analytics using FerrisStreams, featuring market data processing, risk management, and arbitrage detection.
+A comprehensive demonstration of real-time financial trading analytics using VeloStream, featuring market data processing, risk management, and arbitrage detection.
 
 ## 📋 Overview
 
@@ -24,11 +24,11 @@ demo/trading/
 ├── *.sh                        # Demo scripts
 ├── Cargo.toml                  # Demo build configuration
 ├── Makefile                    # Build system
-├── ferris-cli -> ../../target/release/ferris-cli  # Symlink to main CLI
+├── velo-cli -> ../../target/release/velo-cli  # Symlink to main CLI
 └── README.md                   # This file
 
 # References main project artifacts:
-../../target/release/ferris-sql-multi        # Multi-job SQL server (primary)
+../../target/release/velo-sql-multi        # Multi-job SQL server (primary)
 ```
 
 ## 🚀 Quick Start
@@ -51,7 +51,7 @@ make build
 ./build_cli.sh
 ```
 
-This will build the main FerrisStreams project and create symlinks for easy access.
+This will build the main VeloStream project and create symlinks for easy access.
 
 ### 2. Start the Demo
 
@@ -78,25 +78,25 @@ DEMO_DURATION=1 ./run_demo.sh  # Custom duration
 ./stop_demo.sh
 ```
 
-### 2. Monitor with FerrisStreams CLI
+### 2. Monitor with VeloStream CLI
 
 Build and use the CLI tool to monitor all components:
 
 ```bash
-# Build the CLI tool (creates convenient ./ferris-cli symlink)
+# Build the CLI tool (creates convenient ./velo-cli symlink)
 ./build_cli.sh
 
 # Check overall health
-./ferris-cli health
+./velo-cli health
 
 # Monitor in real-time (refreshes every 5 seconds)
-./ferris-cli status --refresh 5
+./velo-cli status --refresh 5
 
 # View Kafka topics and data
-./ferris-cli kafka --topics
+./velo-cli kafka --topics
 
 # Monitor jobs and tasks (NEW!)
-./ferris-cli jobs
+./velo-cli jobs
 ```
 
 ### 3. Access Grafana Dashboards
@@ -109,8 +109,8 @@ The demo automatically starts Grafana with pre-configured dashboards:
 ```
 
 **Available Dashboards:**
-- **FerrisStreams Trading Demo** - Real-time trading analytics, alerts, and market data
-- **FerrisStreams Overview** - System health, throughput, and resource usage  
+- **VeloStream Trading Demo** - Real-time trading analytics, alerts, and market data
+- **VeloStream Overview** - System health, throughput, and resource usage  
 - **Kafka Metrics** - Broker performance, topic statistics, and consumer lag
 
 ### 4. Launch the Python Visualization Dashboard
@@ -348,14 +348,14 @@ pip install -r requirements.txt
 
 The demo includes comprehensive Grafana dashboards accessible at **http://localhost:3000** (admin/admin):
 
-**🏦 FerrisStreams Trading Demo Dashboard:**
+**🏦 VeloStream Trading Demo Dashboard:**
 - Real-time trading alerts and price movements
 - Volume spike detection and analysis
 - Risk management metrics
 - Arbitrage opportunity tracking
 - SQL query performance monitoring
 
-**📈 FerrisStreams Overview Dashboard:**
+**📈 VeloStream Overview Dashboard:**
 - System health and component status
 - Stream processing throughput
 - Memory and CPU usage
@@ -367,42 +367,42 @@ The demo includes comprehensive Grafana dashboards accessible at **http://localh
 - Partition and replica statistics
 - Disk usage and log size tracking
 
-### FerrisStreams CLI Tool
+### VeloStream CLI Tool
 
-The `ferris-cli` provides comprehensive monitoring and management capabilities:
+The `velo-cli` provides comprehensive monitoring and management capabilities:
 
 ```bash
 # Build the CLI tool first (only needed once)
 ./build_cli.sh
 
 # Quick health check of all components
-./ferris-cli health
+./velo-cli health
 
 # Detailed status with verbose output
-./ferris-cli status --verbose
+./velo-cli status --verbose
 
 # Real-time monitoring (refresh every 5 seconds)
-./ferris-cli status --refresh 5
+./velo-cli status --refresh 5
 
 # Check Kafka cluster and topics
-./ferris-cli kafka --topics --groups
+./velo-cli kafka --topics --groups
 
 # Monitor Docker containers
-./ferris-cli docker --ferris-only
+./velo-cli docker --velo-only
 
-# View FerrisStreams processes
-./ferris-cli processes
+# View VeloStream processes
+./velo-cli processes
 
 # Monitor active jobs and streaming tasks
-./ferris-cli jobs
+./velo-cli jobs
 
 # Check specific job types
-./ferris-cli jobs --sql          # SQL processing jobs
-./ferris-cli jobs --generators   # Data generators
-./ferris-cli jobs --topics       # Topic activity & message counts
+./velo-cli jobs --sql          # SQL processing jobs
+./velo-cli jobs --generators   # Data generators
+./velo-cli jobs --topics       # Topic activity & message counts
 
 # Get help for any command
-./ferris-cli --help
+./velo-cli --help
 ```
 
 ### Kafka Topic Monitoring
@@ -422,7 +422,7 @@ docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-consumer-gr
 # Multi-job server is completely app-agnostic - no hardcoded jobs
 # Trading demo deploys financial trading analytics via deploy-app command
 # Check server logs for job status
-../../target/release/ferris-sql-multi --help
+../../target/release/velo-sql-multi --help
 
 # HTTP endpoints for job monitoring:
 # curl http://localhost:8080/jobs
@@ -494,4 +494,4 @@ Found an issue or want to enhance the demo? Please:
 
 ---
 
-🎉 **Enjoy exploring real-time financial analytics with FerrisStreams!**
+🎉 **Enjoy exploring real-time financial analytics with VeloStream!**

@@ -1,5 +1,5 @@
 use crate::unit::common::*;
-use ferrisstreams::ferris::kafka::serialization::Serializer;
+use velostream::velostream::kafka::serialization::Serializer;
 
 /// Custom serializer that always fails for testing error scenarios
 struct FailingSerializer;

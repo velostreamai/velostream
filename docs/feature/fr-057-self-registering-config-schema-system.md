@@ -13,7 +13,7 @@
 ### ✅ Phase 1: Core Infrastructure - COMPLETED (2025-09-10)
 
 **Foundation (Week 1-2) - COMPLETED**
-- ✅ Create `ConfigSchemaProvider` trait in `src/ferris/config/schema_registry.rs`
+- ✅ Create `ConfigSchemaProvider` trait in `src/velo/config/schema_registry.rs`
 - ✅ Implement `HierarchicalSchemaRegistry` with basic registration
 - ✅ Create configuration merging logic (global → file → named → inline)
 - ✅ Add JSON Schema generation framework
@@ -98,13 +98,13 @@
 ### 📋 Phase 3: Tooling & Integration (2-3 weeks) - PLANNED
 
 **Week 11-12: Tooling**
-- [ ] Generate comprehensive JSON Schema for `ferrisstreams-config.schema.json`
-- [ ] Create CLI tool for config validation (`ferris-config validate`)
+- [ ] Generate comprehensive JSON Schema for `velostream-config.schema.json`
+- [ ] Create CLI tool for config validation (`velo-config validate`)
 - [ ] Add IDE integration files (VS Code extension support)
 - [ ] Implement configuration documentation auto-generation
 - [ ] **Add build-time automatic schema regeneration**
   - [ ] Create `build.rs` script to auto-regenerate JSON schemas when ConfigSchemaProvider traits change
-  - [ ] Add `ferris-schema-codegen` binary to detect schema changes and update generated files
+  - [ ] Add `velo-schema-codegen` binary to detect schema changes and update generated files
   - [ ] Integrate schema generation into CI/CD pipeline to ensure schemas stay in sync
   - [ ] Add pre-commit hook to validate schema files are up-to-date with code changes
   - [ ] **Add CI/CD schema validation checks**
@@ -131,7 +131,7 @@
 
 ## Executive Summary
 
-Implement a comprehensive self-registering configuration schema system to prevent configuration drift and provide automated validation for FerrisStreams' complex multi-source/multi-sink configuration architecture. Each config-consuming class will own and maintain its validation schema, ensuring consistency and preventing deployment failures due to configuration errors.
+Implement a comprehensive self-registering configuration schema system to prevent configuration drift and provide automated validation for VeloStream' complex multi-source/multi-sink configuration architecture. Each config-consuming class will own and maintain its validation schema, ensuring consistency and preventing deployment failures due to configuration errors.
 
 **Current Status: Phase 1 ✅ COMPLETE | Phase 2 ✅ COMPLETE**
 - **Phase 1**: Core infrastructure implemented, all tests passing
@@ -174,9 +174,9 @@ Implement a comprehensive self-registering configuration schema system to preven
 - **Developer Experience**: No IDE autocompletion or validation for complex configurations
 - **Maintenance Overhead**: Manual schema maintenance across multiple documentation sources
 
-## Integration with Existing FerrisStreams Architecture
+## Integration with Existing VeloStream Architecture
 
-This feature enhances and validates the sophisticated configuration system already documented and implemented in FerrisStreams. The self-registering schema system provides validation for existing functionality without changing current behavior.
+This feature enhances and validates the sophisticated configuration system already documented and implemented in VeloStream. The self-registering schema system provides validation for existing functionality without changing current behavior.
 
 ### Supporting Documentation Evidence
 
@@ -200,7 +200,7 @@ The schema system integrates with current implementations documented in the arch
 
 #### **1. Current KafkaDataSource Implementation Support**
 ```rust
-// Existing implementation in src/ferris/datasource/kafka/data_source.rs
+// Existing implementation in src/velo/datasource/kafka/data_source.rs
 impl KafkaDataSource {
     pub fn from_properties(
         props: &HashMap<String, String>,
@@ -235,7 +235,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
 
 #### **2. Current FileSink Implementation Support**
 ```rust
-// Existing implementation in src/ferris/datasource/file/sink.rs
+// Existing implementation in src/velo/datasource/file/sink.rs
 impl FileSink {
     pub fn from_properties(props: &HashMap<String, String>) -> Self {
         let get_sink_prop = |key: &str| {
@@ -263,7 +263,7 @@ impl ConfigSchemaProvider for FileSink {
 
 #### **3. Current BatchConfig Implementation Support**
 ```rust
-// Existing implementation in src/ferris/datasource/config/types
+// Existing implementation in src/velo/datasource/config/types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchConfig {
     pub strategy: BatchStrategy,
@@ -593,11 +593,11 @@ The schema validation system operates at multiple points in the development and 
 ##### **Development Time Validation**
 ```rust
 // IDE Integration via Language Server Protocol
-pub struct FerrisStreamsSQLLanguageServer {
+pub struct VeloStreamSQLLanguageServer {
     schema_registry: HierarchicalSchemaRegistry,
 }
 
-impl LanguageServer for FerrisStreamsSQLLanguageServer {
+impl LanguageServer for VeloStreamSQLLanguageServer {
     fn did_change(&mut self, params: DidChangeTextDocumentParams) {
         // Real-time validation as user types SQL
         if let Ok(sql_config) = self.parse_sql_config(&params.content_changes) {
@@ -616,34 +616,34 @@ impl LanguageServer for FerrisStreamsSQLLanguageServer {
 ##### **CLI Tool Validation**
 ```bash
 # Standalone configuration validation
-ferris-config validate ./enhanced_sql_demo.sql
-ferris-config validate --config-dir ./configs/
-ferris-config validate --schema-version 2.0.0
+velo-config validate ./enhanced_sql_demo.sql
+velo-config validate --config-dir ./configs/
+velo-config validate --schema-version 2.0.0
 
-# Integration with existing ferris-sql-multi CLI
-ferris-sql-multi deploy-app --file ./demo.sql --validate-only
-ferris-sql-multi deploy-app --file ./demo.sql --dry-run
+# Integration with existing velo-sql-multi CLI
+velo-sql-multi deploy-app --file ./demo.sql --validate-only
+velo-sql-multi deploy-app --file ./demo.sql --dry-run
 ```
 
 ##### **CI/CD Pipeline Integration**
 ```yaml
 # GitHub Actions / GitLab CI integration
-- name: Validate FerrisStreams Configuration
+- name: Validate VeloStream Configuration
   run: |
     # Validate all SQL files in repository
-    find . -name "*.sql" -exec ferris-config validate {} \;
+    find . -name "*.sql" -exec velo-config validate {} \;
     
     # Validate config file inheritance chains
-    ferris-config validate-configs --config-dir ./configs/
+    velo-config validate-configs --config-dir ./configs/
     
     # Schema compatibility check
-    ferris-config schema-check --target-version 2.0.0
+    velo-config schema-check --target-version 2.0.0
     
     # Generate validation report
-    ferris-config validate --output-format json --output-file validation-report.json
+    velo-config validate --output-format json --output-file validation-report.json
 
 # Docker-based validation
-docker run ferris-streams/config-validator:latest validate /workspace/configs/
+docker run velo-streams/config-validator:latest validate /workspace/configs/
 ```
 
 ##### **REST API Validation**
@@ -731,7 +731,7 @@ impl StreamJobServer {
 ##### **SQL Validator Integration**
 ```rust
 // Integration with existing SQL validator system
-use crate::ferris::sql::validator::SqlValidator;
+use crate::velo::sql::validator::SqlValidator;
 
 impl SqlValidator {
     /// Enhanced validate method with configuration schema checking
@@ -934,14 +934,14 @@ impl StreamJobServer {
 
 ##### **CLI Integration with SQL Validator**
 ```bash
-# Enhanced ferris-sql-multi with integrated validation
-ferris-sql-multi validate --file ./demo.sql                    # SQL + Config validation
-ferris-sql-multi validate --file ./demo.sql --config-only      # Config validation only
-ferris-sql-multi validate --file ./demo.sql --sql-only         # SQL validation only
+# Enhanced velo-sql-multi with integrated validation
+velo-sql-multi validate --file ./demo.sql                    # SQL + Config validation
+velo-sql-multi validate --file ./demo.sql --config-only      # Config validation only
+velo-sql-multi validate --file ./demo.sql --sql-only         # SQL validation only
 
 # Standalone config validator with SQL integration  
-ferris-config validate-sql ./demo.sql                          # Validate SQL WITH clauses
-ferris-config validate-sql --check-syntax ./demo.sql           # Combined SQL + config check
+velo-config validate-sql ./demo.sql                          # Validate SQL WITH clauses
+velo-config validate-sql --check-syntax ./demo.sql           # Combined SQL + config check
 ```
 
 ##### **Runtime Validation Points**
@@ -983,8 +983,8 @@ impl DataSourceFactory {
 |----------------------|----------|-------------|-------------------|------------------------|
 | **IDE Integration** | Real-time as user types | Developer experience, immediate feedback | Language Server Protocol | Minimal (async validation) |
 | **SQL Validator Integration** | SQL file validation | Combined SQL syntax + config validation | Enhanced SqlValidator with schema registry | < 100ms per SQL file |
-| **CLI Validation** | On-demand via `ferris-config` | Pre-deployment verification | Standalone validation tool | < 50ms per config |
-| **CLI SQL+Config** | `ferris-sql-multi validate --file` | Combined SQL and config validation | StreamJobServer + SqlValidator | < 100ms per SQL file |
+| **CLI Validation** | On-demand via `velo-config` | Pre-deployment verification | Standalone validation tool | < 50ms per config |
+| **CLI SQL+Config** | `velo-sql-multi validate --file` | Combined SQL and config validation | StreamJobServer + SqlValidator | < 100ms per SQL file |
 | **CI/CD Pipeline** | Every commit/PR | Automated quality gates | GitHub Actions/GitLab CI | < 5s for full repo validation |
 | **REST API** | API requests to `/api/jobs/validate` | Web UI and external integration | HTTP validation endpoint | < 100ms per request |
 | **Pre-deployment** | Before job deployment | Mandatory validation gate | StreamJobServer + SqlValidator | < 100ms per deployment |
@@ -1081,7 +1081,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
         
         // Dynamic default based on environment
         defaults.insert("group.id", PropertyDefault::Dynamic(|ctx| {
-            format!("ferris-{}-{}", 
+            format!("velo-{}-{}", 
                 ctx.environment_variables.get("ENVIRONMENT").unwrap_or(&"dev".to_string()),
                 ctx.system_defaults.get("job.id").unwrap_or(&"default".to_string())
             )
@@ -1156,7 +1156,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
                 // Must be specified per source, but can use computed default
                 let env = global_context.environment_variables.get("ENVIRONMENT").unwrap_or(&"dev".to_string());
                 let job_id = global_context.system_defaults.get("job.id").unwrap_or(&"unknown".to_string());
-                Ok(Some(format!("ferris-{}-{}", env, job_id)))
+                Ok(Some(format!("velo-{}-{}", env, job_id)))
             }
             
             _ => {
@@ -1267,7 +1267,7 @@ impl ConfigSchemaProvider for GlobalKafkaSchema {
                 }
                 
                 // Check profile-specific settings
-                if let Some(profile) = global_context.environment_variables.get("FERRIS_PROFILE") {
+                if let Some(profile) = global_context.environment_variables.get("VELO_PROFILE") {
                     if let Some(profile_servers) = global_context.profile_properties.get(&format!("{}.kafka.bootstrap.servers", profile)) {
                         return Ok(Some(profile_servers.clone()));
                     }
@@ -1474,8 +1474,8 @@ WITH (
 );
 
 -- Dynamic Resolution:
--- Environment: ENVIRONMENT=production, KAFKA_BROKERS=kafka-prod:9092, FERRIS_PROFILE=production
--- Computed group.id = "ferris-production-{job_id}" 
+-- Environment: ENVIRONMENT=production, KAFKA_BROKERS=kafka-prod:9092, VELO_PROFILE=production
+-- Computed group.id = "velo-production-{job_id}" 
 -- Computed session.timeout.ms = 30000 + (2000/100) = 30020ms (scales with batch size)
 -- Resolved bootstrap.servers = "kafka-prod:9092" (from KAFKA_BROKERS env var)
 ```
@@ -1761,8 +1761,8 @@ Total Development Time:             13 weeks       96 dev-hours
 
 ## References
 
-### Supporting FerrisStreams Documentation
-This feature request validates and enhances functionality documented in existing FerrisStreams guides:
+### Supporting VeloStream Documentation
+This feature request validates and enhances functionality documented in existing VeloStream guides:
 
 #### **Core Configuration Architecture**
 - **[MULTI_SOURCE_SINK_GUIDE.md](../data-sources/MULTI_SOURCE_SINK_GUIDE.md)** - Primary source of truth for configuration patterns
@@ -1778,38 +1778,38 @@ This feature request validates and enhances functionality documented in existing
   - Cross-system batch configuration inheritance
 
 #### **Implementation Evidence**
-- **`src/ferris/datasource/kafka/data_source.rs`** - Current KafkaDataSource implementation
+- **`src/velo/datasource/kafka/data_source.rs`** - Current KafkaDataSource implementation
   - `from_properties()` method with property resolution logic
   - Global property inheritance via `get_source_prop()` helper
   - Broker configuration and topic management
 
-- **`src/ferris/datasource/kafka/data_sink.rs`** - Current KafkaDataSink implementation  
+- **`src/velo/datasource/kafka/data_sink.rs`** - Current KafkaDataSink implementation  
   - Property-based configuration with sink prefix support
   - Batch configuration integration and optimization
   - Producer configuration management
 
-- **`src/ferris/datasource/file/data_source.rs`** - Current FileDataSource implementation
+- **`src/velo/datasource/file/data_source.rs`** - Current FileDataSource implementation
   - File path and format configuration
   - Property resolution with source prefix fallback
   - CSV and JSON format support
 
-- **`src/ferris/datasource/file/sink.rs`** - Current FileSink implementation
+- **`src/velo/datasource/file/sink.rs`** - Current FileSink implementation
   - File output configuration and rotation
   - Buffer management and format selection
   - Property-based initialization
 
-- **`src/ferris/datasource/config/legacy.rs`** - Current BatchConfig implementation
+- **`src/velo/datasource/config/legacy.rs`** - Current BatchConfig implementation
   - Batch strategy enumeration and default values
   - Duration serialization and validation patterns
   - Cross-system configuration inheritance
 
 #### **SQL and Query Integration**
-- **`src/ferris/sql/query_analyzer.rs`** - Query analysis and source/sink detection
+- **`src/velo/sql/query_analyzer.rs`** - Query analysis and source/sink detection
   - Property extraction from WITH clauses
   - Source/sink type determination logic
   - Configuration validation integration points
 
-- **`src/ferris/server/processors/transactional.rs`** - Multi-source processing
+- **`src/velo/server/processors/transactional.rs`** - Multi-source processing
   - DataReader/DataWriter trait integration
   - Configuration property consumption
   - Error handling patterns for configuration failures

@@ -1,6 +1,6 @@
 # String Functions
 
-Complete reference for string manipulation functions in FerrisStreams. Use these functions to process, format, and analyze text data in your streaming queries.
+Complete reference for string manipulation functions in VeloStream. Use these functions to process, format, and analyze text data in your streaming queries.
 
 ## String Creation and Concatenation
 

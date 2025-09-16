@@ -3,13 +3,13 @@
 //! This benchmark validates the 5x throughput improvement goal for SQL-configured batch processing
 //! by comparing single-record vs batched processing with different batch strategies.
 
-use ferrisstreams::ferris::{
-    datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
-    sql::execution::types::FieldValue,
-};
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio;
+use velostream::velostream::{
+    datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
+    sql::execution::types::FieldValue,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

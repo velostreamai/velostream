@@ -83,12 +83,12 @@ let adults = user_table.filter(|_key, user| user.age >= 18);
 ### Files Added/Modified
 
 #### New Files
-- `src/ferris/kafka/ktable.rs` - Core KTable implementation
+- `src/velo/kafka/ktable.rs` - Core KTable implementation
 - `tests/integration/ktable_test.rs` - Comprehensive test suite
 - `docs/KTABLE_FEATURE_REQUEST.md` - This feature request
 
 #### Modified Files
-- `src/ferris/kafka/mod.rs` - Added KTable exports
+- `src/velo/kafka/mod.rs` - Added KTable exports
 - `tests/integration/mod.rs` - Added ktable_test module
 - `docs/PRODUCTIONISATION.md` - Added KTable documentation section
 

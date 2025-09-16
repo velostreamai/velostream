@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide demonstrates how to use the new pluggable data sources through FerrisStreams' SQL layer, including CREATE STREAM statements, heterogeneous joins, and cross-source data pipelines.
+This guide demonstrates how to use the new pluggable data sources through VeloStream' SQL layer, including CREATE STREAM statements, heterogeneous joins, and cross-source data pipelines.
 
 ## Table of Contents
 
@@ -110,7 +110,7 @@ SELECT * FROM 's3://analytics-bucket/data/*'
 WITH (
     format = 'parquet',
     role_arn = 'arn:aws:iam::123456789012:role/DataReader',
-    session_name = 'ferrisstreams-reader',
+    session_name = 'velostream-reader',
     external_id = 'unique-external-id'
 );
 
@@ -133,8 +133,8 @@ CREATE STREAM pg_orders AS
 SELECT * FROM 'postgresql://user:pass@localhost:5432/shop?table=orders'
 WITH (
     mode = 'cdc',  -- Change Data Capture
-    publication = 'ferris_publication',
-    slot_name = 'ferris_slot',
+    publication = 'velo_publication',
+    slot_name = 'velo_slot',
     include_transaction = true
 );
 
@@ -273,7 +273,7 @@ WITH (
 ### Automatic Schema Discovery
 
 ```sql
--- Let FerrisStreams discover the schema
+-- Let VeloStream discover the schema
 CREATE STREAM auto_discovered AS
 SELECT * FROM 'kafka://localhost:9092/topic'
 WITH (

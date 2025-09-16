@@ -117,8 +117,8 @@ fn test_json_serializer_error_cases() {
 
 mod protobuf_tests {
     use super::*;
-    use ferrisstreams::ferris::kafka::serialization::ProtoSerializer;
     use prost::Message;
+    use velostream::velostream::kafka::serialization::ProtoSerializer;
 
     #[derive(Clone, PartialEq, Message)]
     pub struct TestProtoUser {
@@ -154,7 +154,7 @@ mod protobuf_tests {
 mod avro_tests {
     use super::*;
     use apache_avro::{types::Value as AvroValue, Schema as AvroSchema};
-    use ferrisstreams::ferris::kafka::serialization::AvroSerializer;
+    use velostream::velostream::kafka::serialization::AvroSerializer;
 
     #[test]
     fn test_avro_serializer() {

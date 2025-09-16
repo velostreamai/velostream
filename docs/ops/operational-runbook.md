@@ -1,8 +1,8 @@
-# FerrisStreams Operational Runbook
+# VeloStream Operational Runbook
 
 ## Overview
 
-This runbook provides operational procedures for managing FerrisStreams in production, covering monitoring, troubleshooting, maintenance, and emergency response procedures for both legacy and enhanced streaming modes.
+This runbook provides operational procedures for managing VeloStream in production, covering monitoring, troubleshooting, maintenance, and emergency response procedures for both legacy and enhanced streaming modes.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ This runbook provides operational procedures for managing FerrisStreams in produ
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Data Sources  │───▶│ FerrisStreams   │───▶│   Data Sinks    │
+│   Data Sources  │───▶│ VeloStream   │───▶│   Data Sinks    │
 │                 │    │  Engine         │    │                 │
 │ • Kafka Topics  │    │                 │    │ • Kafka Topics  │
 │ • REST APIs     │    │ ┌─────────────┐ │    │ • Databases     │
@@ -56,43 +56,43 @@ This runbook provides operational procedures for managing FerrisStreams in produ
 #### System Health Metrics
 ```bash
 # Memory Usage
-ferris_streams_memory_usage_bytes{component="total"}
-ferris_streams_memory_usage_bytes{component="operator"}
-ferris_streams_memory_peak_bytes{component="total"}
+velo_streams_memory_usage_bytes{component="total"}
+velo_streams_memory_usage_bytes{component="operator"}
+velo_streams_memory_peak_bytes{component="total"}
 
 # Processing Performance
-ferris_streams_processing_latency_ms{operation="record_processing"}
-ferris_streams_throughput_records_per_second
-ferris_streams_processing_errors_total{error_type="retryable"}
-ferris_streams_processing_errors_total{error_type="fatal"}
+velo_streams_processing_latency_ms{operation="record_processing"}
+velo_streams_throughput_records_per_second
+velo_streams_processing_errors_total{error_type="retryable"}
+velo_streams_processing_errors_total{error_type="fatal"}
 
 # Circuit Breaker Status
-ferris_streams_circuit_breaker_state{name="main"} # 0=Closed, 1=Open, 2=HalfOpen
-ferris_streams_circuit_breaker_failures_total{name="main"}
-ferris_streams_circuit_breaker_successes_total{name="main"}
+velo_streams_circuit_breaker_state{name="main"} # 0=Closed, 1=Open, 2=HalfOpen
+velo_streams_circuit_breaker_failures_total{name="main"}
+velo_streams_circuit_breaker_successes_total{name="main"}
 
 # Resource Utilization
-ferris_streams_resource_utilization_percent{resource="memory"}
-ferris_streams_resource_utilization_percent{resource="cpu"}
-ferris_streams_resource_limit_violations_total{resource="memory"}
+velo_streams_resource_utilization_percent{resource="memory"}
+velo_streams_resource_utilization_percent{resource="cpu"}
+velo_streams_resource_limit_violations_total{resource="memory"}
 
 # Watermark Metrics
-ferris_streams_watermark_lag_seconds
-ferris_streams_late_data_dropped_total
-ferris_streams_late_data_processed_total
+velo_streams_watermark_lag_seconds
+velo_streams_late_data_dropped_total
+velo_streams_late_data_processed_total
 ```
 
 #### Business Metrics
 ```bash
 # Records Processing
-ferris_streams_records_processed_total{source="kafka"}
-ferris_streams_records_failed_total{source="kafka"}
-ferris_streams_backlog_size{topic="input_topic"}
+velo_streams_records_processed_total{source="kafka"}
+velo_streams_records_failed_total{source="kafka"}
+velo_streams_backlog_size{topic="input_topic"}
 
 # Query Performance
-ferris_streams_query_execution_time_ms{query_type="aggregation"}
-ferris_streams_query_execution_time_ms{query_type="windowing"}
-ferris_streams_query_results_produced_total
+velo_streams_query_execution_time_ms{query_type="aggregation"}
+velo_streams_query_execution_time_ms{query_type="windowing"}
+velo_streams_query_results_produced_total
 ```
 
 ### Alert Rules
@@ -102,36 +102,36 @@ ferris_streams_query_results_produced_total
 ```yaml
 # Circuit Breaker Open
 - alert: CircuitBreakerOpen
-  expr: ferris_streams_circuit_breaker_state > 0
+  expr: velo_streams_circuit_breaker_state > 0
   for: 1m
   labels:
     severity: critical
   annotations:
-    summary: "FerrisStreams circuit breaker is open"
+    summary: "VeloStream circuit breaker is open"
     description: "Circuit breaker {{ $labels.name }} has been open for {{ $value }} seconds"
-    runbook: "https://docs.company.com/ferrisstreams/runbook#circuit-breaker-open"
+    runbook: "https://docs.company.com/velostream/runbook#circuit-breaker-open"
 
 # Memory Exhaustion
 - alert: MemoryExhausted
-  expr: ferris_streams_resource_utilization_percent{resource="memory"} > 95
+  expr: velo_streams_resource_utilization_percent{resource="memory"} > 95
   for: 2m
   labels:
     severity: critical
   annotations:
-    summary: "FerrisStreams memory usage critical"
+    summary: "VeloStream memory usage critical"
     description: "Memory utilization is {{ $value }}% (>95%)"
-    runbook: "https://docs.company.com/ferrisstreams/runbook#memory-exhausted"
+    runbook: "https://docs.company.com/velostream/runbook#memory-exhausted"
 
 # Processing Stopped
 - alert: ProcessingStopped
-  expr: rate(ferris_streams_records_processed_total[5m]) == 0
+  expr: rate(velo_streams_records_processed_total[5m]) == 0
   for: 3m
   labels:
     severity: critical
   annotations:
-    summary: "FerrisStreams processing has stopped"
+    summary: "VeloStream processing has stopped"
     description: "No records processed in the last 5 minutes"
-    runbook: "https://docs.company.com/ferrisstreams/runbook#processing-stopped"
+    runbook: "https://docs.company.com/velostream/runbook#processing-stopped"
 ```
 
 #### Warning Alerts (Investigate Soon)
@@ -139,17 +139,17 @@ ferris_streams_query_results_produced_total
 ```yaml
 # High Error Rate
 - alert: HighErrorRate
-  expr: rate(ferris_streams_processing_errors_total[5m]) > 10
+  expr: rate(velo_streams_processing_errors_total[5m]) > 10
   for: 5m
   labels:
     severity: warning
   annotations:
-    summary: "High error rate in FerrisStreams"
+    summary: "High error rate in VeloStream"
     description: "Error rate is {{ $value }} errors/second (>10/sec)"
 
 # High Latency
 - alert: HighProcessingLatency
-  expr: ferris_streams_processing_latency_ms > 1000
+  expr: velo_streams_processing_latency_ms > 1000
   for: 5m
   labels:
     severity: warning
@@ -159,7 +159,7 @@ ferris_streams_query_results_produced_total
 
 # Resource Warning
 - alert: ResourceWarning
-  expr: ferris_streams_resource_utilization_percent > 80
+  expr: velo_streams_resource_utilization_percent > 80
   for: 10m
   labels:
     severity: warning
@@ -227,7 +227,7 @@ async fn readiness_check() -> Result<impl warp::Reply, warp::Rejection> {
 #!/bin/bash
 # health_check.sh - Manual health verification script
 
-echo "=== FerrisStreams Health Check ==="
+echo "=== VeloStream Health Check ==="
 
 # 1. Check service is running
 echo "1. Checking service status..."
@@ -239,15 +239,15 @@ curl -s http://localhost:8080/ready | jq .
 
 # 3. Check metrics endpoint
 echo "3. Checking metrics..."
-curl -s http://localhost:8080/metrics | grep -E "ferris_streams_(memory|processing|circuit)"
+curl -s http://localhost:8080/metrics | grep -E "velo_streams_(memory|processing|circuit)"
 
 # 4. Check recent logs
 echo "4. Checking recent logs..."
-journalctl -u ferrisstreams --since "5 minutes ago" --no-pager | tail -10
+journalctl -u velostream --since "5 minutes ago" --no-pager | tail -10
 
 # 5. Check resource usage
 echo "5. Checking resource usage..."
-ps -p $(pgrep ferrisstreams) -o pid,ppid,cmd,%mem,%cpu --no-headers
+ps -p $(pgrep velostream) -o pid,ppid,cmd,%mem,%cpu --no-headers
 
 echo "=== Health Check Complete ==="
 ```
@@ -271,7 +271,7 @@ echo "=== Health Check Complete ==="
 
 2. Review recent error logs:
    ```bash
-   journalctl -u ferrisstreams --since "15 minutes ago" | grep ERROR
+   journalctl -u velostream --since "15 minutes ago" | grep ERROR
    ```
 
 3. Check upstream dependencies:
@@ -316,7 +316,7 @@ echo "=== Health Check Complete ==="
 3. Analyze memory usage by component:
    ```bash
    # Check JVM heap (if applicable)
-   jstat -gc $(pgrep ferrisstreams)
+   jstat -gc $(pgrep velostream)
    
    # Check system memory
    free -h
@@ -338,7 +338,7 @@ echo "=== Health Check Complete ==="
 
 3. Restart service if memory leak suspected:
    ```bash
-   systemctl restart ferrisstreams
+   systemctl restart velostream
    ```
 
 #### Issue: Processing Stopped
@@ -352,7 +352,7 @@ echo "=== Health Check Complete ==="
 1. Check input source status:
    ```bash
    # Check Kafka consumer lag
-   kafka-consumer-groups --bootstrap-server kafka:9092 --describe --group ferrisstreams
+   kafka-consumer-groups --bootstrap-server kafka:9092 --describe --group velostream
    ```
 
 2. Check processing threads:
@@ -361,7 +361,7 @@ echo "=== Health Check Complete ==="
    curl http://localhost:8080/admin/threads
    
    # Check for deadlocks
-   jstack $(pgrep ferrisstreams) | grep -A 5 "Found Java-level deadlock"
+   jstack $(pgrep velostream) | grep -A 5 "Found Java-level deadlock"
    ```
 
 3. Check configuration:
@@ -378,12 +378,12 @@ echo "=== Health Check Complete ==="
 2. Check and fix configuration:
    ```bash
    # Validate configuration
-   ferrisstreams --config-check /etc/ferrisstreams/config.yaml
+   velostream --config-check /etc/velostream/config.yaml
    ```
 
 3. Full service restart:
    ```bash
-   systemctl restart ferrisstreams
+   systemctl restart velostream
    ```
 
 #### Issue: High Latency
@@ -417,7 +417,7 @@ echo "=== Health Check Complete ==="
 1. Optimize queries:
    ```sql
    -- Review slow queries
-   SELECT * FROM ferris_query_stats WHERE avg_latency_ms > 1000;
+   SELECT * FROM velo_query_stats WHERE avg_latency_ms > 1000;
    ```
 
 2. Scale up resources:
@@ -443,19 +443,19 @@ echo "=== Health Check Complete ==="
 
 ```bash
 # Circuit breaker state changes
-grep "Circuit breaker" /var/log/ferrisstreams/application.log
+grep "Circuit breaker" /var/log/velostream/application.log
 
 # Resource limit violations
-grep "Resource exhausted" /var/log/ferrisstreams/application.log
+grep "Resource exhausted" /var/log/velostream/application.log
 
 # Watermark violations (late data)
-grep "WatermarkViolation" /var/log/ferrisstreams/application.log
+grep "WatermarkViolation" /var/log/velostream/application.log
 
 # Processing errors
-grep "ProcessingError" /var/log/ferrisstreams/application.log
+grep "ProcessingError" /var/log/velostream/application.log
 
 # Performance warnings
-grep "processing_time.*exceeded" /var/log/ferrisstreams/application.log
+grep "processing_time.*exceeded" /var/log/velostream/application.log
 ```
 
 #### Structured Log Queries
@@ -463,13 +463,13 @@ grep "processing_time.*exceeded" /var/log/ferrisstreams/application.log
 ```bash
 # Using jq for JSON logs
 jq '.level == "ERROR" and .timestamp > "'$(date -d '1 hour ago' -Iseconds)'"' \
-   /var/log/ferrisstreams/application.json
+   /var/log/velostream/application.json
 
 # Count error types
-jq -r '.error_type // "unknown"' /var/log/ferrisstreams/application.json | sort | uniq -c
+jq -r '.error_type // "unknown"' /var/log/velostream/application.json | sort | uniq -c
 
 # Find slow operations
-jq 'select(.processing_time_ms > 1000)' /var/log/ferrisstreams/application.json
+jq 'select(.processing_time_ms > 1000)' /var/log/velostream/application.json
 ```
 
 ## Performance Optimization
@@ -478,7 +478,7 @@ jq 'select(.processing_time_ms > 1000)' /var/log/ferrisstreams/application.json
 
 #### Memory Configuration
 ```yaml
-# config/ferrisstreams.yaml
+# config/velostream.yaml
 resource_limits:
   max_total_memory: 4294967296  # 4GB - adjust based on available system memory
   max_operator_memory: 1073741824  # 1GB per operator
@@ -531,7 +531,7 @@ kafka:
 #!/bin/bash
 # performance_monitor.sh - Continuous performance monitoring
 
-echo "Starting FerrisStreams performance monitoring..."
+echo "Starting VeloStream performance monitoring..."
 
 while true; do
     echo "=== $(date) ==="
@@ -563,7 +563,7 @@ done
 #!/bin/bash
 # emergency_stop.sh - Emergency service shutdown
 
-echo "EMERGENCY STOP - FerrisStreams"
+echo "EMERGENCY STOP - VeloStream"
 echo "Timestamp: $(date)"
 
 # 1. Stop accepting new requests
@@ -576,7 +576,7 @@ curl -X POST http://localhost:8080/admin/processing/drain
 
 # 3. Stop service
 echo "3. Stopping service..."
-systemctl stop ferrisstreams
+systemctl stop velostream
 
 echo "Emergency stop complete"
 ```
@@ -586,7 +586,7 @@ echo "Emergency stop complete"
 #!/bin/bash
 # emergency_recovery.sh - Emergency service recovery
 
-echo "EMERGENCY RECOVERY - FerrisStreams"
+echo "EMERGENCY RECOVERY - VeloStream"
 echo "Timestamp: $(date)"
 
 # 1. Verify system resources
@@ -596,8 +596,8 @@ df -h
 
 # 2. Start service with safe configuration
 echo "2. Starting with safe configuration..."
-cp /etc/ferrisstreams/config.safe.yaml /etc/ferrisstreams/config.yaml
-systemctl start ferrisstreams
+cp /etc/velostream/config.safe.yaml /etc/velostream/config.yaml
+systemctl start velostream
 
 # 3. Wait for service to be ready
 echo "3. Waiting for service readiness..."
@@ -650,24 +650,24 @@ echo "DATA LOSS RECOVERY PROCEDURE"
 echo "Timestamp: $(date)"
 
 # 1. Stop processing
-systemctl stop ferrisstreams
+systemctl stop velostream
 
 # 2. Reset Kafka consumer to earliest offset
 echo "Resetting Kafka consumer to earliest..."
 kafka-consumer-groups --bootstrap-server kafka:9092 \
-    --group ferrisstreams \
+    --group velostream \
     --reset-offsets --to-earliest \
     --topic input_topic \
     --execute
 
 # 3. Clear local state (if applicable)
 echo "Clearing local state..."
-rm -rf /var/lib/ferrisstreams/state/*
+rm -rf /var/lib/velostream/state/*
 
 # 4. Restart with reprocessing mode
 echo "Starting reprocessing mode..."
-export FERRIS_REPROCESSING_MODE=true
-systemctl start ferrisstreams
+export VELO_REPROCESSING_MODE=true
+systemctl start velostream
 
 echo "Data recovery initiated - monitor progress"
 ```
@@ -686,13 +686,13 @@ echo "1. Updating DNS routing..."
 # 2. Stop primary cluster
 echo "2. Stopping primary cluster..."
 for host in primary-node-{1..3}; do
-    ssh $host "systemctl stop ferrisstreams"
+    ssh $host "systemctl stop velostream"
 done
 
 # 3. Start backup cluster
 echo "3. Starting backup cluster..."
 for host in backup-node-{1..3}; do
-    ssh $host "systemctl start ferrisstreams"
+    ssh $host "systemctl start velostream"
 done
 
 # 4. Verify backup cluster health
@@ -713,12 +713,12 @@ echo "Failover complete"
 #!/bin/bash
 # weekly_maintenance.sh - Weekly maintenance tasks
 
-echo "=== Weekly FerrisStreams Maintenance ==="
+echo "=== Weekly VeloStream Maintenance ==="
 echo "Date: $(date)"
 
 # 1. Log rotation
 echo "1. Rotating logs..."
-logrotate -f /etc/logrotate.d/ferrisstreams
+logrotate -f /etc/logrotate.d/velostream
 
 # 2. Metrics cleanup
 echo "2. Cleaning up old metrics..."
@@ -744,11 +744,11 @@ echo "Weekly maintenance complete"
 #!/bin/bash
 # monthly_maintenance.sh - Monthly maintenance tasks
 
-echo "=== Monthly FerrisStreams Maintenance ==="
+echo "=== Monthly VeloStream Maintenance ==="
 
 # 1. Configuration backup
 echo "1. Backing up configuration..."
-tar -czf /backup/ferrisstreams_config_$(date +%Y%m).tar.gz /etc/ferrisstreams/
+tar -czf /backup/velostream_config_$(date +%Y%m).tar.gz /etc/velostream/
 
 # 2. Performance baseline update
 echo "2. Updating performance baselines..."
@@ -764,7 +764,7 @@ curl -s http://localhost:8080/admin/circuit-breaker/monthly-stats > /tmp/cb_stat
 
 # 5. Upgrade check
 echo "5. Checking for updates..."
-curl -s https://releases.ferrisstreams.io/latest.json > /tmp/latest_version.json
+curl -s https://releases.velostream.io/latest.json > /tmp/latest_version.json
 
 echo "Monthly maintenance complete"
 ```
@@ -786,14 +786,14 @@ echo "Deploying configuration: $CONFIG_FILE"
 
 # 1. Validate configuration
 echo "1. Validating configuration..."
-ferrisstreams --config-check "$CONFIG_FILE" || {
+velostream --config-check "$CONFIG_FILE" || {
     echo "❌ Configuration validation failed"
     exit 1
 }
 
 # 2. Backup current configuration
 echo "2. Backing up current configuration..."
-cp /etc/ferrisstreams/config.yaml /etc/ferrisstreams/config.backup.$(date +%s)
+cp /etc/velostream/config.yaml /etc/velostream/config.backup.$(date +%s)
 
 # 3. Enable maintenance mode
 echo "3. Enabling maintenance mode..."
@@ -801,7 +801,7 @@ curl -X POST http://localhost:8080/admin/maintenance/enable
 
 # 4. Apply configuration
 echo "4. Applying new configuration..."
-cp "$CONFIG_FILE" /etc/ferrisstreams/config.yaml
+cp "$CONFIG_FILE" /etc/velostream/config.yaml
 
 # 5. Reload configuration
 echo "5. Reloading configuration..."
@@ -813,7 +813,7 @@ sleep 10
 curl -sf http://localhost:8080/ready || {
     echo "❌ Service not ready after config change"
     echo "Rolling back..."
-    cp /etc/ferrisstreams/config.backup.* /etc/ferrisstreams/config.yaml
+    cp /etc/velostream/config.backup.* /etc/velostream/config.yaml
     curl -X POST http://localhost:8080/admin/config/reload
     exit 1
 }
@@ -832,7 +832,7 @@ echo "✅ Configuration deployed successfully"
 #### Scale Out Procedure
 ```bash
 #!/bin/bash
-# scale_out.sh - Add new FerrisStreams instances
+# scale_out.sh - Add new VeloStream instances
 
 NEW_INSTANCES=$1
 if [ -z "$NEW_INSTANCES" ]; then
@@ -846,7 +846,7 @@ echo "Scaling out by $NEW_INSTANCES instances"
 echo "1. Provisioning new instances..."
 for i in $(seq 1 $NEW_INSTANCES); do
     # This would integrate with your cloud provider
-    echo "Provisioning instance ferrisstreams-$(date +%s)-$i"
+    echo "Provisioning instance velostream-$(date +%s)-$i"
 done
 
 # 2. Deploy application to new instances
@@ -867,7 +867,7 @@ echo "Scale out complete"
 #### Scale In Procedure
 ```bash
 #!/bin/bash
-# scale_in.sh - Remove FerrisStreams instances
+# scale_in.sh - Remove VeloStream instances
 
 INSTANCES_TO_REMOVE=$1
 if [ -z "$INSTANCES_TO_REMOVE" ]; then
@@ -893,7 +893,7 @@ for instance in $INSTANCES_TO_REMOVE; do
     
     # 4. Stop service
     echo "  4. Stopping service..."
-    ssh $instance "systemctl stop ferrisstreams"
+    ssh $instance "systemctl stop velostream"
     
     # 5. Terminate instance
     echo "  5. Terminating instance..."
@@ -959,16 +959,16 @@ echo "Resource limits adjusted"
 #### Configuration Backup
 ```bash
 #!/bin/bash
-# backup_config.sh - Backup FerrisStreams configuration
+# backup_config.sh - Backup VeloStream configuration
 
-BACKUP_DIR="/backup/ferrisstreams/$(date +%Y/%m/%d)"
+BACKUP_DIR="/backup/velostream/$(date +%Y/%m/%d)"
 mkdir -p "$BACKUP_DIR"
 
-echo "Backing up FerrisStreams configuration to $BACKUP_DIR"
+echo "Backing up VeloStream configuration to $BACKUP_DIR"
 
 # 1. Application configuration
 echo "1. Backing up application configuration..."
-cp -r /etc/ferrisstreams/ "$BACKUP_DIR/config/"
+cp -r /etc/velostream/ "$BACKUP_DIR/config/"
 
 # 2. Runtime state (if applicable)
 echo "2. Backing up runtime state..."
@@ -998,7 +998,7 @@ echo "Backup complete: $BACKUP_DIR"
 #### State Recovery
 ```bash
 #!/bin/bash
-# restore_state.sh - Restore FerrisStreams from backup
+# restore_state.sh - Restore VeloStream from backup
 
 BACKUP_DIR=$1
 if [ -z "$BACKUP_DIR" ]; then
@@ -1006,15 +1006,15 @@ if [ -z "$BACKUP_DIR" ]; then
     exit 1
 fi
 
-echo "Restoring FerrisStreams from backup: $BACKUP_DIR"
+echo "Restoring VeloStream from backup: $BACKUP_DIR"
 
 # 1. Stop service
 echo "1. Stopping service..."
-systemctl stop ferrisstreams
+systemctl stop velostream
 
 # 2. Restore configuration
 echo "2. Restoring configuration..."
-cp -r "$BACKUP_DIR/config/"* /etc/ferrisstreams/
+cp -r "$BACKUP_DIR/config/"* /etc/velostream/
 
 # 3. Restore runtime state
 echo "3. Restoring runtime state..."
@@ -1026,7 +1026,7 @@ fi
 
 # 4. Start service
 echo "4. Starting service..."
-systemctl start ferrisstreams
+systemctl start velostream
 
 # 5. Verify restoration
 echo "5. Verifying restoration..."
@@ -1038,4 +1038,4 @@ done
 echo "State restoration complete"
 ```
 
-This operational runbook provides comprehensive procedures for managing FerrisStreams in production environments, covering all aspects from routine monitoring to emergency recovery procedures.
+This operational runbook provides comprehensive procedures for managing VeloStream in production environments, covering all aspects from routine monitoring to emergency recovery procedures.

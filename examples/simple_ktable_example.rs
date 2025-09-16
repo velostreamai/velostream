@@ -1,9 +1,9 @@
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use ferrisstreams::ferris::kafka::serialization::JsonSerializer;
-use ferrisstreams::KTable;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
+use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::KTable;
 
 /// Simple user data structure
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

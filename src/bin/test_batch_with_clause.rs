@@ -3,10 +3,10 @@
 //! This binary demonstrates and tests the batch configuration functionality
 //! directly accessible via WITH clauses in SQL.
 
-use ferrisstreams::ferris::{
+use std::time::Duration;
+use velostream::velostream::{
     datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
 };
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

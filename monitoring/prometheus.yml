@@ -1,4 +1,4 @@
-# Prometheus configuration for FerrisStreams SQL monitoring
+# Prometheus configuration for VeloStream SQL monitoring
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -14,18 +14,18 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # FerrisStreams SQL Single Server
-  - job_name: 'ferris-sql-single'
+  # VeloStream SQL Single Server
+  - job_name: 'velo-sql-single'
     static_configs:
-      - targets: ['ferris-sql-single:9090']
+      - targets: ['velo-sql-single:9090']
     metrics_path: '/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  # FerrisStreams SQL Multi-Job Server
-  - job_name: 'ferris-sql-multi'
+  # VeloStream SQL Multi-Job Server
+  - job_name: 'velo-sql-multi'
     static_configs:
-      - targets: ['ferris-sql-multi:9091']
+      - targets: ['velo-sql-multi:9091']
     metrics_path: '/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s

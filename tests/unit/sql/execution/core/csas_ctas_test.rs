@@ -1,13 +1,13 @@
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::context::StreamingSqlContext;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::context::StreamingSqlContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
-use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record(id: i64, amount: f64, status: &str) -> StreamRecord {
     let mut fields = HashMap::new();

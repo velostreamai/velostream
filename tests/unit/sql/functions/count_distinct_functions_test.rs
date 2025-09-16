@@ -1,7 +1,7 @@
-use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
-use ferrisstreams::ferris::sql::execution::expression::functions::BuiltinFunctions;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::{Expr, LiteralValue};
+use velostream::velostream::sql::execution::expression::functions::BuiltinFunctions;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[test]
 fn test_count_distinct_function_registration() {

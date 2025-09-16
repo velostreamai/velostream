@@ -5,20 +5,20 @@
 //! These tests verify core processor behavior without failure injection scenarios.
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
-use ferrisstreams::ferris::server::processors::{
-    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
-};
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::{
-    ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
-    execution::types::{FieldValue, StreamRecord},
-    StreamExecutionEngine,
-};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::{
+    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+};
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::{
+    ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
+    execution::types::{FieldValue, StreamRecord},
+    StreamExecutionEngine,
+};
 
 // Import test utilities
 use super::stream_job_test_utils::*;
@@ -67,7 +67,7 @@ impl DataReader for MockDataReader {
 
     async fn seek(
         &mut self,
-        _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+        _offset: velostream::velostream::datasource::types::SourceOffset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

@@ -2,12 +2,12 @@
 Integration test for EMIT functionality
 */
 
-use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record(id: i64, amount: f64) -> StreamRecord {
     let mut fields = HashMap::new();
@@ -35,14 +35,14 @@ async fn main() {
 
     match parser.parse(query_str) {
         Ok(query) => {
-            if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+            if let velostream::velostream::sql::ast::StreamingQuery::Select {
                 emit_mode,
                 window,
                 ..
             } = &query
             {
                 if window.is_some()
-                    && emit_mode == &Some(ferrisstreams::ferris::sql::ast::EmitMode::Changes)
+                    && emit_mode == &Some(velostream::velostream::sql::ast::EmitMode::Changes)
                 {
                     println!("✅ EMIT CHANGES parsed correctly with WINDOW clause");
                 } else {
@@ -61,14 +61,14 @@ async fn main() {
 
     match parser.parse(query_str2) {
         Ok(query) => {
-            if let ferrisstreams::ferris::sql::ast::StreamingQuery::Select {
+            if let velostream::velostream::sql::ast::StreamingQuery::Select {
                 emit_mode,
                 window,
                 ..
             } = &query
             {
                 if window.is_none()
-                    && emit_mode == &Some(ferrisstreams::ferris::sql::ast::EmitMode::Final)
+                    && emit_mode == &Some(velostream::velostream::sql::ast::EmitMode::Final)
                 {
                     println!("✅ EMIT FINAL parsed correctly without WINDOW clause");
                 } else {

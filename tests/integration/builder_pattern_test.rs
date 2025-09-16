@@ -1,5 +1,5 @@
 use super::*;
-use ferrisstreams::ferris::kafka::ConsumerBuilder;
+use velostream::velostream::kafka::ConsumerBuilder;
 
 #[tokio::test]
 async fn test_producer_builder_basic() {

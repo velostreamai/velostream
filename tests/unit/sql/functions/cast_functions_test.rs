@@ -6,14 +6,14 @@ These tests verify that all type conversions work correctly and handle edge case
 */
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
-use ferrisstreams::ferris::sql::execution::FieldValue;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::str::FromStr;
+use velostream::velostream::sql::execution::FieldValue;
 
-fn create_mock_record() -> ferrisstreams::ferris::sql::execution::StreamRecord {
-    ferrisstreams::ferris::sql::execution::StreamRecord {
+fn create_mock_record() -> velostream::velostream::sql::execution::StreamRecord {
+    velostream::velostream::sql::execution::StreamRecord {
         fields: HashMap::new(),
         timestamp: 1640995200000, // 2022-01-01 00:00:00 UTC
         offset: 0,

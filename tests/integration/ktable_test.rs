@@ -1,10 +1,10 @@
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use ferrisstreams::ferris::kafka::serialization::JsonSerializer;
-use ferrisstreams::ferris::kafka::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
+use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::kafka::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {

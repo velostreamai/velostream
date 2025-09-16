@@ -1,6 +1,6 @@
 //! Tests for named source/sink config_file functionality
 
-use ferrisstreams::ferris::sql::query_analyzer::QueryAnalyzer;
+use velostream::velostream::sql::query_analyzer::QueryAnalyzer;
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
@@ -37,7 +37,7 @@ schema.registry.url: "http://schema-registry:8081"
         config_path.to_string_lossy().to_string(),
     );
 
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: vec![],
         required_sinks: vec![],
         configuration: config.clone(),
@@ -47,7 +47,7 @@ schema.registry.url: "http://schema-registry:8081"
     let result = analyzer.analyze_source(
         "orders_source",
         &config,
-        &ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default(),
+        &velostream::velostream::kafka::serialization_format::SerializationConfig::default(),
         &mut analysis,
     );
 
@@ -60,7 +60,7 @@ schema.registry.url: "http://schema-registry:8081"
             assert_eq!(source.name, "orders_source");
             assert_eq!(
                 source.source_type,
-                ferrisstreams::ferris::sql::query_analyzer::DataSourceType::Kafka
+                velostream::velostream::sql::query_analyzer::DataSourceType::Kafka
             );
 
             // Verify properties were loaded from YAML
@@ -116,7 +116,7 @@ compression: "gzip"
         config_path.to_string_lossy().to_string(),
     );
 
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: vec![],
         required_sinks: vec![],
         configuration: config.clone(),
@@ -126,7 +126,7 @@ compression: "gzip"
     let result = analyzer.analyze_sink(
         "output_sink",
         &config,
-        &ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default(),
+        &velostream::velostream::kafka::serialization_format::SerializationConfig::default(),
         &mut analysis,
     );
 
@@ -139,7 +139,7 @@ compression: "gzip"
             assert_eq!(sink.name, "output_sink");
             assert_eq!(
                 sink.sink_type,
-                ferrisstreams::ferris::sql::query_analyzer::DataSinkType::File
+                velostream::velostream::sql::query_analyzer::DataSinkType::File
             );
 
             // Verify properties were loaded from YAML
@@ -196,7 +196,7 @@ group.id: "dev-analytics"
     );
     config.insert("kafka_src.topic".to_string(), "prod-orders".to_string());
 
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: vec![],
         required_sinks: vec![],
         configuration: config.clone(),
@@ -205,7 +205,7 @@ group.id: "dev-analytics"
     let result = analyzer.analyze_source(
         "kafka_src",
         &config,
-        &ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default(),
+        &velostream::velostream::kafka::serialization_format::SerializationConfig::default(),
         &mut analysis,
     );
 
@@ -246,7 +246,7 @@ fn test_invalid_config_file() {
         "nonexistent_config.yaml".to_string(),
     );
 
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: vec![],
         required_sinks: vec![],
         configuration: config.clone(),
@@ -255,7 +255,7 @@ fn test_invalid_config_file() {
     let result = analyzer.analyze_source(
         "bad_src",
         &config,
-        &ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default(),
+        &velostream::velostream::kafka::serialization_format::SerializationConfig::default(),
         &mut analysis,
     );
 
@@ -290,7 +290,7 @@ topic: "test-topic"
         config_path.to_string_lossy().to_string(),
     );
 
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: vec![],
         required_sinks: vec![],
         configuration: config.clone(),
@@ -299,7 +299,7 @@ topic: "test-topic"
     let result = analyzer.analyze_source(
         "test_src",
         &config,
-        &ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default(),
+        &velostream::velostream::kafka::serialization_format::SerializationConfig::default(),
         &mut analysis,
     );
 
@@ -308,7 +308,7 @@ topic: "test-topic"
     let source = &analysis.required_sources[0];
     assert_eq!(
         source.source_type,
-        ferrisstreams::ferris::sql::query_analyzer::DataSourceType::Kafka
+        velostream::velostream::sql::query_analyzer::DataSourceType::Kafka
     );
     assert_eq!(
         source.properties.get("bootstrap.servers"),

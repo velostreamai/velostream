@@ -1,6 +1,6 @@
 use super::*;
-use ferrisstreams::ferris::kafka::ConsumerBuilder; // Use the re-exported items from integration::mod
 use futures::StreamExt;
+use velostream::velostream::kafka::ConsumerBuilder; // Use the re-exported items from integration::mod
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct SimpleMessage {

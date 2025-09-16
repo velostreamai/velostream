@@ -4,12 +4,12 @@
 Comprehensive test suite for newly added math, string, and date/time functions.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -659,7 +659,7 @@ async fn test_having_clause_execution() {
 
     // Verify the query parsed correctly with HAVING clause
     match &parsed_query {
-        ferrisstreams::ferris::sql::StreamingQuery::Select {
+        velostream::velostream::sql::StreamingQuery::Select {
             having: Some(_), ..
         } => {
             // HAVING clause is present in parsed query

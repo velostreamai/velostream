@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package ferrisstreams.financial;
+package velostream.financial;
 
 import "google/protobuf/timestamp.proto";
 

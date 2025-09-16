@@ -5,8 +5,8 @@ Comprehensive test suite for OVER clauses and window frame specifications.
 Tests parsing of PARTITION BY, ORDER BY, and ROWS/RANGE BETWEEN clauses.
 */
 
-use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
 fn test_basic_over_clause_parsing() {

@@ -5,8 +5,8 @@ Benchmarks for different JOIN types and scenarios to measure performance charact
 */
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;

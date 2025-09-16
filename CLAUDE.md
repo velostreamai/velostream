@@ -1,4 +1,4 @@
-# FerrisStreams Development Guide for Claude
+# VeloStream Development Guide for Claude
 
 
 ## Behaviour
@@ -15,23 +15,23 @@ Always look for opportunities to improve the code. (refactoring, code restructur
 
 ## Project Overview
 
-FerrisStreams is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
+VeloStream is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
 
 ## Key Components
 
-### SQL Engine (`src/ferris/sql/`)
+### SQL Engine (`src/velostream/sql/`)
 - **Parser**: Streaming SQL query parsing with support for windows, aggregations, joins
 - **Execution Engine**: High-performance query execution with pluggable processors
 - **Types System**: FieldValue-based type system for SQL execution and serialization
 - **Aggregation**: Windowed and continuous aggregation processing
 - **Windowing**: Tumbling, sliding, and session windows with emit modes
 
-### Serialization (`src/ferris/serialization/`)
+### Serialization (`src/velostream/serialization/`)
 - **Pluggable Formats**: JSON, Avro, and Protobuf (all always available)
 - **Type Conversion**: Direct FieldValue serialization with enhanced error chaining
 - **Financial Precision**: ScaledInteger support for exact financial arithmetic
 
-### Kafka Integration (`src/ferris/kafka/`)
+### Kafka Integration (`src/velostream/kafka/`)
 - **Consumers/Producers**: High-performance Kafka integration with configurable serialization
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
@@ -133,7 +133,7 @@ cargo test windowing_test -- --nocapture
 cargo build
 
 # Build specific binaries
-cargo build --bin ferris-sql-multi
+cargo build --bin velo-sql-multi
 ```
 
 ### Code Formatting
@@ -186,7 +186,7 @@ cargo run --bin test_serialization_compatibility ```
 ## Schema Configuration
 
 ### Kafka Schema Support
-FerrisStreams now supports comprehensive schema configuration for Kafka data sources:
+VeloStream now supports comprehensive schema configuration for Kafka data sources:
 
 **Avro Schema Configuration**:
 ```yaml
@@ -279,9 +279,9 @@ FieldValue::Timestamp(NaiveDateTime) // Date/time values
 
 ### Pattern Matching Requirements
 When adding new FieldValue variants, ensure all pattern matches are updated:
-- `src/ferris/sql/execution/types.rs` - Core type operations
-- `src/ferris/sql/execution/aggregation/` - Aggregation functions
-- `src/ferris/serialization/mod.rs` - Serialization conversion
+- `src/velostream/sql/execution/types.rs` - Core type operations
+- `src/velostream/sql/execution/aggregation/` - Aggregation functions
+- `src/velostream/serialization/mod.rs` - Serialization conversion
 - Binary files: `src/bin/*.rs` - Server implementations
 
 ### Serialization Compatibility Strategy
@@ -292,23 +292,23 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 ## Common Tasks
 
 ### Adding New SQL Functions
-1. Update `src/ferris/sql/execution/expression/functions.rs`
+1. Update `src/velostream/sql/execution/expression/functions.rs`
 2. Add pattern matches for all FieldValue variants
 3. Implement arithmetic preserving ScaledInteger precision
 4. Add tests in `tests/unit/sql/functions/`
 
 ### Adding New Aggregation Functions
-1. Update `src/ferris/sql/execution/aggregation/accumulator.rs`
+1. Update `src/velostream/sql/execution/aggregation/accumulator.rs`
 2. Handle ScaledInteger accumulation with proper scaling
 3. Add tests in `tests/unit/sql/execution/aggregation/`
 
 ### Adding New Serialization Support
-1. Implement conversion functions in `src/ferris/serialization/mod.rs`
+1. Implement conversion functions in `src/velostream/serialization/mod.rs`
 2. Handle ScaledInteger → compatible format mapping
 3. Add comprehensive tests in `tests/unit/serialization/`
 
 ### Adding New Configuration Features
-1. Update appropriate module in `src/ferris/sql/config/`
+1. Update appropriate module in `src/velostream/sql/config/`
 2. Ensure public visibility for methods used in tests
 3. Add comprehensive tests in `tests/unit/sql/config/`
 4. Update imports in test files as needed
@@ -351,7 +351,7 @@ When adding new functionality:
 Example test file structure:
 ```rust
 // tests/unit/sql/query_analyzer_test.rs
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     query_analyzer::{QueryAnalyzer, QueryAnalysis},
     ast::{StreamingQuery, StreamSource, SelectField},
     SqlError,

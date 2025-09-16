@@ -1,6 +1,6 @@
 //! SQL Query and Application Validator
 //!
-//! Comprehensive validation tool for FerrisStreams SQL queries and applications.
+//! Comprehensive validation tool for VeloStream SQL queries and applications.
 //! Checks for:
 //! - SQL parsing correctness
 //! - Missing source/sink configurations  
@@ -8,7 +8,12 @@
 //! - Syntax compatibility
 //! - Performance warnings
 
-use ferrisstreams::ferris::sql::{
+use log::info;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::Path;
+use velostream::velostream::sql::{
     ast::StreamingQuery,
     config::with_clause_parser::WithClauseParser,
     query_analyzer::{
@@ -16,11 +21,6 @@ use ferrisstreams::ferris::sql::{
     },
     StreamingSqlParser,
 };
-use log::info;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::Path;
 
 /// Detailed parsing error with location information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -800,7 +800,7 @@ impl SqlValidator {
 
         if has_syntax_issues {
             recommendations
-                .push("Update SQL syntax to use FerrisStreams-compatible constructs".to_string());
+                .push("Update SQL syntax to use VeloStream-compatible constructs".to_string());
         }
 
         if query_results.len() > 5 {

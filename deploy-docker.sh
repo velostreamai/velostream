@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# FerrisStreams SQL Docker Deployment Script
+# VeloStream SQL Docker Deployment Script
 set -e
 
-echo "🚀 FerrisStreams SQL Docker Deployment"
+echo "🚀 VeloStream SQL Docker Deployment"
 echo "====================================="
 
 # Configuration
 COMPOSE_FILE="docker-compose.yml"
-PROJECT_NAME="ferrisstreams-sql"
+PROJECT_NAME="velostream-sql"
 MONITORING_ENABLED=false
 CLEANUP=false
 
@@ -78,8 +78,8 @@ if [ "$AVAILABLE_MEMORY" -lt 4096 ]; then
 fi
 
 # Build images
-echo "🔨 Building FerrisStreams SQL images..."
-docker-compose build ferris-sql-single ferris-sql-multi data-producer
+echo "🔨 Building VeloStream SQL images..."
+docker-compose build velo-sql-single velo-sql-multi data-producer
 
 if [ $? -ne 0 ]; then
     echo "❌ Build failed. Please check the build logs."
@@ -89,14 +89,14 @@ fi
 echo "✅ Images built successfully"
 
 # Start services
-echo "🚀 Starting FerrisStreams SQL infrastructure..."
+echo "🚀 Starting VeloStream SQL infrastructure..."
 
 if [ "$MONITORING_ENABLED" = true ]; then
     echo "📊 Starting with monitoring services..."
     docker-compose -p $PROJECT_NAME --profile monitoring up -d
 else
     echo "🎯 Starting core services..."
-    docker-compose -p $PROJECT_NAME up -d kafka kafka-ui ferris-sql-single ferris-sql-multi
+    docker-compose -p $PROJECT_NAME up -d kafka kafka-ui velo-sql-single velo-sql-multi
 fi
 
 # Wait for services to be ready
@@ -105,7 +105,7 @@ sleep 30
 
 # Check service health
 echo "🏥 Checking service health..."
-SERVICES=("ferris-kafka" "ferris-sql-single" "ferris-sql-multi")
+SERVICES=("velo-kafka" "velo-sql-single" "velo-sql-multi")
 
 for SERVICE in "${SERVICES[@]}"; do
     if docker ps --filter "name=$SERVICE" --filter "status=running" | grep -q $SERVICE; then
@@ -118,7 +118,7 @@ done
 
 # Test Kafka connectivity
 echo "🔗 Testing Kafka connectivity..."
-if docker exec ferris-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 &> /dev/null; then
+if docker exec velo-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 &> /dev/null; then
     echo "✅ Kafka is accessible"
 else
     echo "❌ Kafka connectivity test failed"
@@ -137,7 +137,7 @@ echo "  • SQL Multi-Job Server:   http://localhost:8081"
 
 if [ "$MONITORING_ENABLED" = true ]; then
     echo "  • Prometheus:             http://localhost:9093"
-    echo "  • Grafana:                http://localhost:3000 (admin/ferris123)"
+    echo "  • Grafana:                http://localhost:3000 (admin/velo123)"
 fi
 
 echo ""
@@ -151,19 +151,19 @@ echo ""
 echo "📚 Example Usage:"
 echo ""
 echo "1. Execute a SQL query:"
-echo "   docker exec ferris-sql-single ferris-sql execute \\"
+echo "   docker exec velo-sql-single velo-sql execute \\"
 echo "     --query \"SELECT * FROM orders WHERE amount > 100\" \\"
 echo "     --topic orders \\"
 echo "     --brokers kafka:9092"
 echo ""
 echo "2. Deploy a SQL application:"
-echo "   docker exec ferris-sql-multi ferris-sql-multi deploy-app \\"
+echo "   docker exec velo-sql-multi velo-sql-multi deploy-app \\"
 echo "     --file /app/examples/ecommerce_analytics.sql \\"
 echo "     --brokers kafka:9092 \\"
 echo "     --default-topic orders"
 echo ""
 echo "3. Access data producer:"
-echo "   docker exec -it ferris-data-producer bash"
+echo "   docker exec -it velo-data-producer bash"
 echo ""
 
 # Show next steps
@@ -182,4 +182,4 @@ echo "  • SQL Reference:            docs/SQL_REFERENCE_GUIDE.md"
 echo "  • Multi-Job Guide:          MULTI_JOB_SQL_GUIDE.md"
 echo ""
 
-echo "🎊 FerrisStreams SQL is ready for streaming analytics!"
+echo "🎊 VeloStream SQL is ready for streaming analytics!"

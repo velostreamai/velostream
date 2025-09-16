@@ -1,6 +1,6 @@
 -- SQL Application: E-commerce Analytics Platform (Phase 1B-4 Features)
 -- Version: 2.0.0
--- Description: Advanced e-commerce data processing showcasing FerrisStreams Phase 1B-4 capabilities
+-- Description: Advanced e-commerce data processing showcasing VeloStream Phase 1B-4 capabilities
 -- Author: Analytics Team
 -- Features: Event-time processing, Circuit breakers, Advanced analytics, Observability
 -- Dependencies: Configuration files in configs/ directory using extends pattern

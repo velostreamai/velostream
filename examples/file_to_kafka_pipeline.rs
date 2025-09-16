@@ -11,11 +11,11 @@
 //! ```
 
 use clap::Parser;
-use ferrisstreams::ferris::datasource::config::SourceConfig;
-use ferrisstreams::ferris::datasource::{
+use std::error::Error;
+use velostream::velostream::datasource::config::SourceConfig;
+use velostream::velostream::datasource::{
     create_sink, create_source, file::FileDataSource, registry::register_global_source,
 };
-use std::error::Error;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -43,7 +43,7 @@ fn initialize_registry() {
         // The factory function gets called with the parsed SourceConfig
         // We need to create and initialize the FileDataSource here
         let source = PreInitializedFileDataSource { config };
-        Ok(Box::new(source) as Box<dyn ferrisstreams::ferris::datasource::DataSource>)
+        Ok(Box::new(source) as Box<dyn velostream::velostream::datasource::DataSource>)
     });
 }
 
@@ -53,7 +53,7 @@ struct PreInitializedFileDataSource {
 }
 
 #[async_trait::async_trait]
-impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSource {
+impl velostream::velostream::datasource::DataSource for PreInitializedFileDataSource {
     async fn initialize(
         &mut self,
         _config: SourceConfig,
@@ -64,7 +64,7 @@ impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSou
 
     async fn fetch_schema(
         &self,
-    ) -> Result<ferrisstreams::ferris::schema::Schema, Box<dyn Error + Send + Sync>> {
+    ) -> Result<velostream::velostream::schema::Schema, Box<dyn Error + Send + Sync>> {
         // Create and initialize a temporary FileDataSource to get schema
         let mut temp_source = FileDataSource::new();
         temp_source.initialize(self.config.clone()).await?;
@@ -73,7 +73,7 @@ impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSou
 
     async fn create_reader(
         &self,
-    ) -> Result<Box<dyn ferrisstreams::ferris::datasource::DataReader>, Box<dyn Error + Send + Sync>>
+    ) -> Result<Box<dyn velostream::velostream::datasource::DataReader>, Box<dyn Error + Send + Sync>>
     {
         // Create and initialize a FileDataSource for reading
         let mut source = FileDataSource::new();
@@ -89,8 +89,8 @@ impl ferrisstreams::ferris::datasource::DataSource for PreInitializedFileDataSou
         true // File sources support batch reading
     }
 
-    fn metadata(&self) -> ferrisstreams::ferris::datasource::SourceMetadata {
-        ferrisstreams::ferris::datasource::SourceMetadata {
+    fn metadata(&self) -> velostream::velostream::datasource::SourceMetadata {
+        velostream::velostream::datasource::SourceMetadata {
             source_type: "file".to_string(),
             version: "1.0.0".to_string(),
             supports_streaming: true,
@@ -185,13 +185,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 // Add metadata fields
                 record.fields.insert(
                     "processed_at".to_string(),
-                    ferrisstreams::ferris::sql::execution::types::FieldValue::String(
+                    velostream::velostream::sql::execution::types::FieldValue::String(
                         chrono::Utc::now().to_rfc3339(),
                     ),
                 );
                 record.fields.insert(
                     "batch_id".to_string(),
-                    ferrisstreams::ferris::sql::execution::types::FieldValue::String(
+                    velostream::velostream::sql::execution::types::FieldValue::String(
                         batch_count.to_string(),
                     ),
                 );

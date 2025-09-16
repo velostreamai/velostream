@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::config::connection_string::ParseError;
-use ferrisstreams::ferris::sql::config::*;
+use velostream::velostream::sql::config::connection_string::ParseError;
+use velostream::velostream::sql::config::*;
 
 #[test]
 fn test_kafka_uri_parsing() {

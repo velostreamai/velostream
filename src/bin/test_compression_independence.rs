@@ -1,13 +1,13 @@
-use ferrisstreams::ferris::datasource::{
+use log::info;
+use std::collections::HashMap;
+use std::time::Duration;
+use velostream::velostream::datasource::{
     config::{types::CompressionType, FileFormat, SinkConfig},
     file::data_sink::FileDataSink,
     kafka::data_sink::KafkaDataSink,
     traits::DataSink,
     BatchConfig, BatchStrategy,
 };
-use log::info;
-use std::collections::HashMap;
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -1,8 +1,8 @@
 # Testing and Benchmarks Guide
 
-**Complete guide to running tests and benchmarks in FerrisStreams**
+**Complete guide to running tests and benchmarks in VeloStream**
 
-This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in FerrisStreams, organized by purpose and execution time.
+This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in VeloStream, organized by purpose and execution time.
 
 ---
 
@@ -54,7 +54,7 @@ cargo test --doc --no-default-features                    # ~4 seconds, 45 tests
 cargo test integration:: --no-default-features
 
 # Specific integration categories
-cargo test --test ferris_sql_multi_test --no-default-features      # SQL server integration
+cargo test --test velo_sql_multi_test --no-default-features      # SQL server integration
 cargo test --test phase2_configurable_serialization_test --no-default-features  # Serialization
 ```
 
@@ -120,7 +120,7 @@ cargo run --bin test_kafka_configuration --no-default-features
 cargo run --bin test_schema_registry --no-default-features
 
 # Configuration validator tool
-cargo run --bin ferris-config-validator --no-default-features
+cargo run --bin velo-config-validator --no-default-features
 ```
 
 ---

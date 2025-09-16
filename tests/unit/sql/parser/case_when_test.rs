@@ -4,12 +4,12 @@
 Comprehensive test suite for CASE WHEN expressions and their use in aggregation functions.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -77,12 +77,12 @@ async fn test_case_when_parsing() {
 
         // Verify the query contains CASE expression
         match result.unwrap() {
-            ferrisstreams::ferris::sql::ast::StreamingQuery::Select { fields, .. } => {
+            velostream::velostream::sql::ast::StreamingQuery::Select { fields, .. } => {
                 assert_eq!(fields.len(), 1);
                 match &fields[0] {
-                    ferrisstreams::ferris::sql::ast::SelectField::Expression { expr, .. } => {
+                    velostream::velostream::sql::ast::SelectField::Expression { expr, .. } => {
                         match expr {
-                            ferrisstreams::ferris::sql::ast::Expr::Case {
+                            velostream::velostream::sql::ast::Expr::Case {
                                 when_clauses, ..
                             } => {
                                 assert!(!when_clauses.is_empty(), "CASE should have WHEN clauses");

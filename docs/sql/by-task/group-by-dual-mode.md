@@ -2,7 +2,7 @@
 
 ## Overview
 
-FerrisStreams supports two distinct GROUP BY aggregation modes designed for different streaming use cases:
+VeloStream supports two distinct GROUP BY aggregation modes designed for different streaming use cases:
 
 1. **Windowed Aggregation** - Accumulates data within windows, emits results when windows close
 2. **Continuous Aggregation** - Emits updated results for each input record (CDC-style)
@@ -163,7 +163,7 @@ Input Record → Accumulate State → Emit Updated Group → Return Result
 ### Example 1: Real-time Dashboard (Continuous Mode)
 
 ```rust
-use ferrisstreams::ferris::sql::ast::{AggregationMode, StreamingQuery, SelectField, StreamSource, Expr};
+use velostream::velo::sql::ast::{AggregationMode, StreamingQuery, SelectField, StreamSource, Expr};
 
 // Create continuous aggregation query for live metrics
 let live_metrics_query = StreamingQuery::Select {
@@ -395,4 +395,4 @@ for (i, record) in records.enumerate() {
 
 ---
 
-*This documentation covers the dual-mode GROUP BY aggregation system implemented in FerrisStreams Phase 5.*
+*This documentation covers the dual-mode GROUP BY aggregation system implemented in VeloStream Phase 5.*

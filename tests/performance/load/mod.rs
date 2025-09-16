@@ -1,7 +1,7 @@
 //! Load Testing Benchmarks
 //!
 //! High-throughput and stress testing benchmarks for validating
-//! FerrisStreams performance under extreme loads and concurrent access patterns.
+//! VeloStream performance under extreme loads and concurrent access patterns.
 
 pub mod concurrent_access;
 pub mod high_throughput;

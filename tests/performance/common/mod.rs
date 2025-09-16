@@ -1,4 +1,4 @@
-//! Common utilities for FerrisStreams performance testing
+//! Common utilities for VeloStream performance testing
 //!
 //! This module provides shared utilities to eliminate code duplication across
 //! performance tests and ensure consistent measurement approaches.

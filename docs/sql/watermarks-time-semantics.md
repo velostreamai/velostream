@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 1B introduces comprehensive time semantics to FerrisStreams, enabling proper handling of out-of-order and late-arriving data through watermark-based processing. This guide explains how to configure and use event-time processing, watermarks, and late data strategies.
+Phase 1B introduces comprehensive time semantics to VeloStream, enabling proper handling of out-of-order and late-arriving data through watermark-based processing. This guide explains how to configure and use event-time processing, watermarks, and late data strategies.
 
 ## Key Concepts
 
@@ -29,7 +29,7 @@ Watermarks are timestamps that indicate "all events with event-time ≤ watermar
 ### Basic Watermark Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velo::sql::execution::{
     watermarks::{WatermarkStrategy, WatermarkConfig},
     config::{LateDataStrategy, StreamingConfig}
 };
@@ -177,7 +177,7 @@ EMIT CHANGES;
 ### Engine Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velo::sql::execution::{
     StreamExecutionEngine, ProcessorContext, 
     watermarks::WatermarkManager
 };
@@ -197,7 +197,7 @@ engine.execute_with_context(&query, record, &mut context).await?;
 ### Custom Watermark Generation
 
 ```rust
-use ferrisstreams::ferris::sql::execution::watermarks::{
+use velostream::velo::sql::execution::watermarks::{
     WatermarkManager, WatermarkStrategy
 };
 
@@ -216,7 +216,7 @@ let current_watermark = watermark_manager.get_global_watermark();
 ### Late Data Handling
 
 ```rust
-use ferrisstreams::ferris::sql::execution::watermarks::LateDataAction;
+use velostream::velo::sql::execution::watermarks::LateDataAction;
 
 // Check if data is late
 if let Some(action) = watermark_manager.handle_late_data(&record, &strategy) {

@@ -1,13 +1,13 @@
-use ferrisstreams::ferris::datasource::{
-    config::SinkConfig, file::data_sink::FileDataSink, kafka::data_sink::KafkaDataSink,
-    traits::DataSink, BatchConfig, BatchStrategy,
-};
-use ferrisstreams::ferris::schema::{FieldDefinition, Schema};
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
+use velostream::velostream::datasource::{
+    config::SinkConfig, file::data_sink::FileDataSink, kafka::data_sink::KafkaDataSink,
+    traits::DataSink, BatchConfig, BatchStrategy,
+};
+use velostream::velostream::schema::{FieldDefinition, Schema};
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -127,7 +127,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
 
     let sink_config = SinkConfig::File {
         path: "./test_output_fixed.csv".to_string(),
-        format: ferrisstreams::ferris::datasource::config::FileFormat::Csv {
+        format: velostream::velostream::datasource::config::FileFormat::Csv {
             header: true,
             delimiter: ',',
             quote: '"',
@@ -165,7 +165,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
 
     let sink_config_ll = SinkConfig::File {
         path: "./test_output_low_latency.json".to_string(),
-        format: ferrisstreams::ferris::datasource::config::FileFormat::Json,
+        format: velostream::velostream::datasource::config::FileFormat::Json,
         properties: HashMap::new(),
         compression: None,
     };
@@ -195,7 +195,7 @@ async fn test_file_sink_batch_configs() -> Result<(), Box<dyn std::error::Error 
 
     let sink_config_mem = SinkConfig::File {
         path: "./test_output_memory.json".to_string(),
-        format: ferrisstreams::ferris::datasource::config::FileFormat::Json,
+        format: velostream::velostream::datasource::config::FileFormat::Json,
         properties: HashMap::new(),
         compression: None, // Will be automatically enabled by batch config for large memory targets
     };

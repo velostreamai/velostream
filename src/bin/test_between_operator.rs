@@ -1,10 +1,10 @@
 // Simple test binary for BETWEEN operator
-use ferrisstreams::ferris::sql::{
+use std::collections::HashMap;
+use velostream::velostream::sql::{
     ast::{Expr, LiteralValue},
     execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
     parser::StreamingSqlParser,
 };
-use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing BETWEEN operator implementation...");

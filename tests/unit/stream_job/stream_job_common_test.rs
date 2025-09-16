@@ -6,16 +6,16 @@
 //! - Job execution statistics and batch processing
 //! - Configuration and error handling utilities
 
-use ferrisstreams::ferris::server::processors::common::*;
-use ferrisstreams::ferris::sql::{
-    execution::types::{FieldValue, StreamRecord},
-    StreamExecutionEngine,
-};
-use ferrisstreams::ferris::StreamJobServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use velostream::velostream::server::processors::common::*;
+use velostream::velostream::sql::{
+    execution::types::{FieldValue, StreamRecord},
+    StreamExecutionEngine,
+};
+use velostream::velostream::StreamJobServer;
 
 /// Helper function to create test records
 fn create_test_record(id: i64, name: &str, value: f64) -> StreamRecord {
@@ -28,8 +28,8 @@ fn create_test_record(id: i64, name: &str, value: f64) -> StreamRecord {
 }
 
 /// Helper function to create a simple test query
-fn create_simple_query() -> ferrisstreams::ferris::sql::ast::StreamingQuery {
-    use ferrisstreams::ferris::sql::ast::{SelectField, StreamSource, StreamingQuery};
+fn create_simple_query() -> velostream::velostream::sql::ast::StreamingQuery {
+    use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
 
     StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -322,7 +322,7 @@ fn test_check_transaction_support_logging() {
     // Mock reader that supports transactions
     struct MockTransactionalReader;
     #[async_trait::async_trait]
-    impl ferrisstreams::ferris::datasource::DataReader for MockTransactionalReader {
+    impl velostream::velostream::datasource::DataReader for MockTransactionalReader {
         fn supports_transactions(&self) -> bool {
             true
         }
@@ -330,7 +330,7 @@ fn test_check_transaction_support_logging() {
         async fn read(
             &mut self,
         ) -> Result<
-            Vec<ferrisstreams::ferris::sql::execution::types::StreamRecord>,
+            Vec<velostream::velostream::sql::execution::types::StreamRecord>,
             Box<dyn std::error::Error + Send + Sync>,
         > {
             Ok(vec![])
@@ -342,7 +342,7 @@ fn test_check_transaction_support_logging() {
 
         async fn seek(
             &mut self,
-            _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+            _offset: velostream::velostream::datasource::types::SourceOffset,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
@@ -355,7 +355,7 @@ fn test_check_transaction_support_logging() {
     // Mock reader that doesn't support transactions
     struct MockNonTransactionalReader;
     #[async_trait::async_trait]
-    impl ferrisstreams::ferris::datasource::DataReader for MockNonTransactionalReader {
+    impl velostream::velostream::datasource::DataReader for MockNonTransactionalReader {
         fn supports_transactions(&self) -> bool {
             false
         }
@@ -363,7 +363,7 @@ fn test_check_transaction_support_logging() {
         async fn read(
             &mut self,
         ) -> Result<
-            Vec<ferrisstreams::ferris::sql::execution::types::StreamRecord>,
+            Vec<velostream::velostream::sql::execution::types::StreamRecord>,
             Box<dyn std::error::Error + Send + Sync>,
         > {
             Ok(vec![])
@@ -375,7 +375,7 @@ fn test_check_transaction_support_logging() {
 
         async fn seek(
             &mut self,
-            _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+            _offset: velostream::velostream::datasource::types::SourceOffset,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }

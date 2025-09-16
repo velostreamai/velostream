@@ -1,7 +1,7 @@
 //! Comprehensive tests for config_file functionality to ensure exhaustive coverage
 
-use ferrisstreams::ferris::sql::query_analyzer::{DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer};
-use ferrisstreams::ferris::kafka::serialization_format::SerializationConfig;
+use velostream::velostream::sql::query_analyzer::{DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer};
+use velostream::velostream::kafka::serialization_format::SerializationConfig;
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;

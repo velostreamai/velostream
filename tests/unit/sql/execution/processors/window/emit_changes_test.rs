@@ -26,7 +26,7 @@ from streaming queries, particularly important for:
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Test basic EMIT CHANGES functionality without windows
 #[tokio::test]

@@ -5,15 +5,15 @@
 //! - Processing borrowed data without copying
 //! - Memory-efficient message handling
 
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::ferris::kafka::serialization::{BytesSerializer, StringSerializer};
-use ferrisstreams::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+use velostream::velostream::kafka::performance_presets::PerformancePresets;
+use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
+use velostream::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 10_000;
@@ -209,7 +209,7 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
                 .send(
                     Some(&key),
                     &payload,
-                    ferrisstreams::Headers::new()
+                    velostream::Headers::new()
                         .insert("test-type", "zero-copy")
                         .insert("message-id", i.to_string()),
                     None,

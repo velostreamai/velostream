@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "Trade",
-  "namespace": "com.ferrisstreams.financial",
+  "namespace": "com.velostream.financial",
   "doc": "Financial trading record with exact decimal precision",
   "fields": [
     {

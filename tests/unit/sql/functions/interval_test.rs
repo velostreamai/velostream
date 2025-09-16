@@ -4,13 +4,13 @@
 Comprehensive test suite for INTERVAL literal parsing and arithmetic operations.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::TimeUnit;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::TimeUnit;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -74,13 +74,13 @@ async fn test_interval_literal_parsing() {
 
         // Extract the query and verify it contains interval
         match result.unwrap() {
-            ferrisstreams::ferris::sql::ast::StreamingQuery::Select { fields, .. } => {
+            velostream::velostream::sql::ast::StreamingQuery::Select { fields, .. } => {
                 assert_eq!(fields.len(), 1);
                 match &fields[0] {
-                    ferrisstreams::ferris::sql::ast::SelectField::Expression { expr, .. } => {
+                    velostream::velostream::sql::ast::SelectField::Expression { expr, .. } => {
                         match expr {
-                            ferrisstreams::ferris::sql::ast::Expr::Literal(
-                                ferrisstreams::ferris::sql::ast::LiteralValue::Interval { .. },
+                            velostream::velostream::sql::ast::Expr::Literal(
+                                velostream::velostream::sql::ast::LiteralValue::Interval { .. },
                             ) => {
                                 // Successfully parsed as interval literal
                             }

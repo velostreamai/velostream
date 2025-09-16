@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 fn main() {
     println!("Testing Financial Precision Implementation");

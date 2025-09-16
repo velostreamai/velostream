@@ -19,14 +19,14 @@ jobs:
     - name: Generate current schemas
       run: |
         echo "🔧 Generating current JSON Schema..."
-        cargo run --bin ferris-schema-generator --no-default-features
+        cargo run --bin velo-schema-generator --no-default-features
         
     - name: Check schema consistency
       run: |
         echo "🔍 Checking if generated schema matches committed version..."
         
         # Compare generated schema with committed version
-        if ! diff -u ferrisstreams-config.schema.json ferrisstreams-config.schema.json.expected 2>/dev/null; then
+        if ! diff -u velostream-config.schema.json velostream-config.schema.json.expected 2>/dev/null; then
           echo "❌ Schema validation failed!"
           echo "The generated schema doesn't match the committed version."
           echo ""
@@ -35,11 +35,11 @@ jobs:
           echo "  2. The committed schema is out of date"
           echo ""
           echo "To fix this:"
-          echo "  1. Run: cargo run --bin ferris-schema-generator --no-default-features"
+          echo "  1. Run: cargo run --bin velo-schema-generator --no-default-features"
           echo "  2. Commit the updated schema files"
           echo ""
           echo "Generated vs Expected diff:"
-          diff -u ferrisstreams-config.schema.json ferrisstreams-config.schema.json.expected || true
+          diff -u velostream-config.schema.json velostream-config.schema.json.expected || true
           exit 1
         fi
         
@@ -50,13 +50,13 @@ jobs:
         echo "🔍 Validating JSON Schema syntax..."
         
         # Check that the schema is valid JSON
-        if ! python3 -m json.tool ferrisstreams-config.schema.json > /dev/null; then
+        if ! python3 -m json.tool velostream-config.schema.json > /dev/null; then
           echo "❌ Generated schema is not valid JSON!"
           exit 1
         fi
         
         # Check VS Code settings file
-        if ! python3 -m json.tool .vscode/ferris-schema-settings.json > /dev/null; then
+        if ! python3 -m json.tool .vscode/velo-schema-settings.json > /dev/null; then
           echo "❌ Generated VS Code settings are not valid JSON!"  
           exit 1
         fi
@@ -79,11 +79,11 @@ jobs:
         import sys
         
         # Load schema
-        with open('ferrisstreams-config.schema.json', 'r') as f:
+        with open('velostream-config.schema.json', 'r') as f:
             schema = json.load(f)
         
         # Load and validate example YAML config
-        with open('ferris-config.example.yaml', 'r') as f:
+        with open('velo-config.example.yaml', 'r') as f:
             config = yaml.safe_load(f)
         
         try:

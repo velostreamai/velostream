@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Schema Registry provides centralized schema management for all pluggable data sources in FerrisStreams, enabling schema discovery, evolution, versioning, and compatibility checking.
+The Schema Registry provides centralized schema management for all pluggable data sources in VeloStream, enabling schema discovery, evolution, versioning, and compatibility checking.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ The Schema Registry provides centralized schema management for all pluggable dat
 The central registry that manages all schema providers and coordinates schema operations.
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{SchemaRegistry, SchemaProvider};
+use velostream::velo::sql::schema::{SchemaRegistry, SchemaProvider};
 
 // Create registry with default providers
 let registry = create_default_registry();
@@ -187,7 +187,7 @@ impl SchemaEvolution {
 CREATE STREAM orders AS
 SELECT * FROM 'kafka://localhost:9092/raw-orders';
 
--- FerrisStreams automatically:
+-- VeloStream automatically:
 -- 1. Uses KafkaSchemaProvider to discover schema
 -- 2. Caches the schema for performance
 -- 3. Creates stream with discovered fields
@@ -215,7 +215,7 @@ CREATE STREAM orders (
 -- Evolve schema with new field (forward compatible)
 ALTER STREAM orders ADD COLUMN discount DECIMAL(5,2) DEFAULT 0.0;
 
--- FerrisStreams automatically:
+-- VeloStream automatically:
 -- 1. Checks compatibility mode
 -- 2. Updates schema in registry
 -- 3. Handles missing values for existing data
@@ -246,21 +246,21 @@ SHOW SCHEMA COMPATIBILITY FOR orders;
 
 ```bash
 # Schema Registry Configuration
-export FERRIS_SCHEMA_REGISTRY_URL="http://localhost:8081"
-export FERRIS_SCHEMA_CACHE_TTL="300"  # 5 minutes
-export FERRIS_SCHEMA_CACHE_SIZE="1000"
-export FERRIS_SCHEMA_COMPATIBILITY="BACKWARD"
+export VELO_SCHEMA_REGISTRY_URL="http://localhost:8081"
+export VELO_SCHEMA_CACHE_TTL="300"  # 5 minutes
+export VELO_SCHEMA_CACHE_SIZE="1000"
+export VELO_SCHEMA_COMPATIBILITY="BACKWARD"
 
 # Provider-specific settings
-export FERRIS_KAFKA_SCHEMA_SAMPLE_SIZE="100"
-export FERRIS_FILE_SCHEMA_INFER_LINES="1000"
-export FERRIS_POSTGRES_SCHEMA_INCLUDE_VIEWS="false"
+export VELO_KAFKA_SCHEMA_SAMPLE_SIZE="100"
+export VELO_FILE_SCHEMA_INFER_LINES="1000"
+export VELO_POSTGRES_SCHEMA_INCLUDE_VIEWS="false"
 ```
 
 ### Programmatic Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{SchemaRegistryBuilder, CacheConfig};
+use velostream::velo::sql::schema::{SchemaRegistryBuilder, CacheConfig};
 
 let registry = SchemaRegistryBuilder::new()
     .cache_config(CacheConfig {
@@ -357,7 +357,7 @@ let pipeline = Pipeline::new()
 ### 3. Registry Clustering
 ```yaml
 # Distributed schema registry configuration
-ferris:
+velo:
   schema_registry:
     cluster:
       enabled: true

@@ -1,18 +1,18 @@
 //! Integration tests for multi-job SQL server functionality
 
-use ferrisstreams::ferris::server::processors::common::{
-    create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
-    JobProcessingConfig,
-};
-use ferrisstreams::ferris::sql::{
-    execution::StreamExecutionEngine,
-    query_analyzer::{DataSourceRequirement, DataSourceType},
-    StreamingSqlParser,
-};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::server::processors::common::{
+    create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
+    JobProcessingConfig,
+};
+use velostream::velostream::sql::{
+    execution::StreamExecutionEngine,
+    query_analyzer::{DataSourceRequirement, DataSourceType},
+    StreamingSqlParser,
+};
 
 /// Create a test datasource requirement for Kafka
 fn create_kafka_requirement() -> DataSourceRequirement {
@@ -125,9 +125,9 @@ async fn test_job_execution_stats_rps() {
 
 #[tokio::test]
 async fn test_process_datasource_with_shutdown() {
-    use ferrisstreams::ferris::datasource::DataReader;
-    use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
     use std::collections::HashMap;
+    use velostream::velostream::datasource::DataReader;
+    use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
     // Create a mock reader that produces test records
     struct MockReader {
@@ -167,7 +167,7 @@ async fn test_process_datasource_with_shutdown() {
 
         async fn seek(
             &mut self,
-            _offset: ferrisstreams::ferris::datasource::types::SourceOffset,
+            _offset: velostream::velostream::datasource::types::SourceOffset,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
@@ -241,7 +241,7 @@ async fn test_process_datasource_with_shutdown() {
 
 #[tokio::test]
 async fn test_unsupported_datasource_type() {
-    use ferrisstreams::ferris::sql::query_analyzer::DataSourceType;
+    use velostream::velostream::sql::query_analyzer::DataSourceType;
 
     let mut properties = HashMap::new();
     properties.insert("url".to_string(), "redis://localhost".to_string());
@@ -272,7 +272,7 @@ async fn test_unsupported_datasource_type() {
 
 #[test]
 fn test_default_values_extraction() {
-    use ferrisstreams::ferris::sql::query_analyzer::DataSourceRequirement;
+    use velostream::velostream::sql::query_analyzer::DataSourceRequirement;
 
     // Test with empty properties - should use defaults
     let requirement = DataSourceRequirement {

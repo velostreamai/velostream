@@ -6,16 +6,16 @@
 //! - Latency vs throughput trade-offs
 //! - Low-latency configuration testing
 
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::{Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+use velostream::velostream::kafka::performance_presets::PerformancePresets;
+use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use velostream::{Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 
 // Latency test configuration
 const MESSAGE_COUNT: u64 = 1_000; // Smaller count for latency focus

@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-// Note: This is a standalone test - in real usage these would come from ferrisstreams crate
+// Note: This is a standalone test - in real usage these would come from velostream crate
 #[derive(Debug, PartialEq, Clone)]
 pub enum FieldValue {
     ScaledInteger(i64, u8),

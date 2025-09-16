@@ -1,4 +1,4 @@
-# FerrisStreams with All Serialization Formats (JSON, Avro, Protobuf)
+# VeloStream with All Serialization Formats (JSON, Avro, Protobuf)
 version: '3.8'
 
 services:
@@ -11,7 +11,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - ferris-network
+      - velo-network
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -32,7 +32,7 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
-      - ferris-network
+      - velo-network
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 30s
@@ -54,12 +54,12 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
     networks:
-      - ferris-network
+      - velo-network
 
-  # FerrisStreams with ALL serialization formats (JSON, Avro, Protobuf)
-  ferris-streams:
+  # VeloStream with ALL serialization formats (JSON, Avro, Protobuf)
+  velo-streams:
     build: .
-    container_name: ferris-streams
+    container_name: velo-streams
     depends_on:
       - kafka
       - schema-registry
@@ -70,19 +70,19 @@ services:
       - RUST_LOG=info
       - KAFKA_BROKERS=kafka:29092
       - SCHEMA_REGISTRY_URL=http://schema-registry:8081
-      - FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf
+      - VELO_SERIALIZATION_FORMATS=json,avro,protobuf
     volumes:
       - ./examples:/app/examples:ro
       - ./data:/app/data
     networks:
-      - ferris-network
+      - velo-network
     command: >
-      ferris-sql-multi
+      velo-sql-multi
       --host 0.0.0.0
       --port 8080
       --kafka-brokers kafka:29092
     healthcheck:
-      test: ["CMD", "ferris-sql-multi", "--help"]
+      test: ["CMD", "velo-sql-multi", "--help"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -95,11 +95,11 @@ services:
     depends_on:
       - kafka
       - schema-registry
-      - ferris-streams
+      - velo-streams
     volumes:
       - ./test-data:/test-data:ro
     networks:
-      - ferris-network
+      - velo-network
     command: >
       bash -c "
         # Wait for services
@@ -133,24 +133,24 @@ services:
     ports:
       - "8085:8080"
     environment:
-      - KAFKA_CLUSTERS_0_NAME=ferris-cluster
+      - KAFKA_CLUSTERS_0_NAME=velo-cluster
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
       - KAFKA_CLUSTERS_0_SCHEMAREGISTRY=http://schema-registry:8081
       - DYNAMIC_CONFIG_ENABLED=true
     networks:
-      - ferris-network
+      - velo-network
 
   # Prometheus for monitoring (optional)
   prometheus:
     image: prom/prometheus:latest
-    container_name: ferris-prometheus
+    container_name: velo-prometheus
     ports:
       - "9093:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     networks:
-      - ferris-network
+      - velo-network
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -164,17 +164,17 @@ services:
   # Grafana for dashboards (optional)
   grafana:
     image: grafana/grafana:latest
-    container_name: ferris-grafana
+    container_name: velo-grafana
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=ferris123
+      - GF_SECURITY_ADMIN_PASSWORD=velo123
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     networks:
-      - ferris-network
+      - velo-network
     profiles:
       - monitoring
 
@@ -195,7 +195,7 @@ volumes:
     driver: local
 
 networks:
-  ferris-network:
+  velo-network:
     driver: bridge
     ipam:
       config:

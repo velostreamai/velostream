@@ -7,9 +7,9 @@
 //! - Error handling
 //! - Batch operations
 
-use ferrisstreams::ferris::datasource::kafka::reader::SerializationFormat;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::datasource::kafka::reader::SerializationFormat;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Test helper to create a StreamRecord for testing
 fn create_test_record(id: i64, name: &str, amount: f64, timestamp: i64) -> StreamRecord {

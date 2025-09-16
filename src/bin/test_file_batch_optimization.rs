@@ -1,8 +1,8 @@
-use ferrisstreams::ferris::datasource::{
-    file::data_source::FileDataSource, traits::DataSource, BatchConfig, BatchStrategy,
-};
 use std::error::Error;
 use std::time::Instant;
+use velostream::velostream::datasource::{
+    file::data_source::FileDataSource, traits::DataSource, BatchConfig, BatchStrategy,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {

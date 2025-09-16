@@ -1,11 +1,11 @@
 // Tests for QueryAnalyzer - SQL query analysis for resource requirements
-use ferrisstreams::ferris::sql::{
+use std::collections::HashMap;
+use velostream::velostream::sql::{
     ast::{
         ConfigProperties, IntoClause, SelectField, ShowResourceType, StreamSource, StreamingQuery,
     },
     query_analyzer::{DataSinkType, DataSourceType, QueryAnalysis, QueryAnalyzer},
 };
-use std::collections::HashMap;
 
 #[test]
 fn test_query_analyzer_schema_integration() {
@@ -33,7 +33,7 @@ fn test_query_analyzer_schema_integration() {
 
     // This should work with our new schema integration
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
     let result =
         analyzer.analyze_sink("output_sink", &config, &serialization_config, &mut analysis);
 
@@ -331,7 +331,7 @@ fn test_file_source_schema_validation() {
 
     // This should work with our file source schema integration - call analyze_source for sources
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
     let result =
         analyzer.analyze_source("input_file", &config, &serialization_config, &mut analysis);
 
@@ -342,7 +342,7 @@ fn test_file_source_schema_validation() {
             let source = &analysis.required_sources[0];
             assert_eq!(
                 source.source_type,
-                ferrisstreams::ferris::sql::query_analyzer::DataSourceType::File
+                velostream::velostream::sql::query_analyzer::DataSourceType::File
             );
             assert_eq!(source.name, "input_file");
         }
@@ -379,7 +379,7 @@ fn test_file_sink_schema_validation() {
 
     // This should work with our file sink schema integration
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
     let result =
         analyzer.analyze_sink("output_file", &config, &serialization_config, &mut analysis);
 

@@ -17,10 +17,10 @@
 - ✅ **NEW: Window edge cases and late data handling** (15+ advanced streaming tests)
 
 **Test Files:**
-- `tests/ferris/kafka/builder_pattern_test.rs` - 18 comprehensive builder tests
-- `tests/ferris/kafka/error_handling_test.rs` - 12 error scenario tests
-- `tests/ferris/kafka/kafka_integration_test.rs` - 5 integration tests
-- `tests/ferris/kafka/serialization_unit_test.rs` - serialization edge cases
+- `tests/velo/kafka/builder_pattern_test.rs` - 18 comprehensive builder tests
+- `tests/velo/kafka/error_handling_test.rs` - 12 error scenario tests
+- `tests/velo/kafka/kafka_integration_test.rs` - 5 integration tests
+- `tests/velo/kafka/serialization_unit_test.rs` - serialization edge cases
 - `tests/sql/join_tests.rs` - **NEW:** 13 comprehensive JOIN operation tests
 - `tests/sql/advanced_types_tests.rs` - **NEW:** Advanced data type functions (ARRAY, MAP, STRUCT)
 - `tests/sql/new_functions_tests.rs` - **NEW:** 70+ SQL functions across all categories
@@ -98,7 +98,7 @@ fn test_message_metadata_consistency() {
 #[test]
 fn test_producer_builder_library_integration() {
     // Show how ProducerBuilder would actually be used by library consumers
-    let producer = ferrisstreams::ProducerBuilder::new(...)
+    let producer = velostream::ProducerBuilder::new(...)
         .high_throughput()
         .build()?;
 }
@@ -215,7 +215,7 @@ async fn test_consumer_long_running_stability() {
 
 ### ✅ Current Test Structure
 ```
-tests/ferris/kafka/
+tests/velo/kafka/
 ├── builder_pattern_test.rs    # 18 tests ✅
 ├── error_handling_test.rs     # 12 tests ✅  
 ├── kafka_integration_test.rs  # 5 tests ✅

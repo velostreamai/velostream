@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Financial Trading Demo Script
-# Demonstrates real-time trading analytics with FerrisStreams
+# Demonstrates real-time trading analytics with VeloStream
 
 set -e
 
@@ -17,7 +17,7 @@ KAFKA_BROKERS="${KAFKA_BROKERS:-localhost:9092}"
 DEMO_DURATION="${DEMO_DURATION:-5}" # minutes
 SQL_SERVER_PORT="${SQL_SERVER_PORT:-8080}"
 
-echo -e "${BLUE}🏦 FerrisStreams Financial Trading Demo${NC}"
+echo -e "${BLUE}🏦 VeloStream Financial Trading Demo${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
@@ -110,14 +110,14 @@ done
 echo -e "${GREEN}✓ Kafka topics created${NC}"
 
 # Build the project
-echo -e "${YELLOW}🔨 Building FerrisStreams...${NC}"
+echo -e "${YELLOW}🔨 Building VeloStream...${NC}"
 cd ../..
 cargo build --release
 cd demo/trading
 
 # Start the multi-job SQL server with financial trading analysis
 echo -e "${YELLOW}🚀 Starting Multi-Job SQL server with Financial Trading Analytics...${NC}"
-../../target/release/ferris-sql-multi server --brokers "$KAFKA_BROKERS" --port "$SQL_SERVER_PORT" &
+../../target/release/velo-sql-multi server --brokers "$KAFKA_BROKERS" --port "$SQL_SERVER_PORT" &
 SQL_SERVER_PID=$!
 
 echo -e "${GREEN}✓ Financial trading analytics server started${NC}"
@@ -141,7 +141,7 @@ sleep 5
 
 # Deploy financial trading analytics jobs (now that data is available)
 echo -e "${YELLOW}📊 Deploying financial trading analytics jobs...${NC}"
-../../target/release/ferris-sql-multi deploy-app --file sql/financial_trading.sql --brokers "$KAFKA_BROKERS"
+../../target/release/velo-sql-multi deploy-app --file sql/financial_trading.sql --brokers "$KAFKA_BROKERS"
 echo -e "${GREEN}✓ All 5 financial trading analytics jobs deployed${NC}"
 sleep 3
 
@@ -212,14 +212,14 @@ echo ""
 echo -e "${BLUE}🎯 Access Points:${NC}"
 echo "• Kafka UI: http://localhost:8090 (monitor topics and messages)"
 echo "• Grafana Dashboards: http://localhost:3000 (admin/admin)"
-echo "  - FerrisStreams Trading Demo (real-time trading analytics)"
-echo "  - FerrisStreams Overview (system health and performance)"
+echo "  - VeloStream Trading Demo (real-time trading analytics)"
+echo "  - VeloStream Overview (system health and performance)"
 echo "  - Kafka Metrics (broker and topic statistics)"
 echo "• Prometheus: http://localhost:9090 (metrics and monitoring)"
 echo "• Python Dashboard: Run 'source dashboard_env/bin/activate && python3 dashboard.py'"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
-echo "• Monitor with CLI: ./ferris-cli status --verbose (run ./build_cli.sh first)"
+echo "• Monitor with CLI: ./velo-cli status --verbose (run ./build_cli.sh first)"
 echo "• View Kafka topics: docker exec \$(docker-compose -f kafka-compose.yml ps -q kafka) kafka-topics --list --bootstrap-server localhost:9092"
 echo "• SQL server logs show demo job execution"
 echo "• Check logs: docker-compose logs"

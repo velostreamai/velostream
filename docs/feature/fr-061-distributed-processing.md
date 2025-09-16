@@ -75,13 +75,13 @@ impl KubernetesHPAMetrics {
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ferris-trading-hpa
+  name: velo-trading-hpa
 spec:
   metrics:
   - type: Pods
     pods:
       metric:
-        name: ferris_cluster_job_queue_depth    # From cluster ops metadata
+        name: velo_cluster_job_queue_depth    # From cluster ops metadata
         selector:
           matchLabels:
             workload: trading
@@ -122,16 +122,16 @@ impl KubernetesClusterAPI {
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
 │   SQL Developer     │    │  Kubernetes HPA     │    │   Cluster Ops       │
 │                     │    │                     │    │   Foundation        │
-│ @ferris:workload=   │───▶│ Reads custom        │───▶│ SHOW JOBS          │
+│ @velo:workload=   │───▶│ Reads custom        │───▶│ SHOW JOBS          │
 │ trading             │    │ metrics from        │    │ Node Discovery     │
-│ @ferris:sla.        │    │ cluster ops API     │    │ Metadata Sync      │
+│ @velo:sla.        │    │ cluster ops API     │    │ Metadata Sync      │
 │ latency_p95_ms=100  │    │                     │    │ REST APIs          │
 └─────────────────────┘    └─────────────────────┘    └─────────────────────┘
            │                           │                           │
            │                           │                           │
            ▼                           ▼                           ▼
 ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
-│ ferris-k8s-deploy   │    │  Pod Scaling        │    │ StreamJobServer     │
+│ velo-k8s-deploy   │    │  Pod Scaling        │    │ StreamJobServer     │
 │                     │    │                     │    │ (Enhanced)          │
 │ Generates K8s YAML  │◀───│ • Scale up/down     │◀───│ • Cross-node jobs   │
 │ from SQL hints      │    │ • Workload-aware    │    │ • Distributed       │
@@ -149,7 +149,7 @@ impl KubernetesClusterAPI {
 
 1. **Kubernetes Configuration Module**
 ```rust
-// src/ferris/kubernetes/config.rs
+// src/velo/kubernetes/config.rs
 pub struct KubernetesConfig {
     pub workload_name: String,           // "trading", "analytics", "reporting"
     pub consumer_group_id: String,       // Maps to K8s deployment name
@@ -188,7 +188,7 @@ impl StreamingSqlEngine {
 
 3. **Deployment Template Generator**
 ```rust
-// src/ferris/kubernetes/deployment.rs
+// src/velo/kubernetes/deployment.rs
 pub fn generate_workload_deployment(
     workload: &WorkloadType,
     config: &KubernetesDeploymentConfig,
@@ -251,12 +251,12 @@ pub enum WorkloadType {
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ferris-trading-hpa
+  name: velo-trading-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ferris-trading
+    name: velo-trading
   minReplicas: 2
   maxReplicas: 20
   metrics:
@@ -264,7 +264,7 @@ spec:
   - type: Pods
     pods:
       metric:
-        name: ferris_consumer_lag_by_workload
+        name: velo_consumer_lag_by_workload
         selector:
           matchLabels:
             workload: trading
@@ -276,7 +276,7 @@ spec:
   - type: Pods
     pods:
       metric:
-        name: ferris_query_duration_p95_by_workload
+        name: velo_query_duration_p95_by_workload
         selector:
           matchLabels:
             workload: trading
@@ -303,12 +303,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ferris-analytics-hpa
+  name: velo-analytics-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ferris-analytics
+    name: velo-analytics
   minReplicas: 1
   maxReplicas: 8
   metrics:
@@ -324,7 +324,7 @@ spec:
   - type: Pods
     pods:
       metric:
-        name: ferris_pending_queries_by_workload
+        name: velo_pending_queries_by_workload
         selector:
           matchLabels:
             workload: analytics
@@ -358,7 +358,7 @@ spec:
 #### Cluster-Wide Metrics
 
 ```rust
-// src/ferris/observability/cluster_metrics.rs
+// src/velo/observability/cluster_metrics.rs
 pub struct ClusterMetricsProvider {
     node_metrics: Arc<RwLock<HashMap<String, NodeMetrics>>>,
     workload_metrics: Arc<RwLock<HashMap<String, WorkloadMetrics>>>,
@@ -390,12 +390,12 @@ pub struct WorkloadMetrics {
 **Cluster Overview Panel**:
 ```json
 {
-  "title": "FerrisStreams Cluster Overview",
+  "title": "VeloStream Cluster Overview",
   "panels": [
     {
       "title": "Active Pods by Workload",
       "targets": [{
-        "expr": "kube_deployment_status_replicas{deployment=~\"ferris-.*\"}",
+        "expr": "kube_deployment_status_replicas{deployment=~\"velo-.*\"}",
         "legendFormat": "{{deployment}}"
       }]
     },
@@ -410,11 +410,11 @@ pub struct WorkloadMetrics {
       "title": "Cost vs Performance",
       "targets": [
         {
-          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", container=\"ferris-streams\"}) * 0.05",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", container=\"velo-streams\"}) * 0.05",
           "legendFormat": "Estimated Cost ($/hour)"
         },
         {
-          "expr": "avg(ferris_query_duration_p95_by_workload)",
+          "expr": "avg(velo_query_duration_p95_by_workload)",
           "legendFormat": "Average P95 Latency (s)"
         }
       ]
@@ -435,7 +435,7 @@ pub struct WorkloadMetrics {
 #### Predictive Scaling
 
 ```rust
-// src/ferris/kubernetes/predictive_scaling.rs
+// src/velo/kubernetes/predictive_scaling.rs
 pub struct PredictiveScaler {
     historical_metrics: TimeSeriesDB,
     ml_model: Option<ScalingModel>,
@@ -449,7 +449,7 @@ impl PredictiveScaler {
         time_horizon: Duration,
     ) -> Result<ScalingPrediction, Error> {
         let historical_data = self.historical_metrics.query_range(
-            format!("ferris_query_rate_by_workload{{workload=\"{}\"}}", workload),
+            format!("velo_query_rate_by_workload{{workload=\"{}\"}}", workload),
             time_horizon,
         ).await?;
         
@@ -472,7 +472,7 @@ impl PredictiveScaler {
 #### Multi-Cloud Support
 
 ```rust
-// src/ferris/kubernetes/multi_cloud.rs
+// src/velo/kubernetes/multi_cloud.rs
 pub enum CloudProvider {
     AWS {
         region: String,
@@ -508,16 +508,16 @@ pub struct MultiCloudConfig {
 
 ### In-SQL Scaling Hints
 
-FerrisStreams supports **declarative scaling hints** directly within SQL files, allowing developers to specify performance requirements and scaling behavior alongside their queries.
+VeloStream supports **declarative scaling hints** directly within SQL files, allowing developers to specify performance requirements and scaling behavior alongside their queries.
 
 #### Basic Scaling Hints
 
 ```sql
--- @ferris:workload=trading
--- @ferris:sla.latency_p95_ms=100
--- @ferris:scaling.min_replicas=2
--- @ferris:scaling.max_replicas=10
--- @ferris:scaling.target_cpu_percent=60
+-- @velo:workload=trading
+-- @velo:sla.latency_p95_ms=100
+-- @velo:scaling.min_replicas=2
+-- @velo:scaling.max_replicas=10
+-- @velo:scaling.target_cpu_percent=60
 SELECT ticker, price, volume,
        LAG(price, 1) OVER (PARTITION BY ticker ORDER BY timestamp) AS prev_price
 FROM market_data
@@ -528,14 +528,14 @@ WINDOW TUMBLING (INTERVAL '1' SECOND);
 #### Advanced Resource Hints
 
 ```sql
--- @ferris:workload=analytics
--- @ferris:resources.memory_gb=16
--- @ferris:resources.cpu_cores=4
--- @ferris:node_selector.instance_type=r5.2xlarge
--- @ferris:node_selector.zone=us-west-2a
--- @ferris:scaling.strategy=memory_based
--- @ferris:scaling.metric=pending_queries
--- @ferris:scaling.threshold=3
+-- @velo:workload=analytics
+-- @velo:resources.memory_gb=16
+-- @velo:resources.cpu_cores=4
+-- @velo:node_selector.instance_type=r5.2xlarge
+-- @velo:node_selector.zone=us-west-2a
+-- @velo:scaling.strategy=memory_based
+-- @velo:scaling.metric=pending_queries
+-- @velo:scaling.threshold=3
 CREATE STREAM customer_segments AS
 SELECT customer_id, 
        AVG(order_amount) AS avg_order,
@@ -550,13 +550,13 @@ HAVING COUNT(*) > 10;
 #### Cost Optimization Hints
 
 ```sql
--- @ferris:workload=reporting
--- @ferris:cost.spot_instances=enabled
--- @ferris:cost.priority=low
--- @ferris:schedule.cron=0 2 * * *
--- @ferris:schedule.timeout_minutes=120
--- @ferris:scaling.min_replicas=0
--- @ferris:scaling.scale_to_zero=enabled
+-- @velo:workload=reporting
+-- @velo:cost.spot_instances=enabled
+-- @velo:cost.priority=low
+-- @velo:schedule.cron=0 2 * * *
+-- @velo:schedule.timeout_minutes=120
+-- @velo:scaling.min_replicas=0
+-- @velo:scaling.scale_to_zero=enabled
 CREATE STREAM daily_revenue_report AS
 SELECT 
     DATE(order_timestamp) AS report_date,
@@ -573,14 +573,14 @@ GROUP BY DATE(order_timestamp), region, product_category;
 #### Real-Time Processing Hints
 
 ```sql
--- @ferris:workload=realtime
--- @ferris:sla.throughput_rps=50000
--- @ferris:sla.max_latency_ms=50
--- @ferris:scaling.trigger=consumer_lag
--- @ferris:scaling.lag_threshold=1000
--- @ferris:resources.network_optimized=true
--- @ferris:backpressure.enabled=true
--- @ferris:backpressure.threshold=0.8
+-- @velo:workload=realtime
+-- @velo:sla.throughput_rps=50000
+-- @velo:sla.max_latency_ms=50
+-- @velo:scaling.trigger=consumer_lag
+-- @velo:scaling.lag_threshold=1000
+-- @velo:resources.network_optimized=true
+-- @velo:backpressure.enabled=true
+-- @velo:backpressure.threshold=0.8
 SELECT 
     user_id,
     COUNT(*) AS event_count,
@@ -595,75 +595,75 @@ HAVING COUNT(*) > 100;  -- Detect high-activity users
 
 #### 1. **Workload Classification**
 ```sql
--- @ferris:workload=<type>
+-- @velo:workload=<type>
 -- Options: trading, analytics, reporting, realtime, custom
 -- Determines base scaling strategy and resource allocation
 ```
 
 #### 2. **SLA Requirements**
 ```sql
--- @ferris:sla.latency_p95_ms=<milliseconds>
--- @ferris:sla.latency_p99_ms=<milliseconds>
--- @ferris:sla.throughput_rps=<records_per_second>
--- @ferris:sla.availability_percent=<percentage>
--- @ferris:sla.max_downtime_seconds=<seconds>
+-- @velo:sla.latency_p95_ms=<milliseconds>
+-- @velo:sla.latency_p99_ms=<milliseconds>
+-- @velo:sla.throughput_rps=<records_per_second>
+-- @velo:sla.availability_percent=<percentage>
+-- @velo:sla.max_downtime_seconds=<seconds>
 ```
 
 #### 3. **Scaling Configuration**
 ```sql
--- @ferris:scaling.min_replicas=<number>
--- @ferris:scaling.max_replicas=<number>
--- @ferris:scaling.strategy=cpu_based|memory_based|latency_based|throughput_based|custom
--- @ferris:scaling.metric=<prometheus_metric_name>
--- @ferris:scaling.threshold=<value>
--- @ferris:scaling.scale_up_percent=<percentage>
--- @ferris:scaling.scale_down_percent=<percentage>
--- @ferris:scaling.scale_to_zero=enabled|disabled
--- @ferris:scaling.cooldown_seconds=<seconds>
+-- @velo:scaling.min_replicas=<number>
+-- @velo:scaling.max_replicas=<number>
+-- @velo:scaling.strategy=cpu_based|memory_based|latency_based|throughput_based|custom
+-- @velo:scaling.metric=<prometheus_metric_name>
+-- @velo:scaling.threshold=<value>
+-- @velo:scaling.scale_up_percent=<percentage>
+-- @velo:scaling.scale_down_percent=<percentage>
+-- @velo:scaling.scale_to_zero=enabled|disabled
+-- @velo:scaling.cooldown_seconds=<seconds>
 ```
 
 #### 4. **Resource Requirements**
 ```sql
--- @ferris:resources.cpu_cores=<number>
--- @ferris:resources.memory_gb=<number>
--- @ferris:resources.storage_gb=<number>
--- @ferris:resources.network_optimized=true|false
--- @ferris:resources.gpu_required=true|false
--- @ferris:resources.gpu_type=<gpu_model>
+-- @velo:resources.cpu_cores=<number>
+-- @velo:resources.memory_gb=<number>
+-- @velo:resources.storage_gb=<number>
+-- @velo:resources.network_optimized=true|false
+-- @velo:resources.gpu_required=true|false
+-- @velo:resources.gpu_type=<gpu_model>
 ```
 
 #### 5. **Node Selection**
 ```sql
--- @ferris:node_selector.instance_type=<aws_instance_type>
--- @ferris:node_selector.zone=<availability_zone>
--- @ferris:node_selector.arch=amd64|arm64
--- @ferris:node_selector.custom.<key>=<value>
+-- @velo:node_selector.instance_type=<aws_instance_type>
+-- @velo:node_selector.zone=<availability_zone>
+-- @velo:node_selector.arch=amd64|arm64
+-- @velo:node_selector.custom.<key>=<value>
 ```
 
 #### 6. **Cost Optimization**
 ```sql
--- @ferris:cost.spot_instances=enabled|disabled
--- @ferris:cost.priority=low|medium|high|critical
--- @ferris:cost.max_hourly_cost=<dollars>
--- @ferris:cost.preemptible=enabled|disabled
--- @ferris:cost.budget_alert_threshold=<percentage>
+-- @velo:cost.spot_instances=enabled|disabled
+-- @velo:cost.priority=low|medium|high|critical
+-- @velo:cost.max_hourly_cost=<dollars>
+-- @velo:cost.preemptible=enabled|disabled
+-- @velo:cost.budget_alert_threshold=<percentage>
 ```
 
 #### 7. **Scheduling and Lifecycle**
 ```sql
--- @ferris:schedule.cron=<cron_expression>
--- @ferris:schedule.timezone=<timezone>
--- @ferris:schedule.timeout_minutes=<minutes>
--- @ferris:schedule.retry_count=<number>
--- @ferris:schedule.retry_backoff_minutes=<minutes>
+-- @velo:schedule.cron=<cron_expression>
+-- @velo:schedule.timezone=<timezone>
+-- @velo:schedule.timeout_minutes=<minutes>
+-- @velo:schedule.retry_count=<number>
+-- @velo:schedule.retry_backoff_minutes=<minutes>
 ```
 
 #### 8. **Monitoring and Alerting**
 ```sql
--- @ferris:monitoring.dashboard=<grafana_dashboard_id>
--- @ferris:monitoring.alert_channel=<slack_channel>
--- @ferris:monitoring.pager_duty_key=<key>
--- @ferris:monitoring.custom_metrics=<comma_separated_list>
+-- @velo:monitoring.dashboard=<grafana_dashboard_id>
+-- @velo:monitoring.alert_channel=<slack_channel>
+-- @velo:monitoring.pager_duty_key=<key>
+-- @velo:monitoring.custom_metrics=<comma_separated_list>
 ```
 
 ### Hint Processing and Validation
@@ -671,7 +671,7 @@ HAVING COUNT(*) > 100;  -- Detect high-activity users
 #### SQL Parser Integration
 
 ```rust
-// src/ferris/sql/hints/parser.rs
+// src/velo/sql/hints/parser.rs
 pub struct SqlHintParser {
     hint_extractors: HashMap<String, Box<dyn HintExtractor>>,
 }
@@ -704,7 +704,7 @@ impl SqlHintParser {
 #### Kubernetes Integration
 
 ```rust
-// src/ferris/kubernetes/hint_processor.rs
+// src/velo/kubernetes/hint_processor.rs
 impl KubernetesHintProcessor {
     pub fn generate_deployment_from_hints(
         &self,
@@ -744,13 +744,13 @@ impl KubernetesHintProcessor {
 #### Conditional Scaling
 
 ```sql
--- @ferris:workload=trading
--- @ferris:scaling.condition=market_hours
--- @ferris:scaling.market_hours.min_replicas=5
--- @ferris:scaling.market_hours.max_replicas=20
--- @ferris:scaling.after_hours.min_replicas=1
--- @ferris:scaling.after_hours.max_replicas=3
--- @ferris:scaling.market_hours.schedule=0 9-16 * * 1-5
+-- @velo:workload=trading
+-- @velo:scaling.condition=market_hours
+-- @velo:scaling.market_hours.min_replicas=5
+-- @velo:scaling.market_hours.max_replicas=20
+-- @velo:scaling.after_hours.min_replicas=1
+-- @velo:scaling.after_hours.max_replicas=3
+-- @velo:scaling.market_hours.schedule=0 9-16 * * 1-5
 SELECT ticker, price, 
        CASE WHEN ABS(price - prev_price) / prev_price > 0.05 
             THEN 'VOLATILE' 
@@ -762,12 +762,12 @@ WINDOW TUMBLING (INTERVAL '1' SECOND);
 #### Multi-Region Deployment
 
 ```sql
--- @ferris:workload=analytics
--- @ferris:regions.primary=us-west-2
--- @ferris:regions.secondary=us-east-1,eu-west-1
--- @ferris:regions.failover=enabled
--- @ferris:regions.data_locality=preferred
--- @ferris:scaling.cross_region=enabled
+-- @velo:workload=analytics
+-- @velo:regions.primary=us-west-2
+-- @velo:regions.secondary=us-east-1,eu-west-1
+-- @velo:regions.failover=enabled
+-- @velo:regions.data_locality=preferred
+-- @velo:scaling.cross_region=enabled
 SELECT region, product_id,
        SUM(sales_amount) AS total_sales,
        COUNT(*) AS transaction_count
@@ -779,12 +779,12 @@ GROUP BY region, product_id;
 #### Circuit Breaker Integration
 
 ```sql
--- @ferris:workload=realtime
--- @ferris:circuit_breaker.enabled=true
--- @ferris:circuit_breaker.failure_threshold=10
--- @ferris:circuit_breaker.recovery_timeout_seconds=30
--- @ferris:circuit_breaker.fallback_strategy=cached_results
--- @ferris:scaling.on_circuit_open=scale_down
+-- @velo:workload=realtime
+-- @velo:circuit_breaker.enabled=true
+-- @velo:circuit_breaker.failure_threshold=10
+-- @velo:circuit_breaker.recovery_timeout_seconds=30
+-- @velo:circuit_breaker.fallback_strategy=cached_results
+-- @velo:scaling.on_circuit_open=scale_down
 SELECT user_id, recommendation_id, confidence_score
 FROM ml_recommendations 
 WHERE confidence_score > 0.8
@@ -796,7 +796,7 @@ WHERE confidence_score > 0.8
 #### Validation Rules
 
 ```rust
-// src/ferris/sql/hints/validator.rs
+// src/velo/sql/hints/validator.rs
 impl HintValidator {
     pub fn validate_hints(&self, hints: &WorkloadHints) -> Result<(), ValidationError> {
         // Check resource constraints
@@ -831,11 +831,11 @@ impl HintValidator {
 #### Conflict Resolution
 
 ```sql
--- @ferris:conflict_resolution=override_with_comment
--- @ferris:workload=trading
--- @ferris:cost.spot_instances=enabled  
--- @ferris:sla.availability_percent=99.9  # This will override spot instances for trading workload
--- @ferris:scaling.priority=sla_over_cost
+-- @velo:conflict_resolution=override_with_comment
+-- @velo:workload=trading
+-- @velo:cost.spot_instances=enabled  
+-- @velo:sla.availability_percent=99.9  # This will override spot instances for trading workload
+-- @velo:scaling.priority=sla_over_cost
 SELECT * FROM high_frequency_trades WHERE latency_sensitive = true;
 ```
 
@@ -845,7 +845,7 @@ SELECT * FROM high_frequency_trades WHERE latency_sensitive = true;
 
 ```bash
 # Analyze SQL file for hints and generate deployment
-ferris-k8s-deploy analyze-sql trading_queries.sql
+velo-k8s-deploy analyze-sql trading_queries.sql
 
 # Output:
 # ✅ Parsed 15 hint directives
@@ -853,32 +853,32 @@ ferris-k8s-deploy analyze-sql trading_queries.sql
 # ✅ SLA requirements: P95 < 100ms, throughput > 10K rps
 # ⚠️  Warning: Spot instances disabled due to high availability SLA
 # 📊 Estimated cost: $2.40/hour (2-8 pods, c5.2xlarge instances)
-# 🎯 Deployment: ferris-trading-deployment.yaml generated
+# 🎯 Deployment: velo-trading-deployment.yaml generated
 
 # Deploy with hints
-ferris-k8s-deploy deploy-from-sql trading_queries.sql
+velo-k8s-deploy deploy-from-sql trading_queries.sql
 
 # Validate hints before deployment
-ferris-k8s-deploy validate-hints *.sql --strict
+velo-k8s-deploy validate-hints *.sql --strict
 ```
 
 #### Hint Template Generator
 
 ```bash
 # Generate hint templates for different workload types
-ferris-k8s-deploy generate-hints --workload trading --output trading_template.sql
-ferris-k8s-deploy generate-hints --workload analytics --output analytics_template.sql
+velo-k8s-deploy generate-hints --workload trading --output trading_template.sql
+velo-k8s-deploy generate-hints --workload analytics --output analytics_template.sql
 
 # Convert existing deployment to hints
-ferris-k8s-deploy extract-hints --from-deployment ferris-trading --output extracted_hints.sql
+velo-k8s-deploy extract-hints --from-deployment velo-trading --output extracted_hints.sql
 ```
 
 ### Integration with Development Workflow
 
 #### IDE Extensions
 
-**VS Code Extension** (`ferris-sql-hints`):
-- Syntax highlighting for `@ferris:` hints
+**VS Code Extension** (`velo-sql-hints`):
+- Syntax highlighting for `@velo:` hints
 - Auto-completion for hint categories and values
 - Real-time validation with error squiggles
 - Cost estimation tooltips
@@ -895,7 +895,7 @@ changed_sql_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.sq
 
 if [ ! -z "$changed_sql_files" ]; then
     echo "Validating SQL hints..."
-    ferris-k8s-deploy validate-hints $changed_sql_files --strict
+    velo-k8s-deploy validate-hints $changed_sql_files --strict
     
     if [ $? -ne 0 ]; then
         echo "❌ SQL hint validation failed. Please fix hints before committing."
@@ -922,16 +922,16 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Install FerrisStreams CLI
-      run: cargo install ferris-k8s-deploy
+    - name: Install VeloStream CLI
+      run: cargo install velo-k8s-deploy
       
     - name: Validate SQL hints
-      run: ferris-k8s-deploy validate-hints sql/**/*.sql --strict
+      run: velo-k8s-deploy validate-hints sql/**/*.sql --strict
       
     - name: Generate deployments
       run: |
         for sql_file in sql/**/*.sql; do
-          ferris-k8s-deploy analyze-sql "$sql_file" --output "k8s/$(basename "$sql_file" .sql)-deployment.yaml"
+          velo-k8s-deploy analyze-sql "$sql_file" --output "k8s/$(basename "$sql_file" .sql)-deployment.yaml"
         done
         
     - name: Deploy to staging
@@ -952,11 +952,11 @@ This approach provides a **declarative, version-controlled way** to specify scal
 ### Deployment CLI
 
 ```bash
-# ferris-k8s-deploy - Deployment management tool
-cargo install ferris-k8s-deploy
+# velo-k8s-deploy - Deployment management tool
+cargo install velo-k8s-deploy
 
 # Deploy trading workload
-ferris-k8s-deploy trading \
+velo-k8s-deploy trading \
   --replicas 2 \
   --max-replicas 10 \
   --kafka-brokers kafka-cluster:9092 \
@@ -964,7 +964,7 @@ ferris-k8s-deploy trading \
   --cpu-limit 2000m
 
 # Deploy analytics workload with memory optimization
-ferris-k8s-deploy analytics \
+velo-k8s-deploy analytics \
   --replicas 1 \
   --max-replicas 5 \
   --kafka-brokers kafka-cluster:9092 \
@@ -972,26 +972,26 @@ ferris-k8s-deploy analytics \
   --node-selector kubernetes.io/instance-type=r5.2xlarge
 
 # Generate HPA configuration
-ferris-k8s-deploy generate-hpa trading --output trading-hpa.yaml
+velo-k8s-deploy generate-hpa trading --output trading-hpa.yaml
 ```
 
 ### Monitoring CLI
 
 ```bash
-# ferris-k8s-monitor - Cluster monitoring tool
-cargo install ferris-k8s-monitor
+# velo-k8s-monitor - Cluster monitoring tool
+cargo install velo-k8s-monitor
 
 # View cluster status
-ferris-k8s-monitor status
+velo-k8s-monitor status
 
 # Check scaling events
-ferris-k8s-monitor scaling-events --last 24h
+velo-k8s-monitor scaling-events --last 24h
 
 # Analyze cost efficiency
-ferris-k8s-monitor cost-analysis --workload trading
+velo-k8s-monitor cost-analysis --workload trading
 
 # Predict scaling needs
-ferris-k8s-monitor predict --workload analytics --horizon 4h
+velo-k8s-monitor predict --workload analytics --horizon 4h
 ```
 
 ## Configuration Examples
@@ -999,11 +999,11 @@ ferris-k8s-monitor predict --workload analytics --horizon 4h
 ### Complete Workload Configuration
 
 ```yaml
-# ferris-trading-workload.yaml
+# velo-trading-workload.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ferris-trading-config
+  name: velo-trading-config
 data:
   workload.yaml: |
     workload_type: Trading
@@ -1019,7 +1019,7 @@ data:
       target_memory_percent: 70
       
     kafka:
-      consumer_group: "ferris-trading-processors"
+      consumer_group: "velo-trading-processors"
       topics:
         - "market_data"
         - "order_events" 
@@ -1043,20 +1043,20 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-trading
+  name: velo-trading
   labels:
-    app: ferris-streams
+    app: velo-streams
     workload: trading
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: ferris-streams
+      app: velo-streams
       workload: trading
   template:
     metadata:
       labels:
-        app: ferris-streams
+        app: velo-streams
         workload: trading
     spec:
       affinity:
@@ -1068,13 +1068,13 @@ spec:
                 operator: In
                 values: ["c5.2xlarge", "c5.4xlarge"]
       containers:
-      - name: ferris-streams
-        image: ferrisstreams:latest
+      - name: velo-streams
+        image: velostream:latest
         env:
-        - name: FERRIS_WORKLOAD_TYPE
+        - name: VELO_WORKLOAD_TYPE
           value: "trading"
-        - name: FERRIS_CONSUMER_GROUP
-          value: "ferris-trading-processors"
+        - name: VELO_CONSUMER_GROUP
+          value: "velo-trading-processors"
         - name: KAFKA_BROKERS
           value: "kafka-cluster:9092"
         - name: HOSTNAME
@@ -1119,9 +1119,9 @@ spec:
 
 ```bash
 # Single-node development setup
-kind create cluster --name ferris-dev
+kind create cluster --name velo-dev
 kubectl apply -f dev/kafka-single-node.yaml
-kubectl apply -f dev/ferris-dev-deployment.yaml
+kubectl apply -f dev/velo-dev-deployment.yaml
 
 # Load test data
 kubectl exec -it kafka-0 -- kafka-console-producer --topic test-data --bootstrap-server localhost:9092 < test-data.json
@@ -1133,7 +1133,7 @@ kubectl exec -it kafka-0 -- kafka-console-producer --topic test-data --bootstrap
 # Multi-node staging with monitoring
 kubectl apply -f staging/kafka-cluster.yaml
 kubectl apply -f staging/prometheus-stack.yaml
-kubectl apply -f staging/ferris-all-workloads.yaml
+kubectl apply -f staging/velo-all-workloads.yaml
 
 # Chaos engineering tests
 kubectl apply -f staging/chaos-experiments.yaml
@@ -1145,7 +1145,7 @@ kubectl apply -f staging/chaos-experiments.yaml
 # Production deployment with high availability
 kubectl apply -f production/kafka-ha-cluster.yaml
 kubectl apply -f production/monitoring-ha-stack.yaml
-kubectl apply -f production/ferris-production-workloads.yaml
+kubectl apply -f production/velo-production-workloads.yaml
 
 # Configure backup and disaster recovery
 kubectl apply -f production/backup-policies.yaml
@@ -1207,10 +1207,10 @@ kubectl apply -f production/multi-region-setup.yaml
 ```yaml
 # prometheus-alerts.yaml
 groups:
-- name: ferris-scaling-alerts
+- name: velo-scaling-alerts
   rules:
   - alert: TradingLatencySLABreach
-    expr: ferris_query_duration_p95_by_workload{workload="trading"} > 0.1
+    expr: velo_query_duration_p95_by_workload{workload="trading"} > 0.1
     for: 2m
     labels:
       severity: critical
@@ -1219,7 +1219,7 @@ groups:
       summary: "Trading workload P95 latency exceeds 100ms SLA"
       
   - alert: AnalyticsMemoryPressure
-    expr: avg(container_memory_usage_bytes{pod=~"ferris-analytics-.*"}) / avg(container_spec_memory_limit_bytes{pod=~"ferris-analytics-.*"}) > 0.85
+    expr: avg(container_memory_usage_bytes{pod=~"velo-analytics-.*"}) / avg(container_spec_memory_limit_bytes{pod=~"velo-analytics-.*"}) > 0.85
     for: 5m
     labels:
       severity: warning
@@ -1228,12 +1228,12 @@ groups:
       summary: "Analytics workload memory usage above 85%"
       
   - alert: ClusterCostSpike
-    expr: increase(kube_pod_container_resource_requests{container="ferris-streams"}[1h]) > 10
+    expr: increase(kube_pod_container_resource_requests{container="velo-streams"}[1h]) > 10
     for: 10m
     labels:
       severity: warning
     annotations:
-      summary: "Ferris cluster resource requests increased by >10 cores in 1 hour"
+      summary: "Velo cluster resource requests increased by >10 cores in 1 hour"
 ```
 
 ## Testing Strategy
@@ -1292,7 +1292,7 @@ spec:
     seccompProfile:
       type: RuntimeDefault
   containers:
-  - name: ferris-streams
+  - name: velo-streams
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:
@@ -1308,11 +1308,11 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: ferris-streams-netpol
+  name: velo-streams-netpol
 spec:
   podSelector:
     matchLabels:
-      app: ferris-streams
+      app: velo-streams
   policyTypes:
   - Ingress
   - Egress
@@ -1353,29 +1353,29 @@ kubectl apply -f k8s/custom-metrics-server.yaml
 #### Step 2: Configure Workloads
 ```bash
 # Generate deployment configs for existing workloads
-ferris-k8s-deploy analyze-current --config current-config.yaml
-ferris-k8s-deploy generate-migration --output migration-plan.yaml
+velo-k8s-deploy analyze-current --config current-config.yaml
+velo-k8s-deploy generate-migration --output migration-plan.yaml
 ```
 
 #### Step 3: Gradual Migration
 ```bash
 # Deploy alongside existing instance
-kubectl apply -f migration/ferris-parallel-deployment.yaml
+kubectl apply -f migration/velo-parallel-deployment.yaml
 
 # Switch traffic gradually
-kubectl patch service ferris-streams --patch '{"spec":{"selector":{"version":"v2"}}}'
+kubectl patch service velo-streams --patch '{"spec":{"selector":{"version":"v2"}}}'
 
 # Decommission old instance
-kubectl delete deployment ferris-single-instance
+kubectl delete deployment velo-single-instance
 ```
 
 #### Step 4: Validate and Optimize
 ```bash
 # Verify scaling behavior
-ferris-k8s-monitor validate-scaling --workload all
+velo-k8s-monitor validate-scaling --workload all
 
 # Optimize resource allocation
-ferris-k8s-deploy optimize-resources --based-on-metrics --duration 7d
+velo-k8s-deploy optimize-resources --based-on-metrics --duration 7d
 ```
 
 ## Success Metrics
@@ -1420,7 +1420,7 @@ ferris-k8s-deploy optimize-resources --based-on-metrics --duration 7d
 
 ## Conclusion
 
-FR-059 transforms FerrisStreams from a powerful single-instance engine into a cloud-native distributed processing platform that:
+FR-059 transforms VeloStream from a powerful single-instance engine into a cloud-native distributed processing platform that:
 
 - **Leverages Kafka's Natural Partitioning**: Zero custom coordination code needed
 - **Uses Kubernetes Orchestration**: Industry-standard scaling and deployment patterns
@@ -1428,7 +1428,7 @@ FR-059 transforms FerrisStreams from a powerful single-instance engine into a cl
 - **Provides Cost-Effective Scaling**: Metrics-driven decisions with spot instance support
 - **Maintains Operational Simplicity**: Familiar K8s tools and patterns
 
-The implementation builds directly on FR-058's observability infrastructure, using existing metrics to drive intelligent scaling decisions while maintaining the robust SQL processing capabilities that make FerrisStreams production-ready.
+The implementation builds directly on FR-058's observability infrastructure, using existing metrics to drive intelligent scaling decisions while maintaining the robust SQL processing capabilities that make VeloStream production-ready.
 
 **Dependencies**: FR-058 (Completed)
 **Status**: PLANNED - Ready for implementation

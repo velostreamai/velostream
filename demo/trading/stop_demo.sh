@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🛑 Stopping FerrisStreams Financial Trading Demo${NC}"
+echo -e "${BLUE}🛑 Stopping VeloStream Financial Trading Demo${NC}"
 echo -e "${BLUE}================================================${NC}"
 echo ""
 
@@ -40,8 +40,8 @@ kill_processes() {
 
 # Stop background processes
 echo -e "${YELLOW}🧹 Stopping background processes...${NC}"
-kill_processes "ferris-sql"
-kill_processes "ferris-sql-multi"
+kill_processes "velo-sql"
+kill_processes "velo-sql-multi"
 kill_processes "trading_data_generator"
 
 # Stop Docker services
@@ -63,7 +63,7 @@ fi
 
 # Stop any other Kafka/Zookeeper containers
 echo -e "${YELLOW}🔍 Checking for other Kafka containers...${NC}"
-KAFKA_CONTAINERS=$(docker ps -q --filter "name=kafka" --filter "name=zookeeper" --filter "name=ferris" 2>/dev/null || true)
+KAFKA_CONTAINERS=$(docker ps -q --filter "name=kafka" --filter "name=zookeeper" --filter "name=velo" 2>/dev/null || true)
 
 if [ -n "$KAFKA_CONTAINERS" ]; then
     echo "Stopping remaining Kafka/Zookeeper containers..."
@@ -75,9 +75,9 @@ else
 fi
 
 # Clean up CLI symlink if it exists
-if [ -L "./ferris-cli" ]; then
+if [ -L "./velo-cli" ]; then
     echo -e "${YELLOW}🧹 Cleaning up CLI symlink...${NC}"
-    rm ./ferris-cli
+    rm ./velo-cli
     echo -e "${GREEN}✓ CLI symlink removed${NC}"
 fi
 
@@ -85,7 +85,7 @@ fi
 echo -e "${YELLOW}🔍 Verifying clean shutdown...${NC}"
 
 # Check for remaining processes
-REMAINING_PROCESSES=$(ps aux | grep -E "(ferris|trading|kafka)" | grep -v grep | grep -v stop_demo.sh || true)
+REMAINING_PROCESSES=$(ps aux | grep -E "(velo|trading|kafka)" | grep -v grep | grep -v stop_demo.sh || true)
 if [ -n "$REMAINING_PROCESSES" ]; then
     echo -e "${YELLOW}⚠️  Some processes may still be running:${NC}"
     echo "$REMAINING_PROCESSES"

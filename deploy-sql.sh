@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# FerrisStreams SQL Deployment Script
+# VeloStream SQL Deployment Script
 set -e
 
-echo "🚀 FerrisStreams SQL Deployment"
+echo "🚀 VeloStream SQL Deployment"
 echo "================================"
 
 # Configuration
-BINARY_NAME="ferris-sql"
+BINARY_NAME="velo-sql"
 BUILD_MODE="release"
 INSTALL_DIR="/usr/local/bin"
-CONFIG_FILE="configs/ferris-default.yaml"
+CONFIG_FILE="configs/velo-default.yaml"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

@@ -36,10 +36,10 @@
 //! - `builder_configuration.rs` - Advanced producer/consumer configuration
 //! - `fluent_api_example.rs` - Stream-based processing with header filtering
 
-use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
+use velostream::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct ProductEvent {

@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::sql::app_parser::StatementType;
+use velostream::velostream::sql::app_parser::StatementType;
 
 #[test]
 fn test_statement_type_matching_for_deployment() {

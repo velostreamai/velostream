@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-// Simple test to show the concept without requiring the full ferrisstreams compilation
+// Simple test to show the concept without requiring the full velostream compilation
 fn main() {
     println!("🧪 Avro Decimal Logical Type Round-trip Test");
     println!();
@@ -97,10 +97,10 @@ fn simulate_future_behavior() {
     println!("   ✅ Cross-system Avro compatibility");
 }
 
-fn test_with_actual_ferrisstreams() {
+fn test_with_actual_velostream() {
     // This would be the actual test once schema parsing is fixed:
     
-    use ferrisstreams::ferris::serialization::{FieldValue, SerializationFormat, AvroFormat};
+    use velostream::velostream::serialization::{FieldValue, SerializationFormat, AvroFormat};
     
     let schema_json = r#"
     {

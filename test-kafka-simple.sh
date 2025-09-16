@@ -10,12 +10,12 @@ fi
 
 # Stop any existing containers
 echo "Cleaning up any existing containers..."
-docker rm -f ferris-kafka ferris-kafka-ui 2>/dev/null || true
+docker rm -f velo-kafka velo-kafka-ui 2>/dev/null || true
 
 # Start Kafka with KRaft
 echo "Starting Kafka..."
 docker run -d \
-  --name ferris-kafka \
+  --name velo-kafka \
   -p 9092:9092 \
   -p 9093:9093 \
   -e KAFKA_BROKER_ID=1 \
@@ -38,19 +38,19 @@ echo "Waiting for Kafka to start (30 seconds)..."
 sleep 30
 
 # Check if Kafka is running
-if docker exec ferris-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1; then
+if docker exec velo-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1; then
     echo "✅ Kafka is running successfully!"
 else
     echo "❌ Kafka failed to start properly"
-    docker logs ferris-kafka --tail 50
+    docker logs velo-kafka --tail 50
     exit 1
 fi
 
 # Start Kafka UI
 echo "Starting Kafka UI..."
 docker run -d \
-  --name ferris-kafka-ui \
-  --link ferris-kafka:kafka \
+  --name velo-kafka-ui \
+  --link velo-kafka:kafka \
   -p 8090:8080 \
   -e KAFKA_CLUSTERS_0_NAME=local \
   -e KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092 \
@@ -59,18 +59,18 @@ docker run -d \
 
 # Create a test topic
 echo -e "\nCreating test topic..."
-docker exec ferris-kafka kafka-topics --create --topic test-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+docker exec velo-kafka kafka-topics --create --topic test-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
 
 # List topics
 echo -e "\nListing topics:"
-docker exec ferris-kafka kafka-topics --list --bootstrap-server localhost:9092
+docker exec velo-kafka kafka-topics --list --bootstrap-server localhost:9092
 
 echo -e "\n✅ Simple Kafka environment is ready!"
 echo "Kafka: localhost:9092"
 echo "Kafka UI: http://localhost:8090"
 echo -e "\nTo produce messages:"
-echo "docker exec -it ferris-kafka kafka-console-producer --topic test-topic --bootstrap-server localhost:9092"
+echo "docker exec -it velo-kafka kafka-console-producer --topic test-topic --bootstrap-server localhost:9092"
 echo -e "\nTo consume messages:"
-echo "docker exec -it ferris-kafka kafka-console-consumer --topic test-topic --from-beginning --bootstrap-server localhost:9092"
+echo "docker exec -it velo-kafka kafka-console-consumer --topic test-topic --from-beginning --bootstrap-server localhost:9092"
 echo -e "\nTo stop:"
-echo "docker rm -f ferris-kafka ferris-kafka-ui"
+echo "docker rm -f velo-kafka velo-kafka-ui"

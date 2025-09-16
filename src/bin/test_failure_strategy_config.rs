@@ -3,7 +3,7 @@
 //! This binary demonstrates and tests the failure strategy configuration functionality
 //! directly accessible via WITH clauses in SQL.
 
-use ferrisstreams::ferris::sql::config::with_clause_parser::WithClauseParser;
+use velostream::velostream::sql::config::with_clause_parser::WithClauseParser;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -203,7 +203,7 @@ async fn test_combined_batch_and_failure_config(
 
     // Validate low latency batch strategy
     match batch_config.strategy {
-        ferrisstreams::ferris::datasource::BatchStrategy::LowLatency {
+        velostream::velostream::datasource::BatchStrategy::LowLatency {
             max_batch_size,
             eager_processing,
             ..

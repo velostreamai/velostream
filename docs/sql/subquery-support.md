@@ -1,6 +1,6 @@
-# Subquery Support in FerrisStreams
+# Subquery Support in VeloStream
 
-FerrisStreams now provides comprehensive support for SQL subqueries, enabling complex analytical queries that were previously impossible. This feature addresses the limitation of "Subquery JOINs (blocks complex SQL queries)" and opens up advanced streaming SQL capabilities.
+VeloStream now provides comprehensive support for SQL subqueries, enabling complex analytical queries that were previously impossible. This feature addresses the limitation of "Subquery JOINs (blocks complex SQL queries)" and opens up advanced streaming SQL capabilities.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ FerrisStreams now provides comprehensive support for SQL subqueries, enabling co
 
 ## Overview
 
-Subqueries are nested SELECT statements that can be used within other SQL statements to perform complex data analysis. FerrisStreams supports all standard SQL subquery types, adapted for streaming data processing.
+Subqueries are nested SELECT statements that can be used within other SQL statements to perform complex data analysis. VeloStream supports all standard SQL subquery types, adapted for streaming data processing.
 
 ### Key Features
 
@@ -341,9 +341,9 @@ The execution engine provides:
 
 ### Files Modified
 
-1. **`src/ferris/sql/ast.rs`**: Added Subquery expression and SubqueryType enum
-2. **`src/ferris/sql/parser.rs`**: Enhanced parser with subquery token types and parsing logic
-3. **`src/ferris/sql/execution.rs`**: Added complete subquery evaluation framework
+1. **`src/velo/sql/ast.rs`**: Added Subquery expression and SubqueryType enum
+2. **`src/velo/sql/parser.rs`**: Enhanced parser with subquery token types and parsing logic
+3. **`src/velo/sql/execution.rs`**: Added complete subquery evaluation framework
 4. **`tests/subquery_support_test.rs`**: Comprehensive test suite
 
 ## Migration Guide
@@ -434,6 +434,6 @@ log::debug!("EXISTS subquery result: {:?}", result);
 
 ## Conclusion
 
-FerrisStreams subquery support provides a solid foundation for complex streaming SQL analytics. The implementation follows SQL standards while being optimized for streaming contexts, offering both immediate utility through mock implementations and a clear path to production enhancement.
+VeloStream subquery support provides a solid foundation for complex streaming SQL analytics. The implementation follows SQL standards while being optimized for streaming contexts, offering both immediate utility through mock implementations and a clear path to production enhancement.
 
-For questions or contributions, see the main FerrisStreams documentation or open an issue on GitHub.
+For questions or contributions, see the main VeloStream documentation or open an issue on GitHub.

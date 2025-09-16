@@ -9,8 +9,8 @@ name = "trading_data_generator"
 path = "src/trading_data_generator.rs"
 
 [dependencies]
-# Reference the main FerrisStreams library
-ferrisstreams = { path = "../.." }
+# Reference the main VeloStream library
+velostream = { path = "../.." }
 
 # Required dependencies for trading data generator
 tokio = { version = "1.46.1", features = ["full"] }

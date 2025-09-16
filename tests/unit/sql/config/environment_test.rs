@@ -1,11 +1,11 @@
-use ferrisstreams::ferris::sql::config::environment::EnvironmentConfig;
-use ferrisstreams::ferris::sql::config::*;
 use std::env;
+use velostream::velostream::sql::config::environment::EnvironmentConfig;
+use velostream::velostream::sql::config::*;
 
 #[test]
 fn test_basic_environment_config() {
     let env_config = EnvironmentConfig::new();
-    assert_eq!(env_config.prefix, "FERRIS_");
+    assert_eq!(env_config.prefix, "VELO_");
     assert!(!env_config.config_files.is_empty());
     assert!(env_config.allow_missing_files);
 }

@@ -5,16 +5,16 @@
 //! - Adaptive batch sizes
 //! - Non-blocking operations
 
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+use velostream::velostream::kafka::performance_presets::PerformancePresets;
+use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use velostream::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 5_000;
@@ -249,7 +249,7 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
                 .send(
                     Some(&key),
                     &message,
-                    ferrisstreams::Headers::new()
+                    velostream::Headers::new()
                         .insert("test-type", "async")
                         .insert("message-id", i.to_string()),
                     None,

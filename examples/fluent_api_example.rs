@@ -1,6 +1,6 @@
 //! # Fluent API & Stream Processing Example
 //!
-//! This example showcases the power of ferrisstreams' fluent API and stream processing:
+//! This example showcases the power of velostream' fluent API and stream processing:
 //! - Stream-based message consumption (recommended for production)
 //! - Functional programming patterns with method chaining
 //! - Complex filtering and transformation operations
@@ -54,7 +54,6 @@
 //! - Integrates seamlessly with async/await
 //! - Reduces boilerplate code significantly
 
-use ferrisstreams::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{
@@ -63,6 +62,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use uuid::Uuid;
+use velostream::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {

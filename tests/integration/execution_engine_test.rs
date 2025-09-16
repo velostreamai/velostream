@@ -1,6 +1,8 @@
 //! Integration test for StreamExecutionEngine - proves end-to-end SQL execution works
 
-use ferrisstreams::ferris::{
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc;
+use velostream::velostream::{
     serialization::JsonFormat,
     sql::{
         execution::{
@@ -10,8 +12,6 @@ use ferrisstreams::ferris::{
         parser::StreamingSqlParser,
     },
 };
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::mpsc;
 
 /// Helper to create test market data record
 fn create_market_data_record(

@@ -1,7 +1,7 @@
-use ferrisstreams::ferris::kafka::Headers;
-use ferrisstreams::{JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use velostream::velostream::kafka::Headers;
+use velostream::{JsonSerializer, KafkaConsumer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct User {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The FerrisStreams Schema Registry is an enterprise-grade, high-performance system for managing schema definitions, references, evolution, and compatibility across heterogeneous data sources. It provides comprehensive schema lifecycle management with advanced caching, reference resolution, and performance optimization.
+The VeloStream Schema Registry is an enterprise-grade, high-performance system for managing schema definitions, references, evolution, and compatibility across heterogeneous data sources. It provides comprehensive schema lifecycle management with advanced caching, reference resolution, and performance optimization.
 
 ## Architecture Components
 
@@ -178,7 +178,7 @@ pub struct CacheMetrics {
 
 ### Reference Architecture
 
-FerrisStreams provides comprehensive support for Confluent Schema Registry schema references, enabling:
+VeloStream provides comprehensive support for Confluent Schema Registry schema references, enabling:
 
 - **Schema Composition**: Build complex schemas from reusable components
 - **Dependency Management**: Track and resolve schema dependencies  
@@ -383,7 +383,7 @@ let config = CacheConfig {
     refresh_interval_seconds: 60,      // 1 minute
     max_prefetch_depth: 3,
     enable_persistence: true,
-    persistence_path: Some("/var/cache/ferris/schemas.json".to_string()),
+    persistence_path: Some("/var/cache/velo/schemas.json".to_string()),
 };
 ```
 

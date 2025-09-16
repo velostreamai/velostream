@@ -3,11 +3,11 @@
 //! Simplified performance test to quickly validate there's no major regression
 //! in the pluggable data source abstraction layer.
 
-use ferrisstreams::ferris::datasource::create_source;
-use ferrisstreams::ferris::sql::config::ConnectionString;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use velostream::velostream::datasource::create_source;
+use velostream::velostream::sql::config::ConnectionString;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 const QUICK_TEST_COUNT: u64 = 1_000; // Much smaller for quick testing
 const BATCH_SIZE: usize = 10;

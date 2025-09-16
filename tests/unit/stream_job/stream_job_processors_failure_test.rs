@@ -5,14 +5,14 @@
 //! These tests verify that processors handle various failure modes correctly
 //! and maintain data consistency during error conditions.
 
-use ferrisstreams::ferris::sql::{execution::types::StreamRecord, StreamExecutionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::sql::{execution::types::StreamRecord, StreamExecutionEngine};
 
 // Import test utilities
 use super::stream_job_test_utils::*;
-use ferrisstreams::ferris::server::processors::{
+use velostream::velostream::server::processors::{
     common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
 

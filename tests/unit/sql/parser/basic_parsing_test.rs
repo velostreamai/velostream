@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {

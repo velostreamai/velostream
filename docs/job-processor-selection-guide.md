@@ -2,7 +2,7 @@
 
 **Choosing between SimpleJobProcessor and TransactionalJobProcessor for your streaming applications**
 
-This guide helps you select the appropriate job processor for your FerrisStreams applications based on data consistency requirements, performance characteristics, and operational complexity.
+This guide helps you select the appropriate job processor for your VeloStream applications based on data consistency requirements, performance characteristics, and operational complexity.
 
 ---
 
@@ -53,8 +53,8 @@ This guide helps you select the appropriate job processor for your FerrisStreams
 
 #### **Code Example**
 ```rust
-use ferrisstreams::ferris::server::processors::simple::SimpleJobProcessor;
-use ferrisstreams::ferris::server::processors::common::JobProcessingConfig;
+use velostream::velo::server::processors::simple::SimpleJobProcessor;
+use velostream::velo::server::processors::common::JobProcessingConfig;
 
 // Create simple processor for high-throughput scenario
 let config = JobProcessingConfig {
@@ -113,8 +113,8 @@ let stats = processor.process_multi_job(
 
 #### **Code Example**
 ```rust
-use ferrisstreams::ferris::server::processors::transactional::TransactionalJobProcessor;
-use ferrisstreams::ferris::server::processors::common::JobProcessingConfig;
+use velostream::velo::server::processors::transactional::TransactionalJobProcessor;
+use velostream::velo::server::processors::common::JobProcessingConfig;
 
 // Create transactional processor for at-least-once processing with ACID boundaries
 let config = JobProcessingConfig {
@@ -145,11 +145,11 @@ let stats = processor.process_multi_job(
 
 ## ⚙️ **How Configuration Actually Works**
 
-FerrisStreams automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause properties. Here's how the system determines which processor to use:
+VeloStream automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause properties. Here's how the system determines which processor to use:
 
 ### **Processor Selection Logic**
 ```rust
-// From src/ferris/server/stream_job_server.rs:809
+// From src/velo/server/stream_job_server.rs:809
 fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig {
     let properties = Self::get_query_properties(query);
     let mut config = JobProcessingConfig::default();
@@ -260,7 +260,7 @@ WITH (
     'batch_timeout' = '500',               -- 500ms max wait for batch completion
 
     -- Kafka-specific transactional configuration
-    'sink.kafka.transactional.id' = 'ferris-bank-transfers-tx',
+    'sink.kafka.transactional.id' = 'velo-bank-transfers-tx',
     'sink.kafka.acks' = 'all',
     'source.kafka.isolation.level' = 'read_committed'
 );
@@ -363,7 +363,7 @@ WITH (
     'processor.type' = 'transactional',
     'processor.batch.size' = '100',           -- Small batches for fast rollback
     'processor.failure_strategy' = 'FailBatch',
-    'sink.kafka.transactional.id' = 'ferris-payments-tx-1',
+    'sink.kafka.transactional.id' = 'velo-payments-tx-1',
     'sink.kafka.acks' = 'all'
 );
 ```
@@ -448,7 +448,7 @@ WITH (
     'processor.batch.size' = '200',           -- Conservative batch size
     'processor.failure_strategy' = 'RetryWithBackoff',
     'processor.max_retries' = '10',           -- Aggressive retry for compliance
-    'sink.kafka.transactional.id' = 'ferris-audit-tx-1'
+    'sink.kafka.transactional.id' = 'velo-audit-tx-1'
 );
 ```
 
@@ -457,7 +457,7 @@ WITH (
 ## ⚡ **Performance Considerations**
 
 ### **Throughput Comparison**
-Based on FerrisStreams benchmarks:
+Based on VeloStream benchmarks:
 
 | **Metric** | **SimpleJobProcessor** | **TransactionalJobProcessor** |
 |------------|----------------------|------------------------------|
@@ -588,16 +588,16 @@ metrics! {
 ### **Simple → Transactional Migration**
 ```bash
 # 1. Deploy transactional processor in parallel
-ferris-sql --config transactional-config.yaml --job-name "payment-tx-v2"
+velo-sql --config transactional-config.yaml --job-name "payment-tx-v2"
 
 # 2. Compare outputs between simple and transactional processors
-ferris-compare --job1 "payment-simple" --job2 "payment-tx-v2" --duration 1h
+velo-compare --job1 "payment-simple" --job2 "payment-tx-v2" --duration 1h
 
 # 3. Verify at-least-once semantics and transaction boundaries
-ferris-validate --processor transactional --check gaps,ordering,transactions
+velo-validate --processor transactional --check gaps,ordering,transactions
 
 # 4. Switch traffic and monitor
-ferris-deploy --switch-to transactional --monitor-duration 24h
+velo-deploy --switch-to transactional --monitor-duration 24h
 ```
 
 ### **Transactional → Simple Migration**
@@ -606,13 +606,13 @@ ferris-deploy --switch-to transactional --monitor-duration 24h
 echo "Confirm: Acceptable to lose <0.1% of records during failures? (y/N)"
 
 # 2. Deploy simple processor with enhanced monitoring
-ferris-sql --config simple-config.yaml --enable-enhanced-monitoring
+velo-sql --config simple-config.yaml --enable-enhanced-monitoring
 
 # 3. A/B test performance improvement
-ferris-benchmark --compare transactional,simple --duration 2h
+velo-benchmark --compare transactional,simple --duration 2h
 
 # 4. Gradual rollout with rollback plan
-ferris-deploy --canary-percent 10 --rollback-trigger error_rate>2%
+velo-deploy --canary-percent 10 --rollback-trigger error_rate>2%
 ```
 
 ---

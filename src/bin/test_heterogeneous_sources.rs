@@ -4,13 +4,13 @@
 //! and writing to another (e.g., Kafka -> ClickHouse)
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::types::SourceOffset;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
-use ferrisstreams::ferris::sql::execution::processors::ProcessorContext;
-use ferrisstreams::ferris::sql::execution::FieldValue;
-use ferrisstreams::ferris::sql::execution::StreamRecord;
 use std::collections::HashMap;
 use std::error::Error;
+use velostream::velostream::datasource::types::SourceOffset;
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::sql::execution::processors::ProcessorContext;
+use velostream::velostream::sql::execution::FieldValue;
+use velostream::velostream::sql::execution::StreamRecord;
 
 /// Mock Kafka data reader for demonstration
 struct MockKafkaReader {

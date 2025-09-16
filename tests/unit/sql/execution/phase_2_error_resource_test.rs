@@ -12,7 +12,10 @@ error scenarios, and integration with existing Phase 1A/1B components.
 */
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use ferrisstreams::ferris::sql::execution::{
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+use tokio;
+use velostream::velostream::sql::execution::{
     circuit_breaker::{
         CircuitBreaker, CircuitBreakerConfig, CircuitBreakerRegistry, CircuitBreakerState,
     },
@@ -23,9 +26,6 @@ use ferrisstreams::ferris::sql::execution::{
     error::{ErrorSeverity, StreamingError, ThresholdSeverity},
     resource_manager::{MonitoringConfig, ResourceLimits, ResourceManager},
 };
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-use tokio;
 
 // ===== STREAMING ERROR TESTS =====
 

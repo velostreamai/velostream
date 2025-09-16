@@ -7,9 +7,9 @@ and schema evolution scenarios.
 
 mod avro_tests {
     use super::super::common_test_data::*;
-    use ferrisstreams::ferris::serialization::{AvroFormat, SerializationFormat};
-    use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
+    use velostream::velostream::serialization::{AvroFormat, SerializationFormat};
+    use velostream::velostream::sql::FieldValue;
 
     fn create_evolved_schema() -> &'static str {
         r#"
@@ -106,7 +106,7 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_from_execution_format() {
-        use ferrisstreams::ferris::sql::execution::types::StreamRecord;
+        use velostream::velostream::sql::execution::types::StreamRecord;
 
         let schema = create_basic_avro_schema();
         let format = AvroFormat::new(schema).expect("Should create Avro format");
@@ -339,7 +339,7 @@ mod avro_tests {
     }
 
     #[tokio::test]
-    // see https://github.com/bluemonk3y/ferris_streams/issues/32
+    // see https://github.com/bluemonk3y/velo_streams/issues/32
     async fn test_avro_comprehensive_type_matrix() {
         // Test comprehensive type coverage similar to other formats
         let comprehensive_schema = r#"
@@ -417,7 +417,7 @@ mod avro_tests {
 
     #[tokio::test]
     async fn test_avro_codec_basic() {
-        use ferrisstreams::ferris::serialization::avro_codec::AvroCodec;
+        use velostream::velostream::serialization::avro_codec::AvroCodec;
 
         let schema_json = r#"
         {
@@ -462,7 +462,7 @@ mod avro_tests {
     #[tokio::test]
     async fn test_avro_convenience_functions() {
         // These convenience functions are not implemented yet
-        // use ferrisstreams::ferris::serialization::{deserialize_from_avro, serialize_to_avro};
+        // use velostream::velostream::serialization::{deserialize_from_avro, serialize_to_avro};
 
         let schema_json = r#"
         {
