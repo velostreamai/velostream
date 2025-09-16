@@ -1,4 +1,4 @@
-use ferrisstreams::ferris::sql::datasource::*;
+use velostream::velostream::sql::datasource::*;
 
 #[test]
 fn test_offset_types() {

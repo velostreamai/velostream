@@ -2,12 +2,12 @@
 
 ## Overview
 
-This guide covers the configuration of all Phase 1B-4 features in FerrisStreams: Watermarks & Time Semantics (1B), Resource Management & Circuit Breakers (2), Advanced Query Features (3), and Observability (4).
+This guide covers the configuration of all Phase 1B-4 features in VeloStream: Watermarks & Time Semantics (1B), Resource Management & Circuit Breakers (2), Advanced Query Features (3), and Observability (4).
 
 ## Complete Configuration Structure
 
 ```rust
-use ferrisstreams::ferris::sql::execution::config::*;
+use velostream::velo::sql::execution::config::*;
 use std::time::Duration;
 
 let complete_config = StreamingConfig {
@@ -291,7 +291,7 @@ tracing: Some(TracingConfig {
     
     output_format: TracingOutputFormat::Json,
     console_output: false,
-    file_output: Some("/var/log/ferris/tracing.json".to_string()),
+    file_output: Some("/var/log/velo/tracing.json".to_string()),
 }),
 ```
 
@@ -380,7 +380,7 @@ profiling: Some(ProfilingConfig {
     
     auto_report_generation: true,
     report_interval: Duration::from_hours(4), // Less frequent reports
-    report_output_dir: "/var/log/ferris/profiling".to_string(),
+    report_output_dir: "/var/log/velo/profiling".to_string(),
     
     generate_flame_graphs: false, // Disable in production
     max_profiling_session_duration: Duration::from_hours(24),

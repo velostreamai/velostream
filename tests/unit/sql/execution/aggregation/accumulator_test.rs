@@ -1,10 +1,10 @@
 //! Tests for aggregation accumulator management
 
-use ferrisstreams::ferris::sql::ast::{Expr, SelectField};
-use ferrisstreams::ferris::sql::execution::aggregation::AccumulatorManager;
-use ferrisstreams::ferris::sql::execution::internal::GroupAccumulator;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::{Expr, SelectField};
+use velostream::velostream::sql::execution::aggregation::AccumulatorManager;
+use velostream::velostream::sql::execution::internal::GroupAccumulator;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
     let mut field_map = HashMap::new();

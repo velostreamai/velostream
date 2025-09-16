@@ -2,7 +2,7 @@
 
 ## Overview
 
-FerrisStreams provides comprehensive health monitoring for all pluggable data sources, including circuit breakers, health checks, metrics collection, and automatic recovery mechanisms.
+VeloStream provides comprehensive health monitoring for all pluggable data sources, including circuit breakers, health checks, metrics collection, and automatic recovery mechanisms.
 
 ## Architecture
 
@@ -33,7 +33,7 @@ FerrisStreams provides comprehensive health monitoring for all pluggable data so
 The central component that tracks health status across all data sources:
 
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::{HealthMonitor, HealthStatus};
+use velostream::velo::sql::error::recovery::{HealthMonitor, HealthStatus};
 
 // Create health monitor
 let monitor = HealthMonitor::new()
@@ -59,7 +59,7 @@ match status {
 Prevents cascading failures by temporarily stopping operations to failing sources:
 
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::{CircuitBreaker, CircuitState};
+use velostream::velo::sql::error::recovery::{CircuitBreaker, CircuitState};
 
 // Configure circuit breaker
 let breaker = CircuitBreaker::builder()
@@ -95,13 +95,13 @@ match state {
 Handles failed records that cannot be processed:
 
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::DeadLetterQueue;
+use velostream::velo::sql::error::recovery::DeadLetterQueue;
 
 // Configure DLQ
 let dlq = DeadLetterQueue::builder()
     .max_retries(3)
     .retry_delay(Duration::from_secs(60))
-    .storage("file:///var/ferris/dlq")
+    .storage("file:///var/velo/dlq")
     .build();
 
 // Send failed record to DLQ
@@ -277,7 +277,7 @@ metrics.record("dlq.retries", retry_count);
 ```yaml
 # Prometheus scrape configuration
 scrape_configs:
-  - job_name: 'ferrisstreams'
+  - job_name: 'velostream'
     static_configs:
       - targets: ['localhost:9090']
     metrics_path: '/metrics'
@@ -296,16 +296,16 @@ async fn metrics_handler() -> String {
 }
 
 // Example metrics output
-# HELP ferris_source_records_total Total records processed by source
-# TYPE ferris_source_records_total counter
-ferris_source_records_total{source="kafka",topic="orders"} 1234567
-ferris_source_records_total{source="file",path="/data/input.csv"} 98765
+# HELP velo_source_records_total Total records processed by source
+# TYPE velo_source_records_total counter
+velo_source_records_total{source="kafka",topic="orders"} 1234567
+velo_source_records_total{source="file",path="/data/input.csv"} 98765
 
-# HELP ferris_processing_latency_seconds Processing latency histogram
-# TYPE ferris_processing_latency_seconds histogram
-ferris_processing_latency_seconds_bucket{le="0.01"} 45678
-ferris_processing_latency_seconds_bucket{le="0.1"} 56789
-ferris_processing_latency_seconds_bucket{le="1"} 57890
+# HELP velo_processing_latency_seconds Processing latency histogram
+# TYPE velo_processing_latency_seconds histogram
+velo_processing_latency_seconds_bucket{le="0.01"} 45678
+velo_processing_latency_seconds_bucket{le="0.1"} 56789
+velo_processing_latency_seconds_bucket{le="1"} 57890
 ```
 
 ## Alerting Configuration
@@ -315,10 +315,10 @@ ferris_processing_latency_seconds_bucket{le="1"} 57890
 ```yaml
 # Prometheus alert rules
 groups:
-  - name: ferrisstreams
+  - name: velostream
     rules:
       - alert: HighErrorRate
-        expr: rate(ferris_source_errors_total[5m]) > 0.01
+        expr: rate(velo_source_errors_total[5m]) > 0.01
         for: 5m
         labels:
           severity: warning
@@ -327,7 +327,7 @@ groups:
           description: "Error rate is {{ $value }} errors/sec"
       
       - alert: CircuitBreakerOpen
-        expr: ferris_circuit_breaker_open == 1
+        expr: velo_circuit_breaker_open == 1
         for: 1m
         labels:
           severity: critical
@@ -335,7 +335,7 @@ groups:
           summary: "Circuit breaker open for {{ $labels.source }}"
       
       - alert: HighConsumerLag
-        expr: ferris_kafka_consumer_lag > 100000
+        expr: velo_kafka_consumer_lag > 100000
         for: 10m
         labels:
           severity: warning
@@ -344,7 +344,7 @@ groups:
           description: "Lag is {{ $value }} messages"
       
       - alert: DLQGrowing
-        expr: rate(ferris_dlq_size[5m]) > 0
+        expr: rate(velo_dlq_size[5m]) > 0
         for: 15m
         labels:
           severity: warning
@@ -359,14 +359,14 @@ groups:
 ```json
 {
   "dashboard": {
-    "title": "FerrisStreams Health Monitor",
+    "title": "VeloStream Health Monitor",
     "panels": [
       {
         "title": "Data Source Health",
         "type": "stat",
         "targets": [
           {
-            "expr": "up{job='ferrisstreams'}"
+            "expr": "up{job='velostream'}"
           }
         ]
       },
@@ -375,7 +375,7 @@ groups:
         "type": "graph",
         "targets": [
           {
-            "expr": "rate(ferris_source_records_total[5m])"
+            "expr": "rate(velo_source_records_total[5m])"
           }
         ]
       },
@@ -384,7 +384,7 @@ groups:
         "type": "graph",
         "targets": [
           {
-            "expr": "rate(ferris_source_errors_total[5m])"
+            "expr": "rate(velo_source_errors_total[5m])"
           }
         ]
       },
@@ -393,7 +393,7 @@ groups:
         "type": "table",
         "targets": [
           {
-            "expr": "ferris_circuit_breaker_open"
+            "expr": "velo_circuit_breaker_open"
           }
         ]
       },
@@ -402,7 +402,7 @@ groups:
         "type": "heatmap",
         "targets": [
           {
-            "expr": "ferris_processing_latency_seconds"
+            "expr": "velo_processing_latency_seconds"
           }
         ]
       }
@@ -416,7 +416,7 @@ groups:
 ### 1. Retry with Exponential Backoff
 
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::RetryPolicy;
+use velostream::velo::sql::error::recovery::RetryPolicy;
 
 let retry_policy = RetryPolicy::exponential()
     .initial_delay(Duration::from_millis(100))
@@ -464,8 +464,8 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  - name: ferrisstreams
-    image: ferrisstreams:latest
+  - name: velostream
+    image: velostream:latest
     livenessProbe:
       httpGet:
         path: /health/live
@@ -490,12 +490,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ferrisstreams-hpa
+  name: velostream-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ferrisstreams
+    name: velostream
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -524,10 +524,10 @@ spec:
 curl http://localhost:8080/metrics | grep circuit_breaker_failures
 
 # Review recent errors
-kubectl logs -l app=ferrisstreams --since=10m | grep ERROR
+kubectl logs -l app=velostream --since=10m | grep ERROR
 
 # Increase failure threshold if needed
-FERRIS_CIRCUIT_BREAKER_THRESHOLD=10
+VELO_CIRCUIT_BREAKER_THRESHOLD=10
 ```
 
 #### 2. High Consumer Lag
@@ -536,7 +536,7 @@ FERRIS_CIRCUIT_BREAKER_THRESHOLD=10
 curl http://localhost:8080/health/detailed | jq '.components.kafka.lag'
 
 # Scale up consumers
-kubectl scale deployment ferrisstreams --replicas=5
+kubectl scale deployment velostream --replicas=5
 
 # Check processing rate
 curl http://localhost:8080/metrics | grep source_records_total
@@ -548,10 +548,10 @@ curl http://localhost:8080/metrics | grep source_records_total
 curl http://localhost:8080/metrics | grep dlq_size
 
 # Review failed records
-ferris-cli dlq list --limit 10
+velo-cli dlq list --limit 10
 
 # Reprocess DLQ
-ferris-cli dlq reprocess --batch-size 100
+velo-cli dlq reprocess --batch-size 100
 ```
 
 ## Best Practices

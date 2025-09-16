@@ -85,4 +85,4 @@ python3 dashboard.py
 - Add custom analytics jobs
 - Enhance dashboard visualizations
 
-Perfect for demonstrating FerrisStreams capabilities in financial services!
+Perfect for demonstrating VeloStream capabilities in financial services!

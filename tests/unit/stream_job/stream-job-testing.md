@@ -1,6 +1,6 @@
 # Multi-Job Processor Testing Infrastructure
 
-This directory contains a comprehensive, reusable testing infrastructure for all multi-job processors in FerrisStreams. The infrastructure provides consistent failure scenario testing across different processor implementations.
+This directory contains a comprehensive, reusable testing infrastructure for all multi-job processors in VeloStream. The infrastructure provides consistent failure scenario testing across different processor implementations.
 
 ## Architecture Overview
 

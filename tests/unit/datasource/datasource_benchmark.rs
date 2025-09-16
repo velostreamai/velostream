@@ -11,10 +11,10 @@ Goal: Ensure zero performance regression with new abstraction layer.
 */
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
-use ferrisstreams::ferris::sql::config::ConnectionString;
-use ferrisstreams::ferris::sql::datasource::{create_source, create_sink};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::velostream::sql::config::ConnectionString;
+use velostream::velostream::sql::datasource::{create_source, create_sink};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Duration;
 

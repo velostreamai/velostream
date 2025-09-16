@@ -1,4 +1,4 @@
-# FerrisStreams SQL File Deployment
+# VeloStream SQL File Deployment
 FROM rust:1.85-bookworm as builder
 
 # Configure Git and Cargo to handle SSL issues
@@ -36,7 +36,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
 # Build dependencies
-RUN cargo build --release --bin ferris-sql-multi
+RUN cargo build --release --bin velo-sql-multi
 
 # Copy source code
 COPY src ./src
@@ -44,7 +44,7 @@ COPY examples ./examples
 
 # Build the application
 RUN touch src/main.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --bin ferris-sql-multi
+RUN cargo build --release --bin velo-sql-multi
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -59,29 +59,29 @@ RUN apt-get update && apt-get install -y \
     librdkafka1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create ferris user
-RUN useradd -r -s /bin/false -d /app ferris
+# Create velo user
+RUN useradd -r -s /bin/false -d /app velo
 
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/ferris-sql-multi /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql-multi /usr/local/bin/
 
 # Copy configuration
-COPY configs/ferris-default.yaml ./sql-config.yaml
+COPY configs/velo-default.yaml ./sql-config.yaml
 
 # Create directories
-RUN mkdir -p /app/sql-files /app/logs /app/data && chown -R ferris:ferris /app
+RUN mkdir -p /app/sql-files /app/logs /app/data && chown -R velo:velo /app
 
 # Switch to non-root user
-USER ferris
+USER velo
 
 # Expose ports (SQL + Metrics)
 EXPOSE 8080 9080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD [ "ferris-sql-multi", "--help" ] || exit 1
+    CMD [ "velo-sql-multi", "--help" ] || exit 1
 
 # Default command - expects SQL_FILE environment variable
-CMD ["sh", "-c", "ferris-sql-multi deploy-app --file ${SQL_FILE:-/app/sql-files/app.sql} --brokers ${KAFKA_BROKERS:-kafka:9092}"]
+CMD ["sh", "-c", "velo-sql-multi deploy-app --file ${SQL_FILE:-/app/sql-files/app.sql} --brokers ${KAFKA_BROKERS:-kafka:9092}"]

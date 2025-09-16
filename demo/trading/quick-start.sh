@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FerrisStreams Trading Demo - Quick Start
+# VeloStream Trading Demo - Quick Start
 # Builds everything and runs a 1-minute demo
 
 set -e
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 FerrisStreams Trading Demo - Quick Start${NC}"
+echo -e "${BLUE}🚀 VeloStream Trading Demo - Quick Start${NC}"
 echo -e "${BLUE}===========================================${NC}"
 echo ""
 
@@ -40,6 +40,6 @@ echo -e "${GREEN}🎉 Quick start demo completed!${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 echo "• Full demo: ${YELLOW}./run_demo.sh${NC}"
-echo "• CLI monitoring: ${YELLOW}./ferris-cli status${NC}"
+echo "• CLI monitoring: ${YELLOW}./velo-cli status${NC}"
 echo "• Grafana dashboards: ${YELLOW}http://localhost:3000${NC} (admin/admin)"
 echo "• Stop services: ${YELLOW}./stop_demo.sh${NC}"

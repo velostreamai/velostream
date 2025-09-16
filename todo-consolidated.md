@@ -1,4 +1,4 @@
-# FerrisStreams Consolidated Development TODO
+# VeloStream Consolidated Development TODO
 
 **Last Updated**: September 2025
 **Status**: 🚀 **PRODUCTION READY** - Core infrastructure complete, ready for advanced optimization
@@ -41,7 +41,7 @@
 
 ### **📊 Why This is Priority 1**
 1. **Expose Real Gaps**: Tests pass but demos reveal integration issues
-2. **User Experience**: Demos show how FerrisStreams is actually used
+2. **User Experience**: Demos show how VeloStream is actually used
 3. **Marketing Ready**: Working demos enable enterprise adoption
 4. **Foundation Validation**: Proves cluster ops work in real scenarios
 
@@ -130,9 +130,9 @@
   - [ ] Real-time workload HPA (throughput-based scaling)
 
 - [ ] **Phase 3: SQL Hints Integration**
-  - [ ] In-SQL scaling hints (`@ferris:workload=trading`)
+  - [ ] In-SQL scaling hints (`@velo:workload=trading`)
   - [ ] Automatic deployment generation from SQL files
-  - [ ] CLI tools (`ferris-k8s-deploy`, `ferris-k8s-monitor`)
+  - [ ] CLI tools (`velo-k8s-deploy`, `velo-k8s-monitor`)
   - [ ] CI/CD pipeline integration
 
 ### **🎯 Success Criteria (FR-061 Complete)**
@@ -354,9 +354,9 @@
 - [ ] Real-time workload HPA (throughput-based)
 
 ### **Days 29-42**: SQL Hints & CLI Tools
-- [ ] SQL hint parsing system (`@ferris:workload=trading`)
+- [ ] SQL hint parsing system (`@velo:workload=trading`)
 - [ ] Automatic K8s deployment generation from SQL
-- [ ] CLI tools (`ferris-k8s-deploy`, `ferris-k8s-monitor`)
+- [ ] CLI tools (`velo-k8s-deploy`, `velo-k8s-monitor`)
 - [ ] CI/CD pipeline integration
 
 ## 🗓️ **Phase 4: Advanced Performance Optimization**
@@ -422,7 +422,7 @@
 
 **Target**: Complete **Working Demos** to validate system and expose integration gaps, then build toward **FR-061 Kubernetes-Native Distributed Processing**.
 
-**Strategic Value**: Proves FerrisStreams works in real-world scenarios with working financial and file processing demos, then transforms it into a cloud-native distributed processing platform - ensuring solid foundation before scaling to enterprise deployment.
+**Strategic Value**: Proves VeloStream works in real-world scenarios with working financial and file processing demos, then transforms it into a cloud-native distributed processing platform - ensuring solid foundation before scaling to enterprise deployment.
 
 ---
 
@@ -479,8 +479,8 @@
 3. **Implement Enhanced SHOW JOBS** - Add cluster-wide job visibility with node information
 4. **Create Node Registration System** - Heartbeat and capacity reporting
 
-**Goal**: Deliver **full cluster visibility and management** within 2-3 weeks, enabling FerrisStreams to be deployed as a production-ready, scalable multi-node cluster with complete operational oversight.
+**Goal**: Deliver **full cluster visibility and management** within 2-3 weeks, enabling VeloStream to be deployed as a production-ready, scalable multi-node cluster with complete operational oversight.
 
 ---
 
-*This consolidated TODO replaces all individual TODO documents and serves as the single source of truth for FerrisStreams development priorities.*
+*This consolidated TODO replaces all individual TODO documents and serves as the single source of truth for VeloStream development priorities.*

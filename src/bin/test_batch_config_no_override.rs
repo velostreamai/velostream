@@ -1,9 +1,9 @@
-use ferrisstreams::ferris::datasource::{
-    kafka::writer::KafkaDataWriter, BatchConfig, BatchStrategy,
-};
 use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
+use velostream::velostream::datasource::{
+    kafka::writer::KafkaDataWriter, BatchConfig, BatchStrategy,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

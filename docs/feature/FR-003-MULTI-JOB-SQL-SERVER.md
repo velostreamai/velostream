@@ -1,7 +1,7 @@
 **# Feature Request: MultiJobSqlServer Enhancement
 
 ## Overview
-This document outlines the feature enhancements and improvements for the MultiJobSqlServer component, a critical part of the Ferris SQL streaming platform that manages multiple concurrent SQL jobs.
+This document outlines the feature enhancements and improvements for the MultiJobSqlServer component, a critical part of the Velo SQL streaming platform that manages multiple concurrent SQL jobs.
 
 ## Background
 The MultiJobSqlServer enables deployment and management of multiple SQL streaming jobs simultaneously, providing a foundation for scalable real-time data processing applications.
@@ -28,11 +28,11 @@ The MultiJobSqlServer enables deployment and management of multiple SQL streamin
 - Moved trading_data_generator to demo folder
 
 ### CLI & Remote Support
-- Added remote server support to ferris-cli
+- Added remote server support to velo-cli
 - Designed interactive CLI session features
 - Added remote Kafka broker support
 - Updated CLI with remote connection options
-- Fixed ferris-cli Kafka container detection logic
+- Fixed velo-cli Kafka container detection logic
 
 ### Demo & Documentation
 - Fixed trading demo SQL processing
@@ -59,7 +59,7 @@ The MultiJobSqlServer enables deployment and management of multiple SQL streamin
 - **MEDIUM**: Test job execution with real data flow
 
 ### Development Features
-- Implement SQL execution in ferris-cli
+- Implement SQL execution in velo-cli
 - Add streaming query capabilities
 - Implement configuration management features
 - Add HTTP endpoints for remote monitoring

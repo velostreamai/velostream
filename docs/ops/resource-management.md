@@ -2,14 +2,14 @@
 
 ## Overview
 
-Phase 2 introduces comprehensive resource management and fault tolerance capabilities to FerrisStreams. This includes memory allocation limits, connection pooling, circuit breakers, and retry logic to ensure robust production operations.
+Phase 2 introduces comprehensive resource management and fault tolerance capabilities to VeloStream. This includes memory allocation limits, connection pooling, circuit breakers, and retry logic to ensure robust production operations.
 
 ## Resource Management
 
 ### Core Components
 
 ```rust
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velo::sql::execution::{
     resource_manager::{ResourceManager, ResourceLimitsConfig},
     config::StreamingConfig
 };
@@ -34,7 +34,7 @@ let config = StreamingConfig {
 
 #### Allocation Tracking
 ```rust
-use ferrisstreams::ferris::sql::execution::resource_manager::ResourceManager;
+use velostream::velo::sql::execution::resource_manager::ResourceManager;
 
 // Create resource manager
 let resource_manager = ResourceManager::new(resource_config)?;
@@ -90,7 +90,7 @@ let kafka_config = KafkaPoolConfig {
 ### Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velo::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     config::StreamingConfig
 };
@@ -131,7 +131,7 @@ let config = StreamingConfig {
 ### Programming API
 
 ```rust
-use ferrisstreams::ferris::sql::execution::circuit_breaker::CircuitBreaker;
+use velostream::velo::sql::execution::circuit_breaker::CircuitBreaker;
 
 // Create circuit breaker
 let circuit_breaker = CircuitBreaker::new(circuit_config)?;
@@ -159,7 +159,7 @@ match result {
 
 #### Exponential Backoff
 ```rust
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velo::sql::execution::{
     error_handling::{RetryConfig, BackoffStrategy}
 };
 
@@ -213,7 +213,7 @@ let retry_config = RetryConfig {
 ### Retry Implementation
 
 ```rust
-use ferrisstreams::ferris::sql::execution::error_handling::RetryExecutor;
+use velostream::velo::sql::execution::error_handling::RetryExecutor;
 
 // Create retry executor
 let retry_executor = RetryExecutor::new(retry_config);
@@ -229,7 +229,7 @@ let result = retry_executor.execute_with_retry(|| async {
 
 ### Configuration
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::DeadLetterQueue;
+use velostream::velo::sql::error::recovery::DeadLetterQueue;
 
 let dlq_config = DeadLetterQueueConfig {
     topic: "failed-records".to_string(),

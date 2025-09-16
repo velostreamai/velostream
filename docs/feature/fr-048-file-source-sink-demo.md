@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature request implements a complete end-to-end data processing pipeline that demonstrates FerrisStreams' capabilities for:
+This feature request implements a complete end-to-end data processing pipeline that demonstrates VeloStream' capabilities for:
 1. Reading data from input files
 2. Processing with streaming SQL queries
 3. Writing intermediate results to Kafka topics
@@ -25,7 +25,7 @@ This feature request implements a complete end-to-end data processing pipeline t
 ## Architecture
 
 ```
-[Input Files] → [FerrisStreams SQL] → [Kafka Topics] → [FerrisStreams Consumer] → [Output Files]
+[Input Files] → [VeloStream SQL] → [Kafka Topics] → [VeloStream Consumer] → [Output Files]
 ```
 
 ## Implementation Plan & Progress Tracking
@@ -118,7 +118,7 @@ This feature request implements a complete end-to-end data processing pipeline t
 
 **🏗️ Core Infrastructure Implemented:**
 
-1. **SerializationFormat Enum** (`src/ferris/kafka/serialization_format.rs`):
+1. **SerializationFormat Enum** (`src/velo/kafka/serialization_format.rs`):
    ```rust
    pub enum SerializationFormat {
        Json,
@@ -179,7 +179,7 @@ This feature request implements a complete end-to-end data processing pipeline t
 - **Basic Schema Management**: No Schema Registry integration for Avro support
 - **Placeholder Transactions**: Incomplete exactly-once semantics implementation
 
-Example of current hardcoded approach (`src/ferris/sql/datasource/kafka/data_source.rs`):
+Example of current hardcoded approach (`src/velo/sql/datasource/kafka/data_source.rs`):
 ```rust
 let consumer = KafkaConsumer::<String, String, _, _>::new(
     &self.brokers,
@@ -534,7 +534,7 @@ WITH (
 ```rust
 //! Complete File → Kafka → File Pipeline Demo
 //!
-//! This demo showcases FerrisStreams' end-to-end processing capabilities:
+//! This demo showcases VeloStream' end-to-end processing capabilities:
 //! 1. Reading financial transaction data from CSV files
 //! 2. Processing with streaming SQL (aggregation + windowing)
 //! 3. Writing intermediate results to Kafka topics
@@ -555,17 +555,17 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
-use ferrisstreams::ferris::kafka::{KafkaProducer, KafkaConsumer, JsonSerializer};
-use ferrisstreams::ferris::datasource::{FileDataSource, FileSink};
+use velostream::velo::sql::execution::StreamExecutionEngine;
+use velostream::velo::sql::parser::StreamingSqlParser;
+use velostream::velo::kafka::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use velostream::velo::datasource::{FileDataSource, FileSink};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
     
-    println!("🚀 FerrisStreams Complete Pipeline Demo");
+    println!("🚀 VeloStream Complete Pipeline Demo");
     println!("==========================================");
     
     // Setup demo data
@@ -798,7 +798,7 @@ async fn display_results() -> Result<(), Box<dyn std::error::Error>> {
 
 **kafka.properties**:
 ```properties
-# Kafka Configuration for FerrisStreams Demo
+# Kafka Configuration for VeloStream Demo
 bootstrap.servers=localhost:9092
 
 # Performance optimizations
@@ -901,4 +901,4 @@ services:
 - ✅ Docker-based demo environment
 - ✅ Performance benchmarks vs alternatives
 
-This feature request provides a comprehensive foundation for implementing a complete data processing pipeline that showcases FerrisStreams' capabilities while delivering real business value for users needing robust, high-performance streaming data solutions.
+This feature request provides a comprehensive foundation for implementing a complete data processing pipeline that showcases VeloStream' capabilities while delivering real business value for users needing robust, high-performance streaming data solutions.

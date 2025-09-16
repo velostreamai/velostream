@@ -1,10 +1,10 @@
-# FerrisStreams CLI Feature Requests
+# VeloStream CLI Feature Requests
 
-This document outlines proposed enhancements and new features for the FerrisStreams CLI tool (`ferris-cli`).
+This document outlines proposed enhancements and new features for the VeloStream CLI tool (`velo-cli`).
 
 ## 🎯 Current Status
 
-The FerrisStreams CLI currently provides:
+The VeloStream CLI currently provides:
 - ✅ Health monitoring and system status
 - ✅ Kafka cluster and topic inspection
 - ✅ Job monitoring (SQL servers, data generators)
@@ -21,9 +21,9 @@ The FerrisStreams CLI currently provides:
 
 ```bash
 # Start interactive SQL session
-./ferris-cli interactive
+./velo-cli interactive
 
-ferris> sql> SELECT symbol, price FROM market_data LIMIT 5;
+velo> sql> SELECT symbol, price FROM market_data LIMIT 5;
 ┌────────┬────────┐
 │ symbol │ price  │
 ├────────┼────────┤
@@ -31,10 +31,10 @@ ferris> sql> SELECT symbol, price FROM market_data LIMIT 5;
 │ GOOGL  │ 140.15 │
 └────────┴────────┘
 
-ferris> sql> DESCRIBE market_data;
-ferris> sql> SHOW TOPICS;
-ferris> help
-ferris> exit
+velo> sql> DESCRIBE market_data;
+velo> sql> SHOW TOPICS;
+velo> help
+velo> exit
 ```
 
 **Features:**
@@ -46,7 +46,7 @@ ferris> exit
 - Syntax highlighting and validation
 
 **Technical Implementation:**
-- Integrate existing `execute_sql_query` function from `ferris-sql`
+- Integrate existing `execute_sql_query` function from `velo-sql`
 - Use crates like `rustyline` for readline functionality
 - Add table formatting with `tui-rs` or `comfy-table`
 
@@ -55,20 +55,20 @@ ferris> exit
 
 ```bash
 # Topic management
-./ferris-cli topic create orders --partitions 6 --replication 3
-./ferris-cli topic delete temp_topic
-./ferris-cli topic describe orders
-./ferris-cli topic list --pattern "market_*"
+./velo-cli topic create orders --partitions 6 --replication 3
+./velo-cli topic delete temp_topic
+./velo-cli topic describe orders
+./velo-cli topic list --pattern "market_*"
 
 # Consumer group operations
-./ferris-cli consumer-group list
-./ferris-cli consumer-group describe trading-analytics
-./ferris-cli consumer-group reset-offset --group analytics --topic orders --to-earliest
+./velo-cli consumer-group list
+./velo-cli consumer-group describe trading-analytics
+./velo-cli consumer-group reset-offset --group analytics --topic orders --to-earliest
 
 # Data inspection
-./ferris-cli peek market_data --count 10 --format json
-./ferris-cli search market_data --key "AAPL" --max-messages 100
-./ferris-cli tail market_data --follow
+./velo-cli peek market_data --count 10 --format json
+./velo-cli search market_data --key "AAPL" --max-messages 100
+./velo-cli tail market_data --follow
 ```
 
 **Features:**
@@ -83,22 +83,22 @@ ferris> exit
 
 ```bash
 # Profile management
-./ferris-cli profile create production --kafka-brokers prod-kafka:9092 --sql-host prod-sql:8080
-./ferris-cli profile create development --kafka-brokers localhost:9092 --sql-host localhost:8080
-./ferris-cli profile list
-./ferris-cli profile set production
+./velo-cli profile create production --kafka-brokers prod-kafka:9092 --sql-host prod-sql:8080
+./velo-cli profile create development --kafka-brokers localhost:9092 --sql-host localhost:8080
+./velo-cli profile list
+./velo-cli profile set production
 
 # Use with commands
-./ferris-cli --profile production health
-./ferris-cli --profile development jobs
+./velo-cli --profile production health
+./velo-cli --profile development jobs
 
-# Configuration file: ~/.ferris/config.toml
+# Configuration file: ~/.velo/config.toml
 [profiles.production]
 kafka_brokers = "prod-kafka-1:9092,prod-kafka-2:9092,prod-kafka-3:9092"
 sql_host = "prod-sql.company.com"
 sql_port = 8080
 remote = true
-auth_token = "${FERRIS_PROD_TOKEN}"
+auth_token = "${VELO_PROD_TOKEN}"
 
 [profiles.development] 
 kafka_brokers = "localhost:9092"
@@ -114,9 +114,9 @@ remote = false
 
 ```bash
 # Launch interactive dashboard
-./ferris-cli dashboard
+./velo-cli dashboard
 
-┌─ FerrisStreams Dashboard ────────────────────────────────────────────────┐
+┌─ VeloStream Dashboard ────────────────────────────────────────────────┐
 │                                                                          │
 │ ┌─ System Health ──────┐ ┌─ Active Jobs ────────────┐ ┌─ Kafka ─────────┐ │
 │ │ ● SQL Server: OK     │ │ price_alerts      [RUN] │ │ Brokers: 3/3 ●  │ │ 
@@ -146,21 +146,21 @@ remote = false
 
 ```bash
 # Deploy SQL applications
-./ferris-cli deploy trading_analytics.sql --env production --dry-run
-./ferris-cli deploy trading_analytics.sql --env production --confirm
+./velo-cli deploy trading_analytics.sql --env production --dry-run
+./velo-cli deploy trading_analytics.sql --env production --confirm
 
 # Job lifecycle management
-./ferris-cli jobs list --verbose
-./ferris-cli jobs pause price_alerts
-./ferris-cli jobs resume price_alerts  
-./ferris-cli jobs restart risk_monitor
-./ferris-cli jobs scale volume_analysis --replicas 3
-./ferris-cli jobs logs price_alerts --follow --tail 100
+./velo-cli jobs list --verbose
+./velo-cli jobs pause price_alerts
+./velo-cli jobs resume price_alerts  
+./velo-cli jobs restart risk_monitor
+./velo-cli jobs scale volume_analysis --replicas 3
+./velo-cli jobs logs price_alerts --follow --tail 100
 
 # Job templates and validation
-./ferris-cli template create ecommerce --type analytics
-./ferris-cli validate my_query.sql
-./ferris-cli explain "SELECT * FROM orders WHERE amount > 1000"
+./velo-cli template create ecommerce --type analytics
+./velo-cli validate my_query.sql
+./velo-cli explain "SELECT * FROM orders WHERE amount > 1000"
 ```
 
 #### 2.3 Data Generation & Testing
@@ -168,16 +168,16 @@ remote = false
 
 ```bash
 # Generate test data
-./ferris-cli generate orders --schema json --count 10000 --rate 100/sec
-./ferris-cli generate market_data --template trading --duration 5m
+./velo-cli generate orders --schema json --count 10000 --rate 100/sec
+./velo-cli generate market_data --template trading --duration 5m
 
 # Performance testing
-./ferris-cli benchmark --query "SELECT COUNT(*) FROM orders" --duration 60s
-./ferris-cli load-test --producer orders --rate 1000/sec --duration 10m
+./velo-cli benchmark --query "SELECT COUNT(*) FROM orders" --duration 60s
+./velo-cli load-test --producer orders --rate 1000/sec --duration 10m
 
 # Schema management
-./ferris-cli schema validate orders.json
-./ferris-cli schema generate --from-topic orders --format avro
+./velo-cli schema validate orders.json
+./velo-cli schema generate --from-topic orders --format avro
 ```
 
 ### Phase 3: Enterprise Features (Future)
@@ -187,14 +187,14 @@ remote = false
 
 ```bash
 # Access control
-./ferris-cli auth login --provider okta
-./ferris-cli permissions grant user@company.com --role analyst
-./ferris-cli audit log --user user@company.com --start 2024-01-01
+./velo-cli auth login --provider okta
+./velo-cli permissions grant user@company.com --role analyst
+./velo-cli audit log --user user@company.com --start 2024-01-01
 
 # Data governance
-./ferris-cli lineage trace orders --downstream
-./ferris-cli compliance scan --regulation gdpr
-./ferris-cli encrypt topic pii_data --key-id prod-kms-key
+./velo-cli lineage trace orders --downstream
+./velo-cli compliance scan --regulation gdpr
+./velo-cli encrypt topic pii_data --key-id prod-kms-key
 ```
 
 #### 3.2 Advanced Monitoring & Alerting
@@ -202,13 +202,13 @@ remote = false
 
 ```bash
 # Alerting integration
-./ferris-cli alert configure --webhook https://hooks.slack.com/...
-./ferris-cli alert rule create --metric lag --threshold 1000 --topic orders
+./velo-cli alert configure --webhook https://hooks.slack.com/...
+./velo-cli alert rule create --metric lag --threshold 1000 --topic orders
 
 # Performance profiling
-./ferris-cli profile query "SELECT * FROM large_table" --explain-plan
-./ferris-cli metrics export --format prometheus --output /tmp/metrics.txt
-./ferris-cli trace request --correlation-id abc123 --follow
+./velo-cli profile query "SELECT * FROM large_table" --explain-plan
+./velo-cli metrics export --format prometheus --output /tmp/metrics.txt
+./velo-cli trace request --correlation-id abc123 --follow
 ```
 
 ## 🛠️ Implementation Plan
@@ -223,9 +223,9 @@ remote = false
 
 #### Configuration System
 ```rust
-// ~/.ferris/config.toml structure
+// ~/.velo/config.toml structure
 #[derive(Deserialize)]
-struct FerrisConfig {
+struct VeloConfig {
     default_profile: String,
     profiles: HashMap<String, ProfileConfig>,
     ui: UiConfig,

@@ -3,8 +3,8 @@
 //! This test verifies that the multi-job SQL server correctly deploys and runs
 //! all jobs from a single SQL application file.
 
-use ferrisstreams::ferris::sql::app_parser::SqlApplicationParser;
 use std::time::Duration;
+use velostream::velostream::sql::app_parser::SqlApplicationParser;
 
 // Import the StreamJobServer from the binary crate
 // Note: This requires the structs to be pub in the binary or moved to lib
@@ -120,7 +120,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     }
 
     // Determine binary path based on environment
-    let binary_name = "ferris-sql-multi";
+    let binary_name = "velo-sql-multi";
     let binary_path = if std::env::var("CI").is_ok() {
         format!("./target/debug/{}", binary_name)
     } else {
@@ -551,15 +551,15 @@ async fn test_prerequisites() {
     println!("🔍 Checking test prerequisites...");
 
     // Check if multi-job server binary exists
-    let binary_path = "./target/release/ferris-sql-multi";
+    let binary_path = "./target/release/velo-sql-multi";
     let binary_exists = std::path::Path::new(binary_path).exists();
     println!(
-        "   ferris-sql-multi binary: {}",
+        "   velo-sql-multi binary: {}",
         if binary_exists { "✅" } else { "❌" }
     );
 
     if !binary_exists {
-        println!("💡 Run 'cargo build --release --bin ferris-sql-multi' to build the binary");
+        println!("💡 Run 'cargo build --release --bin velo-sql-multi' to build the binary");
     }
 
     // Check if Kafka is available
@@ -582,6 +582,6 @@ async fn test_prerequisites() {
 
     println!("\n📝 To run integration tests:");
     println!("   1. Start Kafka: docker-compose -f demo/trading/kafka-compose.yml up -d");
-    println!("   2. Build binary: cargo build --release --bin ferris-sql-multi");
+    println!("   2. Build binary: cargo build --release --bin velo-sql-multi");
     println!("   3. Run tests: cargo test test_multi_job_server -- --ignored");
 }

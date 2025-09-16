@@ -1,10 +1,10 @@
-# GROUP BY Implementation in FerrisStreams
+# GROUP BY Implementation in VeloStream
 
 This document describes the complete GROUP BY implementation for the streaming SQL engine, including functionality, features, and usage examples.
 
 ## Overview
 
-FerrisStreams now supports comprehensive GROUP BY operations with streaming semantics, allowing aggregation of data records based on grouping expressions. The implementation provides:
+VeloStream now supports comprehensive GROUP BY operations with streaming semantics, allowing aggregation of data records based on grouping expressions. The implementation provides:
 
 - **Full GROUP BY clause parsing and execution**
 - **Multiple aggregate functions** (COUNT, SUM, AVG, MIN, MAX, COUNT_DISTINCT, STDDEV, VARIANCE, FIRST, LAST, STRING_AGG)
@@ -72,7 +72,7 @@ HAVING SUM(amount) > 1000
 
 ### Complex Data Type Support
 
-The GROUP BY implementation handles all FerrisStreams data types:
+The GROUP BY implementation handles all VeloStream data types:
 
 #### Primitive Types
 - **Integers, Floats, Strings, Booleans**
@@ -312,6 +312,6 @@ Potential improvements for future versions:
 
 ## Conclusion
 
-The GROUP BY implementation in FerrisStreams provides a robust, feature-complete aggregation system that maintains streaming performance while supporting complex analytical queries. The implementation follows SQL standards while adding streaming-specific optimizations and features.
+The GROUP BY implementation in VeloStream provides a robust, feature-complete aggregation system that maintains streaming performance while supporting complex analytical queries. The implementation follows SQL standards while adding streaming-specific optimizations and features.
 
 The system is production-ready for most use cases and provides a solid foundation for advanced analytical workloads in streaming data processing pipelines.

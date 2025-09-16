@@ -31,7 +31,7 @@ datasink:
       strategy: "key_hash"  # Partition by key hash
       # Custom partitioner for customer-based partitioning:
       # strategy: "custom"
-      # partitioner_class: "com.ferrisstreams.CustomerPartitioner"
+      # partitioner_class: "com.velostream.CustomerPartitioner"
       
     # Schema Registry (if using Avro)
     schema_registry:
@@ -66,7 +66,7 @@ processing:
   headers:
     pipeline_version: "1.0.0"
     processing_timestamp: "@timestamp"  # Current timestamp
-    source_system: "ferrisstreams-demo"
+    source_system: "velostream-demo"
     
   # Metrics and monitoring
   metrics:

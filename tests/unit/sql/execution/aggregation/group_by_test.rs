@@ -1,11 +1,11 @@
-use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::ast::*;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {

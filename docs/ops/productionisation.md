@@ -10,7 +10,7 @@ The library provides comprehensive error context tracking for production debuggi
 **See:** [`tests/unit/error_context_test.rs`](../tests/unit/error_context_test.rs) - Complete error context implementation
 
 ```rust
-use ferris::kafka::*;
+use velo::kafka::*;
 
 // Error context includes operation details, timestamps, and correlation IDs
 let context = ErrorContext::new("send_message", "user-events")
@@ -257,8 +257,8 @@ For applications requiring materialized views of Kafka topics, use KTables for e
 ### Basic KTable Usage
 
 ```rust
-use ferrisstreams::ferris::kafka::*;
-use ferrisstreams::ferris::kafka::consumer_config::{OffsetReset, IsolationLevel};
+use velostream::velo::kafka::*;
+use velostream::velo::kafka::consumer_config::{OffsetReset, IsolationLevel};
 
 // Create a KTable from a compacted topic
 let config = ConsumerConfig::new("localhost:9092", "user-table-group")
@@ -355,18 +355,18 @@ let config = ProducerConfig::new("broker:9092", "topic")
 
 ### Health Checks
 
-#### Using FerrisStreams CLI (Recommended)
+#### Using VeloStream CLI (Recommended)
 For production environments, use the built-in CLI tool for comprehensive health monitoring:
 
 ```bash
 # Quick health check of all components
-./ferris-cli --remote --sql-host prod-server.com health
+./velo-cli --remote --sql-host prod-server.com health
 
 # Detailed monitoring with real-time updates
-./ferris-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
+./velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
 
 # Check specific components
-./ferris-cli --remote --sql-host prod-server.com jobs --sql --topics
+./velo-cli --remote --sql-host prod-server.com jobs --sql --topics
 ```
 
 #### Programmatic Health Checks

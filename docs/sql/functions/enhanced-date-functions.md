@@ -1,6 +1,6 @@
-# Enhanced Date Functions in FerrisStreams
+# Enhanced Date Functions in VeloStream
 
-FerrisStreams now supports comprehensive date and time manipulation with enhanced `EXTRACT` and `DATEDIFF` functions.
+VeloStream now supports comprehensive date and time manipulation with enhanced `EXTRACT` and `DATEDIFF` functions.
 
 ## EXTRACT Function Enhancements
 

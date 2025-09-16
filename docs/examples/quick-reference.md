@@ -1,4 +1,4 @@
-# Quick Reference - ferrisstreams
+# Quick Reference - velostream
 
 ## API Overview
 
@@ -25,8 +25,8 @@ Headers // wraps HashMap<String, Option<String>>
 ## Quick Start
 
 ```rust
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
-use ferrisstreams::ferris::kafka::Headers;
+use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use velostream::velo::kafka::Headers;
 
 // Producer
 let producer = KafkaProducer::<String, MyData, _, _>::new(

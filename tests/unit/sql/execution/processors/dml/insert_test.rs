@@ -4,10 +4,10 @@
 Comprehensive test suite for INSERT INTO operations.
 */
 
-use ferrisstreams::ferris::sql::ast::{Expr, InsertSource, LiteralValue, StreamingQuery};
-use ferrisstreams::ferris::sql::execution::processors::InsertProcessor;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::{Expr, InsertSource, LiteralValue, StreamingQuery};
+use velostream::velostream::sql::execution::processors::InsertProcessor;
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -156,20 +156,20 @@ async fn test_insert_select() {
     // Create a mock SELECT query that selects the fields we need
     let select_query = StreamingQuery::Select {
         fields: vec![
-            ferrisstreams::ferris::sql::ast::SelectField::Expression {
-                expr: ferrisstreams::ferris::sql::ast::Expr::Literal(
-                    ferrisstreams::ferris::sql::ast::LiteralValue::Integer(42),
+            velostream::velostream::sql::ast::SelectField::Expression {
+                expr: velostream::velostream::sql::ast::Expr::Literal(
+                    velostream::velostream::sql::ast::LiteralValue::Integer(42),
                 ),
                 alias: Some("id".to_string()),
             },
-            ferrisstreams::ferris::sql::ast::SelectField::Expression {
-                expr: ferrisstreams::ferris::sql::ast::Expr::Literal(
-                    ferrisstreams::ferris::sql::ast::LiteralValue::String("test_name".to_string()),
+            velostream::velostream::sql::ast::SelectField::Expression {
+                expr: velostream::velostream::sql::ast::Expr::Literal(
+                    velostream::velostream::sql::ast::LiteralValue::String("test_name".to_string()),
                 ),
                 alias: Some("name".to_string()),
             },
         ],
-        from: ferrisstreams::ferris::sql::ast::StreamSource::Table("source_table".to_string()),
+        from: velostream::velostream::sql::ast::StreamSource::Table("source_table".to_string()),
         joins: None,
         where_clause: None,
         group_by: None,

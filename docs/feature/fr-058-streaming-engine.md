@@ -32,10 +32,10 @@ FR-058 focuses on building a robust, production-ready streaming SQL engine with 
   - *Unit Test*: `tests/unit/sql/execution/phase_1b_watermarks_test.rs:408` - `test_event_time_vs_processing_time_semantics()`
 
 **Key Files Added/Enhanced:**
-- `src/ferris/sql/execution/watermarks.rs` - Complete watermark management system (550+ lines)
-- `src/ferris/sql/execution/processors/context.rs` - Watermark integration methods
-- `src/ferris/sql/execution/processors/window.rs` - Watermark-aware windowing
-- `src/ferris/sql/execution/config.rs` - Late data and watermark configuration
+- `src/velo/sql/execution/watermarks.rs` - Complete watermark management system (550+ lines)
+- `src/velo/sql/execution/processors/context.rs` - Watermark integration methods
+- `src/velo/sql/execution/processors/window.rs` - Watermark-aware windowing
+- `src/velo/sql/execution/config.rs` - Late data and watermark configuration
 - `tests/unit/sql/execution/phase_1b_watermarks_test.rs` - 10 comprehensive tests
 
 ### ✅ Phase 2: Error & Resource Management (COMPLETED)
@@ -53,10 +53,10 @@ FR-058 focuses on building a robust, production-ready streaming SQL engine with 
 - **Dead Letter Queue**: Failed message handling with retry capabilities
 
 **Key Files Added/Enhanced:**
-- `src/ferris/sql/execution/error_handling.rs` - Enhanced error classification and retry logic
-- `src/ferris/sql/execution/resource_manager.rs` - Resource allocation and monitoring
-- `src/ferris/sql/execution/circuit_breaker.rs` - Circuit breaker implementation
-- `src/ferris/sql/error/recovery.rs` - Error recovery and dead letter queue functionality
+- `src/velo/sql/execution/error_handling.rs` - Enhanced error classification and retry logic
+- `src/velo/sql/execution/resource_manager.rs` - Resource allocation and monitoring
+- `src/velo/sql/execution/circuit_breaker.rs` - Circuit breaker implementation
+- `src/velo/sql/error/recovery.rs` - Error recovery and dead letter queue functionality
 
 ### ✅ Phase 3: Advanced Query Features (COMPLETED)
 
@@ -94,22 +94,22 @@ WHERE p.timestamp BETWEEN o.timestamp AND o.timestamp + INTERVAL '1' HOUR;
 
 **Core Achievements:**
 - **Distributed Tracing**: OpenTelemetry-compatible telemetry with SQL query and streaming operation spans
-  - Provider: `TelemetryProvider` in `src/ferris/observability/telemetry.rs`
+  - Provider: `TelemetryProvider` in `src/velo/observability/telemetry.rs`
 - **Prometheus Metrics**: Comprehensive metrics collection for SQL queries, streaming operations, and system resources
-  - Provider: `MetricsProvider` in `src/ferris/observability/metrics.rs`
+  - Provider: `MetricsProvider` in `src/velo/observability/metrics.rs`
 - **Performance Profiling**: Automated bottleneck detection with performance report generation
-  - Provider: `ProfilingProvider` in `src/ferris/observability/profiling.rs`
+  - Provider: `ProfilingProvider` in `src/velo/observability/profiling.rs`
 - **Grafana Dashboard**: Production-ready monitoring dashboard with 10 key metric panels
 - **Complete Documentation**: Setup, integration guides, and troubleshooting documentation
 
 **Metrics Exposed:**
-- `ferris_sql_queries_total` - SQL query execution counter
-- `ferris_sql_query_duration_seconds` - Query latency histograms
-- `ferris_streaming_operations_total` - Streaming operation counter
-- `ferris_streaming_throughput_rps` - Real-time throughput gauge
-- `ferris_cpu_usage_percent` - System CPU monitoring
-- `ferris_memory_usage_bytes` - Memory usage tracking
-- `ferris_active_connections` - Connection pool monitoring
+- `velo_sql_queries_total` - SQL query execution counter
+- `velo_sql_query_duration_seconds` - Query latency histograms
+- `velo_streaming_operations_total` - Streaming operation counter
+- `velo_streaming_throughput_rps` - Real-time throughput gauge
+- `velo_cpu_usage_percent` - System CPU monitoring
+- `velo_memory_usage_bytes` - Memory usage tracking
+- `velo_active_connections` - Connection pool monitoring
 
 **Observability Integration:**
 ```rust
@@ -525,13 +525,13 @@ let config = StreamingConfig {
 # docker-compose.yml
 version: '3.8'
 services:
-  ferris-engine:
-    image: ferrisstreams:latest
+  velo-engine:
+    image: velostream:latest
     ports:
       - "9091:9091"  # Metrics endpoint
     environment:
-      - FERRIS_MAX_MEMORY_MB=4096
-      - FERRIS_MAX_CONNECTIONS=100
+      - VELO_MAX_MEMORY_MB=4096
+      - VELO_MAX_CONNECTIONS=100
       - KAFKA_BROKERS=kafka-cluster:9092
     volumes:
       - ./config:/app/config

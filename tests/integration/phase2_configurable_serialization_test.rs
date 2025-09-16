@@ -3,7 +3,7 @@
 //! These tests validate the complete configurable serialization system from
 //! SQL WITH clause parsing to consumer/producer creation.
 
-use ferrisstreams::ferris::kafka::{
+use velostream::velostream::kafka::{
     configurable_consumer::ConfigurableKafkaConsumerBuilder,
     configurable_producer::ConfigurableKafkaProducerBuilder,
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},

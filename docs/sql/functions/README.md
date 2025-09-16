@@ -1,4 +1,4 @@
-# FerrisStreams SQL Functions Reference
+# VeloStream SQL Functions Reference
 
 Quick lookup for all available SQL functions organized by category. Click any function for detailed examples.
 

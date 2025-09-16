@@ -1,9 +1,9 @@
 use chrono::NaiveDate;
-use ferrisstreams::ferris::serialization::avro_codec::create_avro_serializer;
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
+use velostream::velostream::serialization::avro_codec::create_avro_serializer;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

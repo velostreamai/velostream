@@ -1,11 +1,11 @@
-use crate::ferris::{
-    error::FerrisResult,
+use crate::velostream::{
+    error::VeloResult,
     kafka::{Headers, JsonSerializer, KafkaProducer},
 };
 use serde::{Deserialize, Serialize};
 
 // Import the module structure
-mod ferris;
+mod velostream;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct TestMessage {
@@ -14,7 +14,7 @@ struct TestMessage {
 }
 
 #[tokio::main]
-async fn main() -> FerrisResult<()> {
+async fn main() -> VeloResult<()> {
     // Initialize the logger
     pretty_env_logger::init();
 

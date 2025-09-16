@@ -7,9 +7,9 @@ rule_files:
   # - "second_rules.yml"
 
 scrape_configs:
-  - job_name: 'ferris-streams'
+  - job_name: 'velo-streams'
     static_configs:
-      - targets: ['host.docker.internal:9091']  # Adjust port to match your FerrisStreams metrics endpoint
+      - targets: ['host.docker.internal:9091']  # Adjust port to match your VeloStream metrics endpoint
     scrape_interval: 5s
     metrics_path: /metrics
     scheme: http

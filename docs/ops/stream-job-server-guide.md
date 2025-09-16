@@ -1,11 +1,11 @@
-# FerrisStreams StreamJobServer Operations Guide
+# VeloStream StreamJobServer Operations Guide
 
 ## Overview
 
-The FerrisStreams StreamJobServer is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
+The VeloStream StreamJobServer is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
 
 **Prerequisites**: 
-- FerrisStreams StreamJobServer deployed (via Docker or Kubernetes)
+- VeloStream StreamJobServer deployed (via Docker or Kubernetes)
 - Access to the server container or cluster
 - Basic SQL knowledge
 
@@ -25,13 +25,13 @@ The FerrisStreams StreamJobServer is a production-ready streaming SQL engine tha
 
 ```bash
 # Check if StreamJobServer is running
-docker exec ferris-streams ferris-sql-multi --version
+docker exec velo-streams velo-sql-multi --version
 
 # Check server health
 curl http://localhost:8081/health
 
 # List running services
-docker ps | grep ferris
+docker ps | grep velo
 ```
 
 ### Starting the StreamJobServer
@@ -151,7 +151,7 @@ SQL job files define multiple streaming jobs that run concurrently. Each file ca
 
 ```sql
 -- ==============================================================================
--- FERRISSTREAMS STREAM JOB SERVER SQL FILE
+-- VELOSTREAM STREAM JOB SERVER SQL FILE
 -- ==============================================================================
 
 -- GLOBAL CONFIGURATION SECTION
@@ -280,13 +280,13 @@ SELECT symbol, price FROM high_frequency_data;
 
 ```bash
 # Deploy all jobs from a SQL file
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/sql/my_jobs.sql \
   --brokers kafka:9092 \
   --continuous
 
 # Deploy with custom configuration
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/sql/trading_jobs.sql \
   --brokers kafka:9092 \
   --job-prefix "prod_" \
@@ -299,27 +299,27 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 
 ```bash
 # List all jobs
-docker exec ferris-streams ferris-sql-multi list-jobs
-docker exec ferris-streams ferris-sql-multi list-jobs --format table
+docker exec velo-streams velo-sql-multi list-jobs
+docker exec velo-streams velo-sql-multi list-jobs --format table
 
 # Start/stop specific jobs
-docker exec ferris-streams ferris-sql-multi start-job --job-id fraud_detection
-docker exec ferris-streams ferris-sql-multi stop-job --job-id fraud_detection
-docker exec ferris-streams ferris-sql-multi pause-job --job-id fraud_detection  
-docker exec ferris-streams ferris-sql-multi resume-job --job-id fraud_detection
+docker exec velo-streams velo-sql-multi start-job --job-id fraud_detection
+docker exec velo-streams velo-sql-multi stop-job --job-id fraud_detection
+docker exec velo-streams velo-sql-multi pause-job --job-id fraud_detection  
+docker exec velo-streams velo-sql-multi resume-job --job-id fraud_detection
 
 # Get job status
-docker exec ferris-streams ferris-sql-multi job-status --job-id fraud_detection
-docker exec ferris-streams ferris-sql-multi job-status --job-id fraud_detection --format json
+docker exec velo-streams velo-sql-multi job-status --job-id fraud_detection
+docker exec velo-streams velo-sql-multi job-status --job-id fraud_detection --format json
 
 # View job output in real-time
-docker exec -it ferris-streams ferris-sql-multi stream-job \
+docker exec -it velo-streams velo-sql-multi stream-job \
   --job-id fraud_detection \
   --output stdout \
   --format json-lines
 
 # View logs for specific job
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id fraud_detection \
   --tail 100 \
   --follow
@@ -329,16 +329,16 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 
 ```bash
 # Start all stopped jobs
-docker exec ferris-streams ferris-sql-multi start-all-jobs
+docker exec velo-streams velo-sql-multi start-all-jobs
 
 # Stop all running jobs
-docker exec ferris-streams ferris-sql-multi stop-all-jobs  
+docker exec velo-streams velo-sql-multi stop-all-jobs  
 
 # Get status of all jobs
-docker exec ferris-streams ferris-sql-multi list-jobs --status all --format json
+docker exec velo-streams velo-sql-multi list-jobs --status all --format json
 
 # Stream output from all jobs
-docker exec -it ferris-streams ferris-sql-multi stream-all \
+docker exec -it velo-streams velo-sql-multi stream-all \
   --output stdout \
   --format json-lines \
   --include-metadata
@@ -448,10 +448,10 @@ START JOB slow_processing AS SELECT * FROM complex_data;
 
 ```bash
 # Overview of all jobs
-docker exec ferris-streams ferris-sql-multi list-jobs --format table
+docker exec velo-streams velo-sql-multi list-jobs --format table
 
 # Detailed job information
-docker exec ferris-streams ferris-sql-multi job-status \
+docker exec velo-streams velo-sql-multi job-status \
   --job-id my_job \
   --format json
 
@@ -479,22 +479,22 @@ curl http://localhost:9091/metrics/resources
 
 ```bash
 # View job logs
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id my_job \
   --tail 50
 
 # Follow logs in real-time
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id my_job \
   --follow
 
 # Search logs for errors
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id my_job \
   --grep "ERROR"
 
 # Export logs to file
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id my_job \
   --since "2024-01-01T00:00:00Z" > job_logs.txt
 ```
@@ -504,10 +504,10 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 #### Job Won't Start
 ```bash
 # Check job configuration
-docker exec ferris-streams ferris-sql-multi job-status --job-id my_job
+docker exec velo-streams velo-sql-multi job-status --job-id my_job
 
 # Validate SQL file syntax
-docker exec ferris-streams ferris-sql-multi validate-sql --file /app/sql/jobs.sql
+docker exec velo-streams velo-sql-multi validate-sql --file /app/sql/jobs.sql
 
 # Check resource availability
 curl http://localhost:9091/metrics/resources
@@ -528,7 +528,7 @@ curl http://localhost:9091/metrics/memory
 curl http://localhost:9091/metrics/consumer-lag
 
 # View job processing rates
-docker exec ferris-streams ferris-sql-multi job-status --job-id my_job --format json
+docker exec velo-streams velo-sql-multi job-status --job-id my_job --format json
 ```
 
 ## Production Examples
@@ -671,16 +671,16 @@ WHERE amount > 100.00
 Deploy the jobs:
 ```bash
 # Deploy all e-commerce jobs
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/sql/ecommerce_jobs.sql \
   --brokers kafka:9092 \
   --continuous
 
 # Monitor job status  
-docker exec ferris-streams ferris-sql-multi list-jobs --format table
+docker exec velo-streams velo-sql-multi list-jobs --format table
 
 # View real-time results
-docker exec -it ferris-streams ferris-sql-multi stream-all \
+docker exec -it velo-streams velo-sql-multi stream-all \
   --format json-lines \
   --include-metadata
 ```
@@ -826,16 +826,16 @@ WHERE notional_amount > 10000.00
 1. **Monitor Job Health**: Check job status regularly
    ```bash
    # Set up automated monitoring
-   docker exec ferris-streams ferris-sql-multi list-jobs --status failed
+   docker exec velo-streams velo-sql-multi list-jobs --status failed
    ```
 
 2. **Use Staged Deployments**: Test jobs before production
    ```bash
    # Deploy to staging first
-   docker exec ferris-streams-staging ferris-sql-multi deploy-app --file jobs.sql
+   docker exec velo-streams-staging velo-sql-multi deploy-app --file jobs.sql
    
    # Then production
-   docker exec ferris-streams-prod ferris-sql-multi deploy-app --file jobs.sql
+   docker exec velo-streams-prod velo-sql-multi deploy-app --file jobs.sql
    ```
 
 3. **Manage Consumer Groups**: Use meaningful prefixes
@@ -847,10 +847,10 @@ WHERE notional_amount > 10000.00
 4. **Implement Gradual Rollouts**: Start/stop jobs gradually
    ```bash
    # Start critical jobs first
-   docker exec ferris-streams ferris-sql-multi start-job --job-id payment_processing
+   docker exec velo-streams velo-sql-multi start-job --job-id payment_processing
    
    # Then supporting jobs
-   docker exec ferris-streams ferris-sql-multi start-job --job-id analytics_aggregation
+   docker exec velo-streams velo-sql-multi start-job --job-id analytics_aggregation
    ```
 
 ### Multi-Topic Avro Example
@@ -961,16 +961,16 @@ Deploy with proper schema mounting:
 docker run -d \
   -v $(pwd)/schemas:/app/schemas:ro \
   -v $(pwd)/multi_topic_avro.sql:/app/sql/jobs.sql \
-  ferrisstreams:latest
+  velostream:latest
 
 # Deploy the multi-topic jobs
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/sql/multi_topic_avro.sql \
   --brokers kafka:9092 \
   --continuous
 
 # Monitor all jobs
-docker exec ferris-streams ferris-sql-multi list-jobs --format table
+docker exec velo-streams velo-sql-multi list-jobs --format table
 ```
 
 ### Schema Evolution Support
@@ -989,4 +989,4 @@ Each job handles its own schema evolution independently:
 
 This approach allows gradual migration of schemas without affecting other jobs.
 
-This guide provides everything needed to operate the FerrisStreams StreamJobServer in production environments without requiring access to source code.
+This guide provides everything needed to operate the VeloStream StreamJobServer in production environments without requiring access to source code.

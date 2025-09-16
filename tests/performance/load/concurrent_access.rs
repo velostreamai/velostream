@@ -1,16 +1,16 @@
 //! Concurrent Access Load Testing
 //!
-//! Benchmarks for testing FerrisStreams performance under concurrent access patterns,
+//! Benchmarks for testing VeloStream performance under concurrent access patterns,
 //! multi-threading scenarios, and parallel processing workloads.
 
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
-use ferrisstreams::ferris::sql::execution::{types::FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::sql::execution::{types::FieldValue, StreamRecord};
 
 /// Test concurrent processing with multiple producer/consumer pairs
 #[tokio::test]

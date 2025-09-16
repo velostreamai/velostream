@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FerrisStreams DataSource Demo - Complete Pipeline Runner
+# VeloStream DataSource Demo - Complete Pipeline Runner
 # Demonstrates file -> processing -> kafka -> analytics -> file pipeline
 
 set -e  # Exit on any error
@@ -35,7 +35,7 @@ cleanup_on_exit() {
 # Set up signal handlers
 trap cleanup_on_exit INT TERM
 
-echo -e "${BLUE}🚀 FerrisStreams DataSource Complete Demo${NC}"
+echo -e "${BLUE}🚀 VeloStream DataSource Complete Demo${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 # Function to print status
@@ -116,23 +116,23 @@ echo "============================="
 mkdir -p "$DATA_DIR" "$OUTPUT_DIR"
 print_status "Created demo directories"
 
-# Build FerrisStreams binaries
-echo -e "\n${BLUE}🔨 Building FerrisStreams${NC}"
+# Build VeloStream binaries
+echo -e "\n${BLUE}🔨 Building VeloStream${NC}"
 echo "=========================="
 
 cd "$DEMO_DIR/../.."
 
 echo "Building core binaries..."
 RUSTFLAGS="-A dead_code" cargo build --bin file_processing_demo --no-default-features --quiet
-# Legacy ferris-sql binary was removed - using ferris-sql-multi  
-RUSTFLAGS="-A dead_code" cargo build --bin ferris-sql-multi --no-default-features --quiet
+# Legacy velo-sql binary was removed - using velo-sql-multi  
+RUSTFLAGS="-A dead_code" cargo build --bin velo-sql-multi --no-default-features --quiet
 
 if [[ "$SKIP_KAFKA" != "true" ]]; then
     echo "Building with Kafka support..."
     RUSTFLAGS="-A dead_code" cargo build --bin complete_pipeline_demo --quiet
 fi
 
-print_status "FerrisStreams built successfully"
+print_status "VeloStream built successfully"
 
 # Generate demo data if needed
 echo -e "\n${BLUE}📊 Preparing Demo Data${NC}"
@@ -307,7 +307,7 @@ case $choice in
         echo "• Complex joins and analytics"
         echo ""
         echo "Deploying and running SQL demo application..."
-        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin ferris-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
         ;;
         
     3)
@@ -340,7 +340,7 @@ case $choice in
         
         echo -e "\n${YELLOW}Demo 3: SQL Interface${NC}"
         echo "SQL server will start for interactive use..."
-        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin ferris-sql-multi --no-default-features -- server"
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql-multi --no-default-features -- server"
         ;;
 esac
 
@@ -405,7 +405,7 @@ fi
 echo -e "\n${GREEN}🎉 Demo completed successfully!${NC}"
 echo ""
 echo "Key takeaways:"
-echo "• FerrisStreams provides exact precision for financial calculations"  
+echo "• VeloStream provides exact precision for financial calculations"  
 echo "• Supports both Rust API and SQL interfaces for flexibility"
 echo "• Production-ready with file watching, rotation, compression, and error handling"
 echo "• Seamlessly integrates with Kafka for real-time streaming architectures"

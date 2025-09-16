@@ -1,6 +1,6 @@
 //! Simple test for failure strategy configuration parsing
 
-use ferrisstreams::ferris::sql::config::with_clause_parser::WithClauseParser;
+use velostream::velostream::sql::config::with_clause_parser::WithClauseParser;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

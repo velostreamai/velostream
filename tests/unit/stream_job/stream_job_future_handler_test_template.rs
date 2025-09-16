@@ -19,23 +19,23 @@ use super::stream_job_test_infrastructure::{
 };
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
-use ferrisstreams::ferris::server::processors::{
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
     // TODO: Replace with your actual processor module
     // multi_job_your_processor::YourJobProcessor,
 };
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     ast::{SelectField, StreamSource, StreamingQuery},
     execution::{
         engine::StreamExecutionEngine,
         types::{FieldValue, StreamRecord},
     },
 };
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
 
 // =====================================================
 // YOUR PROCESSOR WRAPPER FOR TESTING (TEMPLATE)

@@ -14,16 +14,16 @@
 //! - Kafka running on localhost:9092
 //! - Run with: `cargo run --example datasource_performance_test`
 
-use ferrisstreams::ferris::datasource::config::ConnectionString;
-use ferrisstreams::ferris::datasource::create_source;
-use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer};
-use ferrisstreams::ferris::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+use velostream::velostream::datasource::config::ConnectionString;
+use velostream::velostream::datasource::create_source;
+use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer};
+use velostream::velostream::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 // Performance test configuration
 const OPERATION_COUNT: u64 = 10_000;

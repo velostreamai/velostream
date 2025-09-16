@@ -42,13 +42,13 @@
 //! - `fluent_api_example.rs` - Stream processing patterns
 //! - Review test files for more configuration examples
 
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::performance_presets::PerformancePresets;
-use ferrisstreams::ferris::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use ferrisstreams::KafkaConsumer;
-use ferrisstreams::{Headers, JsonSerializer, KafkaProducer, ProducerBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+use velostream::velostream::kafka::performance_presets::PerformancePresets;
+use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
+use velostream::KafkaConsumer;
+use velostream::{Headers, JsonSerializer, KafkaProducer, ProducerBuilder};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {

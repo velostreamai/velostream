@@ -1,19 +1,19 @@
 /*!
 # Multi-Source/Multi-Sink Integration Tests
 
-Comprehensive test suite for FerrisStreams multi-source and multi-sink processing capabilities.
+Comprehensive test suite for VeloStream multi-source and multi-sink processing capabilities.
 Tests the complete pipeline from query analysis through job execution with multiple data sources and sinks.
 */
 
-use ferrisstreams::ferris::server::processors::{
+use velostream::velostream::server::processors::{
     create_multi_source_readers, create_multi_sink_writers, SimpleJobProcessor, TransactionalJobProcessor,
 };
-use ferrisstreams::ferris::server::stream_job_server::StreamJobServer;
-use ferrisstreams::ferris::sql::query_analyzer::{
+use velostream::velostream::server::stream_job_server::StreamJobServer;
+use velostream::velostream::sql::query_analyzer::{
     QueryAnalyzer, DataSourceRequirement, DataSinkRequirement, DataSourceType, DataSinkType,
 };
-use ferrisstreams::ferris::sql::{StreamExecutionEngine, StreamingSqlParser};
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter, BatchConfig};
+use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
+use velostream::velostream::datasource::{DataReader, DataWriter, BatchConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -141,9 +141,9 @@ async fn test_create_multi_sink_writers() {
 
 #[tokio::test]
 async fn test_simple_processor_multi_job_interface() {
-    let config = ferrisstreams::ferris::server::processors::JobProcessingConfig {
+    let config = velostream::velostream::server::processors::JobProcessingConfig {
         use_transactions: false,
-        failure_strategy: ferrisstreams::ferris::server::processors::FailureStrategy::LogAndContinue,
+        failure_strategy: velostream::velostream::server::processors::FailureStrategy::LogAndContinue,
         max_batch_size: 100,
         batch_timeout: Duration::from_millis(1000),
         max_retries: 3,
@@ -188,9 +188,9 @@ async fn test_simple_processor_multi_job_interface() {
 
 #[tokio::test] 
 async fn test_transactional_processor_multi_job_interface() {
-    let config = ferrisstreams::ferris::server::processors::JobProcessingConfig {
+    let config = velostream::velostream::server::processors::JobProcessingConfig {
         use_transactions: true,
-        failure_strategy: ferrisstreams::ferris::server::processors::FailureStrategy::FailBatch,
+        failure_strategy: velostream::velostream::server::processors::FailureStrategy::FailBatch,
         max_batch_size: 50,
         batch_timeout: Duration::from_millis(2000),
         max_retries: 5,
@@ -381,7 +381,7 @@ async fn test_batch_config_propagation_multi_source() {
     ];
     
     let batch_config = Some(BatchConfig {
-        strategy: ferrisstreams::ferris::datasource::BatchStrategy::FixedSize,
+        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize,
         max_batch_size: Some(500),
         batch_timeout: Some(Duration::from_millis(2000)),
         memory_limit_mb: Some(100),

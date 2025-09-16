@@ -1,4 +1,4 @@
-//! # ferrisstreams
+//! # velostream
 //!
 //! A Rust-idiomatic and robust client library for Apache Kafka, designed for high-performance,
 //! fault-tolerant, and flexible processing of multiple Kafka topics and data streams with full
@@ -49,7 +49,7 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
+//! use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
 //! use serde::{Serialize, Deserialize};
 //! use std::time::Duration;
 //!
@@ -96,11 +96,11 @@
 //! }
 //! ```
 
-// Export the ferris.kafka.app module structure
-pub mod ferris;
+// Export the velostream.kafka.app module structure
+pub mod velostream;
 
 // Re-export main API at crate root for easy access
-pub use ferris::kafka::{
+pub use velostream::kafka::{
     Headers, JsonSerializer, KTable, KafkaAdminClient, KafkaConsumer, KafkaProducer, Message,
     ProducerBuilder,
 };

@@ -17,12 +17,12 @@ PARTITION BY support, ORDER BY handling, and advanced window frame calculations.
 - Error handling and edge cases
 */
 
-use ferrisstreams::ferris::serialization::InternalValue;
-use ferrisstreams::ferris::sql::ast::{
+use velostream::velostream::serialization::InternalValue;
+use velostream::velostream::sql::ast::{
     Expr, LiteralValue, OrderByExpr, OrderDirection, OverClause, WindowFrame,
 };
-use ferrisstreams::ferris::sql::execution::expression::window_functions::WindowFunctions;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::expression::window_functions::WindowFunctions;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
 /// Create test record with specified fields

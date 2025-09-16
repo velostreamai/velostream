@@ -1,13 +1,13 @@
-# Feature Request: SQL Support for FerrisStreams
+# Feature Request: SQL Support for VeloStream
 
 ## Summary
 
-Add comprehensive SQL query capabilities to ferrisstreams, enabling developers to process Kafka streams using familiar SQL syntax instead of, or in combination with, programmatic stream processing. This feature would bridge the gap between SQL-familiar data engineers and Rust-based stream processing, making ferrisstreams accessible to a broader audience while maintaining its performance and type-safety advantages.
+Add comprehensive SQL query capabilities to velostream, enabling developers to process Kafka streams using familiar SQL syntax instead of, or in combination with, programmatic stream processing. This feature would bridge the gap between SQL-familiar data engineers and Rust-based stream processing, making velostream accessible to a broader audience while maintaining its performance and type-safety advantages.
 
 ## Motivation
 
 ### Current Limitations
-- **Barrier to Entry**: Developers familiar with SQL but not Rust cannot easily adopt ferrisstreams
+- **Barrier to Entry**: Developers familiar with SQL but not Rust cannot easily adopt velostream
 - **Complex Stream Operations**: Implementing complex aggregations, joins, and windowing requires significant Rust coding
 - **No Ad-hoc Queries**: Cannot perform exploratory data analysis or one-off queries against Kafka streams
 - **Limited Analytics**: Current KTable implementation lacks advanced analytical capabilities
@@ -22,9 +22,9 @@ Add comprehensive SQL query capabilities to ferrisstreams, enabling developers t
 
 ### Three-Tier Architecture Approach
 
-#### Tier 1: SQL Query Interface (ferris-sql)
+#### Tier 1: SQL Query Interface (velo-sql)
 ```rust
-use ferrisstreams::sql::*;
+use velostream::sql::*;
 
 // Create SQL context with Kafka streams
 let sql_context = SqlContext::new()
@@ -50,13 +50,13 @@ let result_stream = sql_context.execute("
 
 #### Tier 2: Query Execution Engine
 - **DataFusion Integration**: Leverage Apache DataFusion for SQL parsing and optimization
-- **Streaming Adapter**: Custom execution layer to bridge DataFusion with ferrisstreams
-- **Type Integration**: Seamless integration with ferrisstreams' serialization system
+- **Streaming Adapter**: Custom execution layer to bridge DataFusion with velostream
+- **Type Integration**: Seamless integration with velostream' serialization system
 
 #### Tier 3: Stream Processing Runtime
 - **Existing Infrastructure**: Built on top of current KafkaConsumer, KTable, and Message types
 - **Performance**: Maintains Rust's performance characteristics
-- **Compatibility**: Full compatibility with existing ferrisstreams applications
+- **Compatibility**: Full compatibility with existing velostream applications
 
 ## Streaming-Native SQL Architecture
 
@@ -66,11 +66,11 @@ let result_stream = sql_context.execute("
 
 **Key Features**:
 - **True Streaming**: Native support for streaming operations like windowing, watermarks, and event-time processing
-- **Kafka-Optimized**: Direct integration with ferrisstreams' Message, Headers, and KTable abstractions
+- **Kafka-Optimized**: Direct integration with velostream' Message, Headers, and KTable abstractions
 - **Zero Overhead**: No impedance mismatch between batch-oriented SQL and streaming reality
 - **Streaming SQL Extensions**: Custom operators for Kafka-specific patterns (compaction, log semantics)
 - **Full Control**: Complete control over execution model, memory management, and performance characteristics
-- **Type Integration**: Deep integration with Rust's type system and ferrisstreams serialization
+- **Type Integration**: Deep integration with Rust's type system and velostream serialization
 
 **Design Principles**:
 - **Event-at-a-Time Processing**: Process individual events as they arrive
@@ -441,7 +441,7 @@ sql_context.enable_checkpointing("/tmp/sql_checkpoints")?;
 
 ### Type System Integration
 ```rust
-// Deep integration with ferrisstreams serialization
+// Deep integration with velostream serialization
 #[derive(Serialize, Deserialize, StreamingSchema)]
 struct Order {
     #[streaming(primary_key)]
@@ -466,7 +466,7 @@ impl StreamingSchema for Order {
 ```
 
 ### Performance Considerations  
-- **Zero-Copy Streaming**: Direct processing on ferrisstreams Message types without serialization overhead
+- **Zero-Copy Streaming**: Direct processing on velostream Message types without serialization overhead
 - **Incremental Processing**: Stream-oriented execution model processing one event at a time
 - **Memory-Bounded Windows**: Configurable memory limits for windowed aggregations with LRU eviction
 - **SIMD Optimizations**: Vectorized operations for aggregate computations where possible
@@ -814,7 +814,7 @@ pub struct ScalabilityMetrics {
 ## Migration and Compatibility
 
 ### Backward Compatibility
-- Existing ferrisstreams applications remain unchanged
+- Existing velostream applications remain unchanged
 - SQL features are additive, not replacing existing APIs
 - Gradual migration path from programmatic to SQL-based processing
 
@@ -928,13 +928,13 @@ sql_context.execute_streaming("
 
 ## Conclusion
 
-Adding streaming-native SQL support to ferrisstreams would create a unique position in the Kafka ecosystem: a high-performance, type-safe, SQL-capable streaming platform built entirely in Rust with true streaming semantics from the ground up.
+Adding streaming-native SQL support to velostream would create a unique position in the Kafka ecosystem: a high-performance, type-safe, SQL-capable streaming platform built entirely in Rust with true streaming semantics from the ground up.
 
 The streaming-native SQL engine ensures:
 - **True Streaming Performance**: Event-at-a-time processing with no batch/streaming impedance mismatch
 - **Rust Safety Guarantees**: Type safety and memory safety throughout the query execution pipeline  
-- **Kafka-Native Integration**: Deep integration with ferrisstreams' Message, Headers, and KTable abstractions
+- **Kafka-Native Integration**: Deep integration with velostream' Message, Headers, and KTable abstractions
 - **Enterprise Scale**: Horizontal and vertical scaling with distributed execution capabilities
 - **Production Ready**: Built-in backpressure, fault tolerance, operational monitoring, and elastic scaling
 
-This approach differentiates ferrisstreams by providing SQL accessibility without compromising the performance, safety, and streaming semantics that make Rust compelling for real-time data processing. The comprehensive scaling architecture ensures the solution can handle enterprise-grade workloads while maintaining the simplicity and elegance of SQL for stream processing.
+This approach differentiates velostream by providing SQL accessibility without compromising the performance, safety, and streaming semantics that make Rust compelling for real-time data processing. The comprehensive scaling architecture ensures the solution can handle enterprise-grade workloads while maintaining the simplicity and elegance of SQL for stream processing.

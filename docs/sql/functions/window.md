@@ -1,6 +1,6 @@
 # Window Functions
 
-Complete reference for window functions in FerrisStreams. These functions perform calculations across rows related to the current row using OVER clauses, essential for ranking, running totals, and comparative analysis.
+Complete reference for window functions in VeloStream. These functions perform calculations across rows related to the current row using OVER clauses, essential for ranking, running totals, and comparative analysis.
 
 ## Ranking Functions
 

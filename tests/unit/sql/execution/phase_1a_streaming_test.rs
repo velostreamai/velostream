@@ -7,12 +7,12 @@
 //! - Event time support in StreamRecord
 //! - Backward compatibility guarantees
 
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velostream::sql::execution::{
     StreamExecutionEngine, StreamRecord, StreamingConfig,
     engine::ExecutionMessage,
     types::FieldValue,
 };
-use ferrisstreams::ferris::sql::{StreamingQuery, StreamSource, SelectField};
+use velostream::velostream::sql::{StreamingQuery, StreamSource, SelectField};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use chrono::{DateTime, Utc};
@@ -103,7 +103,7 @@ async fn test_streaming_config_feature_flags() {
     assert!(!default_config.enable_resource_limits);
     assert_eq!(
         default_config.message_passing_mode,
-        ferrisstreams::ferris::sql::execution::config::MessagePassingMode::Legacy
+        velostream::velostream::sql::execution::config::MessagePassingMode::Legacy
     );
     
     // Conservative configuration should be safe to use

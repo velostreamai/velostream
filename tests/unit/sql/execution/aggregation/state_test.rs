@@ -1,9 +1,9 @@
 //! Tests for aggregation state management
 
-use ferrisstreams::ferris::sql::ast::Expr;
-use ferrisstreams::ferris::sql::execution::aggregation::state::GroupByStateManager;
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::Expr;
+use velostream::velostream::sql::execution::aggregation::state::GroupByStateManager;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
     let mut field_map = HashMap::new();

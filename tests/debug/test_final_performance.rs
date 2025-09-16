@@ -4,9 +4,9 @@
 //! 2. Direct StreamRecord usage in execute_with_record
 //! 3. StreamRecord direct output (no conversion needed)
 
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Instant;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 fn create_test_record(field_count: usize) -> StreamRecord {
     let mut fields = HashMap::new();

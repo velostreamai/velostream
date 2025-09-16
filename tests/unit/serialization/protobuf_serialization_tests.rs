@@ -6,10 +6,10 @@ Tests for Protocol Buffers serialization format implementation.
 
 mod protobuf_tests {
     use super::super::common_test_data::*;
-    use ferrisstreams::ferris::serialization::{ProtobufFormat, SerializationFormat};
-    use ferrisstreams::ferris::sql::execution::types::StreamRecord;
-    use ferrisstreams::ferris::sql::FieldValue;
     use std::collections::HashMap;
+    use velostream::velostream::serialization::{ProtobufFormat, SerializationFormat};
+    use velostream::velostream::sql::execution::types::StreamRecord;
+    use velostream::velostream::sql::FieldValue;
 
     #[tokio::test]
     async fn test_protobuf_format_creation() {

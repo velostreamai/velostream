@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "FinancialTransaction",
-  "namespace": "com.ferrisstreams.demo.datasource",
+  "namespace": "com.velostream.demo.datasource",
   "doc": "Financial transaction record with exact decimal precision for amounts",
   "fields": [
     {
@@ -53,7 +53,7 @@
       "type": ["null", "long"],
       "default": null,
       "logicalType": "timestamp-millis",
-      "doc": "When this record was processed by FerrisStreams (optional)"
+      "doc": "When this record was processed by VeloStream (optional)"
     },
     {
       "name": "pipeline_version",

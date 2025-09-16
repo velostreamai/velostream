@@ -2,15 +2,15 @@
 
 Performance monitoring has been successfully integrated into both SQL servers with HTTP endpoints for production monitoring.
 
-## SQL Server (`ferris-sql`)
+## SQL Server (`velo-sql`)
 
 ### Usage
 ```bash
 # Start server with performance monitoring
-cargo run --bin ferris-sql server --brokers localhost:9092 --port 8080 --enable-metrics
+cargo run --bin velo-sql server --brokers localhost:9092 --port 8080 --enable-metrics
 
 # Or with custom metrics port
-cargo run --bin ferris-sql server --brokers localhost:9092 --port 8080 --enable-metrics --metrics-port 9080
+cargo run --bin velo-sql server --brokers localhost:9092 --port 8080 --enable-metrics --metrics-port 9080
 ```
 
 ### Endpoints
@@ -24,15 +24,15 @@ cargo run --bin ferris-sql server --brokers localhost:9092 --port 8080 --enable-
 | `GET /health` | Health check with performance status | `application/json` |
 | `GET /report` | Detailed performance report | `text/plain` |
 
-## StreamJobServer (`ferris-sql-multi`)
+## StreamJobServer (`velo-sql-multi`)
 
 ### Usage
 ```bash
 # Start StreamJobServer with monitoring
-cargo run --bin ferris-sql-multi server --brokers localhost:9092 --port 8080 --enable-metrics
+cargo run --bin velo-sql-multi server --brokers localhost:9092 --port 8080 --enable-metrics
 
 # Deploy app with monitoring enabled
-cargo run --bin ferris-sql-multi deploy-app --file app.sql --brokers localhost:9092 --default-topic orders
+cargo run --bin velo-sql-multi deploy-app --file app.sql --brokers localhost:9092 --default-topic orders
 ```
 
 ### Endpoints
@@ -47,7 +47,7 @@ Same as SQL server plus:
 ### 1. Start Server with Monitoring
 ```bash
 # Terminal 1: Start SQL server
-cargo run --bin ferris-sql server --enable-metrics
+cargo run --bin velo-sql server --enable-metrics
 
 # Terminal 2: Check metrics
 curl http://localhost:9080/metrics
@@ -82,7 +82,7 @@ Example response:
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'ferris-sql-server'
+  - job_name: 'velo-sql-server'
     static_configs:
       - targets: ['localhost:9080']
     scrape_interval: 15s
@@ -97,7 +97,7 @@ curl http://localhost:9080/report
 Example output:
 ```
 =====================================
-FerrisStreams Performance Report
+VeloStream Performance Report
 =====================================
 Generated: 2025-01-24 10:30:00 UTC
 Status: Healthy

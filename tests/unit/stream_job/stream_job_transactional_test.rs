@@ -9,15 +9,15 @@ use super::stream_job_test_infrastructure::{
 };
 
 use async_trait::async_trait;
-use ferrisstreams::ferris::datasource::{DataReader, DataWriter};
-use ferrisstreams::ferris::server::processors::{
-    common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
-    transactional::TransactionalJobProcessor,
-};
-use ferrisstreams::ferris::sql::{ast::StreamingQuery, execution::engine::StreamExecutionEngine};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::{
+    common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
+    transactional::TransactionalJobProcessor,
+};
+use velostream::velostream::sql::{ast::StreamingQuery, execution::engine::StreamExecutionEngine};
 
 // =====================================================
 // TRANSACTIONAL PROCESSOR WRAPPER FOR TESTING

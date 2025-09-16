@@ -6,12 +6,12 @@
 ```toml
 # Cargo.toml
 [dependencies]
-ferrisstreams = { version = "0.1.0", features = ["avro", "protobuf"] }
+velostream = { version = "0.1.0", features = ["avro", "protobuf"] }
 ```
 
 ### Basic Usage
 ```rust
-use ferrisstreams::ferris::serialization::SerializationFormatFactory;
+use velostream::velo::serialization::SerializationFormatFactory;
 
 // Create any format
 let format = SerializationFormatFactory::create_format("json")?;

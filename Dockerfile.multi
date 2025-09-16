@@ -1,4 +1,4 @@
-# FerrisStreams Multi-Job SQL Server Docker Image
+# VeloStream Multi-Job SQL Server Docker Image
 FROM rust:1.85-bookworm as builder
 
 # Configure Git and Cargo to handle SSL issues
@@ -37,7 +37,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sql_server.rs && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
 # Build dependencies
-RUN cargo build --release --bin ferris-sql-multi
+RUN cargo build --release --bin velo-sql-multi
 
 # Copy source code
 COPY src ./src
@@ -45,7 +45,7 @@ COPY examples ./examples
 
 # Build the actual application
 RUN touch src/main.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --bin ferris-sql-multi
+RUN cargo build --release --bin velo-sql-multi
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -60,31 +60,31 @@ RUN apt-get update && apt-get install -y \
     librdkafka1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create ferris user
-RUN useradd -r -s /bin/false -d /app ferris
+# Create velo user
+RUN useradd -r -s /bin/false -d /app velo
 
 # Create app directory
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/ferris-sql-multi /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql-multi /usr/local/bin/
 
 # Copy configuration files
-COPY configs/ferris-default.yaml ./sql-config.yaml
+COPY configs/velo-default.yaml ./sql-config.yaml
 COPY examples/*.sql ./examples/
 
 # Create data and logs directories
-RUN mkdir -p /app/data /app/logs && chown -R ferris:ferris /app
+RUN mkdir -p /app/data /app/logs && chown -R velo:velo /app
 
 # Switch to non-root user
-USER ferris
+USER velo
 
 # Expose default ports
 EXPOSE 8080 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD [ "ferris-sql-multi", "--help" ] || exit 1
+    CMD [ "velo-sql-multi", "--help" ] || exit 1
 
 # Default command - run multi-job SQL server
-CMD ["ferris-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--max-jobs", "20"]
+CMD ["velo-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--max-jobs", "20"]

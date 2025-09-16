@@ -1,8 +1,8 @@
-# FerrisStreams JOIN Operations Guide
+# VeloStream JOIN Operations Guide
 
 ## Overview
 
-FerrisStreams provides comprehensive JOIN support for combining data from multiple streams and tables in real-time. This guide covers all JOIN types, windowed JOINs for temporal correlation, and performance best practices.
+VeloStream provides comprehensive JOIN support for combining data from multiple streams and tables in real-time. This guide covers all JOIN types, windowed JOINs for temporal correlation, and performance best practices.
 
 ## JOIN Types Supported
 
@@ -396,7 +396,7 @@ STRATEGY CANARY(10);
 
 ### Architecture
 
-FerrisStreams JOIN implementation includes:
+VeloStream JOIN implementation includes:
 
 1. **Parser Support**: Full SQL JOIN syntax parsing
 2. **Execution Engine**: Optimized JOIN processing with memory management
@@ -417,4 +417,4 @@ FerrisStreams JOIN implementation includes:
 - **Many-to-One**: Multiple events to single user
 - **Many-to-Many**: Complex entity relationships
 
-This comprehensive JOIN support makes FerrisStreams competitive with enterprise stream processing platforms like Confluent ksqlDB and Apache Flink SQL, while maintaining Rust's performance and safety guarantees.
+This comprehensive JOIN support makes VeloStream competitive with enterprise stream processing platforms like Confluent ksqlDB and Apache Flink SQL, while maintaining Rust's performance and safety guarantees.

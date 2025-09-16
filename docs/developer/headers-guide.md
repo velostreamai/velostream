@@ -1,10 +1,10 @@
-# Headers Guide - ferrisstreams
+# Headers Guide - velostream
 
-This guide demonstrates how to work with Kafka message headers in ferrisstreams, showing how the consumer returns headers along with keys and values.
+This guide demonstrates how to work with Kafka message headers in velostream, showing how the consumer returns headers along with keys and values.
 
 ## Overview
 
-ferrisstreams provides full support for Kafka message headers through:
+velostream provides full support for Kafka message headers through:
 
 - **Headers Type**: A custom `Headers` struct that wraps `HashMap<String, Option<String>>`
 - **Message Type**: `Message<K, V>` struct containing key, value, and headers
@@ -25,7 +25,7 @@ ferrisstreams provides full support for Kafka message headers through:
 ### Creating Headers
 
 ```rust
-use ferrisstreams::ferris::kafka::Headers;
+use velostream::velo::kafka::Headers;
 
 // Empty headers
 let headers = Headers::new();
@@ -83,8 +83,8 @@ for (key, value) in headers.iter() {
 ### Basic Producer with Headers
 
 ```rust
-use ferrisstreams::{KafkaProducer, JsonSerializer};
-use ferrisstreams::ferris::kafka::Headers;
+use velostream::{KafkaProducer, JsonSerializer};
+use velostream::velo::kafka::Headers;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
@@ -131,7 +131,7 @@ The consumer **automatically returns headers** with every message through the `M
 ### Basic Consumer
 
 ```rust
-use ferrisstreams::{KafkaConsumer, JsonSerializer};
+use velostream::{KafkaConsumer, JsonSerializer};
 use std::time::Duration;
 
 #[tokio::main]
@@ -171,11 +171,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn handle_order_created(message: &ferrisstreams::ferris::kafka::Message<String, OrderEvent>) {
+fn handle_order_created(message: &velostream::velo::kafka::Message<String, OrderEvent>) {
     println!("Processing new order: {:?}", message.value());
 }
 
-fn handle_order_updated(message: &ferrisstreams::ferris::kafka::Message<String, OrderEvent>) {
+fn handle_order_updated(message: &velostream::velo::kafka::Message<String, OrderEvent>) {
     println!("Processing order update: {:?}", message.value());
 }
 ```
@@ -225,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_priority_order(
     key: Option<&String>, 
     value: &OrderEvent, 
-    headers: &ferrisstreams::ferris::kafka::Headers
+    headers: &velostream::velo::kafka::Headers
 ) {
     println!("Priority order: {:?} with key: {:?}", value, key);
     
@@ -238,7 +238,7 @@ async fn handle_priority_order(
 async fn handle_normal_order(
     key: Option<&String>, 
     value: &OrderEvent, 
-    headers: &ferrisstreams::ferris::kafka::Headers
+    headers: &velostream::velo::kafka::Headers
 ) {
     println!("Normal order: {:?} with key: {:?}", value, key);
 }
@@ -445,7 +445,7 @@ if message.headers().get("feature-flag") == Some("new-checkout-flow") {
 
 ## Summary
 
-ferrisstreams provides comprehensive support for Kafka headers:
+velostream provides comprehensive support for Kafka headers:
 
 - ✅ **Consumer returns headers automatically** in every `Message<K, V>`
 - ✅ **Rich Headers API** with builder patterns and query methods

@@ -1,0 +1,572 @@
+{
+  "$id": "https://velostream.io/config.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Comprehensive configuration schema for VeloStream multi-source/multi-sink processing",
+  "properties": {
+    "batch": {
+      "additionalProperties": false,
+      "description": "Batch processing configuration for optimized throughput",
+      "properties": {
+        "batch_config": {
+          "additionalProperties": false,
+          "description": "Batch processing strategy configuration",
+          "properties": {
+            "max_size": {
+              "default": 1000,
+              "description": "Maximum number of messages per batch",
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "memory_limit_mb": {
+              "default": 64,
+              "description": "Memory-based batch limit in MB",
+              "maximum": 1024,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "strategy": {
+              "default": "time_based",
+              "description": "Batch processing strategy",
+              "enum": [
+                "time_based",
+                "memory_based",
+                "count_based"
+              ],
+              "type": "string"
+            },
+            "timeout_ms": {
+              "default": 5000,
+              "description": "Maximum time to wait for batch completion (milliseconds)",
+              "maximum": 300000,
+              "minimum": 100,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "strategy"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "extends": {
+      "description": "Configuration file inheritance - extend other config files",
+      "oneOf": [
+        {
+          "description": "Single configuration file to extend",
+          "type": "string"
+        },
+        {
+          "description": "Multiple configuration files to extend (processed in order)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "global": {
+      "additionalProperties": true,
+      "description": "Global configuration properties inherited by all components",
+      "properties": {
+        "compression": {
+          "properties": {
+            "type": {
+              "description": "Default compression algorithm",
+              "enum": [
+                "none",
+                "gzip",
+                "lz4",
+                "snappy",
+                "zstd"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "environment": {
+          "description": "Deployment environment affecting default values",
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ],
+          "type": "string"
+        },
+        "log_level": {
+          "default": "info",
+          "description": "Global logging level",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "sinks": {
+      "additionalProperties": false,
+      "description": "Data sink configurations",
+      "properties": {
+        "file_sink": {
+          "additionalProperties": true,
+          "description": "Configuration schema for file-based data sinks in VeloStream"
+          "properties": {
+            "append_if_exists": {
+              "default": false,
+              "description": "Whether to append to existing files or overwrite them",
+              "type": "boolean"
+            },
+            "buffer_size_bytes": {
+              "default": 65536,
+              "description": "Buffer size for writing files (bytes)",
+              "maximum": 1073741824,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "compression": {
+              "description": "Compression type for output files",
+              "enum": [
+                "none",
+                "gzip",
+                "snappy",
+                "zstd"
+              ],
+              "type": "string"
+            },
+            "csv_delimiter": {
+              "default": ",",
+              "description": "CSV field delimiter character",
+              "examples": [
+                ",",
+                ";",
+                "|",
+                "\t"
+              ],
+              "maxLength": 1,
+              "type": "string"
+            },
+            "csv_has_header": {
+              "default": true,
+              "description": "Whether to write CSV header row",
+              "type": "boolean"
+            },
+            "format": {
+              "default": "jsonlines",
+              "description": "Output file format",
+              "enum": [
+                "json",
+                "jsonlines",
+                "csv",
+                "csv_no_header"
+              ],
+              "type": "string"
+            },
+            "max_file_size_bytes": {
+              "description": "Maximum file size before rotation (bytes)",
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "max_records_per_file": {
+              "description": "Maximum records per file before rotation",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "description": "Output file path (supports strftime formatting for rotation)",
+              "examples": [
+                "./output.json",
+                "/data/output-%Y-%m-%d.csv",
+                "./logs/app-%H%M.jsonl"
+              ],
+              "type": "string"
+            },
+            "rotation_interval_ms": {
+              "description": "Time interval between file rotations (milliseconds)",
+              "maximum": 86400000,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            "writer_threads": {
+              "default": 1,
+              "description": "Number of writer threads for parallel writing",
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "File Data Sink Configuration Schema",
+          "type": "object"
+        },
+        "kafka_sink": {
+          "additionalProperties": true,
+          "description": "Configuration schema for Kafka data sinks in VeloStream"
+          "properties": {
+            "acks": {
+              "default": "all",
+              "description": "Producer acknowledgment mode (0=no acks, 1=leader ack, all=all replicas)",
+              "enum": [
+                "0",
+                "1",
+                "all",
+                "-1"
+              ],
+              "type": "string"
+            },
+            "batch.size": {
+              "default": 16384,
+              "description": "Producer batch size in bytes",
+              "maximum": 1048576,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "bootstrap.servers": {
+              "description": "Comma-separated list of Kafka broker endpoints in host:port format",
+              "examples": [
+                "localhost:9092",
+                "broker1:9092,broker2:9092"
+              ],
+              "pattern": "^[^:]+:[0-9]+(,[^:]+:[0-9]+)*$",
+              "type": "string"
+            },
+            "buffer.memory": {
+              "description": "Total memory used by producer for buffering",
+              "maximum": 1073741824,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "compression.type": {
+              "default": "snappy",
+              "description": "Compression algorithm for messages",
+              "enum": [
+                "none",
+                "gzip",
+                "snappy",
+                "lz4",
+                "zstd"
+              ],
+              "type": "string"
+            },
+            "enable.idempotence": {
+              "default": true,
+              "description": "Enable idempotent producer to prevent duplicate messages",
+              "type": "boolean"
+            },
+            "linger.ms": {
+              "default": 5,
+              "description": "Time to wait for additional messages before sending batch",
+              "maximum": 30000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "retries": {
+              "default": 2147483647,
+              "description": "Maximum number of retries for failed sends",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sasl.mechanism": {
+              "description": "SASL authentication mechanism (required when using SASL protocols)",
+              "enum": [
+                "PLAIN",
+                "SCRAM-SHA-256",
+                "SCRAM-SHA-512",
+                "GSSAPI",
+                "OAUTHBEARER"
+              ],
+              "type": "string"
+            },
+            "schema.registry.url": {
+              "description": "URL of the schema registry (for Avro/Protobuf)",
+              "format": "uri",
+              "type": "string"
+            },
+            "security.protocol": {
+              "default": "PLAINTEXT",
+              "description": "Security protocol for Kafka connection",
+              "enum": [
+                "PLAINTEXT",
+                "SSL",
+                "SASL_PLAINTEXT",
+                "SASL_SSL"
+              ],
+              "type": "string"
+            },
+            "topic": {
+              "description": "Kafka topic name to produce to",
+              "examples": [
+                "processed-orders",
+                "analytics-output",
+                "user.events.processed"
+              ],
+              "maxLength": 249,
+              "pattern": "^[a-zA-Z0-9._-]+$",
+              "type": "string"
+            },
+            "value.serializer": {
+              "default": "json",
+              "description": "Serialization format for message values",
+              "enum": [
+                "json",
+                "avro",
+                "protobuf",
+                "string",
+                "bytes"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "topic"
+          ],
+          "title": "Kafka Data Sink Configuration Schema",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "sources": {
+      "additionalProperties": false,
+      "description": "Data source configurations",
+      "properties": {
+        "file_source": {
+          "additionalProperties": true,
+          "description": "Configuration schema for file-based data sources in VeloStream"
+          "properties": {
+            "buffer_size": {
+              "default": 8192,
+              "description": "Buffer size for reading files (bytes)",
+              "maximum": 104857600,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "delimiter": {
+              "default": ",",
+              "description": "CSV field delimiter character",
+              "examples": [
+                ",",
+                ";",
+                "|",
+                "\t"
+              ],
+              "maxLength": 1,
+              "type": "string"
+            },
+            "extension_filter": {
+              "description": "File extension filter for directory scanning",
+              "examples": [
+                "csv",
+                "json",
+                "txt"
+              ],
+              "pattern": "^[a-zA-Z0-9.]+$",
+              "type": "string"
+            },
+            "format": {
+              "default": "csv",
+              "description": "File format to parse",
+              "enum": [
+                "csv",
+                "csv_no_header",
+                "json",
+                "jsonlines",
+                "jsonl"
+              ],
+              "type": "string"
+            },
+            "has_headers": {
+              "default": true,
+              "description": "Whether CSV files have header rows",
+              "type": "boolean"
+            },
+            "max_records": {
+              "description": "Maximum number of records to read (unlimited if not specified)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "description": "File path or glob pattern for source files",
+              "examples": [
+                "./data/sample.csv",
+                "/logs/*.json",
+                "./data/**/*.csv"
+              ],
+              "type": "string"
+            },
+            "polling_interval": {
+              "default": 1000,
+              "description": "Polling interval for file watching (milliseconds)",
+              "maximum": 3600000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "quote": {
+              "default": "\"",
+              "description": "CSV quote character",
+              "maxLength": 1,
+              "type": "string"
+            },
+            "recursive": {
+              "default": false,
+              "description": "Whether to recursively search directories in glob patterns",
+              "type": "boolean"
+            },
+            "skip_lines": {
+              "default": 0,
+              "description": "Number of lines to skip at the beginning of files",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "watching": {
+              "default": false,
+              "description": "Whether to watch for file changes and new files",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "File Data Source Configuration Schema",
+          "type": "object"
+        },
+        "kafka_source": {
+          "additionalProperties": true,
+          "description": "Configuration schema for Kafka data sources in VeloStream"
+          "properties": {
+            "auto.offset.reset": {
+              "default": "latest",
+              "description": "How to handle offset when no initial offset exists",
+              "enum": [
+                "earliest",
+                "latest",
+                "none"
+              ],
+              "type": "string"
+            },
+            "avro.schema": {
+              "description": "Inline Avro schema definition",
+              "type": "string"
+            },
+            "avro.schema.file": {
+              "description": "Path to Avro schema file",
+              "type": "string"
+            },
+            "bootstrap.servers": {
+              "description": "Comma-separated list of Kafka broker endpoints in host:port format",
+              "examples": [
+                "localhost:9092",
+                "broker1:9092,broker2:9092"
+              ],
+              "pattern": "^[^:]+:[0-9]+(,[^:]+:[0-9]+)*$",
+              "type": "string"
+            },
+            "enable.auto.commit": {
+              "default": true,
+              "description": "Whether to enable automatic offset commits",
+              "type": "boolean"
+            },
+            "group.id": {
+              "description": "Kafka consumer group ID",
+              "examples": [
+                "analytics-group",
+                "order-processor"
+              ],
+              "pattern": "^[a-zA-Z0-9._-]+$",
+              "type": "string"
+            },
+            "heartbeat.interval.ms": {
+              "default": 3000,
+              "description": "Heartbeat interval for consumer group coordination",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "protobuf.schema": {
+              "description": "Inline Protobuf schema definition",
+              "type": "string"
+            },
+            "protobuf.schema.file": {
+              "description": "Path to Protobuf schema file",
+              "type": "string"
+            },
+            "sasl.mechanism": {
+              "description": "SASL authentication mechanism (required when using SASL protocols)",
+              "enum": [
+                "PLAIN",
+                "SCRAM-SHA-256",
+                "SCRAM-SHA-512",
+                "GSSAPI",
+                "OAUTHBEARER"
+              ],
+              "type": "string"
+            },
+            "schema.registry.url": {
+              "description": "URL of the schema registry (for Avro/Protobuf)",
+              "format": "uri",
+              "type": "string"
+            },
+            "security.protocol": {
+              "default": "PLAINTEXT",
+              "description": "Security protocol for Kafka connection",
+              "enum": [
+                "PLAINTEXT",
+                "SSL",
+                "SASL_PLAINTEXT",
+                "SASL_SSL"
+              ],
+              "type": "string"
+            },
+            "session.timeout.ms": {
+              "default": 30000,
+              "description": "Session timeout for consumer group coordination",
+              "maximum": 3600000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "topic": {
+              "description": "Kafka topic name to consume from",
+              "examples": [
+                "orders",
+                "user-events",
+                "inventory.updates"
+              ],
+              "maxLength": 249,
+              "pattern": "^[a-zA-Z0-9._-]+$",
+              "type": "string"
+            },
+            "value.serializer": {
+              "default": "json",
+              "description": "Serialization format for message values",
+              "enum": [
+                "json",
+                "avro",
+                "protobuf",
+                "string",
+                "bytes"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "topic"
+          ],
+          "title": "Kafka Data Source Configuration Schema",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "VeloStream Configuration Schema",
+  "type": "object"
+}

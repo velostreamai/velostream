@@ -4,14 +4,14 @@
 Comprehensive test suite for schema introspection operations.
 */
 
-use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::ast::{ShowResourceType, StreamingQuery};
-use ferrisstreams::ferris::sql::execution::processors::{
+use std::collections::HashMap;
+use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::ast::{ShowResourceType, StreamingQuery};
+use velostream::velostream::sql::execution::processors::{
     JoinContext, ProcessorContext, QueryProcessor,
 };
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
-use std::collections::HashMap;
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();

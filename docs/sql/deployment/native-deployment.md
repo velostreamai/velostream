@@ -1,10 +1,10 @@
-# FerrisStreams Native SQL Deployment Guide
+# VeloStream Native SQL Deployment Guide
 
 > **⚠️ For Development Only**: This guide covers native binary deployment. For production deployment with containers, financial precision, and multi-format serialization, see **[DEPLOYMENT_SUMMARY.md](../DEPLOYMENT_SUMMARY.md)**
 
 ## Overview
 
-This guide covers how to deploy and run FerrisStreams SQL functionality for processing Kafka streams with SQL queries. The system provides both server mode for long-running SQL services and client mode for one-off query execution.
+This guide covers how to deploy and run VeloStream SQL functionality for processing Kafka streams with SQL queries. The system provides both server mode for long-running SQL services and client mode for one-off query execution.
 
 ## Table of Contents
 
@@ -30,19 +30,19 @@ This guide covers how to deploy and run FerrisStreams SQL functionality for proc
 ```bash
 # Clone and build
 git clone <your-repo>
-cd ferrisstreams
+cd velostream
 
 # Build the SQL server binary
-cargo build --release --bin ferris-sql
+cargo build --release --bin velo-sql
 
-# The binary will be available at: target/release/ferris-sql
+# The binary will be available at: target/release/velo-sql
 ```
 
 ### 2. Execute a Simple Query
 
 ```bash
 # Execute a SQL query against a Kafka topic
-./target/release/ferris-sql execute \
+./target/release/velo-sql execute \
   --query "SELECT customer_id, amount FROM orders WHERE amount > 100 LIMIT 10" \
   --topic orders \
   --brokers localhost:9092
@@ -52,7 +52,7 @@ cargo build --release --bin ferris-sql
 
 ```bash
 # Start the SQL server for interactive use
-./target/release/ferris-sql server \
+./target/release/velo-sql server \
   --brokers localhost:9092 \
   --port 8080
 ```
@@ -63,31 +63,31 @@ cargo build --release --bin ferris-sql
 
 ```bash
 # Build for development (with debug symbols)
-cargo build --bin ferris-sql
+cargo build --bin velo-sql
 
 # Run directly with cargo
-cargo run --bin ferris-sql -- --help
+cargo run --bin velo-sql -- --help
 ```
 
 ### Production Build
 
 ```bash
 # Build optimized release version
-cargo build --release --bin ferris-sql
+cargo build --release --bin velo-sql
 
-# The optimized binary will be at target/release/ferris-sql
+# The optimized binary will be at target/release/velo-sql
 # Copy to your deployment location
-cp target/release/ferris-sql /usr/local/bin/
+cp target/release/velo-sql /usr/local/bin/
 ```
 
 ### Cross-Compilation
 
 ```bash
 # For Linux from macOS
-cargo build --release --target x86_64-unknown-linux-gnu --bin ferris-sql
+cargo build --release --target x86_64-unknown-linux-gnu --bin velo-sql
 
 # For musl (Alpine Linux, Docker)
-cargo build --release --target x86_64-unknown-linux-musl --bin ferris-sql
+cargo build --release --target x86_64-unknown-linux-musl --bin velo-sql
 ```
 
 ## Deployment Modes
@@ -97,7 +97,7 @@ cargo build --release --target x86_64-unknown-linux-musl --bin ferris-sql
 Execute a single SQL query and exit:
 
 ```bash
-ferris-sql execute \
+velo-sql execute \
   --query "SELECT * FROM events WHERE user_id = 'user123'" \
   --topic user_events \
   --brokers kafka-cluster:9092 \
@@ -116,10 +116,10 @@ ferris-sql execute \
 Start a persistent SQL service:
 
 ```bash
-ferris-sql server \
+velo-sql server \
   --brokers kafka-cluster:9092 \
   --port 8080 \
-  --group_id ferris_multi_prod
+  --group_id velo_multi_prod
 ```
 
 **Use Cases:**
@@ -139,7 +139,7 @@ ferris-sql server \
 | `--query` | SQL query to execute | Required | `"SELECT * FROM orders"` |
 | `--topic` | Kafka topic name | Required | `orders` |
 | `--brokers` | Kafka broker addresses | `localhost:9092` | `kafka1:9092,kafka2:9092` |
-| `--group-id` | Consumer group ID | `ferris-sql-client` | `analytics_team` |
+| `--group-id` | Consumer group ID | `velo-sql-client` | `analytics_team` |
 | `--limit` | Max records to process | Unlimited | `1000` |
 
 #### Server Mode
@@ -148,7 +148,7 @@ ferris-sql server \
 |--------|-------------|---------|---------|
 | `--brokers` | Kafka broker addresses | `localhost:9092` | `kafka1:9092,kafka2:9092` |
 | `--port` | Server HTTP port | `8080` | `9999` |
-| `--group-id` | Consumer group ID | `ferris-sql-server` | `sql_service_prod` |
+| `--group-id` | Consumer group ID | `velo-sql-server` | `sql_service_prod` |
 
 ### Environment Variables
 
@@ -157,8 +157,8 @@ Create a `.env` file for configuration:
 ```bash
 # Kafka Configuration
 KAFKA_BROKERS=kafka1:9092,kafka2:9092,kafka3:9092
-KAFKA_GROUP_ID=ferris_sql_prod
-KAFKA_CLIENT_ID=ferris-sql-server-01
+KAFKA_GROUP_ID=velo_sql_prod
+KAFKA_CLIENT_ID=velo-sql-server-01
 
 # Server Configuration  
 SQL_SERVER_PORT=8080
@@ -186,7 +186,7 @@ FROM rust:1.70 as builder
 
 WORKDIR /app
 COPY . .
-RUN cargo build --release --bin ferris-sql
+RUN cargo build --release --bin velo-sql
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
@@ -194,24 +194,24 @@ RUN apt-get update && apt-get install -y \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/ferris-sql /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql /usr/local/bin/
 EXPOSE 8080
 
-CMD ["ferris-sql", "server", "--port", "8080"]
+CMD ["velo-sql", "server", "--port", "8080"]
 ```
 
 Build and run:
 
 ```bash
 # Build the Docker image
-docker build -t ferris-sql:latest .
+docker build -t velo-sql:latest .
 
 # Run the container
 docker run -d \
-  --name ferris-sql-prod \
+  --name velo-sql-prod \
   -p 8080:8080 \
   -e KAFKA_BROKERS=kafka1:9092,kafka2:9092 \
-  ferris-sql:latest
+  velo-sql:latest
 ```
 
 ### Kubernetes Deployment
@@ -222,22 +222,22 @@ Create `k8s-deployment.yaml`:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-sql-server
+  name: velo-sql-server
   labels:
-    app: ferris-sql
+    app: velo-sql
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: ferris-sql
+      app: velo-sql
   template:
     metadata:
       labels:
-        app: ferris-sql
+        app: velo-sql
     spec:
       containers:
-      - name: ferris-sql
-        image: ferris-sql:latest
+      - name: velo-sql
+        image: velo-sql:latest
         ports:
         - containerPort: 8080
         env:
@@ -268,10 +268,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ferris-sql-service
+  name: velo-sql-service
 spec:
   selector:
-    app: ferris-sql
+    app: velo-sql
   ports:
   - protocol: TCP
     port: 80
@@ -287,23 +287,23 @@ kubectl apply -f k8s-deployment.yaml
 
 ### Systemd Service (Linux)
 
-Create `/etc/systemd/system/ferris-sql.service`:
+Create `/etc/systemd/system/velo-sql.service`:
 
 ```ini
 [Unit]
-Description=FerrisStreams SQL Server
+Description=VeloStream SQL Server
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-User=ferris-sql
-Group=ferris-sql
-ExecStart=/usr/local/bin/ferris-sql server --brokers kafka1:9092,kafka2:9092 --port 8080
+User=velo-sql
+Group=velo-sql
+ExecStart=/usr/local/bin/velo-sql server --brokers kafka1:9092,kafka2:9092 --port 8080
 Restart=always
 RestartSec=5
 Environment=RUST_LOG=info
-Environment=KAFKA_GROUP_ID=ferris_sql_prod
+Environment=KAFKA_GROUP_ID=velo_sql_prod
 
 # Security settings
 NoNewPrivileges=yes
@@ -319,9 +319,9 @@ Enable and start:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ferris-sql
-sudo systemctl start ferris-sql
-sudo systemctl status ferris-sql
+sudo systemctl enable velo-sql
+sudo systemctl start velo-sql
+sudo systemctl status velo-sql
 ```
 
 ## Examples
@@ -330,7 +330,7 @@ sudo systemctl status ferris-sql
 
 ```bash
 # Process high-value orders in real-time
-ferris-sql execute \
+velo-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.order_id') as order_id,
@@ -349,7 +349,7 @@ ferris-sql execute \
 
 ```bash
 # Analyze user behavior patterns
-ferris-sql execute \
+velo-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.user_id') as user_id,
@@ -368,7 +368,7 @@ ferris-sql execute \
 
 ```bash
 # Monitor temperature sensors for alerts
-ferris-sql execute \
+velo-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
@@ -395,10 +395,10 @@ The SQL server provides structured logging:
 ```bash
 # Set log level
 export RUST_LOG=debug
-ferris-sql server --brokers localhost:9092
+velo-sql server --brokers localhost:9092
 
 # Log to file
-ferris-sql server --brokers localhost:9092 2>&1 | tee sql-server.log
+velo-sql server --brokers localhost:9092 2>&1 | tee sql-server.log
 ```
 
 ### Health Checks
@@ -431,7 +431,7 @@ Key metrics to monitor:
 ```bash
 # Limit memory usage for large queries
 export SQL_MAX_MEMORY_MB=1024
-ferris-sql server --brokers localhost:9092
+velo-sql server --brokers localhost:9092
 ```
 
 ### Parallelism
@@ -439,7 +439,7 @@ ferris-sql server --brokers localhost:9092
 ```bash
 # Configure worker threads
 export SQL_WORKER_THREADS=8
-ferris-sql server --brokers localhost:9092
+velo-sql server --brokers localhost:9092
 ```
 
 ### Kafka Security
@@ -449,10 +449,10 @@ For secure Kafka clusters:
 ```bash
 export KAFKA_SECURITY_PROTOCOL=SASL_SSL
 export KAFKA_SASL_MECHANISMS=PLAIN
-export KAFKA_SASL_USERNAME=ferris_sql
+export KAFKA_SASL_USERNAME=velo_sql
 export KAFKA_SASL_PASSWORD=secure_password
 
-ferris-sql server --brokers secure-kafka:9093
+velo-sql server --brokers secure-kafka:9093
 ```
 
 ## Troubleshooting
@@ -473,17 +473,17 @@ nslookup kafka-cluster
 
 ```bash
 # Validate SQL syntax
-ferris-sql execute --query "SELECT * FROM orders LIMIT 1" --topic orders --brokers localhost:9092
+velo-sql execute --query "SELECT * FROM orders LIMIT 1" --topic orders --brokers localhost:9092
 ```
 
 #### Performance Issues
 
 ```bash
 # Monitor resource usage
-top -p $(pgrep ferris-sql)
+top -p $(pgrep velo-sql)
 
 # Check Kafka consumer lag
-kafka-consumer-groups --bootstrap-server localhost:9092 --group ferris-sql-client --describe
+kafka-consumer-groups --bootstrap-server localhost:9092 --group velo-sql-client --describe
 ```
 
 ### Debug Mode
@@ -491,7 +491,7 @@ kafka-consumer-groups --bootstrap-server localhost:9092 --group ferris-sql-clien
 ```bash
 # Enable debug logging
 export RUST_LOG=debug
-ferris-sql execute --query "SELECT * FROM orders" --topic orders --brokers localhost:9092
+velo-sql execute --query "SELECT * FROM orders" --topic orders --brokers localhost:9092
 ```
 
 ### Log Analysis

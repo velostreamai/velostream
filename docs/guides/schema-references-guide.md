@@ -2,7 +2,7 @@
 
 ## Overview
 
-FerrisStreams provides comprehensive support for Schema Registry schema references, enabling complex schema compositions, dependency management, and evolution strategies. This feature allows schemas to reference other schemas, creating reusable schema components and maintaining consistency across related data structures.
+VeloStream provides comprehensive support for Schema Registry schema references, enabling complex schema compositions, dependency management, and evolution strategies. This feature allows schemas to reference other schemas, creating reusable schema components and maintaining consistency across related data structures.
 
 ## What Are Schema References?
 
@@ -46,7 +46,7 @@ Schema references allow one Avro schema to reference types defined in other sche
 
 ### Schema Reference Definition
 ```rust
-use ferrisstreams::ferris::sql::schema::SchemaReference;
+use velostream::velo::sql::schema::SchemaReference;
 
 let reference = SchemaReference {
     name: "CustomerInfo".to_string(),           // Type name in the schema
@@ -61,7 +61,7 @@ let reference = SchemaReference {
 ### 1. Registering Schemas with References
 
 ```rust
-use ferrisstreams::ferris::sql::schema::{SchemaRegistryClient, SchemaReference};
+use velostream::velo::sql::schema::{SchemaRegistryClient, SchemaReference};
 
 // First, register the referenced schema
 let customer_schema = r#"{
@@ -118,7 +118,7 @@ let order_schema_id = client.register_schema(
 ### 2. Resolving Schema References
 
 ```rust
-use ferrisstreams::ferris::sql::schema::SchemaReferenceResolver;
+use velostream::velo::sql::schema::SchemaReferenceResolver;
 
 // Create resolver
 let resolver = SchemaReferenceResolver::new(Arc::new(client));
@@ -586,4 +586,4 @@ async fn debug_schema_references(
 }
 ```
 
-This comprehensive guide covers all aspects of schema references in FerrisStreams, from basic usage to advanced enterprise patterns. The reference resolution system provides powerful capabilities for managing complex schema hierarchies while maintaining performance and reliability.
+This comprehensive guide covers all aspects of schema references in VeloStream, from basic usage to advanced enterprise patterns. The reference resolution system provides powerful capabilities for managing complex schema hierarchies while maintaining performance and reliability.

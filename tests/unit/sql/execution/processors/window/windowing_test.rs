@@ -11,15 +11,15 @@ Tests covered:
 - Multiple window types (tumbling, sliding, session)
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::{
-    Expr, SelectField, StreamSource, StreamingQuery, WindowSpec,
-};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::{
+    Expr, SelectField, StreamSource, StreamingQuery, WindowSpec,
+};
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
 fn create_test_record(
     id: i64,
@@ -304,7 +304,7 @@ async fn test_aggregation_functions() {
                 expr: Expr::Function {
                     name: "COUNT".to_string(),
                     args: vec![Expr::Literal(
-                        ferrisstreams::ferris::sql::ast::LiteralValue::Integer(1),
+                        velostream::velostream::sql::ast::LiteralValue::Integer(1),
                     )],
                 },
                 alias: Some("count".to_string()),

@@ -1,6 +1,6 @@
 -- SQL Application: Social Media Analytics Platform (Phase 1B-4 Features)
 -- Version: 2.0.0
--- Description: Real-time social media monitoring showcasing advanced FerrisStreams capabilities
+-- Description: Real-time social media monitoring showcasing advanced VeloStream capabilities
 -- Author: Social Analytics Team
 -- Features: Event-time processing, Circuit breakers, Advanced window functions, Observability
 -- Dependencies: Configuration files in configs/ directory using extends pattern

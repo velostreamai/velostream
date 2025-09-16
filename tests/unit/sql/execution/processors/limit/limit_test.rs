@@ -1,7 +1,7 @@
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {
@@ -25,7 +25,7 @@ mod tests {
             // Verify limit is parsed correctly
             if let Ok(parsed_query) = result {
                 match parsed_query {
-                    ferrisstreams::ferris::sql::ast::StreamingQuery::Select { limit, .. } => {
+                    velostream::velostream::sql::ast::StreamingQuery::Select { limit, .. } => {
                         assert!(
                             limit.is_some(),
                             "LIMIT should be parsed for query: {}",
@@ -52,7 +52,7 @@ mod tests {
         for (query, expected_limit) in test_cases {
             let result = parser.parse(query).unwrap();
             match result {
-                ferrisstreams::ferris::sql::ast::StreamingQuery::Select { limit, .. } => {
+                velostream::velostream::sql::ast::StreamingQuery::Select { limit, .. } => {
                     assert_eq!(
                         limit,
                         Some(expected_limit),
@@ -417,7 +417,7 @@ mod tests {
         let result = parser.parse(query).unwrap();
 
         match result {
-            ferrisstreams::ferris::sql::ast::StreamingQuery::Select { limit, .. } => {
+            velostream::velostream::sql::ast::StreamingQuery::Select { limit, .. } => {
                 assert_eq!(limit, None, "Query without LIMIT should have None limit");
             }
             _ => panic!("Expected SELECT query"),

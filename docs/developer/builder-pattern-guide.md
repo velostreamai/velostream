@@ -21,7 +21,7 @@ The Kafka integration provides both **direct constructors** and **builder patter
 
 ### **Example: Direct Constructor**
 ```rust
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer};
 use futures::StreamExt;
 use rdkafka::message::Message;
 
@@ -64,7 +64,7 @@ while let Some(message_result) = stream.next().await {
 
 ### **Example: Basic Builder Usage**
 ```rust
-use ferrisstreams::{ProducerBuilder, ConsumerBuilder, JsonSerializer};
+use velostream::{ProducerBuilder, ConsumerBuilder, JsonSerializer};
 
 // Equivalent to direct constructor, but more extensible
 let producer = ProducerBuilder::<MyMessage, _>::new(
@@ -85,7 +85,7 @@ let consumer = ConsumerBuilder::<MyMessage, _>::new(
 ### **Example: Advanced Builder with Custom Context**
 
 ```rust
-use ferrisstreams::{ProducerBuilder, JsonSerializer};
+use velostream::{ProducerBuilder, JsonSerializer};
 use rdkafka::{ClientContext, producer::ProducerContext};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Custom Consumer Context Example
 
 ```rust
-use ferrisstreams::{ConsumerBuilder, JsonSerializer};
+use velostream::{ConsumerBuilder, JsonSerializer};
 use rdkafka::{ClientContext, consumer::ConsumerContext};
 
 struct MonitoringConsumerContext {
@@ -218,7 +218,7 @@ let consumer = ConsumerBuilder::<MyMessage, _, _>::new(
 ## Configuration Flexibility Example
 
 ```rust
-use ferrisstreams::{ProducerBuilder, JsonSerializer};
+use velostream::{ProducerBuilder, JsonSerializer};
 
 // Conditional configuration based on environment
 fn create_producer(env: &str) -> Result<KafkaProducer<MyMessage, _>, Error> {
@@ -246,7 +246,7 @@ The consumer provides two ways to receive messages:
 
 #### ✅ **Streaming (Recommended)**
 ```rust
-use ferrisstreams::{KafkaConsumer, JsonSerializer};
+use velostream::{KafkaConsumer, JsonSerializer};
 use futures::StreamExt;
 use rdkafka::message::Message;
 

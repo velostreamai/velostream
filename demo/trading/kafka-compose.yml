@@ -41,7 +41,7 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: ferris-prometheus
+    container_name: velo-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -57,7 +57,7 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: ferris-grafana
+    container_name: velo-grafana
     ports:
       - "3000:3000"
     environment:

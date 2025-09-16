@@ -8,11 +8,11 @@ Comprehensive test suite for JOIN operations involving subqueries:
 - Complex combinations and error cases
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record_for_subquery_join() -> StreamRecord {
     let mut fields = HashMap::new();

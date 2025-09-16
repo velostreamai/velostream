@@ -5,8 +5,8 @@ Tests for SQL query parsing, execution, and memory usage performance.
 These are lightweight tests - heavy benchmarks run in CI examples.
 */
 
-use ferrisstreams::ferris::sql::ast::StreamingQuery;
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::ast::StreamingQuery;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
 fn test_query_parsing_memory_efficiency() {

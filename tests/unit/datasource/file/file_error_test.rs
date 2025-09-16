@@ -1,6 +1,6 @@
 //! Tests for file data source error handling
 
-use ferrisstreams::ferris::datasource::file::error::FileDataSourceError;
+use velostream::velostream::datasource::file::error::FileDataSourceError;
 use std::io;
 
 #[cfg(test)]

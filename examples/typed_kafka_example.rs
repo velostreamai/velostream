@@ -1,6 +1,6 @@
 //! # Basic Producer/Consumer Example
 //!
-//! This example demonstrates the core functionality of ferrisstreams:
+//! This example demonstrates the core functionality of velostream:
 //! - Creating type-safe producers and consumers with JSON serialization
 //! - Sending and receiving structured messages
 //! - Basic message processing with polling pattern
@@ -29,11 +29,11 @@
 //! - `headers_example.rs` - Working with message headers
 //! - `fluent_api_example.rs` - Stream-based processing (recommended for production)
 
-use ferrisstreams::ferris::kafka::Headers;
-use ferrisstreams::{JsonSerializer, KafkaConsumer, KafkaProducer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time;
+use velostream::velostream::kafka::Headers;
+use velostream::{JsonSerializer, KafkaConsumer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct OrderEvent {

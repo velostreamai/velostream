@@ -1,6 +1,6 @@
 # Data Sources Documentation
 
-This directory contains all documentation related to the pluggable data sources architecture for FerrisStreams.
+This directory contains all documentation related to the pluggable data sources architecture for VeloStream.
 
 ## 📚 Documentation Structure
 
@@ -59,7 +59,7 @@ This directory contains all documentation related to the pluggable data sources 
 
 ## 🏗️ Architecture Overview
 
-The pluggable data sources architecture enables FerrisStreams to:
+The pluggable data sources architecture enables VeloStream to:
 - **Core Data Sources**: PostgreSQL, S3, File, Iceberg, ClickHouse, and Kafka
 - **Heterogeneous data flow**: Read from one source, write to another
 - **Single Binary, Scale Out**: K8s native autoscaling with horizontal pod scaling
@@ -68,7 +68,7 @@ The pluggable data sources architecture enables FerrisStreams to:
 
 ### Single Binary, Scale Out Model
 
-FerrisStreams is designed as a **single binary** that can **scale out horizontally** using Kubernetes native autoscaling:
+VeloStream is designed as a **single binary** that can **scale out horizontally** using Kubernetes native autoscaling:
 
 - **📦 Single Binary**: One executable handles all data source types (Kafka, ClickHouse, PostgreSQL, S3, etc.)
 - **⚡ K8s Native Autoscaling**: Automatic horizontal pod scaling based on CPU, memory, or custom metrics
@@ -88,7 +88,7 @@ FerrisStreams is designed as a **single binary** that can **scale out horizontal
 ### Core Components
 
 ```
-src/ferris/sql/datasource/
+src/velo/sql/datasource/
 ├── mod.rs          # Module exports only (following Rust best practices)
 ├── traits.rs       # Core traits (DataSource, DataSink, DataReader, DataWriter)
 ├── types.rs        # Type definitions (SourceOffset, Metadata, Errors)
@@ -136,9 +136,9 @@ let sink = create_sink("iceberg://catalog/namespace/table")?;
 
 ## 🔗 Quick Links
 
-- [Current Implementation](../../src/ferris/sql/datasource/)
-- [SQL Engine Core](../../src/ferris/sql/)
-- [Kafka Module](../../src/ferris/kafka/) (being decoupled)
+- [Current Implementation](../../src/velo/sql/datasource/)
+- [SQL Engine Core](../../src/velo/sql/)
+- [Kafka Module](../../src/velo/kafka/) (being decoupled)
 
 ## 📊 Performance Metrics
 

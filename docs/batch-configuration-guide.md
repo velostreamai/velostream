@@ -2,7 +2,7 @@
 
 ## Overview
 
-FerrisStreams supports comprehensive batch processing configuration via SQL `WITH` clauses. This allows you to optimize performance for high-throughput scenarios by configuring how records are grouped and processed together.
+VeloStream supports comprehensive batch processing configuration via SQL `WITH` clauses. This allows you to optimize performance for high-throughput scenarios by configuring how records are grouped and processed together.
 
 ## Batch Strategies
 
@@ -201,7 +201,7 @@ All batch configuration is validated against a comprehensive schema:
 
 ## Testing and Validation
 
-FerrisStreams includes comprehensive test binaries for batch configuration:
+VeloStream includes comprehensive test binaries for batch configuration:
 
 ```bash
 # Test simple batch configurations

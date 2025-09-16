@@ -1,6 +1,6 @@
-# FerrisStreams DataSource Demo - Complete Guide
+# VeloStream DataSource Demo - Complete Guide
 
-This comprehensive demo showcases FerrisStreams' advanced data processing capabilities with both file and Kafka data sources, demonstrating exact decimal precision for financial calculations.
+This comprehensive demo showcases VeloStream' advanced data processing capabilities with both file and Kafka data sources, demonstrating exact decimal precision for financial calculations.
 
 ## 🚀 Quick Start
 
@@ -12,7 +12,7 @@ cd demo/datasource-demo
 
 ### Option 2: Step-by-Step Execution
 ```bash
-# 1. Build FerrisStreams
+# 1. Build VeloStream
 cargo build --no-default-features --release
 
 # 2. Start infrastructure (optional - for Kafka demos)
@@ -150,7 +150,7 @@ FieldValue::ScaledInteger(12345, 2)  // 12345 cents, scale=2
 
 **Stream Processing Pipeline:**
 ```
-CSV Files → FileDataSource → FerrisStreams → Kafka Topic → Analytics → Output Files
+CSV Files → FileDataSource → VeloStream → Kafka Topic → Analytics → Output Files
 ```
 
 **Exactly-Once Semantics:**
@@ -275,7 +275,7 @@ curl http://localhost:8081/subjects/financial-transaction-value/versions
 # Monitor resource usage
 docker stats
 
-# Check FerrisStreams metrics
+# Check VeloStream metrics
 tail -f demo_output/pipeline_metrics.jsonl
 
 # Optimize configurations
@@ -304,20 +304,20 @@ batch_timeout_ms: 100     # Less waiting
 ### Kafka UI (http://localhost:8080)
 - **Topics**: View demo-transactions, processed-transactions
 - **Messages**: Inspect Avro-serialized messages
-- **Consumer Groups**: Monitor ferrisstreams-demo-consumer
+- **Consumer Groups**: Monitor velostream-demo-consumer
 - **Schema Registry**: View registered Avro schemas
 
 ### Grafana Dashboard (http://localhost:3000)
 - **Login**: admin / demo123  
-- **Dashboards**: FerrisStreams processing metrics
+- **Dashboards**: VeloStream processing metrics
 - **Alerts**: Configure alerts for error rates, throughput
 - **Time Series**: Historical performance trends
 
 ### Prometheus Metrics (http://localhost:9090)
-- **Processing Rate**: `ferrisstreams_records_per_second`
-- **Error Rate**: `ferrisstreams_error_rate`
-- **Latency**: `ferrisstreams_processing_latency_ms`
-- **Memory Usage**: `ferrisstreams_memory_usage_mb`
+- **Processing Rate**: `velostream_records_per_second`
+- **Error Rate**: `velostream_error_rate`
+- **Latency**: `velostream_processing_latency_ms`
+- **Memory Usage**: `velostream_memory_usage_mb`
 
 ## 🎓 Learning Outcomes
 
@@ -338,4 +338,4 @@ After running this demo, you'll understand:
 - **Advanced Examples**: Explore `examples/` directory
 - **Trading Demo**: See `demo/trading/` for real-time financial analytics
 
-This demo provides a solid foundation for building production financial data pipelines with FerrisStreams, showcasing the key benefits of exact precision arithmetic and real-time stream processing capabilities.
+This demo provides a solid foundation for building production financial data pipelines with VeloStream, showcasing the key benefits of exact precision arithmetic and real-time stream processing capabilities.

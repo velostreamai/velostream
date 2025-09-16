@@ -1,4 +1,4 @@
-# FerrisStreams Trading Demo Makefile
+# VeloStream Trading Demo Makefile
 # Builds main project and runs trading demo
 
 .PHONY: all build run run-short clean help
@@ -8,33 +8,33 @@ all: build
 
 # Build main project and demo components
 build:
-	@echo "🔨 Building FerrisStreams main project..."
+	@echo "🔨 Building VeloStream main project..."
 	@cd ../.. && cargo build --release
-	@ln -sf ../../target/release/ferris-cli ferris-cli
+	@ln -sf ../../target/release/velo-cli velo-cli
 	@echo "🔨 Building trading demo components..."
 	@cargo build --release
 	@echo "✅ Demo ready!"
 
 # Run the trading demo
 run: build
-	@echo "🚀 Starting FerrisStreams Trading Demo..."
+	@echo "🚀 Starting VeloStream Trading Demo..."
 	./run_demo.sh
 
 # Run a short demo (1 minute)
 run-short: build
-	@echo "🚀 Starting short FerrisStreams Trading Demo (1 minute)..."
+	@echo "🚀 Starting short VeloStream Trading Demo (1 minute)..."
 	DEMO_DURATION=1 ./run_demo.sh
 
 # Clean demo artifacts (leaves main project build alone)
 clean:
 	@echo "🧹 Cleaning demo artifacts..."
-	@rm -f ferris-cli
+	@rm -f velo-cli
 	@rm -rf target/
 	@echo "✅ Clean complete"
 
 # Show help
 help:
-	@echo "FerrisStreams Trading Demo Build System"
+	@echo "VeloStream Trading Demo Build System"
 	@echo "======================================="
 	@echo ""
 	@echo "Available targets:"

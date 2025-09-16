@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::config::types::ValidationStats;
-use ferrisstreams::ferris::sql::config::*;
+use velostream::velostream::sql::config::types::ValidationStats;
+use velostream::velostream::sql::config::*;
 
 #[test]
 fn test_basic_config_creation() {

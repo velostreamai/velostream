@@ -6,13 +6,13 @@
 //! 3. Source vs Sink role determination from SQL structure
 //! 4. Consistent type+role specification in single compound value
 
-use ferrisstreams::ferris::sql::{
+use std::collections::HashMap;
+use velostream::velostream::sql::{
     ast::{IntoClause, SelectField, StreamSource, StreamingQuery},
     parser::StreamingSqlParser,
     query_analyzer::{DataSinkType, DataSourceType, QueryAnalyzer},
     SqlError,
 };
-use std::collections::HashMap;
 
 /// Test that compound source type declaration works (kafka_source)
 #[test]
@@ -28,8 +28,8 @@ fn test_kafka_source_compound_type() {
     config.insert("kafka_orders.topic".to_string(), "orders".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -62,8 +62,8 @@ fn test_s3_source_compound_type() {
     config.insert("s3_data.region".to_string(), "us-west-2".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -87,8 +87,8 @@ fn test_file_source_compound_type() {
     config.insert("file_data.path".to_string(), "/data/input.csv".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -120,8 +120,8 @@ fn test_kafka_sink_compound_type() {
     config.insert("kafka_sink.topic".to_string(), "processed-data".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -149,8 +149,8 @@ fn test_missing_source_type_declaration_error() {
     config.insert("orders.topic".to_string(), "orders".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -181,8 +181,8 @@ fn test_missing_sink_type_declaration_error() {
     config.insert("output.path".to_string(), "/data/output.json".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -216,8 +216,8 @@ fn test_invalid_compound_source_type_error() {
     );
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -250,8 +250,8 @@ fn test_invalid_compound_sink_type_error() {
     config.insert("invalid.path".to_string(), "/data/output.json".to_string());
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -280,7 +280,7 @@ fn test_invalid_compound_sink_type_error() {
 fn test_all_supported_compound_source_types() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
 
     let test_cases = vec![
         ("kafka_source", DataSourceType::Kafka),
@@ -293,7 +293,7 @@ fn test_all_supported_compound_source_types() {
         let mut config = HashMap::new();
         config.insert(format!("test.type"), type_str.to_string());
 
-        let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
             required_sources: Vec::new(),
             required_sinks: Vec::new(),
             configuration: config.clone(),
@@ -318,7 +318,7 @@ fn test_all_supported_compound_source_types() {
 fn test_all_supported_compound_sink_types() {
     let analyzer = QueryAnalyzer::new("test-group".to_string());
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
 
     let test_cases = vec![
         ("kafka_sink", DataSinkType::Kafka),
@@ -332,7 +332,7 @@ fn test_all_supported_compound_sink_types() {
         let mut config = HashMap::new();
         config.insert(format!("test.type"), type_str.to_string());
 
-        let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
             required_sources: Vec::new(),
             required_sinks: Vec::new(),
             configuration: config.clone(),
@@ -374,8 +374,8 @@ fn test_properties_extraction_with_compound_types() {
     );
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),
@@ -421,8 +421,8 @@ fn test_error_message_contains_helpful_guidance() {
     let config = HashMap::new(); // Empty config - no type specified
 
     let serialization_config =
-        ferrisstreams::ferris::kafka::serialization_format::SerializationConfig::default();
-    let mut analysis = ferrisstreams::ferris::sql::query_analyzer::QueryAnalysis {
+        velostream::velostream::kafka::serialization_format::SerializationConfig::default();
+    let mut analysis = velostream::velostream::sql::query_analyzer::QueryAnalysis {
         required_sources: Vec::new(),
         required_sinks: Vec::new(),
         configuration: config.clone(),

@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "TransactionAnalytics",
-  "namespace": "com.ferrisstreams.demo.datasource",
+  "namespace": "com.velostream.demo.datasource",
   "doc": "Aggregated transaction analytics with tumbling window processing",
   "fields": [
     {

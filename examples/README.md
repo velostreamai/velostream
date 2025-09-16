@@ -1,6 +1,6 @@
-# ferrisstreams Examples
+# velostream Examples
 
-This directory contains comprehensive examples demonstrating the full capabilities of ferrisstreams, a type-safe Rust Kafka client library.
+This directory contains comprehensive examples demonstrating the full capabilities of velostream, a type-safe Rust Kafka client library.
 
 ## 🚀 Quick Start
 
@@ -352,4 +352,4 @@ Found an issue or want to improve an example? Contributions are welcome!
 
 ---
 
-**Happy streaming with ferrisstreams! 🦀📡**
+**Happy streaming with velostream! 🦀📡**

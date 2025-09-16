@@ -1,6 +1,6 @@
 # CI/CD Strategy - Optimized Test Execution
 
-This document explains the optimized CI/CD strategy implemented in FerrisStreams for efficient test execution while maintaining comprehensive validation coverage.
+This document explains the optimized CI/CD strategy implemented in VeloStream for efficient test execution while maintaining comprehensive validation coverage.
 
 ## Overview
 

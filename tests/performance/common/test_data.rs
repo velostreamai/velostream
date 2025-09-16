@@ -4,8 +4,8 @@
 //! the scattered record generation logic across test files.
 
 use chrono::{DateTime, Utc};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Configuration for test record generation
 #[derive(Debug, Clone)]

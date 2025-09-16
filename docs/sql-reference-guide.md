@@ -54,7 +54,7 @@ The original 4,587-line reference guide was overwhelming for new users. The new 
 
 ## Need Something Specific?
 
-- **First time using FerrisStreams SQL?** → [docs/sql/README.md](sql/README.md)
+- **First time using VeloStream SQL?** → [docs/sql/README.md](sql/README.md)
 - **Looking for a specific function?** → [docs/sql/functions/](sql/functions/)
 - **Need working examples?** → [docs/sql/examples/](sql/examples/)
 - **Complete syntax reference?** → [docs/sql/reference/complete-syntax.md](sql/reference/complete-syntax.md)

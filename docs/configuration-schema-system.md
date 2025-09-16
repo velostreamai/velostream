@@ -2,7 +2,7 @@
 
 ## Overview
 
-The FerrisStreams Self-Registering Configuration Schema System provides automated validation, IDE integration, and comprehensive error checking for complex multi-source/multi-sink configurations. Each configuration-consuming component implements the `ConfigSchemaProvider` trait to own and maintain its validation schema.
+The VeloStream Self-Registering Configuration Schema System provides automated validation, IDE integration, and comprehensive error checking for complex multi-source/multi-sink configurations. Each configuration-consuming component implements the `ConfigSchemaProvider` trait to own and maintain its validation schema.
 
 ## Table of Contents
 
@@ -281,7 +281,7 @@ assert!(!is_schema_version_compatible("1.9.0", "2.0.0")); // false - major versi
 ### Basic Configuration Validation
 
 ```rust
-use ferrisstreams::ferris::config::validate_configuration;
+use velostream::velo::config::validate_configuration;
 use std::collections::HashMap;
 
 let mut config = HashMap::new();
@@ -306,14 +306,14 @@ match validate_configuration("kafka_source", &config) {
 ### JSON Schema Generation for IDE Integration
 
 ```rust
-use ferrisstreams::ferris::config::HierarchicalSchemaRegistry;
+use velostream::velo::config::HierarchicalSchemaRegistry;
 
 let registry = HierarchicalSchemaRegistry::new();
 registry.register_source_schema::<KafkaDataSource>();
 
 // Generate JSON Schema for IDE/tooling
 let json_schema = registry.generate_combined_json_schema();
-std::fs::write("ferrisstreams-config.schema.json", 
+std::fs::write("velostream-config.schema.json", 
                serde_json::to_string_pretty(&json_schema)?)?;
 ```
 
@@ -423,12 +423,12 @@ Enable debug logging for detailed validation information:
 RUST_LOG=debug cargo run
 
 // Or programmatically
-env::set_var("RUST_LOG", "ferrisstreams::config=debug");
+env::set_var("RUST_LOG", "velostream::config=debug");
 ```
 
-## Integration with FerrisStreams
+## Integration with VeloStream
 
-The configuration schema system integrates seamlessly with FerrisStreams components:
+The configuration schema system integrates seamlessly with VeloStream components:
 
 ```rust
 // SQL query with validated configuration
@@ -443,4 +443,4 @@ WITH (
 
 The system ensures all configuration properties are validated before query execution, preventing runtime failures due to invalid configurations.
 
-This comprehensive documentation covers the implementation, usage, and advanced features of the FerrisStreams Self-Registering Configuration Schema System.
+This comprehensive documentation covers the implementation, usage, and advanced features of the VeloStream Self-Registering Configuration Schema System.

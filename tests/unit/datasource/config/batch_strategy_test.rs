@@ -3,8 +3,8 @@
 //! These tests ensure that the core batch configuration types work correctly
 //! independent of SQL parsing or any other integration layer.
 
-use ferrisstreams::ferris::datasource::{BatchConfig, BatchStrategy};
 use std::time::Duration;
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
 
 #[test]
 fn test_batch_strategy_default() {

@@ -119,8 +119,8 @@ jobs:
 
     - name: Build test binaries
       run: |
-        echo "🏗️ Building ferris-sql-multi binary for integration tests..."
-        cargo build --release --bin ferris-sql-multi --no-default-features
+        echo "🏗️ Building velo-sql-multi binary for integration tests..."
+        cargo build --release --bin velo-sql-multi --no-default-features
 
     - name: Run comprehensive tests
       id: comprehensive-tests

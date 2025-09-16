@@ -3,15 +3,15 @@
 //! This binary demonstrates the comprehensive error handling and recovery functionality
 //! including circuit breakers, retry mechanisms, dead letter queues, and health monitoring.
 
-use ferrisstreams::ferris::sql::error::recovery::*;
-use ferrisstreams::ferris::sql::error::SqlError;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
+use velostream::velostream::sql::error::recovery::*;
+use velostream::velostream::sql::error::SqlError;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔧 Testing FerrisStreams Error Recovery System");
+    println!("🔧 Testing VeloStream Error Recovery System");
     println!("===============================================");
 
     // Test 1: Circuit Breaker Pattern

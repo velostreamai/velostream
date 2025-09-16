@@ -3,7 +3,8 @@
 //! This binary demonstrates the comprehensive schema management functionality
 //! including discovery, caching, evolution, and provider capabilities.
 
-use ferrisstreams::ferris::schema::{
+use std::time::Duration;
+use velostream::velostream::schema::{
     client::{
         cache::{CacheConfig, CacheLookupResult, SchemaCache},
         providers::create_default_registry,
@@ -11,12 +12,11 @@ use ferrisstreams::ferris::schema::{
     evolution::SchemaEvolution,
     *,
 };
-use ferrisstreams::ferris::sql::ast::DataType;
-use std::time::Duration;
+use velostream::velostream::sql::ast::DataType;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔍 Testing FerrisStreams Schema Management System");
+    println!("🔍 Testing VeloStream Schema Management System");
     println!("================================================");
 
     // Test 1: Schema Registry with Default Providers
@@ -197,8 +197,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
 
         // Test record evolution
-        use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
         use std::collections::HashMap;
+        use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
         let mut test_record_fields = HashMap::new();
         test_record_fields.insert("id".to_string(), FieldValue::Integer(123));

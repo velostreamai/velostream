@@ -1,6 +1,6 @@
-# FerrisStreams Serialization Guide
+# VeloStream Serialization Guide
 
-FerrisStreams provides a pluggable serialization system that supports multiple data formats for Kafka message serialization and SQL execution engine data processing, with **industry-leading financial precision arithmetic**.
+VeloStream provides a pluggable serialization system that supports multiple data formats for Kafka message serialization and SQL execution engine data processing, with **industry-leading financial precision arithmetic**.
 
 ## Overview
 
@@ -14,7 +14,7 @@ The serialization system is built around the `SerializationFormat` trait, which 
 
 ## 💰 Financial Precision Features
 
-FerrisStreams includes specialized financial data types that provide:
+VeloStream includes specialized financial data types that provide:
 - ✅ **Perfect precision** - no floating-point rounding errors
 - ✅ **42x performance improvement** over traditional f64 arithmetic  
 - ✅ **Cross-system compatibility** - serializes as decimal strings for JSON/Avro
@@ -25,7 +25,7 @@ FerrisStreams includes specialized financial data types that provide:
 // Traditional f64 (INCORRECT for finance)
 let price_f64 = 10.01_f64 + 10.02_f64;  // Result: 20.029999999999998
 
-// FerrisStreams ScaledInteger (CORRECT)
+// VeloStream ScaledInteger (CORRECT)
 let price1 = FieldValue::from_financial_f64(10.01, 2);
 let price2 = FieldValue::from_financial_f64(10.02, 2);  
 let sum = price1.add(&price2)?;  // Result: exactly 20.03
@@ -48,7 +48,7 @@ JSON is the default serialization format with **financial precision support** an
 
 **Financial Data Example:**
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
+use velostream::velo::serialization::{SerializationFormatFactory, FieldValue};
 use std::collections::HashMap;
 
 let format = SerializationFormatFactory::create_format("json")?;
@@ -78,11 +78,11 @@ let deserialized = format.deserialize_record(&serialized)?;
 
 ## 🆕 JSON_PAYLOAD Processing
 
-**New Feature**: FerrisStreams automatically preserves the original JSON payload for debugging, auditing, and reprocessing purposes.
+**New Feature**: VeloStream automatically preserves the original JSON payload for debugging, auditing, and reprocessing purposes.
 
 ### What is JSON_PAYLOAD?
 
-When consuming JSON messages from Kafka, FerrisStreams automatically adds a special field called `JSON_PAYLOAD` that contains the exact original JSON string received from the message broker. This provides:
+When consuming JSON messages from Kafka, VeloStream automatically adds a special field called `JSON_PAYLOAD` that contains the exact original JSON string received from the message broker. This provides:
 
 - **Complete audit trail** - know exactly what was received
 - **Debugging capabilities** - compare original vs parsed data
@@ -196,7 +196,7 @@ FROM trades_stream;
 
 ### Unified Architecture Integration
 
-JSON_PAYLOAD is part of FerrisStreams' **Unified Codec Architecture**, which means:
+JSON_PAYLOAD is part of VeloStream' **Unified Codec Architecture**, which means:
 - Works consistently across JSON, Avro, and Protobuf formats
 - Available regardless of which codec is selected at runtime
 - Maintains same field name and behavior across all serialization formats
@@ -213,7 +213,7 @@ Apache Avro with **financial precision support** using decimal string fields.
 
 **Financial Schema Example (Industry Standard):**
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
+use velostream::velo::serialization::{SerializationFormatFactory, FieldValue};
 
 // Apache Flink/Kafka Connect compatible decimal schema
 let financial_schema = r#"
@@ -292,7 +292,7 @@ Google Protocol Buffers with **industry-standard Decimal message format**.
 
 **Financial Decimal Message Format:**
 ```protobuf
-// Generated from src/ferris/serialization/financial.proto
+// Generated from src/velo/serialization/financial.proto
 message Decimal {
   int64 units = 1;    // Scaled integer value (1234567 for $123.4567 with scale=4)
   int32 scale = 2;    // Number of digits after decimal point
@@ -315,7 +315,7 @@ message FieldValue {
 
 **Usage Example:**
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
+use velostream::velo::serialization::{SerializationFormatFactory, FieldValue};
 
 let format = SerializationFormatFactory::create_format("protobuf")?;
 
@@ -333,14 +333,14 @@ Add the desired serialization formats to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferrisstreams = { version = "0.1.0", features = ["avro", "protobuf"] }
+velostream = { version = "0.1.0", features = ["avro", "protobuf"] }
 
 # Or enable specific formats
-ferrisstreams = { version = "0.1.0", features = ["avro"] }
-ferrisstreams = { version = "0.1.0", features = ["protobuf"] }
+velostream = { version = "0.1.0", features = ["avro"] }
+velostream = { version = "0.1.0", features = ["protobuf"] }
 
 # JSON is always available (no feature flag needed)
-ferrisstreams = "0.1.0"
+velostream = "0.1.0"
 ```
 
 ### Feature Flags
@@ -419,7 +419,7 @@ Represents data in serialization format:
 
 ## 🔄 Industry Compatibility
 
-FerrisStreams financial data is compatible with major streaming platforms:
+VeloStream financial data is compatible with major streaming platforms:
 
 | Platform | Format | Compatibility | Notes |
 |----------|--------|---------------|-------|
@@ -436,7 +436,7 @@ FerrisStreams financial data is compatible with major streaming platforms:
 Use `SerializationFormatFactory` to create format instances:
 
 ```rust
-use ferrisstreams::ferris::serialization::SerializationFormatFactory;
+use velostream::velo::serialization::SerializationFormatFactory;
 
 // Get list of supported formats
 let formats = SerializationFormatFactory::supported_formats();
@@ -462,7 +462,7 @@ let custom_avro = SerializationFormatFactory::create_avro_format(schema_json)?;
 | Protobuf | Very Fast | Very High | Manual/Versioned | No | ✅ Decimal messages |
 
 ### Financial Arithmetic Performance
-**FerrisStreams ScaledInteger vs Traditional f64:**
+**VeloStream ScaledInteger vs Traditional f64:**
 - **42x faster** than f64 arithmetic
 - **Perfect precision** - no rounding errors
 - **Memory efficient** - single i64 + scale byte
@@ -479,7 +479,7 @@ For a typical financial record with 8 fields:
 // Traditional approach (WRONG)
 let result_f64 = 10.01_f64 + 10.02_f64;  // 20.029999999999998 ❌
 
-// FerrisStreams approach (CORRECT)  
+// VeloStream approach (CORRECT)  
 let price1 = FieldValue::from_financial_f64(10.01, 2);
 let price2 = FieldValue::from_financial_f64(10.02, 2);
 let result = price1.add(&price2)?;  // Exactly 20.03 ✅
@@ -488,8 +488,8 @@ let result = price1.add(&price2)?;  // Exactly 20.03 ✅
 ## Integration with Kafka
 
 ```rust
-use ferrisstreams::{KafkaProducer, KafkaConsumer, JsonSerializer};
-use ferrisstreams::ferris::serialization::SerializationFormatFactory;
+use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer};
+use velostream::velo::serialization::SerializationFormatFactory;
 
 // Producer with custom serialization
 let format = SerializationFormatFactory::create_format("avro")?;
@@ -513,8 +513,8 @@ let deserialized = format.deserialize_record(message.value())?;
 The serialization system integrates seamlessly with the SQL execution engine:
 
 ```rust
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
-use ferrisstreams::ferris::serialization::JsonFormat;
+use velostream::velo::sql::execution::StreamExecutionEngine;
+use velostream::velo::serialization::JsonFormat;
 use std::sync::Arc;
 
 let serialization_format = Arc::new(JsonFormat);
@@ -526,7 +526,7 @@ let mut engine = StreamExecutionEngine::new(output_sender, serialization_format)
 ## Error Handling
 
 ```rust
-use ferrisstreams::ferris::serialization::SerializationError;
+use velostream::velo::serialization::SerializationError;
 
 match format.serialize_record(&record) {
     Ok(bytes) => println!("Serialized {} bytes", bytes.len()),
@@ -621,7 +621,7 @@ let format = SerializationFormatFactory::create_format("avro")?;
 
 ### Complete Financial Data Example
 ```rust
-use ferrisstreams::ferris::serialization::{SerializationFormatFactory, FieldValue};
+use velostream::velo::serialization::{SerializationFormatFactory, FieldValue};
 use std::collections::HashMap;
 
 // Create financial trade record

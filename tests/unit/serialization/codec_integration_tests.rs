@@ -8,13 +8,13 @@
 //! - Error handling and fallback behavior
 //! - Round-trip serialization accuracy
 
-use ferrisstreams::ferris::serialization::{
+use std::collections::HashMap;
+use velostream::velostream::serialization::{
     avro_codec::AvroCodec,
     helpers::{field_value_to_json, json_to_field_value},
     protobuf_codec::ProtobufCodec,
 };
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
-use std::collections::HashMap;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Test helper to create a comprehensive test record with all supported field types
 fn create_comprehensive_record() -> HashMap<String, FieldValue> {

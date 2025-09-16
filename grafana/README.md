@@ -1,6 +1,6 @@
-# FerrisStreams Grafana Dashboard Setup
+# VeloStream Grafana Dashboard Setup
 
-This directory contains the complete Grafana monitoring setup for FerrisStreams SQL Engine, including Prometheus configuration and a comprehensive dashboard.
+This directory contains the complete Grafana monitoring setup for VeloStream SQL Engine, including Prometheus configuration and a comprehensive dashboard.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ This directory contains the complete Grafana monitoring setup for FerrisStreams 
    - Grafana: http://localhost:3000 (admin/admin)
    - Prometheus: http://localhost:9090
 
-3. **Start FerrisStreams with observability enabled:**
+3. **Start VeloStream with observability enabled:**
    ```rust
    let config = StreamingConfig {
        prometheus: Some(PrometheusConfig::default()), // Exposes metrics on :9091
@@ -48,12 +48,12 @@ This directory contains the complete Grafana monitoring setup for FerrisStreams 
 grafana/
 ├── docker-compose.yml                 # Complete monitoring stack
 ├── prometheus.yml                     # Prometheus configuration
-├── ferris-streams-dashboard.json      # Main Grafana dashboard
+├── velo-streams-dashboard.json      # Main Grafana dashboard
 ├── grafana-provisioning/              # Auto-provisioning config
 │   ├── datasources/
 │   │   └── prometheus.yml            # Prometheus datasource
 │   └── dashboards/
-│       └── ferris-streams.yml        # Dashboard provider config
+│       └── velo-streams.yml        # Dashboard provider config
 └── README.md                         # This file
 ```
 
@@ -61,7 +61,7 @@ grafana/
 
 ### Prometheus Setup
 - **Scrape interval**: 5 seconds for high-resolution monitoring
-- **Target**: `host.docker.internal:9091` (FerrisStreams metrics endpoint)
+- **Target**: `host.docker.internal:9091` (VeloStream metrics endpoint)
 - **Retention**: Standard Prometheus defaults
 - **Evaluation**: 15-second rule evaluation
 
@@ -87,7 +87,7 @@ rate(your_custom_metric_total[5m])
 
 ### Modifying Thresholds
 
-Current thresholds in `ferris-streams-dashboard.json`:
+Current thresholds in `velo-streams-dashboard.json`:
 - **CPU Warning**: 70%, Critical: 85%
 - **Memory Warning**: 1GB, Critical: 2GB  
 - **Error Rate Critical**: >5%
@@ -98,7 +98,7 @@ Create alert rules in Grafana:
 ```yaml
 # Example: High error rate alert
 - alert: HighSQLErrorRate
-  expr: rate(ferris_sql_query_errors_total[5m]) / rate(ferris_sql_queries_total[5m]) * 100 > 5
+  expr: rate(velo_sql_query_errors_total[5m]) / rate(velo_sql_queries_total[5m]) * 100 > 5
   for: 2m
   labels:
     severity: critical
@@ -121,7 +121,7 @@ Create alert rules in Grafana:
 
 ### Resource Requirements
 - **Memory**: 512MB for Grafana, 1GB for Prometheus
-- **CPU**: Minimal for typical FerrisStreams workloads
+- **CPU**: Minimal for typical VeloStream workloads
 - **Disk**: ~100MB/day for metrics storage
 - **Network**: <1MB/s for metrics scraping
 
@@ -138,7 +138,7 @@ For production deployments:
 
 1. **No data in dashboard**:
    ```bash
-   # Check FerrisStreams is exposing metrics
+   # Check VeloStream is exposing metrics
    curl http://localhost:9091/metrics
    
    # Verify Prometheus is scraping
@@ -153,7 +153,7 @@ For production deployments:
    ```
 
 3. **Dashboard not loading**:
-   - Verify `ferris-streams-dashboard.json` syntax
+   - Verify `velo-streams-dashboard.json` syntax
    - Check Grafana provisioning logs
    - Ensure datasource connection is working
 
@@ -170,7 +170,7 @@ curl http://localhost:9090/api/v1/status/config
 curl -u admin:admin http://localhost:3000/api/datasources
 
 # Validate dashboard JSON
-cat ferris-streams-dashboard.json | jq '.'
+cat velo-streams-dashboard.json | jq '.'
 ```
 
 ### Performance Tuning
@@ -199,10 +199,10 @@ If experiencing performance issues:
 
 ### Adding Business Metrics
 
-1. **Register metrics in FerrisStreams**:
+1. **Register metrics in VeloStream**:
    ```rust
    let business_counter = register_int_counter_with_registry!(
-       Opts::new("ferris_orders_processed_total", "Orders processed"),
+       Opts::new("velo_orders_processed_total", "Orders processed"),
        &metrics_provider.registry
    )?;
    ```
@@ -211,7 +211,7 @@ If experiencing performance issues:
    ```json
    {
      "targets": [{
-       "expr": "rate(ferris_orders_processed_total[5m])",
+       "expr": "rate(velo_orders_processed_total[5m])",
        "legendFormat": "Orders/sec"
      }]
    }
@@ -222,16 +222,16 @@ If experiencing performance issues:
 Add to `prometheus.yml`:
 ```yaml
 rule_files:
-  - "ferris_rules.yml"
+  - "velo_rules.yml"
 ```
 
-Create `ferris_rules.yml`:
+Create `velo_rules.yml`:
 ```yaml
 groups:
-  - name: ferris.rules
+  - name: velo.rules
     rules:
-      - record: ferris:sql_success_rate
-        expr: rate(ferris_sql_queries_total[5m]) - rate(ferris_sql_query_errors_total[5m])
+      - record: velo:sql_success_rate
+        expr: rate(velo_sql_queries_total[5m]) - rate(velo_sql_query_errors_total[5m])
 ```
 
 ## Support
@@ -239,8 +239,8 @@ groups:
 For monitoring setup issues:
 1. Check Docker Compose logs for startup errors
 2. Verify network connectivity between containers
-3. Ensure FerrisStreams observability is properly configured
+3. Ensure VeloStream observability is properly configured
 4. Review Prometheus targets and Grafana datasource health
 5. Check file permissions on provisioning directories
 
-The dashboard is designed to provide comprehensive visibility into FerrisStreams performance with minimal setup effort.
+The dashboard is designed to provide comprehensive visibility into VeloStream performance with minimal setup effort.

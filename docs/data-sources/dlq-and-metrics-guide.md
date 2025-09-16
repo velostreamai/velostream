@@ -12,7 +12,7 @@
 ### Core DLQ Settings
 
 ```yaml
-# ferris-config.yaml
+# velo-config.yaml
 dead_letter_queue:
   # Storage configuration
   storage:
@@ -45,7 +45,7 @@ dead_letter_queue:
 ### Programmatic DLQ Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::error::recovery::{
+use velostream::velo::sql::error::recovery::{
     DeadLetterQueue, DLQConfig, RetryStrategy, OverflowPolicy
 };
 
@@ -177,7 +177,7 @@ WITH (
 ### Enhanced Throughput Metrics Configuration
 
 ```rust
-use ferrisstreams::ferris::sql::execution::performance::{
+use velostream::velo::sql::execution::performance::{
     ThroughputMetrics, MetricsWindow, StatisticalMetrics
 };
 
@@ -207,7 +207,7 @@ let metrics = ThroughputMetrics::builder()
     
     // Persistence
     .persist_to_disk(true)
-    .persistence_path("/var/ferris/metrics")
+    .persistence_path("/var/velo/metrics")
     .persistence_interval(Duration::from_minutes(5))
     
     .build()?;
@@ -512,26 +512,26 @@ async fn reset_metrics(metrics: &State<MetricsCollector>) -> StatusCode {
 
 ```bash
 # DLQ Configuration
-export FERRIS_DLQ_ENABLED=true
-export FERRIS_DLQ_MAX_SIZE=1000000
-export FERRIS_DLQ_MAX_RETRIES=5
-export FERRIS_DLQ_RETRY_DELAY_MS=1000
-export FERRIS_DLQ_STORAGE_TYPE=kafka
-export FERRIS_DLQ_STORAGE_LOCATION="kafka://localhost:9092/dlq"
+export VELO_DLQ_ENABLED=true
+export VELO_DLQ_MAX_SIZE=1000000
+export VELO_DLQ_MAX_RETRIES=5
+export VELO_DLQ_RETRY_DELAY_MS=1000
+export VELO_DLQ_STORAGE_TYPE=kafka
+export VELO_DLQ_STORAGE_LOCATION="kafka://localhost:9092/dlq"
 
 # Metrics Configuration  
-export FERRIS_METRICS_WINDOW_HOURS=24
-export FERRIS_METRICS_RESET_TIME="00:00:00"
-export FERRIS_METRICS_TIMEZONE="UTC"
-export FERRIS_METRICS_PERSIST_PATH="/var/ferris/metrics"
-export FERRIS_METRICS_SAMPLE_INTERVAL_MS=1000
+export VELO_METRICS_WINDOW_HOURS=24
+export VELO_METRICS_RESET_TIME="00:00:00"
+export VELO_METRICS_TIMEZONE="UTC"
+export VELO_METRICS_PERSIST_PATH="/var/velo/metrics"
+export VELO_METRICS_SAMPLE_INTERVAL_MS=1000
 ```
 
 ### Configuration File
 
 ```yaml
 # config.yaml
-ferrisstreams:
+velostream:
   dlq:
     enabled: true
     storage:
@@ -567,7 +567,7 @@ ferrisstreams:
         - stddev
     persistence:
       enabled: true
-      path: "/var/ferris/metrics"
+      path: "/var/velo/metrics"
       interval: "5m"
     retention:
       detailed: "7d"
@@ -615,7 +615,7 @@ groups:
   - name: dlq_alerts
     rules:
       - alert: DLQSizeHigh
-        expr: ferris_dlq_size > 800000
+        expr: velo_dlq_size > 800000
         for: 5m
         labels:
           severity: warning
@@ -623,7 +623,7 @@ groups:
           summary: "DLQ size exceeding threshold ({{ $value }})"
           
       - alert: DLQFull
-        expr: ferris_dlq_size >= ferris_dlq_max_size * 0.95
+        expr: velo_dlq_size >= velo_dlq_max_size * 0.95
         for: 1m
         labels:
           severity: critical
@@ -631,7 +631,7 @@ groups:
           summary: "DLQ is almost full ({{ $value }})"
           
       - alert: HighRetryRate
-        expr: rate(ferris_dlq_retries_total[5m]) > 100
+        expr: rate(velo_dlq_retries_total[5m]) > 100
         for: 10m
         labels:
           severity: warning
@@ -641,7 +641,7 @@ groups:
   - name: throughput_alerts
     rules:
       - alert: LowThroughput
-        expr: ferris_throughput_msg_per_sec < 100
+        expr: velo_throughput_msg_per_sec < 100
         for: 10m
         labels:
           severity: warning
@@ -650,8 +650,8 @@ groups:
           
       - alert: ThroughputDrop
         expr: |
-          (ferris_throughput_avg_24h - ferris_throughput_avg_1h) 
-          / ferris_throughput_avg_24h > 0.5
+          (velo_throughput_avg_24h - velo_throughput_avg_1h) 
+          / velo_throughput_avg_24h > 0.5
         for: 5m
         labels:
           severity: critical
@@ -663,7 +663,7 @@ groups:
 
 ```bash
 # View current DLQ status
-ferris-cli dlq status
+velo-cli dlq status
 
 # Output:
 # DLQ Status Report
@@ -676,16 +676,16 @@ ferris-cli dlq status
 # Processing Rate: 10 msg/sec
 
 # View DLQ messages
-ferris-cli dlq list --limit 10 --category parsing
+velo-cli dlq list --limit 10 --category parsing
 
 # Reprocess DLQ messages
-ferris-cli dlq reprocess --category transient --batch-size 100
+velo-cli dlq reprocess --category transient --batch-size 100
 
 # Clear old messages
-ferris-cli dlq purge --older-than 7d --category permanent
+velo-cli dlq purge --older-than 7d --category permanent
 
 # View throughput metrics
-ferris-cli metrics throughput --period 24h
+velo-cli metrics throughput --period 24h
 
 # Output:
 # 24-Hour Throughput Statistics
@@ -700,10 +700,10 @@ ferris-cli metrics throughput --period 24h
 # Current: 1,150 msg/sec
 
 # Reset metrics
-ferris-cli metrics reset --confirm
+velo-cli metrics reset --confirm
 
 # Export metrics
-ferris-cli metrics export --format json --output metrics.json
+velo-cli metrics export --format json --output metrics.json
 ```
 
 ## Best Practices

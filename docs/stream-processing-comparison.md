@@ -1,4 +1,4 @@
-# Flink SQL vs ksqlDB vs Ferris Streams: Comprehensive Comparison
+# Flink SQL vs ksqlDB vs Velo Streams: Comprehensive Comparison
 
 ## Overview
 
@@ -6,7 +6,7 @@
 |----------|------|----------|------------------|
 | **Flink SQL** | Stream Processing Engine | Java/Scala | General-purpose stream processing with SQL interface |
 | **ksqlDB** | Streaming Database | Java | Kafka-native stream processing with SQL |
-| **Ferris Streams** | Kafka-Native SQL Engine | Rust | High-performance Kafka stream processing with native SQL support |
+| **Velo Streams** | Kafka-Native SQL Engine | Rust | High-performance Kafka stream processing with native SQL support |
 
 ## SQL Capabilities & Gaps
 
@@ -39,7 +39,7 @@
 - Schema evolution restrictions
 - Every query creates separate Kafka Streams instance (overhead)
 
-### Ferris Streams
+### Velo Streams
 **✅ Strengths:**
 - Native Kafka integration with type-safe operations
 - **Comprehensive SQL function library (67+ functions)**
@@ -104,7 +104,7 @@
 - **Memory**: JVM with 50MB overhead per partition
 - **Deployment**: Server clusters with REST API
 
-### Ferris Streams
+### Velo Streams
 - **Architecture**: Pluggable data source SQL engine with native streaming support
 - **Data Sources**: Kafka, Files (CSV, JSON, Parquet), Databases (PostgreSQL, MySQL), S3, and extensible adapter system
 - **State Management**: In-memory with pluggable state backends
@@ -142,7 +142,7 @@
 **Pros:** Tight Kafka integration, managed cloud option
 **Cons:** Tied to Kafka ecosystem, limited to Confluent stack
 
-### Ferris Streams
+### Velo Streams
 **Deployment:**
 - Single Rust binary with embedded SQL engine
 - Docker and container-native deployment
@@ -180,7 +180,7 @@
 **Pros:** SQL-native job management
 **Cons:** Limited query evolution, separate instances per query
 
-### Ferris Streams
+### Velo Streams
 **Job Management:**
 - SQL-based job lifecycle (START/STOP/PAUSE/RESUME)
 - Versioned deployments with multiple strategies (BLUE_GREEN, CANARY, ROLLING)
@@ -193,7 +193,7 @@
 
 ## Performance Characteristics
 
-| Metric | Flink SQL | ksqlDB | Ferris Streams |
+| Metric | Flink SQL | ksqlDB | Velo Streams |
 |--------|-----------|---------|--------------|
 | **Throughput** | High | Medium | High (Kafka-optimized) |
 | **Latency** | Sub-second | Sub-second | Low (direct rdkafka) |
@@ -217,7 +217,7 @@
 - Prefer managed cloud services
 - SQL-first development approach
 
-### Choose Ferris Streams when:
+### Choose Velo Streams when:
 - Building stream processing applications with **full CRUD capabilities** across multiple data sources
 - Need comprehensive SQL functions for data transformation **and modification**
 - Require **complete data lifecycle management** (INSERT/UPDATE/DELETE operations)
@@ -245,14 +245,14 @@
 
 **ksqlDB:** Uncertain future as Confluent acquired Immerok (Flink service), potentially favoring Flink for future development. DML limitations becoming more apparent as streaming use cases evolve.
 
-**Ferris Streams:** **Major competitive breakthrough** with complete DML operations support and pluggable data source architecture. Positioned as the **premier multi-source streaming SQL platform** for enterprise workloads requiring full data lifecycle management. Growing enterprise adoption accelerating due to:
+**Velo Streams:** **Major competitive breakthrough** with complete DML operations support and pluggable data source architecture. Positioned as the **premier multi-source streaming SQL platform** for enterprise workloads requiring full data lifecycle management. Growing enterprise adoption accelerating due to:
 - Complete CRUD capabilities with streaming semantics
 - Superior operational model (job management, versioning, deployment strategies)  
 - Zero-GC performance advantages
 - Production-ready architecture with comprehensive error handling
 - Single-binary simplicity vs. complex cluster management
 
-## Ferris Streams Implementation Details
+## Velo Streams Implementation Details
 
 ### Core Features
 - **Description**: Multi-source streaming SQL engine built in Rust with pluggable data source architecture
@@ -381,14 +381,14 @@ The choice between these platforms depends on specific requirements:
 
 - **Flink SQL** remains the most mature and feature-complete option for complex enterprise stream processing
 - **ksqlDB** offers the best Kafka integration but faces uncertainty in future development
-- **Ferris Streams** provides a production-ready multi-source streaming SQL solution with comprehensive function coverage (70+ functions), advanced data types (ARRAY, MAP, STRUCT), complete JOIN operations with temporal windowing, full DML operations (INSERT/UPDATE/DELETE) with streaming semantics, pluggable data source architecture, built-in job management, and single binary deployment with horizontal scale-out, making it highly competitive for heterogeneous streaming use cases
+- **Velo Streams** provides a production-ready multi-source streaming SQL solution with comprehensive function coverage (70+ functions), advanced data types (ARRAY, MAP, STRUCT), complete JOIN operations with temporal windowing, full DML operations (INSERT/UPDATE/DELETE) with streaming semantics, pluggable data source architecture, built-in job management, and single binary deployment with horizontal scale-out, making it highly competitive for heterogeneous streaming use cases
 
-As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative that bridges the gap between Flink's complexity and ksqlDB's limitations, offering enterprise-grade SQL processing with significant performance advantages and operational simplicity.
+As the ecosystem evolves, Velo Streams has emerged as a compelling alternative that bridges the gap between Flink's complexity and ksqlDB's limitations, offering enterprise-grade SQL processing with significant performance advantages and operational simplicity.
 
 ## Updated Competitive Gap Analysis (Post DML Enhancement - 2025)
 
 ### SQL Operation Coverage Comparison
-| SQL Category | Flink SQL | ksqlDB | Ferris Streams | Gap Status |
+| SQL Category | Flink SQL | ksqlDB | Velo Streams | Gap Status |
 |--------------|-----------|---------|----------------|------------|
 | **SELECT Operations** | Full | Full | **Complete** | ✅ **Full parity** |
 | **DML Operations** | Full | Limited | **🆕 Complete** | ✅ **Major breakthrough** |
@@ -398,7 +398,7 @@ As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative
 | **DDL Operations** | Full | Full | **Partial** | ⚠️ **Schema operations only** |
 
 ### Function Coverage Comparison
-| Category | Flink SQL | ksqlDB | Ferris Streams | Gap Status |
+| Category | Flink SQL | ksqlDB | Velo Streams | Gap Status |
 |----------|-----------|---------|----------------|------------|
 | **Math Functions** | 50+ | 15+ | **7** | ✅ **Essential coverage** |
 | **String Functions** | 40+ | 20+ | **11** | ✅ **Competitive** |
@@ -424,7 +424,7 @@ As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative
 - **Production-grade validation**: Comprehensive error handling and type safety
 
 ### Feature Parity Assessment
-| **Use Case** | **Flink SQL** | **ksqlDB** | **Ferris Streams** | **Status** |
+| **Use Case** | **Flink SQL** | **ksqlDB** | **Velo Streams** | **Status** |
 |--------------|---------------|-------------|-------------------|------------|
 | **Data Ingestion** | ✅ Full | ⚠️ Limited | ✅ **Complete** | 🎯 **Parity achieved** |
 | **Data Transformation** | ✅ Full | ✅ Full | ✅ **Complete** | 🎯 **Parity achieved** |  
@@ -454,10 +454,10 @@ As the ecosystem evolves, Ferris Streams has emerged as a compelling alternative
 - ✅ **Superior operational model** with built-in job management and versioning
 - ✅ **Performance advantages** with zero-GC Rust implementation
 
-**Market Position**: Ferris Streams has transitioned from a "specialized analytical engine" to a **complete streaming data platform** capable of handling enterprise workloads with full data lifecycle management.
+**Market Position**: Velo Streams has transitioned from a "specialized analytical engine" to a **complete streaming data platform** capable of handling enterprise workloads with full data lifecycle management.
 
 ### 2025 Verdict
-Ferris Streams has achieved **multiple major architectural milestones** with complete DML operations support and enterprise-grade configuration management. The platform now offers:
+Velo Streams has achieved **multiple major architectural milestones** with complete DML operations support and enterprise-grade configuration management. The platform now offers:
 
 🏆 **Feature Completeness**: Full SQL DML parity with enterprise streaming platforms  
 🏆 **Operational Superiority**: Best-in-class job management and deployment strategies  
@@ -466,6 +466,6 @@ Ferris Streams has achieved **multiple major architectural milestones** with com
 🏆 **Streaming-Native Design**: Purpose-built for Kafka with proper semantic handling  
 🏆 **DevOps Integration**: Parse-time environment variable substitution for CI/CD pipelines
 
-The gap with Flink SQL has narrowed significantly - from "missing 285+ functions" to **"missing primarily advanced analytics and CEP features"**. The new CREATE STREAM/TABLE INTO syntax with enterprise configuration management puts Ferris Streams ahead of ksqlDB for **DevOps-mature organizations** requiring environment-specific deployments.
+The gap with Flink SQL has narrowed significantly - from "missing 285+ functions" to **"missing primarily advanced analytics and CEP features"**. The new CREATE STREAM/TABLE INTO syntax with enterprise configuration management puts Velo Streams ahead of ksqlDB for **DevOps-mature organizations** requiring environment-specific deployments.
 
-For streaming workloads requiring data modification capabilities across heterogeneous data sources and enterprise configuration management, **Ferris Streams now offers compelling advantages over both Flink SQL and ksqlDB** in terms of operational simplicity, performance, deployment ease, single binary scale-out architecture, and configuration management maturity.
+For streaming workloads requiring data modification capabilities across heterogeneous data sources and enterprise configuration management, **Velo Streams now offers compelling advantages over both Flink SQL and ksqlDB** in terms of operational simplicity, performance, deployment ease, single binary scale-out architecture, and configuration management maturity.

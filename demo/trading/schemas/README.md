@@ -61,7 +61,7 @@ All monetary values use proper Avro decimal logical type for ScaledInteger preci
 - **Type**: `"type": "bytes"` with `"logicalType": "decimal"`
 - **Schema**: Includes `"precision"` and `"scale"` parameters
 - **Encoding**: Big-endian two's complement bytes
-- **ScaledInteger Mapping**: FerrisStreams reads precision/scale from schema and creates ScaledInteger automatically
+- **ScaledInteger Mapping**: VeloStream reads precision/scale from schema and creates ScaledInteger automatically
 
 #### Example Schema
 ```json

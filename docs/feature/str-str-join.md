@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-FerrisStreams currently supports **Stream-Table JOINs** with comprehensive functionality but has **limited stream-stream JOIN capabilities**. This analysis identifies critical gaps and provides a detailed implementation roadmap to achieve production-ready stream-stream JOINs with temporal correlation, state management, and high-performance processing.
+VeloStream currently supports **Stream-Table JOINs** with comprehensive functionality but has **limited stream-stream JOIN capabilities**. This analysis identifies critical gaps and provides a detailed implementation roadmap to achieve production-ready stream-stream JOINs with temporal correlation, state management, and high-performance processing.
 
 **Current Status**: 🟡 **PARTIAL SUPPORT** - Infrastructure exists, temporal windowing incomplete  
 **Target Status**: 🟢 **FULL PRODUCTION SUPPORT** - Complete stream-stream JOIN capabilities  
@@ -14,7 +14,7 @@ FerrisStreams currently supports **Stream-Table JOINs** with comprehensive funct
 
 ### ✅ **Existing Infrastructure**
 
-FerrisStreams has solid foundation components already implemented:
+VeloStream has solid foundation components already implemented:
 
 #### 1.1 AST and Parser Support
 - **JOIN Types**: All 4 types supported (`INNER`, `LEFT`, `RIGHT`, `FULL OUTER`)
@@ -22,7 +22,7 @@ FerrisStreams has solid foundation components already implemented:
 - **Window Specification**: `JoinWindow` struct with temporal support
 
 ```rust
-// Already implemented in src/ferris/sql/ast.rs
+// Already implemented in src/velo/sql/ast.rs
 pub struct JoinClause {
     pub join_type: JoinType,
     pub right_source: StreamSource,
@@ -38,7 +38,7 @@ pub struct JoinWindow {
 ```
 
 #### 1.2 Join Processing Engine
-- **Join Processor**: Comprehensive join logic in `src/ferris/sql/execution/processors/join.rs`
+- **Join Processor**: Comprehensive join logic in `src/velo/sql/execution/processors/join.rs`
 - **Record Combination**: Proper field merging and aliasing
 - **NULL Handling**: Correct outer join semantics
 - **Hash Join Optimization**: Performance optimization for large datasets
@@ -448,8 +448,8 @@ impl WatermarkManager {
   - Join condition analysis
 
 **Deliverables**:
-- `src/ferris/sql/execution/stream/buffer.rs` - Core buffer implementation
-- `src/ferris/sql/execution/stream/join_key.rs` - Key extraction logic
+- `src/velo/sql/execution/stream/buffer.rs` - Core buffer implementation
+- `src/velo/sql/execution/stream/join_key.rs` - Key extraction logic
 - Unit tests for buffer operations
 
 #### Week 2: Window Processing
@@ -466,8 +466,8 @@ impl WatermarkManager {
   - Error handling
 
 **Deliverables**:
-- `src/ferris/sql/execution/stream/window.rs` - Window management
-- `src/ferris/sql/execution/stream/processor.rs` - Join processing logic
+- `src/velo/sql/execution/stream/window.rs` - Window management
+- `src/velo/sql/execution/stream/processor.rs` - Join processing logic
 - Integration tests for windowed joins
 
 ### Phase 2: Memory Management & Performance (Week 3)
@@ -488,8 +488,8 @@ impl WatermarkManager {
   - Memory pool allocation
 
 **Deliverables**:
-- `src/ferris/sql/execution/stream/memory.rs` - Memory management
-- `src/ferris/sql/execution/stream/optimization.rs` - Performance optimizations
+- `src/velo/sql/execution/stream/memory.rs` - Memory management
+- `src/velo/sql/execution/stream/optimization.rs` - Performance optimizations
 - Performance benchmarks and tests
 
 ### Phase 3: Watermark & Late Arrival (Week 4)
@@ -510,8 +510,8 @@ impl WatermarkManager {
   - Configurable lateness tolerance
 
 **Deliverables**:
-- `src/ferris/sql/execution/stream/watermark.rs` - Watermark management
-- `src/ferris/sql/execution/stream/late_arrival.rs` - Late arrival handling
+- `src/velo/sql/execution/stream/watermark.rs` - Watermark management
+- `src/velo/sql/execution/stream/late_arrival.rs` - Late arrival handling
 - End-to-end tests for out-of-order processing
 
 ### Phase 4: Production Features (Week 5-6)
@@ -928,11 +928,11 @@ async fn benchmark_latency_performance() {
 
 #### 7.1.1 Stream Join Buffer
 ```rust
-// src/ferris/sql/execution/stream/buffer.rs
+// src/velo/sql/execution/stream/buffer.rs
 use std::collections::{HashMap, BTreeMap};
 use std::time::{Duration, Instant};
-use crate::ferris::sql::execution::{FieldValue, StreamRecord};
-use crate::ferris::sql::SqlError;
+use crate::velo::sql::execution::{FieldValue, StreamRecord};
+use crate::velo::sql::SqlError;
 
 /// High-performance buffer for stream-stream join operations
 pub struct StreamJoinBuffer {
@@ -1144,13 +1144,13 @@ pub enum JoinSide {
 
 #### 7.1.2 Windowed Join Processor
 ```rust
-// src/ferris/sql/execution/stream/processor.rs
+// src/velo/sql/execution/stream/processor.rs
 use super::buffer::{StreamJoinBuffer, JoinKey, JoinSide};
 use super::join_key::JoinKeyExtractor;
 use super::watermark::WatermarkManager;
-use crate::ferris::sql::ast::{JoinClause, JoinType};
-use crate::ferris::sql::execution::{StreamRecord, FieldValue};
-use crate::ferris::sql::SqlError;
+use crate::velo::sql::ast::{JoinClause, JoinType};
+use crate::velo::sql::execution::{StreamRecord, FieldValue};
+use crate::velo::sql::SqlError;
 use std::time::Duration;
 
 /// High-performance windowed join processor for stream-stream joins
@@ -1442,7 +1442,7 @@ impl JoinProcessor {
 
 ## 10. Conclusion
 
-This comprehensive analysis shows that FerrisStreams has **strong foundational infrastructure** for stream-stream JOINs but requires **4-6 weeks of focused development** to achieve production-ready capabilities.
+This comprehensive analysis shows that VeloStream has **strong foundational infrastructure** for stream-stream JOINs but requires **4-6 weeks of focused development** to achieve production-ready capabilities.
 
 ### Key Deliverables Summary
 
@@ -1456,12 +1456,12 @@ This comprehensive analysis shows that FerrisStreams has **strong foundational i
 
 ### Production Readiness Impact
 
-Upon completion, FerrisStreams will provide **enterprise-grade stream-stream JOIN capabilities** competitive with:
+Upon completion, VeloStream will provide **enterprise-grade stream-stream JOIN capabilities** competitive with:
 - **Apache Flink SQL** - Similar windowed join semantics
 - **Confluent ksqlDB** - Comparable temporal correlation features  
 - **Apache Spark Structured Streaming** - Equivalent performance characteristics
 
-This positions FerrisStreams as a **complete streaming SQL solution** capable of handling the most demanding real-time analytics use cases in production environments.
+This positions VeloStream as a **complete streaming SQL solution** capable of handling the most demanding real-time analytics use cases in production environments.
 
 <function_calls>
 <invoke name="TodoWrite">

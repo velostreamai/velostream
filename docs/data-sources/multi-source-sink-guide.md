@@ -1,8 +1,8 @@
-# FerrisStreams Multi-Source/Multi-Sink Processing Guide
+# VeloStream Multi-Source/Multi-Sink Processing Guide
 
 ## Overview
 
-FerrisStreams provides comprehensive support for processing data from **multiple sources simultaneously** and routing output to **multiple sinks concurrently**. This enables complex analytical pipelines, data enrichment workflows, and enterprise-scale streaming applications.
+VeloStream provides comprehensive support for processing data from **multiple sources simultaneously** and routing output to **multiple sinks concurrently**. This enables complex analytical pipelines, data enrichment workflows, and enterprise-scale streaming applications.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ FerrisStreams provides comprehensive support for processing data from **multiple
 
 ### Architecture
 
-FerrisStreams processes multiple data sources through coordinated readers managed by the `StreamJobServer`. Each source is created independently and processed in a round-robin fashion within each batch cycle.
+VeloStream processes multiple data sources through coordinated readers managed by the `StreamJobServer`. Each source is created independently and processed in a round-robin fashion within each batch cycle.
 
 ```rust
 // Internal architecture (for reference)
@@ -311,7 +311,7 @@ WITH (
 ```rust
 let server = StreamJobServer::new_with_monitoring(
     "kafka1:9092,kafka2:9092",  // Kafka brokers
-    "ferris-streams",           // Consumer group base
+    "velo-streams",           // Consumer group base
     50,                         // Max concurrent jobs
     true,                       // Enable monitoring
 );
@@ -320,18 +320,18 @@ let server = StreamJobServer::new_with_monitoring(
 #### **Resource Limits**
 ```yaml
 # Environment configuration
-FERRIS_MAX_JOBS: 50
-FERRIS_MAX_MEMORY_MB: 2048
-FERRIS_MAX_SOURCES_PER_JOB: 10
-FERRIS_MAX_SINKS_PER_JOB: 5
-FERRIS_BATCH_TIMEOUT_MS: 5000
+VELO_MAX_JOBS: 50
+VELO_MAX_MEMORY_MB: 2048
+VELO_MAX_SOURCES_PER_JOB: 10
+VELO_MAX_SINKS_PER_JOB: 5
+VELO_BATCH_TIMEOUT_MS: 5000
 ```
 
 ### Configuration File-Based Examples
 
 #### **Named Source/Sink Configuration Pattern**
 
-FerrisStreams uses **named source/sink configuration** for clean separation and precise type detection. Each source and sink is configured using its specific name prefix.
+VeloStream uses **named source/sink configuration** for clean separation and precise type detection. Each source and sink is configured using its specific name prefix.
 
 **Named Configuration Approach**:
 ```sql
@@ -348,7 +348,7 @@ WITH (
 
 #### **Explicit Type Declaration Options**
 
-FerrisStreams supports multiple ways to explicitly declare source and sink types, making configuration clear and obvious:
+VeloStream supports multiple ways to explicitly declare source and sink types, making configuration clear and obvious:
 
 **Method 1: Using `.type` (Recommended)**
 ```sql
@@ -379,7 +379,7 @@ WITH (
 
 ### Source/Sink Type Detection
 
-FerrisStreams uses **explicit type declaration only** (no autodetection). Types must be explicitly specified using one of these configuration keys:
+VeloStream uses **explicit type declaration only** (no autodetection). Types must be explicitly specified using one of these configuration keys:
 
 #### **Type Declaration Methods**
 
@@ -421,7 +421,7 @@ Use: 'orders_source.type' with values like 'kafka_source', 'file_source', 's3_so
 
 #### **YAML Configuration File Examples**
 
-FerrisStreams supports comprehensive YAML configuration with advanced features including `extends`, environment variable substitution, and profile-based configurations.
+VeloStream supports comprehensive YAML configuration with advanced features including `extends`, environment variable substitution, and profile-based configurations.
 
 **SQL Usage with YAML Config Files:**
 
@@ -795,7 +795,7 @@ WITH (
 
 #### **Environment Variables and Profile Support**
 
-FerrisStreams provides comprehensive environment variable substitution and profile-based configuration management.
+VeloStream provides comprehensive environment variable substitution and profile-based configuration management.
 
 **Environment Variable Patterns:**
 ```yaml
@@ -815,17 +815,17 @@ connection.url: "jdbc:postgresql://${DB_HOST}:${DB_PORT:-5432}/${DB_NAME}"
 **Profile Activation via Environment Variables:**
 ```bash
 # Activate production profile
-export FERRIS_PROFILE=production
+export VELO_PROFILE=production
 export KAFKA_BROKERS=kafka-prod-cluster:9092
 export AWS_REGION=us-east-1
 
 # Activate development profile  
-export FERRIS_PROFILE=development
+export VELO_PROFILE=development
 export KAFKA_BROKERS=localhost:9092
 export AWS_REGION=us-west-2
 
 # Activate staging with overrides
-export FERRIS_PROFILE=staging
+export VELO_PROFILE=staging
 export KAFKA_BROKERS=kafka-staging:9092
 export SCHEMA_REGISTRY_URL=http://schema-registry-staging:8081
 ```
@@ -833,19 +833,19 @@ export SCHEMA_REGISTRY_URL=http://schema-registry-staging:8081
 **Runtime Configuration Loading:**
 ```bash
 # Load config with profile
-./ferris-sql --config configs/financial-trading.yaml --profile production
+./velo-sql --config configs/financial-trading.yaml --profile production
 
 # Override specific environment variables
-KAFKA_BROKERS=custom-kafka:9092 ./ferris-sql --config configs/app.yaml
+KAFKA_BROKERS=custom-kafka:9092 ./velo-sql --config configs/app.yaml
 
 # Use environment-specific config file
-./ferris-sql --config configs/environments/${ENVIRONMENT}.yaml
+./velo-sql --config configs/environments/${ENVIRONMENT}.yaml
 ```
 
 **Profile Inheritance and Merging:**
 ```yaml
 # configs/app.yaml
-active_profile: "${FERRIS_PROFILE:-development}"
+active_profile: "${VELO_PROFILE:-development}"
 
 profiles:
   base: &base_profile
@@ -885,41 +885,41 @@ profiles:
 
 **Configuration File Discovery:**
 
-FerrisStreams searches for configuration files in the following order:
+VeloStream searches for configuration files in the following order:
 1. `--config` command line argument
-2. `FERRIS_CONFIG_FILE` environment variable
-3. `./ferris.yaml` in current directory
-4. `./configs/ferris.yaml`
-5. `~/.ferris/config.yaml`
-6. `/etc/ferris/config.yaml`
+2. `VELO_CONFIG_FILE` environment variable
+3. `./velo.yaml` in current directory
+4. `./configs/velo.yaml`
+5. `~/.velo/config.yaml`
+6. `/etc/velo/config.yaml`
 
 **Example Usage Scenarios:**
 
 ```bash
 # Development with local services
-export FERRIS_PROFILE=development
-./ferris-sql --sql "SELECT * FROM orders"
+export VELO_PROFILE=development
+./velo-sql --sql "SELECT * FROM orders"
 
 # Staging with shared infrastructure  
-export FERRIS_PROFILE=staging
+export VELO_PROFILE=staging
 export KAFKA_BROKERS=kafka-staging.company.com:9092
 export DB_HOST=postgres-staging.company.com
-./ferris-sql --config configs/ecommerce.yaml
+./velo-sql --config configs/ecommerce.yaml
 
 # Production with full environment variables
-export FERRIS_PROFILE=production
+export VELO_PROFILE=production
 export KAFKA_BROKERS=$PRODUCTION_KAFKA_BROKERS
 export SCHEMA_REGISTRY_URL=$PRODUCTION_SCHEMA_REGISTRY
 export AWS_REGION=$AWS_DEFAULT_REGION
 export DB_HOST=$RDS_ENDPOINT
 export DB_PASSWORD=$RDS_PASSWORD
-./ferris-sql --config configs/production/ecommerce.yaml
+./velo-sql --config configs/production/ecommerce.yaml
 
 # CI/CD deployment with overrides
-FERRIS_PROFILE=production \
+VELO_PROFILE=production \
 KAFKA_BROKERS=${CI_KAFKA_BROKERS} \
 DB_PASSWORD=${CI_DB_SECRET} \
-./ferris-sql --config configs/ci-deployment.yaml
+./velo-sql --config configs/ci-deployment.yaml
 ```
 
 ---
@@ -977,7 +977,7 @@ WITH (
 
 ### Processing Mode Selection
 
-FerrisStreams automatically selects the appropriate processor based on:
+VeloStream automatically selects the appropriate processor based on:
 
 1. **`use_transactions` setting**
 2. **Source transaction support**
@@ -1193,12 +1193,12 @@ curl http://localhost:8080/api/jobs/my-multi-source-job/status
 #### **Prometheus Metrics**
 ```prometheus
 # Multi-source job metrics
-ferris_job_sources_total{job="order-processing"} 3
-ferris_job_sinks_total{job="order-processing"} 2
-ferris_job_source_records_total{job="order-processing", source="orders"} 50000
-ferris_job_source_records_total{job="order-processing", source="customers"} 25000
-ferris_job_sink_records_total{job="order-processing", sink="kafka"} 45000
-ferris_job_sink_records_total{job="order-processing", sink="file"} 45000
+velo_job_sources_total{job="order-processing"} 3
+velo_job_sinks_total{job="order-processing"} 2
+velo_job_source_records_total{job="order-processing", source="orders"} 50000
+velo_job_source_records_total{job="order-processing", source="customers"} 25000
+velo_job_sink_records_total{job="order-processing", sink="kafka"} 45000
+velo_job_sink_records_total{job="order-processing", sink="file"} 45000
 ```
 
 ### Alerting
@@ -1741,10 +1741,10 @@ WITHIN INTERVAL '1' MINUTE  -- instead of '1' HOUR
 curl http://localhost:8080/api/jobs/my-job/metrics
 
 # Monitor resource usage
-top -p $(pgrep ferris-sql-multi)
+top -p $(pgrep velo-sql-multi)
 
 # Check Kafka consumer lag
-kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group ferris-streams-my-job
+kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group velo-streams-my-job
 ```
 
 **Solutions:**
@@ -1773,13 +1773,13 @@ Error: Job failed (transactional): Failed to commit transactions: Sink 'kafka_si
 #### **Log Analysis**
 ```bash
 # Filter multi-source logs
-grep "multi-source\|multi.*job" /var/log/ferris-streams.log
+grep "multi-source\|multi.*job" /var/log/velo-streams.log
 
 # Monitor source creation
-grep "Creating.*source\|Successfully created.*source" /var/log/ferris-streams.log
+grep "Creating.*source\|Successfully created.*source" /var/log/velo-streams.log
 
 # Check sink status
-grep "sink.*created\|sink.*failed" /var/log/ferris-streams.log
+grep "sink.*created\|sink.*failed" /var/log/velo-streams.log
 ```
 
 #### **Metrics Monitoring**
@@ -1791,7 +1791,7 @@ curl -s http://localhost:8080/api/jobs | jq '.[] | {name, status, sources, sinks
 curl -s http://localhost:8080/api/jobs/my-job/metrics | jq .
 
 # Prometheus metrics
-curl -s http://localhost:8080/metrics | grep ferris_job
+curl -s http://localhost:8080/metrics | grep velo_job
 ```
 
 #### **SQL Query Analysis**
@@ -1823,7 +1823,7 @@ println!("Sinks: {}", analysis.required_sinks.len());
 
 ## Conclusion
 
-FerrisStreams' multi-source/multi-sink processing enables sophisticated streaming analytics pipelines that can:
+VeloStream' multi-source/multi-sink processing enables sophisticated streaming analytics pipelines that can:
 
 - **Process data from unlimited sources simultaneously**
 - **Route output to multiple destinations concurrently**  

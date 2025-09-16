@@ -16,7 +16,7 @@ of the streaming engine, ensuring production readiness across all configurations
 */
 
 use chrono::{DateTime, Utc};
-use ferrisstreams::ferris::sql::execution::{
+use velostream::velostream::sql::execution::{
     circuit_breaker::{CircuitBreaker, CircuitBreakerConfig},
     config::{StreamingConfig, LateDataStrategy, WatermarkStrategy},
     engine::StreamingEngine,
@@ -24,7 +24,7 @@ use ferrisstreams::ferris::sql::execution::{
     resource_manager::{ResourceLimits, ResourceManager},
     watermarks::{WatermarkManager, WatermarkConfig},
 };
-use ferrisstreams::ferris::sql::{SqlError, StreamRecord, FieldValue};
+use velostream::velostream::sql::{SqlError, StreamRecord, FieldValue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -91,7 +91,7 @@ async fn test_enhanced_mode_full_feature_integration() {
     let watermark_config = WatermarkConfig {
         strategy: config.watermark_strategy.clone(),
         idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+        emit_policy: velostream::velostream::sql::execution::watermarks::EmitPolicy::OnWatermark,
     };
     let mut watermark_manager = WatermarkManager::new(watermark_config);
     watermark_manager.enable();
@@ -155,7 +155,7 @@ fn test_seamless_mode_switching() {
     let watermark_config = WatermarkConfig {
         strategy: config.watermark_strategy.clone(),
         idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+        emit_policy: velostream::velostream::sql::execution::watermarks::EmitPolicy::OnWatermark,
     };
     let watermark_manager = WatermarkManager::new(watermark_config);
     
@@ -249,7 +249,7 @@ async fn test_performance_impact_measurement() {
     let watermark_config = WatermarkConfig {
         strategy: WatermarkStrategy::Ascending,
         idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+        emit_policy: velostream::velostream::sql::execution::watermarks::EmitPolicy::OnWatermark,
     };
     let mut watermark_manager = WatermarkManager::new(watermark_config);
     watermark_manager.enable();
@@ -316,7 +316,7 @@ async fn test_end_to_end_streaming_pipeline() {
     let watermark_config = WatermarkConfig {
         strategy: config.watermark_strategy.clone(),
         idle_timeout: Duration::from_secs(30),
-        emit_policy: ferrisstreams::ferris::sql::execution::watermarks::EmitPolicy::OnWatermark,
+        emit_policy: velostream::velostream::sql::execution::watermarks::EmitPolicy::OnWatermark,
     };
     let mut watermark_manager = WatermarkManager::new(watermark_config);
     watermark_manager.enable();

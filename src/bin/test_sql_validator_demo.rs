@@ -1,5 +1,5 @@
-use ferrisstreams::ferris::sql::SqlValidator;
 use std::path::Path;
+use velostream::velostream::sql::SqlValidator;
 
 fn main() {
     println!("=== SQL Validator Demo ===");

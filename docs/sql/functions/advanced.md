@@ -1,6 +1,6 @@
 # Advanced and Utility Functions
 
-Complete reference for utility functions, advanced operations, and specialized functions in FerrisStreams.
+Complete reference for utility functions, advanced operations, and specialized functions in VeloStream.
 
 ## Null Handling Functions
 

@@ -371,4 +371,4 @@ datasources:
     format: "json"               # Validated by FileDataSource
 ```
 
-This API reference provides comprehensive documentation for all types and functions in the FerrisStreams Configuration Schema System.
+This API reference provides comprehensive documentation for all types and functions in the VeloStream Configuration Schema System.

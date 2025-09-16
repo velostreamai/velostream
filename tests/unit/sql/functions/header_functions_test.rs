@@ -5,12 +5,12 @@ Comprehensive test suite for header writing functions including SET_HEADER and R
 Tests both functionality and error handling for Kafka message header manipulation.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();

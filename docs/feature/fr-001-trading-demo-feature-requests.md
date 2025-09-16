@@ -1,6 +1,6 @@
-# FerrisStreams Trading Demo - Feature Requests
+# VeloStream Trading Demo - Feature Requests
 
-This document outlines proposed enhancements and new features for the FerrisStreams Financial Trading Demo.
+This document outlines proposed enhancements and new features for the VeloStream Financial Trading Demo.
 
 ## 🎯 Current Demo Status
 

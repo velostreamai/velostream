@@ -1,12 +1,12 @@
-use ferrisstreams::ferris::schema::client::registry_client::SchemaReference;
-use ferrisstreams::ferris::schema::server::{BackendConfig, SchemaRegistryBackendFactory};
+use velostream::velostream::schema::client::registry_client::SchemaReference;
+use velostream::velostream::schema::server::{BackendConfig, SchemaRegistryBackendFactory};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing FileSystem Schema Registry Backend");
 
     // Create temporary directory for testing
-    let registry_path = std::env::temp_dir().join("ferris_schema_registry_test");
+    let registry_path = std::env::temp_dir().join("velo_schema_registry_test");
 
     println!("📁 Using temporary directory: {}", registry_path.display());
 

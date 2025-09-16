@@ -1,6 +1,6 @@
 //! File Processing Demo - File → Processing → File Pipeline
 //!
-//! This demo showcases FerrisStreams' file processing capabilities:
+//! This demo showcases VeloStream' file processing capabilities:
 //! 1. Reading financial transaction data from CSV files
 //! 2. Processing with exact decimal precision (42x faster arithmetic)
 //! 3. Writing processed results to JSON files with compression
@@ -10,13 +10,6 @@
 //! cargo run --bin file_processing_demo --no-default-features
 //! ```
 
-use ferrisstreams::ferris::datasource::file::config::FileFormat;
-use ferrisstreams::ferris::datasource::file::{
-    config::{CompressionType, FileSinkConfig, FileSourceConfig},
-    FileDataSink, FileDataSource,
-};
-use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
 use std::error::Error;
 use std::fs;
 use std::io::Write;
@@ -24,6 +17,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use velostream::velostream::datasource::file::config::FileFormat;
+use velostream::velostream::datasource::file::{
+    config::{CompressionType, FileSinkConfig, FileSourceConfig},
+    FileDataSink, FileDataSource,
+};
+use velostream::velostream::datasource::traits::{DataSink, DataSource};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 // Demo configuration
 const DEMO_DATA_DIR: &str = "./demo_data";
@@ -72,7 +72,7 @@ impl ProcessingMetrics {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("🚀 FerrisStreams File Processing Demo");
+    println!("🚀 VeloStream File Processing Demo");
     println!("=====================================");
 
     let metrics = ProcessingMetrics::new();

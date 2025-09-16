@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://velostream.io/schemas/config.schema.json",
+  "title": "VeloStream Configuration Schema",
+  "description": "JSON Schema for validating VeloStream YAML configuration files with flat dot-notation structure",
+  "type": "object",
+  "properties": {
+    "type": {
+      "description": "The type of source or sink (required)",
+      "type": "string",
+      "enum": [
+        "file_source",
+        "kafka_source", 
+        "s3_source",
+        "database_source",
+        "http_source",
+        "file_sink",
+        "kafka_sink",
+        "s3_sink", 
+        "database_sink",
+        "iceberg_sink",
+        "http_sink"
+      ]
+    },
+    "extends": {
+      "description": "Optional inheritance from another config file",
+      "type": "string",
+      "pattern": "^.*\\.(yaml|yml)$"
+    }
+  },
+  "required": ["type"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["kafka_source", "kafka_sink"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "bootstrap.servers": {
+            "type": "string",
+            "description": "Comma-separated list of Kafka brokers",
+            "pattern": "^[^\\s,]+:[0-9]+(?:,[^\\s,]+:[0-9]+)*$"
+          },
+          "topic": {
+            "type": "string",
+            "description": "Kafka topic name",
+            "minLength": 1
+          },
+          "group.id": {
+            "type": "string", 
+            "description": "Consumer group ID (sources only)"
+          },
+          "auto.offset.reset": {
+            "type": "string",
+            "enum": ["earliest", "latest", "none"]
+          },
+          "enable.auto.commit": {
+            "type": "boolean"
+          },
+          "max.poll.records": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "fetch.min.bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "fetch.max.wait.ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "value.format": {
+            "type": "string",
+            "enum": ["json", "avro", "protobuf", "string"]
+          },
+          "key.format": {
+            "type": "string", 
+            "enum": ["json", "avro", "protobuf", "string"]
+          },
+          "batch.size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "linger.ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "compression.type": {
+            "type": "string",
+            "enum": ["none", "gzip", "snappy", "lz4", "zstd"]
+          },
+          "acks": {
+            "type": "string",
+            "enum": ["0", "1", "all"]
+          },
+          "retries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "retry.backoff.ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enable.idempotence": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["file_source", "file_sink"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File system path",
+            "minLength": 1
+          },
+          "format": {
+            "type": "string",
+            "enum": ["csv", "json", "jsonl", "jsonlines", "parquet", "avro", "auto"]
+          },
+          "has_headers": {
+            "type": "boolean",
+            "description": "Whether CSV files have headers"
+          },
+          "append": {
+            "type": "boolean",
+            "description": "Whether to append to existing file"
+          },
+          "watching": {
+            "type": "boolean",
+            "description": "Whether to watch for file changes"
+          },
+          "delimiter": {
+            "type": "string",
+            "maxLength": 1,
+            "description": "CSV field delimiter"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": ["UTF-8", "ASCII", "ISO-8859-1"]
+          },
+          "skip_empty_lines": {
+            "type": "boolean"
+          },
+          "infer_schema": {
+            "type": "boolean"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "create_directories": {
+            "type": "boolean"
+          },
+          "buffer_size": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["s3_source", "s3_sink"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "S3 bucket name",
+            "minLength": 1
+          },
+          "prefix": {
+            "type": "string",
+            "description": "S3 object key prefix"
+          },
+          "region": {
+            "type": "string",
+            "description": "AWS region"
+          },
+          "access_key_id": {
+            "type": "string"
+          },
+          "secret_access_key": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "parquet", "avro", "csv"]
+          },
+          "compression": {
+            "type": "string", 
+            "enum": ["none", "gzip", "snappy", "lz4"]
+          },
+          "partition_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["bucket"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["database_source", "database_sink"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "connection.url": {
+            "type": "string",
+            "description": "JDBC connection URL",
+            "pattern": "^jdbc:"
+          },
+          "connection.username": {
+            "type": "string"
+          },
+          "connection.password": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string",
+            "description": "Database table name"
+          },
+          "query": {
+            "type": "string",
+            "description": "SQL query for sources"
+          },
+          "connection.pool.max_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "refresh_interval": {
+            "type": "integer",
+            "minimum": 1000
+          }
+        },
+        "required": ["connection.url"]
+      }
+    }
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "use_transactions": {
+      "type": "boolean",
+      "description": "Whether to use transactional processing"
+    },
+    "failure_strategy": {
+      "type": "string",
+      "enum": ["LogAndContinue", "FailBatch", "RetryWithBackoff"],
+      "description": "Strategy for handling processing failures"
+    },
+    "retry_backoff": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Retry backoff in milliseconds"
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Maximum number of retries"
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Operation timeout in milliseconds"
+    },
+    "batch_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Processing batch size"
+    },
+    "flush_interval": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Flush interval in milliseconds"
+    },
+    "parallelism": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64,
+      "description": "Number of parallel processing threads"
+    },
+    "session_timeout_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "heartbeat_interval_ms": {
+      "type": "integer",
+      "minimum": 100
+    },
+    "security.protocol": {
+      "type": "string",
+      "enum": ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+    },
+    "sasl.mechanism": {
+      "type": "string",
+      "enum": ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
+    },
+    "sasl.username": {
+      "type": "string"
+    },
+    "sasl.password": {
+      "type": "string"
+    },
+    "schema.registry.url": {
+      "type": "string",
+      "format": "uri"
+    }
+  }
+}

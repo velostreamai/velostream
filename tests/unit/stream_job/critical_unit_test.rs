@@ -6,10 +6,10 @@
 //! 3. Duplicate job name rejection
 //! 4. Input validation and error handling
 
-use ferrisstreams::ferris::server::stream_job_server::JobStatus;
-use ferrisstreams::ferris::server::StreamJobServer;
-use ferrisstreams::ferris::sql::app_parser::SqlApplicationParser;
 use std::time::Duration;
+use velostream::velostream::server::stream_job_server::JobStatus;
+use velostream::velostream::server::StreamJobServer;
+use velostream::velostream::sql::app_parser::SqlApplicationParser;
 
 // Test helper functions
 async fn create_test_server(max_jobs: usize) -> StreamJobServer {
@@ -24,7 +24,7 @@ async fn deploy_test_job(
     server: &StreamJobServer,
     name: &str,
     version: &str,
-) -> Result<(), ferrisstreams::ferris::sql::SqlError> {
+) -> Result<(), velostream::velostream::sql::SqlError> {
     server
         .deploy_job(
             name.to_string(),

@@ -1,6 +1,6 @@
 # Aggregation Functions
 
-Complete reference for SQL aggregation functions in FerrisStreams. These functions calculate single values from multiple rows, typically used with GROUP BY.
+Complete reference for SQL aggregation functions in VeloStream. These functions calculate single values from multiple rows, typically used with GROUP BY.
 
 ## Core Aggregation Functions
 

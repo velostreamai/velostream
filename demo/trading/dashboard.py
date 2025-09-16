@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FerrisStreams Trading Dashboard
+VeloStream Trading Dashboard
 Real-time visualization of financial trading data
 """
 
@@ -63,7 +63,7 @@ class TradingDashboard:
         # Setup matplotlib
         plt.style.use('dark_background')
         self.fig, self.axes = plt.subplots(2, 2, figsize=(15, 10))
-        self.fig.suptitle('FerrisStreams Trading Dashboard', fontsize=16, color='white')
+        self.fig.suptitle('VeloStream Trading Dashboard', fontsize=16, color='white')
         
         # Price chart (top-left)
         self.price_ax = self.axes[0, 0]
@@ -297,7 +297,7 @@ class TradingDashboard:
             print("Install with: pip install matplotlib pandas kafka-python numpy")
             return
         
-        print("🏦 Starting FerrisStreams Trading Dashboard...")
+        print("🏦 Starting VeloStream Trading Dashboard...")
         print(f"📡 Connecting to Kafka: {self.kafka_brokers}")
         
         # Setup signal handlers
@@ -330,7 +330,7 @@ class TradingDashboard:
                 consumer.close()
 
 def main():
-    parser = argparse.ArgumentParser(description='FerrisStreams Trading Dashboard')
+    parser = argparse.ArgumentParser(description='VeloStream Trading Dashboard')
     parser.add_argument('--brokers', default='localhost:9092',
                        help='Kafka brokers (default: localhost:9092)')
     

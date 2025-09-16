@@ -1,6 +1,6 @@
-# FerrisStreams Benchmarks
+# VeloStream Benchmarks
 
-This directory contains production-ready benchmarks for FerrisStreams performance evaluation.
+This directory contains production-ready benchmarks for VeloStream performance evaluation.
 
 ## Structure
 

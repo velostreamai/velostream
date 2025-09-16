@@ -2,13 +2,13 @@
 
 ## Overview
 
-Phase 3 introduces advanced SQL capabilities to FerrisStreams, including enhanced window functions, complex aggregations, join operations, subquery support, and advanced SQL functions. This guide covers all the new query features and their usage patterns.
+Phase 3 introduces advanced SQL capabilities to VeloStream, including enhanced window functions, complex aggregations, join operations, subquery support, and advanced SQL functions. This guide covers all the new query features and their usage patterns.
 
 ## Window Functions
 
 ### Enhanced OVER Clause Support
 
-FerrisStreams supports comprehensive window functions with partitioning and ordering:
+VeloStream supports comprehensive window functions with partitioning and ordering:
 
 ```sql
 -- ROW_NUMBER with partitioning
@@ -363,7 +363,7 @@ WHERE JSON_VALUE(event_data, '$.event_type') = 'purchase';
 
 ### Query Plan Optimization
 
-FerrisStreams automatically optimizes query plans:
+VeloStream automatically optimizes query plans:
 
 ```sql
 -- Predicate pushdown optimization

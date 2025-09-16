@@ -1,8 +1,8 @@
 //! Comprehensive tests for file data source functionality
 
-use ferrisstreams::ferris::datasource::{DataSource, SourceConfig};
-use ferrisstreams::ferris::datasource::file::{FileDataSource, FileFormat, FileSourceConfig};
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
+use velostream::velostream::datasource::{DataSource, SourceConfig};
+use velostream::velostream::datasource::file::{FileDataSource, FileFormat, FileSourceConfig};
+use velostream::velostream::sql::execution::types::FieldValue;
 use std::fs;
 use tempfile::TempDir;
 use tokio::time::{sleep, Duration};

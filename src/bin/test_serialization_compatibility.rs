@@ -1,6 +1,6 @@
-use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::collections::HashMap;
+use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+use velostream::velostream::sql::execution::types::FieldValue;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing Serialization Compatibility");

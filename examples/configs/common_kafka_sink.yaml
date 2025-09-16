@@ -26,7 +26,7 @@ datasink:
     
   # Default headers for all messages
   headers:
-    source_system: "ferrisstreams"
+    source_system: "velostream"
     example: "true"
     
 # Delivery profiles for different priorities

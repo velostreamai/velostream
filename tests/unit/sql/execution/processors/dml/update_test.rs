@@ -4,10 +4,10 @@
 Comprehensive test suite for UPDATE operations.
 */
 
-use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
-use ferrisstreams::ferris::sql::execution::processors::UpdateProcessor;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
+use velostream::velostream::sql::ast::{Expr, LiteralValue};
+use velostream::velostream::sql::execution::processors::UpdateProcessor;
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -40,7 +40,7 @@ async fn test_update_with_where_match() {
     ];
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(100))),
     });
     let input_record = create_test_record();
@@ -84,7 +84,7 @@ async fn test_update_with_where_no_match() {
     )];
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(999))), // No match
     });
     let input_record = create_test_record();
@@ -133,7 +133,7 @@ async fn test_update_with_expression_assignment() {
             "age".to_string(),
             Expr::BinaryOp {
                 left: Box::new(Expr::Column("age".to_string())),
-                op: ferrisstreams::ferris::sql::ast::BinaryOperator::Add,
+                op: velostream::velostream::sql::ast::BinaryOperator::Add,
                 right: Box::new(Expr::Literal(LiteralValue::Integer(1))),
             },
         ),
@@ -142,7 +142,7 @@ async fn test_update_with_expression_assignment() {
             "balance".to_string(),
             Expr::BinaryOp {
                 left: Box::new(Expr::Column("balance".to_string())),
-                op: ferrisstreams::ferris::sql::ast::BinaryOperator::Multiply,
+                op: velostream::velostream::sql::ast::BinaryOperator::Multiply,
                 right: Box::new(Expr::Literal(LiteralValue::Float(2.0))),
             },
         ),
@@ -177,13 +177,13 @@ async fn test_update_with_complex_where() {
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::BinaryOp {
             left: Box::new(Expr::Column("age".to_string())),
-            op: ferrisstreams::ferris::sql::ast::BinaryOperator::GreaterThan,
+            op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
             right: Box::new(Expr::Literal(LiteralValue::Integer(18))),
         }),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::And,
+        op: velostream::velostream::sql::ast::BinaryOperator::And,
         right: Box::new(Expr::BinaryOp {
             left: Box::new(Expr::Column("active".to_string())),
-            op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+            op: velostream::velostream::sql::ast::BinaryOperator::Equal,
             right: Box::new(Expr::Literal(LiteralValue::Boolean(true))),
         }),
     });
@@ -308,14 +308,14 @@ async fn test_get_affected_columns() {
             "age".to_string(),
             Expr::BinaryOp {
                 left: Box::new(Expr::Column("current_age".to_string())),
-                op: ferrisstreams::ferris::sql::ast::BinaryOperator::Add,
+                op: velostream::velostream::sql::ast::BinaryOperator::Add,
                 right: Box::new(Expr::Literal(LiteralValue::Integer(1))),
             },
         ),
     ];
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("status".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::String("active".to_string()))),
     });
 
@@ -337,7 +337,7 @@ async fn test_get_affected_columns() {
 async fn test_matches_where_clause() {
     let where_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(100))),
     });
     let input_record = create_test_record(); // id = 100
@@ -350,7 +350,7 @@ async fn test_matches_where_clause() {
     // Test no match
     let no_match_clause = Some(Expr::BinaryOp {
         left: Box::new(Expr::Column("id".to_string())),
-        op: ferrisstreams::ferris::sql::ast::BinaryOperator::Equal,
+        op: velostream::velostream::sql::ast::BinaryOperator::Equal,
         right: Box::new(Expr::Literal(LiteralValue::Integer(999))),
     });
 
@@ -372,7 +372,7 @@ async fn test_apply_assignments() {
             "age".to_string(),
             Expr::BinaryOp {
                 left: Box::new(Expr::Column("age".to_string())),
-                op: ferrisstreams::ferris::sql::ast::BinaryOperator::Add,
+                op: velostream::velostream::sql::ast::BinaryOperator::Add,
                 right: Box::new(Expr::Literal(LiteralValue::Integer(5))),
             },
         ),

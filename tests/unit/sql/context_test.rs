@@ -1,6 +1,6 @@
-use ferrisstreams::ferris::schema::{FieldDefinition, Schema, StreamHandle};
-use ferrisstreams::ferris::sql::ast::DataType;
-use ferrisstreams::ferris::sql::context::StreamingSqlContext;
+use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
+use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::sql::context::StreamingSqlContext;
 
 #[cfg(test)]
 mod tests {
@@ -59,7 +59,7 @@ mod tests {
         if let Err(err) = result {
             assert!(matches!(
                 err,
-                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+                velostream::velostream::sql::error::SqlError::StreamError { .. }
             ));
         }
     }
@@ -89,7 +89,7 @@ mod tests {
         if let Err(err) = result {
             assert!(matches!(
                 err,
-                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+                velostream::velostream::sql::error::SqlError::StreamError { .. }
             ));
         }
     }
@@ -117,7 +117,7 @@ mod tests {
         if let Err(err) = result {
             assert!(matches!(
                 err,
-                ferrisstreams::ferris::sql::error::SqlError::StreamError { .. }
+                velostream::velostream::sql::error::SqlError::StreamError { .. }
             ));
         }
     }
@@ -151,7 +151,7 @@ mod tests {
         if let Err(err) = result {
             assert!(matches!(
                 err,
-                ferrisstreams::ferris::sql::error::SqlError::SchemaError { .. }
+                velostream::velostream::sql::error::SqlError::SchemaError { .. }
             ));
         }
     }

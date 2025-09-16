@@ -6,10 +6,10 @@ are properly converted to/from JSON format.
 */
 
 use super::common_test_data::*;
-use ferrisstreams::ferris::serialization::{JsonFormat, SerializationFormat};
-use ferrisstreams::ferris::sql::execution::types::StreamRecord;
-use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
+use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
+use velostream::velostream::sql::execution::types::StreamRecord;
+use velostream::velostream::sql::FieldValue;
 
 #[tokio::test]
 async fn test_json_serialization_round_trip() {

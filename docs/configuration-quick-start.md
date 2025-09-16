@@ -7,7 +7,7 @@ Want to add configuration validation to your component? Here's the minimal setup
 ### 1. Implement the Trait (2 minutes)
 
 ```rust
-use ferrisstreams::ferris::config::{ConfigSchemaProvider, PropertyDefault};
+use velostream::velo::config::{ConfigSchemaProvider, PropertyDefault};
 
 impl ConfigSchemaProvider for YourComponent {
     fn config_type_id() -> &'static str { "your_component" }
@@ -28,13 +28,13 @@ impl ConfigSchemaProvider for YourComponent {
     }
     
     // Minimal implementations for remaining required methods:
-    fn validate_configuration(&self, _: &std::collections::HashMap<String, String>) -> crate::ferris::config::ConfigValidationResult<()> { Ok(()) }
+    fn validate_configuration(&self, _: &std::collections::HashMap<String, String>) -> crate::velo::config::ConfigValidationResult<()> { Ok(()) }
     fn json_schema(&self) -> serde_json::Value { serde_json::json!({}) }
     fn schema_version() -> &'static str { "1.0.0" }
     fn environment_defaults(&self) -> std::collections::HashMap<String, String> { std::collections::HashMap::new() }
-    fn validate_property_types(&self, _: &std::collections::HashMap<String, String>) -> crate::ferris::config::ConfigValidationResult<()> { Ok(()) }
-    fn get_validation_context(&self) -> crate::ferris::config::GlobalSchemaContext { crate::ferris::config::GlobalSchemaContext::Development }
-    fn dependency_properties(&self) -> Vec<crate::ferris::config::PropertyValidation> { vec![] }
+    fn validate_property_types(&self, _: &std::collections::HashMap<String, String>) -> crate::velo::config::ConfigValidationResult<()> { Ok(()) }
+    fn get_validation_context(&self) -> crate::velo::config::GlobalSchemaContext { crate::velo::config::GlobalSchemaContext::Development }
+    fn dependency_properties(&self) -> Vec<crate::velo::config::PropertyValidation> { vec![] }
     fn inheritable_properties() -> Vec<&'static str> { vec![] }
 }
 ```
@@ -42,11 +42,11 @@ impl ConfigSchemaProvider for YourComponent {
 ### 2. Register Your Schema (1 minute)
 
 ```rust
-use ferrisstreams::ferris::config::register_global_source;
+use velostream::velo::config::register_global_source;
 
 // During application startup:
 fn initialize_schemas() {
-    let registry = ferrisstreams::ferris::config::global_registry();
+    let registry = velostream::velo::config::global_registry();
     let mut registry = registry.lock().unwrap();
     registry.register_source_schema::<YourComponent>();
 }
@@ -55,7 +55,7 @@ fn initialize_schemas() {
 ### 3. Use Validation (2 minutes)
 
 ```rust
-use ferrisstreams::ferris::config::validate_configuration;
+use velostream::velo::config::validate_configuration;
 use std::collections::HashMap;
 
 let mut config = HashMap::new();
@@ -171,7 +171,7 @@ impl ConfigSchemaProvider for DatabaseConfig {
 Generate JSON Schema for your IDE:
 
 ```rust
-use ferrisstreams::ferris::config::HierarchicalSchemaRegistry;
+use velostream::velo::config::HierarchicalSchemaRegistry;
 
 let registry = HierarchicalSchemaRegistry::new();
 registry.register_source_schema::<DatabaseConfig>();
@@ -223,7 +223,7 @@ mod tests {
 ## What's Next?
 
 - Read the [Full Documentation](./CONFIGURATION_SCHEMA_SYSTEM.md) for advanced features
-- Check out existing implementations in `src/ferris/datasource/kafka/` and `src/ferris/datasource/file/`  
+- Check out existing implementations in `src/velo/datasource/kafka/` and `src/velo/datasource/file/`  
 - Add environment variable patterns for dynamic configuration
 - Implement config file inheritance for complex deployments
 

@@ -8,12 +8,12 @@ resources:
   - ingress.yaml
 
 commonLabels:
-  app.kubernetes.io/name: ferrisstreams-sql
+  app.kubernetes.io/name: velostream-sql
   app.kubernetes.io/version: 1.0.0
   app.kubernetes.io/component: sql-processing
-  app.kubernetes.io/part-of: ferrisstreams
+  app.kubernetes.io/part-of: velostream
 
-namespace: ferris-sql
+namespace: velo-sql
 
 # ConfigMap generator for SQL examples
 configMapGenerator:
@@ -26,9 +26,9 @@ configMapGenerator:
 
 # Images to use (customize as needed)
 images:
-  - name: ferris-sql
+  - name: velo-sql
     newTag: latest
-  - name: ferris-sql-multi
+  - name: velo-sql-multi
     newTag: latest
 
 # Resource patches for different environments
@@ -38,7 +38,7 @@ patchesStrategicMerge:
 
 # Replicas for different environments
 replicas:
-  - name: ferris-sql-single
+  - name: velo-sql-single
     count: 2
-  - name: ferris-sql-multi
+  - name: velo-sql-multi
     count: 1

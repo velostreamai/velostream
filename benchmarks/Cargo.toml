@@ -1,11 +1,11 @@
 [package]
-name = "ferris-streams-benchmarks"
+name = "velo-streams-benchmarks"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Core FerrisStreams
-ferrisstreams = { path = ".." }
+# Core VeloStream
+velostream = { path = ".." }
 
 # Benchmarking framework
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -1,6 +1,6 @@
 # YAML Configuration Guide with Inheritance
 
-FerrisStreams supports powerful YAML configuration management with file inheritance through the `extends:` keyword. This enables DRY (Don't Repeat Yourself) configuration patterns for complex multi-environment deployments.
+VeloStream supports powerful YAML configuration management with file inheritance through the `extends:` keyword. This enables DRY (Don't Repeat Yourself) configuration patterns for complex multi-environment deployments.
 
 ## Features
 
@@ -161,7 +161,7 @@ options:
 
 ## Inline Configuration Parameters
 
-FerrisStreams supports direct parameter specification in SQL WITH clauses using prefixed naming:
+VeloStream supports direct parameter specification in SQL WITH clauses using prefixed naming:
 
 ### Parameter Naming Convention
 
@@ -411,9 +411,9 @@ Complete examples are available in the `/examples/configs/` directory:
 
 ### Debug Tips
 
-- Use the configuration validation tool: `ferris-sql validate-config`
+- Use the configuration validation tool: `velo-sql validate-config`
 - Enable debug logging: `RUST_LOG=debug`
-- Check inheritance chains: `ferris-sql show-config-inheritance`
+- Check inheritance chains: `velo-sql show-config-inheritance`
 
 ## Configuration Approach Comparison
 
@@ -446,4 +446,4 @@ FROM 'kafka://broker:9092/orders' WITH ("source.group_id" = "processor")
 - `sink.*` - Sink datasource configuration  
 - No prefix - Job processing configuration (`batch_size`, `failure_strategy`, etc.)
 
-This guide provides the foundation for powerful, maintainable configuration management in FerrisStreams using modern configuration patterns including YAML inheritance and inline parameter specification.
+This guide provides the foundation for powerful, maintainable configuration management in VeloStream using modern configuration patterns including YAML inheritance and inline parameter specification.

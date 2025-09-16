@@ -1,6 +1,6 @@
-# FerrisStreams SQL - Your First Query in 2 Minutes
+# VeloStream SQL - Your First Query in 2 Minutes
 
-Get productive with FerrisStreams SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
+Get productive with VeloStream SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
 
 ## ⚡ Quick Start (30 seconds)
 
@@ -56,7 +56,7 @@ WITH (
 
 ### Step 3: Run your job
 ```bash
-ferris-sql-multi --query-file daily_sales.sql
+velo-sql-multi --query-file daily_sales.sql
 ```
 
 **You're now processing streaming data in real-time!**

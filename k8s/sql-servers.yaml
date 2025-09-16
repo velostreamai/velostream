@@ -2,14 +2,14 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sql-config
-  namespace: ferris-sql
+  namespace: velo-sql
 data:
   sql-config.yaml: |
     kafka:
       brokers: "kafka:9092"
       security_protocol: "PLAINTEXT"
-      group_id: "ferris-sql-k8s"
-      client_id: "ferris-sql"
+      group_id: "velo-sql-k8s"
+      client_id: "velo-sql"
     
     server:
       port: 8080
@@ -35,23 +35,23 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-sql-single
-  namespace: ferris-sql
+  name: velo-sql-single
+  namespace: velo-sql
   labels:
-    app: ferris-sql-single
+    app: velo-sql-single
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: ferris-sql-single
+      app: velo-sql-single
   template:
     metadata:
       labels:
-        app: ferris-sql-single
+        app: velo-sql-single
     spec:
       containers:
-      - name: ferris-sql
-        image: ferris-sql:latest
+      - name: velo-sql
+        image: velo-sql:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -63,7 +63,7 @@ spec:
           value: "info"
         - name: KAFKA_BROKERS
           value: "kafka:9092"
-        command: ["ferris-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-single-k8s"]
+        command: ["velo-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "velo-sql-single-k8s"]
         resources:
           requests:
             memory: "512Mi"
@@ -81,7 +81,7 @@ spec:
           mountPath: /app/logs
         livenessProbe:
           exec:
-            command: ["ferris-sql", "--help"]
+            command: ["velo-sql", "--help"]
           initialDelaySeconds: 30
           periodSeconds: 30
         readinessProbe:
@@ -105,23 +105,23 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-sql-multi
-  namespace: ferris-sql
+  name: velo-sql-multi
+  namespace: velo-sql
   labels:
-    app: ferris-sql-multi
+    app: velo-sql-multi
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ferris-sql-multi
+      app: velo-sql-multi
   template:
     metadata:
       labels:
-        app: ferris-sql-multi
+        app: velo-sql-multi
     spec:
       containers:
-      - name: ferris-sql-multi
-        image: ferris-sql-multi:latest
+      - name: velo-sql-multi
+        image: velo-sql-multi:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -133,7 +133,7 @@ spec:
           value: "info"
         - name: KAFKA_BROKERS
           value: "kafka:9092"
-        command: ["ferris-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "ferris-sql-multi-k8s", "--max-jobs", "50"]
+        command: ["velo-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "velo-sql-multi-k8s", "--max-jobs", "50"]
         resources:
           requests:
             memory: "1Gi"
@@ -153,7 +153,7 @@ spec:
           mountPath: /app/logs
         livenessProbe:
           exec:
-            command: ["ferris-sql-multi", "--help"]
+            command: ["velo-sql-multi", "--help"]
           initialDelaySeconds: 30
           periodSeconds: 30
         readinessProbe:
@@ -180,11 +180,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ferris-sql-single
-  namespace: ferris-sql
+  name: velo-sql-single
+  namespace: velo-sql
 spec:
   selector:
-    app: ferris-sql-single
+    app: velo-sql-single
   ports:
   - name: api
     port: 8080
@@ -198,11 +198,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ferris-sql-multi
-  namespace: ferris-sql
+  name: velo-sql-multi
+  namespace: velo-sql
 spec:
   selector:
-    app: ferris-sql-multi
+    app: velo-sql-multi
   ports:
   - name: api
     port: 8080
@@ -217,7 +217,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: sql-data-pvc
-  namespace: ferris-sql
+  namespace: velo-sql
 spec:
   accessModes:
     - ReadWriteOnce
@@ -230,7 +230,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: multi-sql-data-pvc
-  namespace: ferris-sql
+  namespace: velo-sql
 spec:
   accessModes:
     - ReadWriteOnce

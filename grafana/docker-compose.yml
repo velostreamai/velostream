@@ -3,7 +3,7 @@ version: '3.8'
 services:
   prometheus:
     image: prom/prometheus:latest
-    container_name: ferris-prometheus
+    container_name: velo-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -22,13 +22,13 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: ferris-grafana
+    container_name: velo-grafana
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana-provisioning:/etc/grafana/provisioning
-      - ./ferris-streams-dashboard.json:/var/lib/grafana/dashboards/ferris-streams-dashboard.json
+      - ./velo-streams-dashboard.json:/var/lib/grafana/dashboards/velo-streams-dashboard.json
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

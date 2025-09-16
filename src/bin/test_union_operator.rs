@@ -1,5 +1,5 @@
 // Simple test binary for UNION operator parsing
-use ferrisstreams::ferris::sql::{ast::StreamingQuery, parser::StreamingSqlParser};
+use velostream::velostream::sql::{ast::StreamingQuery, parser::StreamingSqlParser};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing UNION operator parsing...");

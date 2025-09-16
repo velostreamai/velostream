@@ -1,5 +1,5 @@
--- FerrisStreams SQL Demo: File Processing Pipeline (FR-047 Compliant)
--- This demo showcases FerrisStreams' pluggable data sources with unified URI syntax
+-- VeloStream SQL Demo: File Processing Pipeline (FR-047 Compliant)
+-- This demo showcases VeloStream' pluggable data sources with unified URI syntax
 -- File → processing → file pipelines with exact financial precision
 --
 -- PREREQUISITES: Run './generate_demo_data.sh' to create sample data
@@ -238,12 +238,12 @@ To run this SQL demo:
    cd demo/datasource-demo
    ./generate_demo_data.sh
 
-2. Start FerrisStreams SQL server:
-   cargo run --bin ferris-sql --no-default-features
+2. Start VeloStream SQL server:
+   cargo run --bin velo-sql --no-default-features
 
 3. Connect and execute the SQL:
    - Copy and paste the SQL commands above
-   - Or run: ferris-sql --file ./demo/datasource-demo/file_processing_sql_demo.sql
+   - Or run: velo-sql --file ./demo/datasource-demo/file_processing_sql_demo.sql
 
 4. Monitor the output files:
    - ./demo_output/processed_transactions.jsonl.gz

@@ -1,10 +1,10 @@
 //! # Financial Trading Data Generator
 //! 
-//! Generates realistic financial trading data for the FerrisStreams SQL demo.
+//! Generates realistic financial trading data for the VeloStream SQL demo.
 //! Produces market data, trading positions, and order book updates.
 
 use chrono::{Utc, Duration as ChronoDuration};
-use ferrisstreams::ferris::kafka::{Headers, JsonSerializer, KafkaProducer};
+use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaProducer};
 use log::{info, warn};
 use rand::{thread_rng, Rng};
 use rand::rngs::ThreadRng;
@@ -334,15 +334,15 @@ trait ProducerTopicExt<K, V, KS, VS> {
         value: &V,
         headers: Headers,
         timestamp: Option<i64>,
-    ) -> impl std::future::Future<Output = Result<rdkafka::producer::future_producer::Delivery, ferrisstreams::ferris::kafka::ProducerError>>;
+    ) -> impl std::future::Future<Output = Result<rdkafka::producer::future_producer::Delivery, velostream::velostream::kafka::ProducerError>>;
 }
 
 impl<K, V, KS, VS> ProducerTopicExt<K, V, KS, VS> for KafkaProducer<K, V, KS, VS>
 where
     K: Clone,
     V: Clone,
-    KS: ferrisstreams::ferris::kafka::Serializer<K>,
-    VS: ferrisstreams::ferris::kafka::Serializer<V>,
+    KS: velostream::velostream::kafka::Serializer<K>,
+    VS: velostream::velostream::kafka::Serializer<V>,
 {
     async fn send_to_topic(
         &self,
@@ -351,7 +351,7 @@ where
         value: &V,
         headers: Headers,
         timestamp: Option<i64>,
-    ) -> Result<rdkafka::producer::future_producer::Delivery, ferrisstreams::ferris::kafka::ProducerError> {
+    ) -> Result<rdkafka::producer::future_producer::Delivery, velostream::velostream::kafka::ProducerError> {
         // For now, use the main producer's send method (this will go to the default topic)
         // In a real implementation, you'd want topic-specific producers
         self.send(key, value, headers, timestamp).await

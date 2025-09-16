@@ -1,5 +1,5 @@
 // Tests for SQL BETWEEN operator
-use ferrisstreams::ferris::sql::{
+use velostream::velostream::sql::{
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery},
     execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
     parser::StreamingSqlParser,

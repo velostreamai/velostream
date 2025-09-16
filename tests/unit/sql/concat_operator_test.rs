@@ -1,10 +1,10 @@
 // Tests for SQL concatenation operator (||)
-use ferrisstreams::ferris::sql::{
+use std::collections::HashMap;
+use velostream::velostream::sql::{
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery},
     execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
     parser::StreamingSqlParser,
 };
-use std::collections::HashMap;
 
 #[test]
 fn test_parse_concat_operator() {

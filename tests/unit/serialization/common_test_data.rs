@@ -4,9 +4,9 @@
 Standardized test record creators and utilities shared across all serialization format tests.
 */
 
-use ferrisstreams::ferris::sql::FieldValue;
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use velostream::velostream::sql::FieldValue;
 
 /// Creates a basic test record with fundamental types
 pub fn create_basic_test_record() -> HashMap<String, FieldValue> {
@@ -323,7 +323,7 @@ pub fn assert_field_values_equivalent(original: &FieldValue, deserialized: &Fiel
 
 /// Test execution format conversion consistency (now uses serialize/deserialize)
 pub fn test_execution_format_round_trip(
-    format: &dyn ferrisstreams::ferris::serialization::SerializationFormat,
+    format: &dyn velostream::velostream::serialization::SerializationFormat,
     record: &HashMap<String, FieldValue>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Use serialize/deserialize instead of the old execution format methods
@@ -335,7 +335,7 @@ pub fn test_execution_format_round_trip(
 
 /// Test serialization round trip with common assertions
 pub fn test_serialization_round_trip(
-    format: &dyn ferrisstreams::ferris::serialization::SerializationFormat,
+    format: &dyn velostream::velostream::serialization::SerializationFormat,
     record: &HashMap<String, FieldValue>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let serialized = format.serialize_record(record)?;

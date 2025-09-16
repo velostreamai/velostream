@@ -1,10 +1,10 @@
 //! Tests for aggregate function computation
 
-use ferrisstreams::ferris::sql::ast::{Expr, LiteralValue};
-use ferrisstreams::ferris::sql::execution::aggregation::AggregateFunctions;
-use ferrisstreams::ferris::sql::execution::internal::GroupAccumulator;
-use ferrisstreams::ferris::sql::execution::types::FieldValue;
 use std::collections::HashSet;
+use velostream::velostream::sql::ast::{Expr, LiteralValue};
+use velostream::velostream::sql::execution::aggregation::AggregateFunctions;
+use velostream::velostream::sql::execution::internal::GroupAccumulator;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 fn create_test_accumulator() -> GroupAccumulator {
     let mut accumulator = GroupAccumulator::new();

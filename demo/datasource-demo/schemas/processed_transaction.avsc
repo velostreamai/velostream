@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "ProcessedTransaction",
-  "namespace": "com.ferrisstreams.demo.datasource",
+  "namespace": "com.velostream.demo.datasource",
   "doc": "Processed financial transaction with enrichment and analytics",
   "fields": [
     {

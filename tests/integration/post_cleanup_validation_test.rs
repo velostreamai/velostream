@@ -1,9 +1,9 @@
 //! Post-cleanup validation tests to ensure functionality completeness
 //! 
 //! These tests validate that all core functionality still works after removing
-//! the legacy sql_server.rs binary and consolidating to ferris-sql-multi.
+//! the legacy sql_server.rs binary and consolidating to velo-sql-multi.
 
-use ferrisstreams::ferris::{
+use velostream::velostream::{
     sql::{
         execution::StreamExecutionEngine, 
         parser::StreamingSqlParser,
@@ -222,7 +222,7 @@ async fn test_serialization_functionality() {
 /// Test that the multi-job architecture components are accessible
 #[tokio::test]
 async fn test_multi_job_components_available() {
-    use ferrisstreams::ferris::server::processors::common::{JobExecutionStats, JobProcessingConfig};
+    use velostream::velostream::server::processors::common::{JobExecutionStats, JobProcessingConfig};
     
     // Test that we can create job processing components
     let stats = JobExecutionStats::new();

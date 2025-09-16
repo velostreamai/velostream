@@ -139,8 +139,8 @@ jobs:
 
     - name: Build and test SQL server
       run: |
-        echo "🏗️ Building ferris-sql-multi binary..."
-        cargo build --release --bin ferris-sql-multi --no-default-features
+        echo "🏗️ Building velo-sql-multi binary..."
+        cargo build --release --bin velo-sql-multi --no-default-features
 
         echo "🧪 Testing multi-job SQL server..."
         timeout 60 cargo test multi_job::sql_server_test --no-default-features -- --nocapture || {

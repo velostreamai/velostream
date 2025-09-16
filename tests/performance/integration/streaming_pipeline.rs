@@ -6,10 +6,10 @@
 use super::super::common::{
     generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
 };
-use ferrisstreams::ferris::sql::execution::{types::FieldValue, StreamRecord};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::{types::FieldValue, StreamRecord};
 
 /// End-to-end pipeline benchmark testing full streaming workflow
 #[tokio::test]

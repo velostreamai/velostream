@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kafka
-  namespace: ferris-sql
+  namespace: velo-sql
   labels:
     app: kafka
 spec:
@@ -45,7 +45,7 @@ spec:
         - name: KAFKA_NODE_ID
           value: "1"
         - name: CLUSTER_ID
-          value: "ferrisstreams-k8s-cluster"
+          value: "velostream-k8s-cluster"
         - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
           value: "1"
         - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
@@ -86,7 +86,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka
-  namespace: ferris-sql
+  namespace: velo-sql
 spec:
   selector:
     app: kafka
@@ -104,7 +104,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: kafka-data-pvc
-  namespace: ferris-sql
+  namespace: velo-sql
 spec:
   accessModes:
     - ReadWriteOnce

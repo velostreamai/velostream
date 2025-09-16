@@ -1,15 +1,15 @@
-**FerrisStreams Avro vs. Apache Avro-RS Comparison**
+**VeloStream Avro vs. Apache Avro-RS Comparison**
 
 Library Usage
 
-FerrisStreams Implementation:
+VeloStream Implementation:
 - ✅ Uses the official apache-avro crate v0.16.0 - This is the same library from the GitHub repo you referenced
 - ✅ Wraps it in a custom abstraction via SerializationFormat trait
 - ✅ Provides unified API across JSON, Avro, and Protobuf formats
 
 **Comparison to Direct apache-avro** 
 Usage:
-- Same underlying library - ferris_streams IS using apache-avro under the hood
+- Same underlying library - velo_stream IS using apache-avro under the hood
 - Added abstraction layer for consistency across serialization formats
 - Integrated with SQL execution engine via direct FieldValue usage
 
@@ -17,7 +17,7 @@ Usage:
 
 1. API Design
 
-FerrisStreams Approach:
+VeloStream Approach:
 ```rust
 // Unified factory pattern across all formats
 let format = SerializationFormatFactory::create_format("avro")?;
@@ -35,7 +35,7 @@ let encoded = writer.into_inner()?;
 
 2. Data Model
 
-FerrisStreams:
+VeloStream:
 - Primary FieldValue enum for SQL types and serialization
 - Automatic conversion to/from apache_avro::types::Value
 - Unified type system across JSON/Avro/Protobuf
@@ -49,7 +49,7 @@ Direct apache-avro:
 
 Both approaches support schema evolution, but differently:
 
-FerrisStreams:
+VeloStream:
 ```rust
 let format = SerializationFormatFactory::create_avro_format_with_schemas(
 writer_schema, reader_schema
@@ -60,7 +60,7 @@ Direct apache-avro:
 let reader = Reader::with_schema(&writer_schema, data)?;
 // Handle evolution manually
 ```
-Advantages of FerrisStreams Approach
+Advantages of VeloStream Approach
 
 ✅ Format Agnostic Code:
 ```
@@ -83,7 +83,7 @@ let format = SerializationFormatFactory::create_format("json")?;  // Easy debugg
 #[cfg(not(debug_assertions))]
 let format = SerializationFormatFactory::create_format("avro")?;  // Production performance
 ```
-Disadvantages of FerrisStreams Approach
+Disadvantages of VeloStream Approach
 
 ❌ Abstraction Overhead:
 - Extra conversion layer: FieldValue → apache_avro::Value → bytes
@@ -114,7 +114,7 @@ Direct apache-avro would:
 
 **Performance Comparison**
 
-| Aspect              | FerrisStreams              | Direct apache-avro                   |
+| Aspect              | VeloStream              | Direct apache-avro                   |
   |---------------------|----------------------------|--------------------------------------|
 | Serialization Speed | ~60K ops/sec               | ~65K ops/sec                         |
 | Memory Usage        | Higher (extra conversions) | Lower (direct)                       |
@@ -123,7 +123,7 @@ Direct apache-avro would:
 
 **Recommendations**
 
-Use FerrisStreams Avro When:
+Use VeloStream Avro When:
 - ✅ You need format flexibility (JSON ↔ Avro ↔ Protobuf)
 - ✅ You're using the SQL execution engine
 - ✅ You want consistent APIs across formats
@@ -137,8 +137,8 @@ Use Direct apache-avro When:
 
 **Conclusion**
 
-The FerrisStreams Avro implementation is built on top of the official apache-avro library and provides excellent abstraction for multi-format applications. The 2 failing tests
+The VeloStream Avro implementation is built on top of the official apache-avro library and provides excellent abstraction for multi-format applications. The 2 failing tests
 represent edge cases in the abstraction layer, not fundamental issues with the approach.
 
-For a streaming SQL system like FerrisStreams, this abstraction is valuable because it enables format-agnostic data processing while still leveraging the robust apache-avro
+For a streaming SQL system like VeloStream, this abstraction is valuable because it enables format-agnostic data processing while still leveraging the robust apache-avro
 implementation underneath.

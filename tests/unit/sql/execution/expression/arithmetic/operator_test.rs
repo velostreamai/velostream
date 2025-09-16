@@ -4,14 +4,14 @@
 Tests for SQL operators including LIKE, NOT LIKE, and other specialized operators.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::{
-    BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
-};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::{
+    BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
+};
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
 fn create_test_record(text_field: &str) -> StreamRecord {
     let mut fields = HashMap::new();

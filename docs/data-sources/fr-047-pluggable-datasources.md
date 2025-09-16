@@ -2,11 +2,11 @@
 
 ## 🎯 Summary
 
-Enable FerrisStreams SQL engine to work with multiple data sources beyond Kafka, including files (JSON/Parquet/CSV), cloud storage (S3/GCS/Azure), table formats (Iceberg/Delta Lake), and database CDC streams.
+Enable VeloStream SQL engine to work with multiple data sources beyond Kafka, including files (JSON/Parquet/CSV), cloud storage (S3/GCS/Azure), table formats (Iceberg/Delta Lake), and database CDC streams.
 
 ## Problem Statement
 
-Currently, FerrisStreams is tightly coupled to Kafka as its only data source. Modern data architectures require:
+Currently, VeloStream is tightly coupled to Kafka as its only data source. Modern data architectures require:
 - Processing data from data lakes (S3, GCS, Azure Blob)
 - Working with table formats (Apache Iceberg, Delta Lake, Hudi)
 - File-based batch processing (JSON, Parquet, CSV)
@@ -181,7 +181,7 @@ WITH (
 ## Configuration
 
 ```yaml
-# ferrisstreams-config.yaml
+# velostream-config.yaml
 data_sources:
   orders_kafka:
     type: kafka
@@ -262,4 +262,4 @@ SELECT * FROM 'kafka://localhost:9092/orders' WHERE amount > 100;
 
 ---
 
-This feature would position FerrisStreams as a universal SQL streaming engine, enabling it to process data from any source to any destination. Looking forward to community feedback and contributions!
+This feature would position VeloStream as a universal SQL streaming engine, enabling it to process data from any source to any destination. Looking forward to community feedback and contributions!

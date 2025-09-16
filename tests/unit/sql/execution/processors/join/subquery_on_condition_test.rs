@@ -5,11 +5,11 @@ Tests for JOIN operations with subqueries in the ON condition - these should wor
 because the ExpressionEvaluator already supports EXISTS, NOT EXISTS, IN, NOT IN subqueries.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use ferrisstreams::ferris::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 fn create_test_record_for_on_condition() -> StreamRecord {
     let mut fields = HashMap::new();

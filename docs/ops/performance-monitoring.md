@@ -1,8 +1,8 @@
-# FerrisStreams Performance Monitoring
+# VeloStream Performance Monitoring
 
 **Phase 1: Statistics & Monitoring Infrastructure**
 
-This document describes the comprehensive performance monitoring system implemented for the FerrisStreams SQL engine. The monitoring infrastructure provides real-time visibility into query execution performance, memory usage, and system health.
+This document describes the comprehensive performance monitoring system implemented for the VeloStream SQL engine. The monitoring infrastructure provides real-time visibility into query execution performance, memory usage, and system health.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This document describes the comprehensive performance monitoring system implemen
 
 ## Overview
 
-The FerrisStreams Performance Monitoring system tracks query execution across the entire SQL engine pipeline, providing insights into:
+The VeloStream Performance Monitoring system tracks query execution across the entire SQL engine pipeline, providing insights into:
 
 - **Query Execution Time**: Total time and per-processor breakdown
 - **Memory Usage**: Allocated memory, peak usage, and component-specific tracking
@@ -71,7 +71,7 @@ The FerrisStreams Performance Monitoring system tracks query execution across th
 The main interface for performance tracking.
 
 ```rust
-use ferrisstreams::ferris::sql::execution::performance::PerformanceMonitor;
+use velostream::velo::sql::execution::performance::PerformanceMonitor;
 
 // Create a performance monitor
 let monitor = PerformanceMonitor::new();
@@ -140,8 +140,8 @@ for (pattern, stats) in patterns {
 ### Basic Usage
 
 ```rust
-use ferrisstreams::ferris::sql::execution::performance::PerformanceMonitor;
-use ferrisstreams::ferris::sql::execution::processors::QueryProcessor;
+use velostream::velo::sql::execution::performance::PerformanceMonitor;
+use velostream::velo::sql::execution::processors::QueryProcessor;
 use std::sync::Arc;
 
 // Create performance monitor (shared across threads)
@@ -163,8 +163,8 @@ let result = QueryProcessor::process_query_with_monitoring(
 ### Integration with StreamExecutionEngine
 
 ```rust
-use ferrisstreams::ferris::sql::execution::StreamExecutionEngine;
-use ferrisstreams::ferris::sql::execution::performance::PerformanceMonitor;
+use velostream::velo::sql::execution::StreamExecutionEngine;
+use velostream::velo::sql::execution::performance::PerformanceMonitor;
 
 // Create engine with performance monitoring
 let monitor = Arc::new(PerformanceMonitor::new());
@@ -260,14 +260,14 @@ let success_rate = processor_metrics.success_rate(); // 0.0 to 1.0
 let prometheus_output = monitor.export_prometheus_metrics();
 
 // Example output:
-// # HELP ferrisstreams_queries_total Total number of queries executed
-// # TYPE ferrisstreams_queries_total counter
-// ferrisstreams_queries_total 1234
+// # HELP velostream_queries_total Total number of queries executed
+// # TYPE velostream_queries_total counter
+// velostream_queries_total 1234
 //
-// # HELP ferrisstreams_query_duration_seconds Query execution time
-// # TYPE ferrisstreams_query_duration_seconds histogram
-// ferrisstreams_query_duration_seconds_bucket{le="0.1"} 800
-// ferrisstreams_query_duration_seconds_bucket{le="0.5"} 1200
+// # HELP velostream_query_duration_seconds Query execution time
+// # TYPE velostream_query_duration_seconds histogram
+// velostream_query_duration_seconds_bucket{le="0.1"} 800
+// velostream_query_duration_seconds_bucket{le="0.5"} 1200
 ```
 
 ### Grafana Dashboard Integration
@@ -276,8 +276,8 @@ The Prometheus metrics can be visualized in Grafana:
 
 ```yaml
 # Example Grafana panel query
-rate(ferrisstreams_queries_total[5m])  # Queries per second
-histogram_quantile(0.95, ferrisstreams_query_duration_seconds)  # P95 latency
+rate(velostream_queries_total[5m])  # Queries per second
+histogram_quantile(0.95, velostream_query_duration_seconds)  # P95 latency
 ```
 
 ### Health Check Endpoint
@@ -324,7 +324,7 @@ println!("{}", report);
 
 // Example output:
 // =====================================
-// FerrisStreams Performance Report
+// VeloStream Performance Report
 // =====================================
 // Generated: 2025-01-24 10:30:00 UTC
 // Status: Healthy

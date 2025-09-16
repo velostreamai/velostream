@@ -1,4 +1,4 @@
-# FerrisStreams Performance Benchmark Results
+# VeloStream Performance Benchmark Results
 
 *Performance benchmarks measuring throughput in messages per second for various SQL query patterns*
 
@@ -118,7 +118,7 @@ The system supports two distinct GROUP BY modes for different streaming use case
 
 ### Architectural Overview
 
-FerrisStreams underwent a major architectural transformation from a monolithic execution engine to a modular processor-based system. This section compares the two approaches:
+VeloStream underwent a major architectural transformation from a monolithic execution engine to a modular processor-based system. This section compares the two approaches:
 
 #### Legacy Architecture (Pre-Phase 5)
 - **Structure**: Single monolithic `engine.rs` file (7,077 lines)
@@ -290,4 +290,4 @@ The dual-path system ensures production stability while enabling continuous impr
 
 ---
 
-*Generated on September 2, 2025 - FerrisStreams Post-Optimization Performance Analysis*
+*Generated on September 2, 2025 - VeloStream Post-Optimization Performance Analysis*

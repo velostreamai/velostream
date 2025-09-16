@@ -5,14 +5,14 @@ Tests for fundamental execution engine functionality including engine creation,
 simple SELECT queries, and basic field selection.
 */
 
-use ferrisstreams::ferris::serialization::JsonFormat;
-use ferrisstreams::ferris::sql::ast::{
-    Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
-};
-use ferrisstreams::ferris::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::ast::{
+    Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
+};
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 
 fn create_test_record(
     id: i64,

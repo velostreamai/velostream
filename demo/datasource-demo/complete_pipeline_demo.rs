@@ -1,6 +1,6 @@
 //! Complete File → Kafka → File Pipeline Demo
 //!
-//! This demo showcases FerrisStreams' end-to-end processing capabilities:
+//! This demo showcases VeloStream' end-to-end processing capabilities:
 //! 1. Reading financial transaction data from CSV files (FileDataSource)
 //! 2. Processing with streaming SQL (aggregation + windowing)  
 //! 3. Writing intermediate results to Kafka topics (KafkaProducer)
@@ -21,17 +21,17 @@
 //! cargo run --example complete_pipeline_demo --features json
 //! ```
 
-use ferrisstreams::ferris::datasource::file::config::FileFormat;
-use ferrisstreams::ferris::datasource::file::{
+use velostream::velostream::datasource::file::config::FileFormat;
+use velostream::velostream::datasource::file::{
     config::{CompressionType, FileSinkConfig, FileSourceConfig},
     FileDataSink, FileDataSource,
 };
-use ferrisstreams::ferris::datasource::traits::{DataSink, DataSource};
-use ferrisstreams::ferris::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use ferrisstreams::ferris::kafka::producer_config::{AckMode, ProducerConfig};
-use ferrisstreams::ferris::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
-use ferrisstreams::ferris::sql::execution::types::{FieldValue, StreamRecord};
-use ferrisstreams::Headers;
+use velostream::velostream::datasource::traits::{DataSink, DataSource};
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
+use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::Headers;
 
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
-    println!("🚀 FerrisStreams Complete Pipeline Demo");
+    println!("🚀 VeloStream Complete Pipeline Demo");
     println!("=========================================");
     println!("📄 File → 📨 Kafka → 📄 File Pipeline");
     println!();

@@ -51,7 +51,7 @@ let user = typed_message.value(); // Already a User struct!
 
 ### Basic Producer/Consumer
 ```rust
-use ferrisstreams::{TypedKafkaProducer, TypedKafkaConsumer, JsonSerializer};
+use velostream::{TypedKafkaProducer, TypedKafkaConsumer, JsonSerializer};
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -104,7 +104,7 @@ while let Some(message_result) = stream.next().await {
 
 ### Builder Pattern
 ```rust
-use ferrisstreams::{TypedProducerBuilder, TypedConsumerBuilder, JsonSerializer};
+use velostream::{TypedProducerBuilder, TypedConsumerBuilder, JsonSerializer};
 
 // Producer with builder
 let producer = TypedProducerBuilder::<OrderEvent, _>::new(
@@ -152,7 +152,7 @@ while let Some(message_result) = stream.next().await {
 
 ### Convenience Trait
 ```rust
-use ferrisstreams::KafkaConsumable;
+use velostream::KafkaConsumable;
 
 // Use trait method for ergonomic consumer creation
 let consumer = OrderEvent::consumer("localhost:9092", "my-group", JsonSerializer);
@@ -169,7 +169,7 @@ let consumer = OrderEvent::consumer("localhost:9092", "my-group", JsonSerializer
 Implement the `Serializer<T>` trait:
 
 ```rust
-use ferrisstreams::{Serializer, SerializationError};
+use velostream::{Serializer, SerializationError};
 
 struct CustomSerializer;
 

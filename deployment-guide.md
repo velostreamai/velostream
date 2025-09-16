@@ -1,8 +1,8 @@
-# FerrisStreams SQL Deployment Summary
+# VeloStream SQL Deployment Summary
 
 ## 🚀 Complete Deployment Infrastructure
 
-FerrisStreams SQL now includes comprehensive Docker and Kubernetes deployment infrastructure for production-ready streaming SQL processing with **Phase 2 hash join optimization** delivering 10x+ performance improvements for large datasets.
+VeloStream SQL now includes comprehensive Docker and Kubernetes deployment infrastructure for production-ready streaming SQL processing with **Phase 2 hash join optimization** delivering 10x+ performance improvements for large datasets.
 
 ## 📦 What's Included
 
@@ -45,10 +45,10 @@ FerrisStreams SQL now includes comprehensive Docker and Kubernetes deployment in
 
 ```bash
 # Build the SQL file deployment image
-docker build -f Dockerfile.sqlfile -t ferrisstreams:sqlfile .
+docker build -f Dockerfile.sqlfile -t velostream:sqlfile .
 
 # Create basic configuration file
-cat > configs/ferris-default.yaml <<EOF
+cat > configs/velo-default.yaml <<EOF
 kafka:
   brokers: "kafka:9092"
   consumer_timeout_ms: 5000
@@ -72,46 +72,46 @@ EOF
 docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
-  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/velo-default.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
-  --name ferrisstreams-app \
-  ferrisstreams:sqlfile
+  --name velostream-app \
+  velostream:sqlfile
 
 # Enhanced deployment with schema files and configuration
 docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/velo-default.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
-  -e FERRIS_FINANCIAL_PRECISION=true \
-  -e FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf \
+  -e VELO_FINANCIAL_PRECISION=true \
+  -e VELO_SERIALIZATION_FORMATS=json,avro,protobuf \
   -e RUST_LOG=info \
-  --name ferrisstreams-app \
-  ferrisstreams:sqlfile
+  --name velostream-app \
+  velostream:sqlfile
 
 # With performance tuning for financial precision
 docker run -d \
   -p 8080:8080 -p 9080:9080 \
   -v $(pwd)/my-app.sql:/app/sql-files/app.sql \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/configs/ferris-financial.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/velo-financial.yaml:/app/sql-config.yaml \
   -e KAFKA_BROKERS=kafka:9092 \
   -e SQL_FILE=/app/sql-files/app.sql \
-  -e FERRIS_PERFORMANCE_PROFILE=financial \
+  -e VELO_PERFORMANCE_PROFILE=financial \
   -e SQL_WORKER_THREADS=8 \
   -e SQL_MEMORY_LIMIT_MB=4096 \
   --restart unless-stopped \
-  --name ferrisstreams-app \
-  ferrisstreams:sqlfile
+  --name velostream-app \
+  velostream:sqlfile
 
 # Or with Docker Compose
 cat > docker-compose.sqlfile.yml <<EOF
 version: '3.8'
 services:
-  ferrisstreams-app:
+  velostream-app:
     build:
       context: .
       dockerfile: Dockerfile.sqlfile
@@ -133,16 +133,16 @@ EOF
 ```bash
 # Clone repository
 git clone <repository>
-cd ferrisstreams
+cd velostream
 
 # Deploy complete infrastructure with all serialization formats
 docker-compose up --build
 
 # Access services
-# - FerrisStreams (All Formats): http://localhost:8080
+# - VeloStream (All Formats): http://localhost:8080
 # - Kafka UI: http://localhost:8085
 # - Test multi-format data producer included
-# Note: Schema Registry included in docker-compose but not yet implemented in FerrisStreams
+# Note: Schema Registry included in docker-compose but not yet implemented in VeloStream
 ```
 
 ### 2. Production (Kubernetes)
@@ -153,7 +153,7 @@ cd k8s
 ./deploy-k8s.sh
 
 # Access via NodePort or LoadBalancer
-kubectl get services -n ferris-sql
+kubectl get services -n velo-sql
 ```
 
 ### 3. Test All Serialization Formats
@@ -199,13 +199,13 @@ curl http://localhost:9080/metrics/report
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      FerrisStreams SQL Stack                           │
+│                      VeloStream SQL Stack                           │
 │       ⚡ Multi-Format + Financial Precision + Hash Join Optimized      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  🌐 Kafka UI        📊 Schema Reg     💰 Financial     🔍 Protobuf       │
 │  (Port 8085)        (Port 8081)       Precision       Support          │
 ├─────────────────────────────────────────────────────────────────────────┤
-│        📡 FerrisStreams (All Formats) + 🔧 Multi-Format Producer        │
+│        📡 VeloStream (All Formats) + 🔧 Multi-Format Producer        │
 │               (Port 8080) + (Port 9090)                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │        🚀 Kafka + Zookeeper + 📁 Persistent Storage Volumes             │
@@ -222,9 +222,9 @@ curl http://localhost:9080/metrics/report
 
 ## 📋 Service Details
 
-### FerrisStreams Multi-Format SQL Server (PRIMARY)
+### VeloStream Multi-Format SQL Server (PRIMARY)
 - **Purpose**: Execute SQL with all serialization formats (JSON, Avro, Protobuf)
-- **Container**: `ferris-streams`
+- **Container**: `velo-streams`
 - **Ports**: 8080 (API), 9090 (Metrics)
 - **Features**: 
   - Financial precision arithmetic (42x performance)
@@ -233,14 +233,14 @@ curl http://localhost:9080/metrics/report
   - Cross-system compatibility
 - **Use Cases**: Production financial analytics, multi-format data processing
 
-### FerrisStreams SQL Multi-Job Server  
+### VeloStream SQL Multi-Job Server  
 - **Purpose**: Manage multiple concurrent SQL jobs with advanced orchestration
-- **Container**: `ferris-sql-multi`
+- **Container**: `velo-sql-multi`
 - **Ports**: 8081 (API), 9091 (Metrics)
 - **Performance**: 10x+ JOIN performance, comprehensive monitoring
 - **Use Cases**: Complex analytics, job orchestration, enterprise workloads
 
-### FerrisStreams SQL File Deployment
+### VeloStream SQL File Deployment
 - **Purpose**: Single-process deployment with SQL file input
 - **Container**: Built from `Dockerfile.sqlfile`
 - **Ports**: 8080 (API), 9080 (Metrics)  
@@ -260,7 +260,7 @@ curl http://localhost:9080/metrics/report
 
 #### 1. Low Latency Configuration (< 10ms)
 
-**configs/ferris-low-latency.yaml:**
+**configs/velo-low-latency.yaml:**
 ```yaml
 # Ultra-low latency configuration
 kafka:
@@ -300,15 +300,15 @@ performance:
 ```bash
 docker run -d \
   -p 8080:8080 \
-  -v $(pwd)/configs/ferris-low-latency.yaml:/app/sql-config.yaml \
+  -v $(pwd)/configs/velo-low-latency.yaml:/app/sql-config.yaml \
   -e RUST_LOG=warn \
-  --name ferris-low-latency \
-  ferrisstreams:latest
+  --name velo-low-latency \
+  velostream:latest
 ```
 
 #### 2. High Throughput Configuration (>100k msgs/sec)
 
-**configs/ferris-high-throughput.yaml:**
+**configs/velo-high-throughput.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -338,7 +338,7 @@ performance:
 
 #### 3. Financial Precision Configuration
 
-**configs/ferris-financial.yaml:**
+**configs/velo-financial.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -361,7 +361,7 @@ sql:
 
 #### 4. Cross-System Compatibility Configuration
 
-**configs/ferris-compatibility.yaml:**
+**configs/velo-compatibility.yaml:**
 ```yaml
 kafka:
   brokers: "kafka:29092"
@@ -393,17 +393,17 @@ sql:
 RUST_LOG=info                              # Logging level
 KAFKA_BROKERS=kafka:29092                  # Kafka connection
 SCHEMA_REGISTRY_URL=http://schema-registry:8081  # Future schema registry (not yet implemented)
-FERRIS_SERIALIZATION_FORMATS=json,avro,protobuf  # Available formats
+VELO_SERIALIZATION_FORMATS=json,avro,protobuf  # Available formats
 
 # Performance Tuning
 SQL_MAX_JOBS=20                            # Job limits
 SQL_MEMORY_LIMIT_MB=1024                   # Memory constraints
 SQL_WORKER_THREADS=4                       # Processing threads
-FERRIS_PERFORMANCE_PROFILE=standard       # standard|low_latency|high_throughput
+VELO_PERFORMANCE_PROFILE=standard       # standard|low_latency|high_throughput
 
 # Financial Precision
-FERRIS_FINANCIAL_PRECISION=true           # Enable ScaledInteger
-FERRIS_DEFAULT_DECIMAL_PLACES=4           # Default precision
+VELO_FINANCIAL_PRECISION=true           # Enable ScaledInteger
+VELO_DEFAULT_DECIMAL_PLACES=4           # Default precision
 
 # Kafka Tuning (override config file)
 KAFKA_BATCH_SIZE=16384                     # Producer batch size
@@ -419,14 +419,14 @@ KAFKA_MAX_POLL_RECORDS=500                 # Consumer batch size
 # docker-compose.low-latency.yml
 version: '3.8'
 services:
-  ferris-streams:
+  velo-streams:
     environment:
-      - FERRIS_PERFORMANCE_PROFILE=low_latency
+      - VELO_PERFORMANCE_PROFILE=low_latency
       - KAFKA_LINGER_MS=0
       - KAFKA_BATCH_SIZE=1
       - KAFKA_FETCH_MAX_WAIT_MS=1
     volumes:
-      - ./configs/ferris-low-latency.yaml:/app/sql-config.yaml
+      - ./configs/velo-low-latency.yaml:/app/sql-config.yaml
 ```
 
 #### High Throughput Setup
@@ -434,19 +434,19 @@ services:
 # docker-compose.high-throughput.yml
 version: '3.8'
 services:
-  ferris-streams:
+  velo-streams:
     environment:
-      - FERRIS_PERFORMANCE_PROFILE=high_throughput
+      - VELO_PERFORMANCE_PROFILE=high_throughput
       - SQL_WORKER_THREADS=16
       - SQL_MEMORY_LIMIT_MB=8192
     volumes:
-      - ./configs/ferris-high-throughput.yaml:/app/sql-config.yaml
+      - ./configs/velo-high-throughput.yaml:/app/sql-config.yaml
 ```
 
 ### Volume Mounts
 ```bash
-./configs/ferris-default.yaml:/app/sql-config.yaml              # Main configuration
-./configs/ferris-low-latency.yaml:/app/sql-config.yaml  # Low latency config
+./configs/velo-default.yaml:/app/sql-config.yaml              # Main configuration
+./configs/velo-low-latency.yaml:/app/sql-config.yaml  # Low latency config
 ./examples:/app/examples                            # SQL applications
 sql-logs:/app/logs                                  # Log persistence
 sql-data:/app/data                                  # Data persistence
@@ -478,7 +478,7 @@ curl -X POST http://localhost:8080/sql \
 ### 2. Avro with Flink-Compatible Decimal Types
 
 ```bash
-# Note: Schema Registry not yet implemented in FerrisStreams
+# Note: Schema Registry not yet implemented in VeloStream
 # Use schema files instead (see Schema Files section below)
 
 # Execute with Avro decimal processing (using schema file)
@@ -505,7 +505,7 @@ curl -X POST http://localhost:8080/sql \
 
 ## 📄 Schema Files
 
-FerrisStreams requires schema files for structured data formats (Avro and Protobuf). JSON format works schema-less.
+VeloStream requires schema files for structured data formats (Avro and Protobuf). JSON format works schema-less.
 
 ### Required Schema Files by Format
 
@@ -522,7 +522,7 @@ FerrisStreams requires schema files for structured data formats (Avro and Protob
 {
   "type": "record",
   "name": "Trade",
-  "namespace": "com.ferrisstreams.financial",
+  "namespace": "com.velostream.financial",
   "fields": [
     {"name": "symbol", "type": "string"},
     {
@@ -543,7 +543,7 @@ FerrisStreams requires schema files for structured data formats (Avro and Protob
 ```protobuf
 syntax = "proto3";
 
-package ferrisstreams.financial;
+package velostream.financial;
 
 import "google/protobuf/timestamp.proto";
 
@@ -571,17 +571,17 @@ message Trade {
 # Mount schema directory in Docker
 docker run -d \
   -v $(pwd)/schemas:/app/schemas:ro \
-  -v $(pwd)/configs/ferris-default.yaml:/app/sql-config.yaml \
-  ferrisstreams:latest
+  -v $(pwd)/configs/velo-default.yaml:/app/sql-config.yaml \
+  velostream:latest
 ```
 
 ### Docker Compose Schema Mount
 ```yaml
 services:
-  ferris-streams:
+  velo-streams:
     volumes:
       - ./schemas:/app/schemas:ro          # Schema files (read-only)
-      - ./configs/ferris-default.yaml:/app/sql-config.yaml
+      - ./configs/velo-default.yaml:/app/sql-config.yaml
       - ./examples:/app/examples:ro
 ```
 
@@ -592,20 +592,20 @@ services:
 #### One-Time Query Execution
 ```bash
 # Single SQL query (exits after processing current data)
-docker exec ferris-streams ferris-sql execute \
+docker exec velo-streams velo-sql execute \
   --query "SELECT customer_id, amount FROM orders WHERE amount > 1000" \
   --topic orders \
   --brokers kafka:29092
 
 # Stream results to stdout (default behavior)
-docker exec ferris-streams ferris-sql execute \
+docker exec velo-streams velo-sql execute \
   --query "SELECT customer_id, amount, timestamp FROM orders" \
   --topic orders \
   --brokers kafka:29092 \
   --output stdout
 
 # With result limit and pretty printing
-docker exec ferris-streams ferris-sql execute \
+docker exec velo-streams velo-sql execute \
   --query "SELECT * FROM orders ORDER BY timestamp DESC" \
   --topic orders \
   --brokers kafka:29092 \
@@ -616,7 +616,7 @@ docker exec ferris-streams ferris-sql execute \
 #### Continuous Streaming Queries
 ```bash
 # Continuous streaming query to stdout (keeps running)
-docker exec -it ferris-streams ferris-sql stream \
+docker exec -it velo-streams velo-sql stream \
   --query "SELECT customer_id, amount FROM orders WHERE amount > 1000" \
   --topic orders \
   --brokers kafka:29092 \
@@ -624,7 +624,7 @@ docker exec -it ferris-streams ferris-sql stream \
   --output stdout
 
 # Stream with real-time JSON output
-docker exec -it ferris-streams ferris-sql stream \
+docker exec -it velo-streams velo-sql stream \
   --query "SELECT customer_id, amount, timestamp FROM orders" \
   --topic orders \
   --brokers kafka:29092 \
@@ -632,7 +632,7 @@ docker exec -it ferris-streams ferris-sql stream \
   --format json-lines
 
 # Streaming with output topic and Avro schema
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "SELECT customer_id, SUM(amount) as total FROM orders GROUP BY customer_id" \
   --input-topic orders \
   --output-topic customer_totals \
@@ -642,7 +642,7 @@ docker exec ferris-streams ferris-sql stream \
   --continuous
 
 # Streaming with windowing (runs continuously)
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       customer_id, 
@@ -662,26 +662,26 @@ docker exec ferris-streams ferris-sql stream \
 #### Multi-Job Application Deployment
 ```bash
 # Deploy multiple streaming jobs from SQL file
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/examples/ecommerce_analytics.sql \
   --brokers kafka:29092 \
   --default-topic orders \
   --continuous  # Keep all jobs running
 
 # Stream job results to stdout in JSON format
-docker exec -it ferris-streams ferris-sql-multi stream-job \
+docker exec -it velo-streams velo-sql-multi stream-job \
   --job-id ecommerce_analytics_job_1 \
   --output stdout \
   --format json-lines
 
 # Monitor all job outputs with JSON streaming
-docker exec -it ferris-streams ferris-sql-multi stream-all \
+docker exec -it velo-streams velo-sql-multi stream-all \
   --output stdout \
   --format json \
   --include-metadata
 
 # Execute multi-job query with stdout streaming
-docker exec -it ferris-streams ferris-sql-multi execute \
+docker exec -it velo-streams velo-sql-multi execute \
   --query "SELECT job_id, status, result FROM job_results" \
   --output stdout \
   --format json-pretty
@@ -692,7 +692,7 @@ docker exec -it ferris-streams ferris-sql-multi execute \
 #### One-Time Sensor Data Analysis
 ```bash
 # Analyze current sensor readings (exits after processing)
-docker exec ferris-streams ferris-sql execute \
+docker exec velo-streams velo-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
@@ -712,7 +712,7 @@ docker exec ferris-streams ferris-sql execute \
 #### Continuous IoT Monitoring
 ```bash
 # Real-time temperature monitoring with Avro schema (keeps running)
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       device_id,
@@ -733,7 +733,7 @@ docker exec ferris-streams ferris-sql stream \
   --window-size 300
 
 # Continuous alert generation
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
@@ -754,7 +754,7 @@ docker exec ferris-streams ferris-sql stream \
 #### Real-Time Trading Analysis
 ```bash
 # Continuous trading analysis with Protobuf schema (financial precision)
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       symbol,
@@ -773,7 +773,7 @@ docker exec ferris-streams ferris-sql stream \
   --continuous
 
 # Same query with Avro schema and Flink-compatible decimals
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       symbol,
@@ -791,7 +791,7 @@ docker exec ferris-streams ferris-sql stream \
   --continuous
 
 # Moving average calculation (continuous)
-docker exec ferris-streams ferris-sql stream \
+docker exec velo-streams velo-sql stream \
   --query "
     SELECT 
       symbol,
@@ -810,7 +810,7 @@ docker exec ferris-streams ferris-sql stream \
   --continuous
 
 # Multi-job financial application deployment
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/examples/financial_trading.sql \
   --brokers kafka:29092 \
   --default-topic trades \
@@ -821,12 +821,12 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 
 | Command | Purpose | Exit Behavior |
 |---------|---------|---------------|
-| `ferris-sql execute` | One-time query execution | Exits after processing current data |
-| `ferris-sql stream` | Continuous streaming query | Keeps running until stopped |
-| `ferris-sql-multi deploy-app` | Deploy multiple jobs | Manages job lifecycle |
-| `ferris-sql-multi stream-job` | Stream individual job results to stdout | Keeps running until stopped |
-| `ferris-sql-multi stream-all` | Stream all job outputs with metadata | Keeps running until stopped |
-| `ferris-sql-multi execute` | Execute query across job results | Exits after processing |
+| `velo-sql execute` | One-time query execution | Exits after processing current data |
+| `velo-sql stream` | Continuous streaming query | Keeps running until stopped |
+| `velo-sql-multi deploy-app` | Deploy multiple jobs | Manages job lifecycle |
+| `velo-sql-multi stream-job` | Stream individual job results to stdout | Keeps running until stopped |
+| `velo-sql-multi stream-all` | Stream all job outputs with metadata | Keeps running until stopped |
+| `velo-sql-multi execute` | Execute query across job results | Exits after processing |
 
 | Flag | Description | Example |
 |------|-------------|---------|
@@ -852,7 +852,7 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 #### Simple Stdout Streaming Examples
 ```bash
 # Live JSON streaming to stdout (Ctrl+C to stop)
-docker exec -it ferris-streams ferris-sql stream \
+docker exec -it velo-streams velo-sql stream \
   --query "SELECT * FROM orders" \
   --topic orders \
   --brokers kafka:29092 \
@@ -861,7 +861,7 @@ docker exec -it ferris-streams ferris-sql stream \
   --format json-lines
 
 # Pretty table format for terminal viewing
-docker exec -it ferris-streams ferris-sql execute \
+docker exec -it velo-streams velo-sql execute \
   --query "SELECT customer_id, amount FROM orders LIMIT 10" \
   --topic orders \
   --brokers kafka:29092 \
@@ -869,7 +869,7 @@ docker exec -it ferris-streams ferris-sql execute \
   --format table
 
 # CSV output for piping to files or other tools
-docker exec ferris-streams ferris-sql execute \
+docker exec velo-streams velo-sql execute \
   --query "SELECT * FROM orders WHERE amount > 1000" \
   --topic orders \
   --brokers kafka:29092 \
@@ -877,7 +877,7 @@ docker exec ferris-streams ferris-sql execute \
   --format csv > high_value_orders.csv
 
 # Multi-job server: Stream all job results in JSON format
-docker exec -it ferris-streams ferris-sql-multi stream-all \
+docker exec -it velo-streams velo-sql-multi stream-all \
   --output stdout \
   --format json-lines \
   --include-metadata
@@ -887,9 +887,9 @@ docker exec -it ferris-streams ferris-sql-multi stream-all \
 
 ### Single SQL Server Commands
 
-#### ferris-sql execute (One-time execution)
+#### velo-sql execute (One-time execution)
 ```bash
-docker exec [-it] ferris-streams ferris-sql execute \
+docker exec [-it] velo-streams velo-sql execute \
   --query "SQL_QUERY_HERE" \
   --topic KAFKA_TOPIC \
   --brokers KAFKA_BROKERS \
@@ -903,9 +903,9 @@ docker exec [-it] ferris-streams ferris-sql execute \
   [--offset earliest|latest|NUMBER]
 ```
 
-#### ferris-sql stream (Continuous streaming)
+#### velo-sql stream (Continuous streaming)
 ```bash
-docker exec -it ferris-streams ferris-sql stream \
+docker exec -it velo-streams velo-sql stream \
   --query "SQL_QUERY_HERE" \
   --input-topic KAFKA_TOPIC \
   --brokers KAFKA_BROKERS \
@@ -923,9 +923,9 @@ docker exec -it ferris-streams ferris-sql stream \
 
 ### Multi-Job Server Commands
 
-#### ferris-sql-multi deploy-app (Deploy multiple jobs)
+#### velo-sql-multi deploy-app (Deploy multiple jobs)
 ```bash
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /path/to/sql_file.sql \
   --brokers KAFKA_BROKERS \
   [--default-topic DEFAULT_TOPIC] \
@@ -937,9 +937,9 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
   [--restart-policy always|never|on-failure]
 ```
 
-#### ferris-sql-multi stream-job (Stream individual job results)
+#### velo-sql-multi stream-job (Stream individual job results)
 ```bash
-docker exec -it ferris-streams ferris-sql-multi stream-job \
+docker exec -it velo-streams velo-sql-multi stream-job \
   --job-id JOB_ID \
   --output stdout \
   --format json-lines \
@@ -948,9 +948,9 @@ docker exec -it ferris-streams ferris-sql-multi stream-job \
   [--tail NUMBER]
 ```
 
-#### ferris-sql-multi stream-all (Stream all job outputs)
+#### velo-sql-multi stream-all (Stream all job outputs)
 ```bash
-docker exec -it ferris-streams ferris-sql-multi stream-all \
+docker exec -it velo-streams velo-sql-multi stream-all \
   --output stdout \
   --format json|json-lines \
   [--include-metadata] \
@@ -959,9 +959,9 @@ docker exec -it ferris-streams ferris-sql-multi stream-all \
   [--follow]
 ```
 
-#### ferris-sql-multi execute (Query job results)
+#### velo-sql-multi execute (Query job results)
 ```bash
-docker exec ferris-streams ferris-sql-multi execute \
+docker exec velo-streams velo-sql-multi execute \
   --query "SELECT job_id, status, result FROM job_results WHERE condition" \
   --output stdout \
   --format json-pretty \
@@ -973,7 +973,7 @@ docker exec ferris-streams ferris-sql-multi execute \
 
 #### List jobs
 ```bash
-docker exec ferris-streams ferris-sql-multi list-jobs \
+docker exec velo-streams velo-sql-multi list-jobs \
   [--status running|paused|stopped|all] \
   [--format json|table] \
   [--sort-by name|status|created|updated]
@@ -982,16 +982,16 @@ docker exec ferris-streams ferris-sql-multi list-jobs \
 #### Control individual jobs
 ```bash
 # Start/stop/pause/resume job
-docker exec ferris-streams ferris-sql-multi {start|stop|pause|resume}-job \
+docker exec velo-streams velo-sql-multi {start|stop|pause|resume}-job \
   --job-id JOB_ID
 
 # Get job status
-docker exec ferris-streams ferris-sql-multi job-status \
+docker exec velo-streams velo-sql-multi job-status \
   --job-id JOB_ID \
   --format json|table
 
 # Get job logs
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id JOB_ID \
   [--tail NUMBER] \
   [--follow] \
@@ -1019,7 +1019,7 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 | `--timeout` | Operation timeout | No | `30s` | `60`, `120` |
 | `--group-id` | Kafka consumer group (single jobs) | No | auto-generated | `my_consumer_group` |
 | `--job-prefix` | Prefix for job names | No | `job_` | `analytics_`, `trading_` |
-| `--group-prefix` | Prefix for consumer group IDs | No | `ferris_multi_` | `app_`, `analytics_` |
+| `--group-prefix` | Prefix for consumer group IDs | No | `velo_multi_` | `app_`, `analytics_` |
 | `--include-metadata` | Include job metadata | No | false | (flag only) |
 | `--follow` | Follow/tail mode | No | false | (flag only) |
 
@@ -1036,13 +1036,13 @@ The multi-job server handles consumer groups differently than single SQL jobs:
 
 # Default behavior (no prefix specified)
 # Results in consumer groups:
-# ferris_multi_job_1, ferris_multi_job_2, ferris_multi_job_3
+# velo_multi_job_1, velo_multi_job_2, velo_multi_job_3
 ```
 
 #### Examples
 ```bash
 # Deploy jobs with custom group prefix
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/trading_jobs.sql \
   --brokers kafka:9092 \
   --job-prefix "trading_" \
@@ -1050,10 +1050,10 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 # Creates: trading_consumers_trading_1, trading_consumers_trading_2, etc.
 
 # Deploy with default prefixes
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/jobs.sql \
   --brokers kafka:9092
-# Creates: ferris_multi_job_1, ferris_multi_job_2, etc.
+# Creates: velo_multi_job_1, velo_multi_job_2, etc.
 
 # Each job gets its own consumer group for isolation
 # This allows independent scaling and offset management per job
@@ -1069,7 +1069,7 @@ docker exec ferris-streams ferris-sql-multi deploy-app \
 
 ### Job Failure Detection and Recovery
 
-FerrisStreams provides comprehensive error handling and automatic recovery mechanisms for production deployments.
+VeloStream provides comprehensive error handling and automatic recovery mechanisms for production deployments.
 
 #### Automatic Recovery Policies
 
@@ -1091,14 +1091,14 @@ jobs:
 curl http://localhost:9091/health/kafka
 
 # Check job status for Kafka errors
-docker exec ferris-streams ferris-sql-multi job-status \
+docker exec velo-streams velo-sql-multi job-status \
   --job-id my_job --format json | jq '.error'
 
 # Manual recovery for Kafka issues
-docker exec ferris-streams ferris-sql-multi restart-job --job-id my_job
+docker exec velo-streams velo-sql-multi restart-job --job-id my_job
 
 # Verify connectivity restored
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id my_job --tail 20 --grep "Connected to Kafka"
 ```
 
@@ -1108,24 +1108,24 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 curl http://localhost:9091/metrics/memory | jq '.jobs'
 
 # Identify high memory jobs
-docker exec ferris-streams ferris-sql-multi list-jobs \
+docker exec velo-streams velo-sql-multi list-jobs \
   --sort-by memory_usage --format table
 
 # Reduce memory limit and restart
 # Edit SQL file to lower MEMORY_LIMIT, then redeploy
-docker exec ferris-streams ferris-sql-multi stop-job --job-id heavy_job
+docker exec velo-streams velo-sql-multi stop-job --job-id heavy_job
 # Update SQL file: -- MEMORY_LIMIT: 1024 (reduced from 2048)
-docker exec ferris-streams ferris-sql-multi deploy-app \
+docker exec velo-streams velo-sql-multi deploy-app \
   --file /app/sql/updated_jobs.sql --replace
 
 # Monitor recovery
-docker exec ferris-streams ferris-sql-multi job-status --job-id heavy_job
+docker exec velo-streams velo-sql-multi job-status --job-id heavy_job
 ```
 
 ##### 3. Schema Evolution Failures
 ```bash
 # Detect schema compatibility issues
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id avro_job --grep "SchemaCompatibilityException"
 
 # Recovery steps for schema issues
@@ -1133,10 +1133,10 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 cp /app/schemas/orders_v2.avsc /app/schemas/orders.avsc
 
 # 2. Restart affected job
-docker exec ferris-streams ferris-sql-multi restart-job --job-id avro_job
+docker exec velo-streams velo-sql-multi restart-job --job-id avro_job
 
 # 3. Verify schema loading
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id avro_job --tail 10 --grep "Schema loaded successfully"
 ```
 
@@ -1146,7 +1146,7 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 curl http://localhost:9091/metrics/queries/slow | jq '.timeouts'
 
 # Check specific job timeouts
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id slow_job --grep "QueryTimeoutException"
 
 # Recovery options:
@@ -1164,41 +1164,41 @@ docker exec ferris-streams ferris-sql-multi job-logs \
 ##### Complete Server Recovery
 ```bash
 # 1. Backup current state
-docker exec ferris-streams ferris-sql-multi export-state \
-  --output /backup/ferris-state-$(date +%Y%m%d-%H%M%S).json
+docker exec velo-streams velo-sql-multi export-state \
+  --output /backup/velo-state-$(date +%Y%m%d-%H%M%S).json
 
 # 2. Stop all jobs gracefully
-docker exec ferris-streams ferris-sql-multi stop-all-jobs --graceful
+docker exec velo-streams velo-sql-multi stop-all-jobs --graceful
 
 # 3. Restart server container
-docker restart ferris-streams
+docker restart velo-streams
 
 # 4. Restore job state
-docker exec ferris-streams ferris-sql-multi import-state \
-  --input /backup/ferris-state-latest.json
+docker exec velo-streams velo-sql-multi import-state \
+  --input /backup/velo-state-latest.json
 
 # 5. Restart jobs
-docker exec ferris-streams ferris-sql-multi start-all-jobs
+docker exec velo-streams velo-sql-multi start-all-jobs
 ```
 
 ##### Partial Recovery (Specific Jobs)
 ```bash
 # 1. Identify failed jobs
-docker exec ferris-streams ferris-sql-multi list-jobs --status failed
+docker exec velo-streams velo-sql-multi list-jobs --status failed
 
 # 2. Export job configuration
-docker exec ferris-streams ferris-sql-multi export-job-config \
+docker exec velo-streams velo-sql-multi export-job-config \
   --job-id failed_job --output /backup/failed_job_config.json
 
 # 3. Remove failed job
-docker exec ferris-streams ferris-sql-multi remove-job --job-id failed_job
+docker exec velo-streams velo-sql-multi remove-job --job-id failed_job
 
 # 4. Redeploy from backup
-docker exec ferris-streams ferris-sql-multi import-job-config \
+docker exec velo-streams velo-sql-multi import-job-config \
   --input /backup/failed_job_config.json
 
 # 5. Start recovered job
-docker exec ferris-streams ferris-sql-multi start-job --job-id failed_job
+docker exec velo-streams velo-sql-multi start-job --job-id failed_job
 ```
 
 #### Health Check Automation
@@ -1208,9 +1208,9 @@ docker exec ferris-streams ferris-sql-multi start-job --job-id failed_job
 #!/bin/bash
 # health_monitor.sh - Automated health checking and recovery
 
-FERRIS_CONTAINER="ferris-streams"
+VELO_CONTAINER="velo-streams"
 HEALTH_ENDPOINT="http://localhost:9091/health"
-LOG_FILE="/var/log/ferris-health.log"
+LOG_FILE="/var/log/velo-health.log"
 
 check_health() {
     local response=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_ENDPOINT)
@@ -1222,12 +1222,12 @@ check_health() {
 }
 
 check_jobs() {
-    local failed_jobs=$(docker exec $FERRIS_CONTAINER ferris-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
+    local failed_jobs=$(docker exec $VELO_CONTAINER velo-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
     if [ -n "$failed_jobs" ]; then
         echo "$(date): Failed jobs detected: $failed_jobs" >> $LOG_FILE
         for job in $failed_jobs; do
             echo "$(date): Attempting to restart job: $job" >> $LOG_FILE
-            docker exec $FERRIS_CONTAINER ferris-sql-multi restart-job --job-id $job
+            docker exec $VELO_CONTAINER velo-sql-multi restart-job --job-id $job
         done
     fi
 }
@@ -1244,30 +1244,30 @@ done
 
 ##### Prometheus Alerting Rules
 ```yaml
-# ferris_alerts.yml
+# velo_alerts.yml
 groups:
-- name: ferris_streams_alerts
+- name: velo_streams_alerts
   rules:
-  - alert: FerrisJobFailed
-    expr: ferris_job_status{status="failed"} > 0
+  - alert: VeloJobFailed
+    expr: velo_job_status{status="failed"} > 0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "FerrisStreams job {{ $labels.job_id }} has failed"
+      summary: "VeloStream job {{ $labels.job_id }} has failed"
       description: "Job {{ $labels.job_id }} has been in failed state for more than 1 minute"
 
-  - alert: FerrisHighMemoryUsage
-    expr: ferris_job_memory_usage_mb / ferris_job_memory_limit_mb > 0.9
+  - alert: VeloHighMemoryUsage
+    expr: velo_job_memory_usage_mb / velo_job_memory_limit_mb > 0.9
     for: 2m
     labels:
       severity: warning
     annotations:
-      summary: "FerrisStreams job {{ $labels.job_id }} high memory usage"
+      summary: "VeloStream job {{ $labels.job_id }} high memory usage"
       description: "Job {{ $labels.job_id }} is using {{ $value }}% of allocated memory"
 
-  - alert: FerrisKafkaConsumerLag
-    expr: ferris_kafka_consumer_lag > 10000
+  - alert: VeloKafkaConsumerLag
+    expr: velo_kafka_consumer_lag > 10000
     for: 5m
     labels:
       severity: warning
@@ -1282,57 +1282,57 @@ groups:
 
 ```bash
 # 1. OutOfMemoryError patterns
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id $JOB_ID --grep "OutOfMemoryError|GC overhead limit exceeded"
 # Solution: Increase MEMORY_LIMIT or optimize query
 
 # 2. Kafka connection issues
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id $JOB_ID --grep "BrokerNotAvailableException|TimeoutException"
 # Solution: Check Kafka connectivity, verify broker addresses
 
 # 3. Schema registry issues
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id $JOB_ID --grep "SchemaNotFoundException|IncompatibleSchemaException"
 # Solution: Update schema files, check schema evolution compatibility
 
 # 4. SQL syntax errors
-docker exec ferris-streams ferris-sql-multi job-logs \
+docker exec velo-streams velo-sql-multi job-logs \
   --job-id $JOB_ID --grep "SqlParseException|QueryValidationException"
 # Solution: Validate SQL syntax, check table/column references
 ```
 
 ##### Recovery Runbook Template
 ```bash
-# FERRIS STREAMS RECOVERY RUNBOOK
+# VELO STREAMS RECOVERY RUNBOOK
 # ================================
 
 # STEP 1: Assess Situation
 echo "1. Checking overall system health..."
 curl http://localhost:9091/health | jq '.'
-docker exec ferris-streams ferris-sql-multi list-jobs --status all
+docker exec velo-streams velo-sql-multi list-jobs --status all
 
 # STEP 2: Identify Failed Components
 echo "2. Identifying failed jobs..."
-FAILED_JOBS=$(docker exec ferris-streams ferris-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
+FAILED_JOBS=$(docker exec velo-streams velo-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
 echo "Failed jobs: $FAILED_JOBS"
 
 # STEP 3: Gather Diagnostics
 echo "3. Gathering diagnostic information..."
 for job in $FAILED_JOBS; do
     echo "=== Job: $job ==="
-    docker exec ferris-streams ferris-sql-multi job-status --job-id $job
-    docker exec ferris-streams ferris-sql-multi job-logs --job-id $job --tail 50
+    docker exec velo-streams velo-sql-multi job-status --job-id $job
+    docker exec velo-streams velo-sql-multi job-logs --job-id $job --tail 50
 done
 
 # STEP 4: Attempt Automatic Recovery
 echo "4. Attempting automatic recovery..."
 for job in $FAILED_JOBS; do
     echo "Restarting job: $job"
-    docker exec ferris-streams ferris-sql-multi restart-job --job-id $job
+    docker exec velo-streams velo-sql-multi restart-job --job-id $job
     sleep 5
     # Check if restart successful
-    STATUS=$(docker exec ferris-streams ferris-sql-multi job-status --job-id $job --format json | jq -r '.status')
+    STATUS=$(docker exec velo-streams velo-sql-multi job-status --job-id $job --format json | jq -r '.status')
     echo "Job $job status after restart: $STATUS"
 done
 
@@ -1370,31 +1370,31 @@ curl http://localhost:9080/metrics/prometheus
 ```bash
 # Service status with performance metrics
 docker-compose ps
-kubectl get pods -n ferris-sql
+kubectl get pods -n velo-sql
 
 # Enhanced health checks (includes performance validation)
-docker inspect ferris-sql-single --format='{{.State.Health.Status}}'
-kubectl describe pod <pod-name> -n ferris-sql
+docker inspect velo-sql-single --format='{{.State.Health.Status}}'
+kubectl describe pod <pod-name> -n velo-sql
 
 # Service logs with performance data
-docker-compose logs ferris-sql-single -f
-kubectl logs -f deployment/ferris-sql-single -n ferris-sql
+docker-compose logs velo-sql-single -f
+kubectl logs -f deployment/velo-sql-single -n velo-sql
 
 # Performance monitoring logs
-docker-compose exec ferris-sql-single tail -f /app/logs/performance.log
+docker-compose exec velo-sql-single tail -f /app/logs/performance.log
 ```
 
 ### Metrics & Dashboards
 ```bash
-# FerrisStreams performance dashboard
+# VeloStream performance dashboard
 curl http://localhost:9080/metrics/performance
 
-# Prometheus metrics (includes FerrisStreams metrics)
+# Prometheus metrics (includes VeloStream metrics)
 curl http://localhost:9093/metrics
 
-# Grafana dashboards with FerrisStreams integration
-open http://localhost:3000  # admin/ferris123
-# - FerrisStreams Performance Dashboard
+# Grafana dashboards with VeloStream integration
+open http://localhost:3000  # admin/velo123
+# - VeloStream Performance Dashboard
 # - Query Execution Analytics  
 # - Hash Join Performance Metrics
 # - Memory Usage Analysis
@@ -1418,14 +1418,14 @@ docker run -d \
   --tmpfs /tmp \
   --tmpfs /var/run \
   -p 8080:8080 \
-  ferrisstreams:latest
+  velostream:latest
 
 # Use security options
 docker run -d \
   --security-opt no-new-privileges \
   --cap-drop ALL \
   --cap-add NET_BIND_SERVICE \
-  ferrisstreams:latest
+  velostream:latest
 ```
 
 ##### Network Security
@@ -1433,22 +1433,22 @@ docker run -d \
 # docker-compose.yml with network isolation
 version: '3.8'
 networks:
-  ferris_internal:
+  velo_internal:
     driver: bridge
     internal: true  # No external access
-  ferris_external:
+  velo_external:
     driver: bridge
 
 services:
-  ferris-streams:
+  velo-streams:
     networks:
-      - ferris_internal
-      - ferris_external
+      - velo_internal
+      - velo_external
     ports:
       - "127.0.0.1:8080:8080"  # Bind to localhost only
     environment:
-      - FERRIS_BIND_HOST=0.0.0.0
-      - FERRIS_ALLOWED_ORIGINS=https://yourapp.com
+      - VELO_BIND_HOST=0.0.0.0
+      - VELO_ALLOWED_ORIGINS=https://yourapp.com
 ```
 
 ##### API Security Configuration
@@ -1475,7 +1475,7 @@ server:
 auth:
   enable: false               # Currently not implemented
   type: "jwt"                # Future: JWT token authentication
-  jwt_secret_env: "FERRIS_JWT_SECRET"
+  jwt_secret_env: "VELO_JWT_SECRET"
 ```
 
 #### Kafka Security
@@ -1547,7 +1547,7 @@ echo "my_kafka_password" | docker secret create kafka_password -
 
 # Reference in docker-compose.yml
 services:
-  ferris-streams:
+  velo-streams:
     secrets:
       - kafka_password
     environment:
@@ -1564,7 +1564,7 @@ secrets:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ferris-secrets
+  name: velo-secrets
 type: Opaque
 data:
   kafka-username: <base64-encoded-username>
@@ -1574,22 +1574,22 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-streams
+  name: velo-streams
 spec:
   template:
     spec:
       containers:
-      - name: ferris-streams
+      - name: velo-streams
         env:
         - name: KAFKA_USERNAME
           valueFrom:
             secretKeyRef:
-              name: ferris-secrets
+              name: velo-secrets
               key: kafka-username
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ferris-secrets
+              name: velo-secrets
               key: kafka-password
         volumeMounts:
         - name: ssl-certs
@@ -1598,7 +1598,7 @@ spec:
       volumes:
       - name: ssl-certs
         secret:
-          secretName: ferris-secrets
+          secretName: velo-secrets
           items:
           - key: ssl-ca-cert
             path: ca-cert.pem
@@ -1608,15 +1608,15 @@ spec:
 ```bash
 # Example Vault integration (future enhancement)
 # Fetch secrets from Vault
-vault kv get -field=password secret/ferris/kafka > /tmp/kafka_password
+vault kv get -field=password secret/velo/kafka > /tmp/kafka_password
 export KAFKA_PASSWORD=$(cat /tmp/kafka_password)
 rm /tmp/kafka_password
 
-# Start FerrisStreams with secrets
+# Start VeloStream with secrets
 docker run -d \
   -e KAFKA_PASSWORD="$KAFKA_PASSWORD" \
   -e VAULT_TOKEN="$VAULT_TOKEN" \
-  ferrisstreams:latest
+  velostream:latest
 ```
 
 #### Data Security
@@ -1626,11 +1626,11 @@ docker run -d \
 # Secure schema file permissions
 chmod 644 /app/schemas/*.avsc        # Read-only for schema files
 chmod 600 /app/schemas/private/*.avsc # Restricted access for sensitive schemas
-chown ferris:ferris /app/schemas/*   # Proper ownership
+chown velo:velo /app/schemas/*   # Proper ownership
 
 # Schema file validation
 # Validate schemas before deployment to prevent injection
-docker exec ferris-streams ferris-sql-multi validate-schema \
+docker exec velo-streams velo-sql-multi validate-schema \
   --file /app/schemas/orders.avsc \
   --security-check
 ```
@@ -1639,10 +1639,10 @@ docker exec ferris-streams ferris-sql-multi validate-schema \
 ```yaml
 # Volume encryption configuration
 services:
-  ferris-streams:
+  velo-streams:
     volumes:
       - type: volume
-        source: ferris-data
+        source: velo-data
         target: /app/data
         volume:
           driver: local
@@ -1653,7 +1653,7 @@ services:
 
 ##### SQL Injection Prevention
 ```sql
--- FerrisStreams automatically prevents SQL injection by:
+-- VeloStream automatically prevents SQL injection by:
 -- 1. Using parameterized queries internally
 -- 2. Validating all SQL syntax before execution
 -- 3. Sandboxing query execution environment
@@ -1679,7 +1679,7 @@ logging:
     log_level: "INFO"
     destinations:
       - type: "file"
-        path: "/var/log/ferris-security.log"
+        path: "/var/log/velo-security.log"
       - type: "syslog"
         facility: "local1"
       - type: "elasticsearch"
@@ -1712,26 +1712,26 @@ curl http://localhost:9091/security/events | jq '.config_changes[] | select(.tim
 ```yaml
 # security-alerts.yml
 groups:
-- name: ferris_security_alerts
+- name: velo_security_alerts
   rules:
-  - alert: FerrisSuspiciousActivity
-    expr: rate(ferris_failed_operations_total[5m]) > 10
+  - alert: VeloSuspiciousActivity
+    expr: rate(velo_failed_operations_total[5m]) > 10
     for: 2m
     labels:
       severity: warning
     annotations:
       summary: "High rate of failed operations detected"
       
-  - alert: FerrisConfigurationChange
-    expr: increase(ferris_config_changes_total[1h]) > 0
+  - alert: VeloConfigurationChange
+    expr: increase(velo_config_changes_total[1h]) > 0
     for: 0s
     labels:
       severity: info
     annotations:
       summary: "Configuration change detected"
       
-  - alert: FerrisUnauthorizedAccess
-    expr: ferris_unauthorized_requests_total > 0
+  - alert: VeloUnauthorizedAccess
+    expr: velo_unauthorized_requests_total > 0
     for: 1m
     labels:
       severity: critical
@@ -1787,15 +1787,15 @@ groups:
 version: '3.8'
 
 networks:
-  ferris-internal:
+  velo-internal:
     driver: bridge
     internal: true
-  ferris-external:
+  velo-external:
     driver: bridge
 
 services:
-  ferris-streams:
-    image: ferrisstreams:latest
+  velo-streams:
+    image: velostream:latest
     user: "1001:1001"
     read_only: true
     security_opt:
@@ -1805,8 +1805,8 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     networks:
-      - ferris-internal
-      - ferris-external
+      - velo-internal
+      - velo-external
     ports:
       - "127.0.0.1:8080:8080"  # Localhost only
     environment:
@@ -1885,10 +1885,10 @@ secrets:
 ### Horizontal Scaling
 ```bash
 # Docker Compose scaling
-docker-compose up -d --scale ferris-sql-single=3
+docker-compose up -d --scale velo-sql-single=3
 
 # Kubernetes scaling  
-kubectl scale deployment/ferris-sql-single --replicas=5 -n ferris-sql
+kubectl scale deployment/velo-sql-single --replicas=5 -n velo-sql
 ```
 
 ### Performance Optimization
@@ -1913,7 +1913,7 @@ KAFKA_REPLICATION_FACTOR=3
 - **[Multi-Job Guide](docs/MULTI_JOB_SQL_GUIDE.md)** - Job management patterns
 
 ### Configuration References
-- **[SQL Configuration](configs/ferris-default.yaml)** - Service configuration
+- **[SQL Configuration](configs/velo-default.yaml)** - Service configuration
 - **[Docker Compose](docker-compose.yml)** - Infrastructure definition
 - **[Kubernetes Manifests](k8s/)** - K8s deployment files
 
@@ -1950,7 +1950,7 @@ KAFKA_REPLICATION_FACTOR=3
 
 ```bash
 # 1. Deploy complete multi-format stack (RECOMMENDED)
-git clone <repository> && cd ferrisstreams
+git clone <repository> && cd velostream
 docker-compose up --build
 
 # 2. Test financial precision with JSON
@@ -1967,12 +1967,12 @@ curl -X POST http://localhost:8080/sql \
 open http://localhost:8085
 
 # 5. Check serialization compatibility
-docker exec ferrisstreams cargo run --bin test_serialization_compatibility --features avro,protobuf
+docker exec velostream cargo run --bin test_serialization_compatibility --features avro,protobuf
 
 # 6. Deploy SQL file application with all formats
 echo "START JOB financial_analytics AS SELECT symbol, CAST(price AS DECIMAL(18,4)) * quantity as total FROM trades;" > my-app.sql
-docker build -f Dockerfile.sqlfile -t ferrisstreams:sqlfile .
-docker run -d -p 8080:8080 -v $(pwd)/my-app.sql:/app/sql-files/app.sql -e SQL_FILE=/app/sql-files/app.sql ferrisstreams:sqlfile
+docker build -f Dockerfile.sqlfile -t velostream:sqlfile .
+docker run -d -p 8080:8080 -v $(pwd)/my-app.sql:/app/sql-files/app.sql -e SQL_FILE=/app/sql-files/app.sql velostream:sqlfile
 ```
 
 ## 📈 Performance Results (Financial Precision + Phase 2)
@@ -2084,7 +2084,7 @@ sql:
   
   # Spill-to-disk settings (when memory exceeded)
   enable_spill_to_disk: true        # Enable disk spilling
-  spill_directory: "/tmp/ferris-spill"
+  spill_directory: "/tmp/velo-spill"
   spill_threshold_ratio: 0.8        # Spill at 80% memory usage
 ```
 
@@ -2128,7 +2128,7 @@ docker run -d \
   --ulimit nofile=65536:65536 \
   --ulimit nproc=32768:32768 \
   -e JAVA_OPTS="-Xmx12g -Xms4g -XX:+UseG1GC -XX:MaxGCPauseMillis=20" \
-  ferrisstreams:latest
+  velostream:latest
 ```
 
 ##### Kubernetes Resource Optimization
@@ -2137,13 +2137,13 @@ docker run -d \
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ferris-streams-performance
+  name: velo-streams-performance
 spec:
   replicas: 3
   template:
     spec:
       containers:
-      - name: ferris-streams
+      - name: velo-streams
         resources:
           requests:
             cpu: "4000m"      # 4 CPU cores
@@ -2152,7 +2152,7 @@ spec:
             cpu: "8000m"      # 8 CPU cores max
             memory: "16Gi"    # 16GB memory max
         env:
-        - name: FERRIS_PERFORMANCE_PROFILE
+        - name: VELO_PERFORMANCE_PROFILE
           value: "high_throughput"
         - name: SQL_WORKER_THREADS
           value: "16"
@@ -2178,7 +2178,7 @@ spec:
               matchExpressions:
               - key: app
                 operator: In
-                values: ["ferris-streams"]
+                values: ["velo-streams"]
             topologyKey: kubernetes.io/hostname
 ```
 
@@ -2213,11 +2213,11 @@ sysctl -p
 ##### Load Balancer Configuration
 ```yaml
 # nginx-performance.conf
-upstream ferris_streams {
+upstream velo_streams {
     least_conn;
-    server ferris-1:8080 max_fails=3 fail_timeout=30s;
-    server ferris-2:8080 max_fails=3 fail_timeout=30s;
-    server ferris-3:8080 max_fails=3 fail_timeout=30s;
+    server velo-1:8080 max_fails=3 fail_timeout=30s;
+    server velo-2:8080 max_fails=3 fail_timeout=30s;
+    server velo-3:8080 max_fails=3 fail_timeout=30s;
     
     # Connection pooling
     keepalive 32;
@@ -2245,7 +2245,7 @@ server {
     gzip_types application/json text/plain;
     
     location / {
-        proxy_pass http://ferris_streams;
+        proxy_pass http://velo_streams;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -2260,14 +2260,14 @@ server {
 ```yaml
 # storage-optimized.yml
 services:
-  ferris-streams:
+  velo-streams:
     volumes:
       # Use high-performance storage
       - type: bind
-        source: /mnt/nvme/ferris-data    # NVMe SSD mount
+        source: /mnt/nvme/velo-data    # NVMe SSD mount
         target: /app/data
       - type: bind
-        source: /mnt/nvme/ferris-logs    # Separate NVMe for logs
+        source: /mnt/nvme/velo-logs    # Separate NVMe for logs
         target: /app/logs
       - type: tmpfs
         target: /tmp
@@ -2304,14 +2304,14 @@ storage:
 #!/bin/bash
 # performance-monitor.sh
 
-FERRIS_HOST="localhost:9091"
+VELO_HOST="localhost:9091"
 
 while true; do
     echo "=== $(date) ==="
     
     # Query performance metrics
     echo "Query Performance:"
-    curl -s $FERRIS_HOST/metrics/queries/performance | jq '{
+    curl -s $VELO_HOST/metrics/queries/performance | jq '{
         avg_query_time: .avg_execution_time_ms,
         queries_per_second: .queries_per_second,
         slow_queries: .slow_queries_count
@@ -2319,7 +2319,7 @@ while true; do
     
     # Memory usage
     echo "Memory Usage:"
-    curl -s $FERRIS_HOST/metrics/memory | jq '{
+    curl -s $VELO_HOST/metrics/memory | jq '{
         total_memory_mb: .total_memory_mb,
         used_memory_mb: .used_memory_mb,
         memory_utilization: .memory_utilization_percent
@@ -2327,7 +2327,7 @@ while true; do
     
     # Kafka performance
     echo "Kafka Performance:"
-    curl -s $FERRIS_HOST/metrics/kafka | jq '{
+    curl -s $VELO_HOST/metrics/kafka | jq '{
         records_per_second: .records_consumed_per_second,
         consumer_lag: .total_consumer_lag,
         avg_fetch_time_ms: .avg_fetch_time_ms
@@ -2344,14 +2344,14 @@ done
 #!/bin/bash
 # benchmark.sh
 
-FERRIS_CONTAINER="ferris-streams"
+VELO_CONTAINER="velo-streams"
 
-echo "Running FerrisStreams Performance Benchmark"
+echo "Running VeloStream Performance Benchmark"
 echo "============================================"
 
 # 1. Query Performance Test
 echo "1. Testing query performance..."
-docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql-multi benchmark \
     --test-type "query_performance" \
     --duration 60 \
     --concurrent-queries 10 \
@@ -2359,7 +2359,7 @@ docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
 
 # 2. Throughput Test
 echo "2. Testing throughput..."
-docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql-multi benchmark \
     --test-type "throughput" \
     --duration 120 \
     --target-rps 50000 \
@@ -2367,14 +2367,14 @@ docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
 
 # 3. Memory Stress Test
 echo "3. Testing memory usage..."
-docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql-multi benchmark \
     --test-type "memory_stress" \
     --memory-limit "8G" \
     --concurrent-jobs 20
 
 # 4. Latency Test
 echo "4. Testing latency..."
-docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql-multi benchmark \
     --test-type "latency" \
     --duration 60 \
     --percentiles "50,95,99"
@@ -2383,7 +2383,7 @@ docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
 echo "5. Testing scalability..."
 for jobs in 1 5 10 20 50; do
     echo "Testing with $jobs concurrent jobs..."
-    docker exec $FERRIS_CONTAINER ferris-sql-multi benchmark \
+    docker exec $VELO_CONTAINER velo-sql-multi benchmark \
         --test-type "scalability" \
         --concurrent-jobs $jobs \
         --duration 30
@@ -2469,20 +2469,20 @@ performance:
 pipeline {
     agent any
     stages {
-        stage('Build FerrisStreams Image') {
+        stage('Build VeloStream Image') {
             steps {
                 script {
-                    def image = docker.build("ferrisstreams:${env.BUILD_ID}")
+                    def image = docker.build("velostream:${env.BUILD_ID}")
                 }
             }
         }
         stage('Test SQL Queries') {
             steps {
                 script {
-                    docker.image("ferrisstreams:${env.BUILD_ID}").inside {
+                    docker.image("velostream:${env.BUILD_ID}").inside {
                         sh '''
                         # Test basic SQL functionality
-                        /usr/local/bin/ferris-sql execute \
+                        /usr/local/bin/velo-sql execute \
                           --query "SELECT COUNT(*) FROM test_topic LIMIT 1" \
                           --brokers kafka:9092 \
                           --topic test_topic \
@@ -2497,9 +2497,9 @@ pipeline {
             when { branch 'develop' }
             steps {
                 sh '''
-                docker tag ferrisstreams:${BUILD_ID} ferrisstreams:staging
-                kubectl set image deployment/ferrisstreams-staging \
-                  ferrisstreams=ferrisstreams:staging
+                docker tag velostream:${BUILD_ID} velostream:staging
+                kubectl set image deployment/velostream-staging \
+                  velostream=velostream:staging
                 '''
             }
         }
@@ -2508,9 +2508,9 @@ pipeline {
             steps {
                 input 'Deploy to production?'
                 sh '''
-                docker tag ferrisstreams:${BUILD_ID} ferrisstreams:production
-                kubectl set image deployment/ferrisstreams-prod \
-                  ferrisstreams=ferrisstreams:production
+                docker tag velostream:${BUILD_ID} velostream:production
+                kubectl set image deployment/velostream-prod \
+                  velostream=velostream:production
                 '''
             }
         }
@@ -2526,7 +2526,7 @@ pipeline {
 #### GitHub Actions Workflow
 ```yaml
 # .github/workflows/deploy.yml
-name: FerrisStreams Deployment
+name: VeloStream Deployment
 on:
   push:
     branches: [main, develop]
@@ -2550,14 +2550,14 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Build FerrisStreams
+    - name: Build VeloStream
       run: |
-        docker build -t ferrisstreams:test .
+        docker build -t velostream:test .
         
     - name: Run SQL Tests
       run: |
-        docker run --network host ferrisstreams:test \
-          /usr/local/bin/ferris-sql execute \
+        docker run --network host velostream:test \
+          /usr/local/bin/velo-sql execute \
           --query "SELECT 1 as test_value LIMIT 1" \
           --brokers localhost:9092 \
           --topic test \
@@ -2568,8 +2568,8 @@ jobs:
       run: |
         echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
         export KUBECONFIG=kubeconfig
-        kubectl set image deployment/ferrisstreams-staging \
-          ferrisstreams=ferrisstreams:${{ github.sha }}
+        kubectl set image deployment/velostream-staging \
+          velostream=velostream:${{ github.sha }}
 ```
 
 #### GitLab CI/CD Pipeline
@@ -2581,8 +2581,8 @@ stages:
   - deploy
 
 variables:
-  DOCKER_REGISTRY: registry.gitlab.com/yourorg/ferrisstreams
-  KUBERNETES_NAMESPACE: ferrisstreams
+  DOCKER_REGISTRY: registry.gitlab.com/yourorg/velostream
+  KUBERNETES_NAMESPACE: velostream
 
 build:
   stage: build
@@ -2598,7 +2598,7 @@ test-sql:
   script:
     - docker run --network container:kafka \
         $DOCKER_REGISTRY:$CI_COMMIT_SHA \
-        /usr/local/bin/ferris-sql execute \
+        /usr/local/bin/velo-sql execute \
         --query "SELECT COUNT(*) as records FROM test_stream LIMIT 1" \
         --brokers kafka:9092 \
         --topic test_stream \
@@ -2608,8 +2608,8 @@ deploy-staging:
   stage: deploy
   script:
     - kubectl config use-context staging
-    - kubectl set image deployment/ferrisstreams \
-        ferrisstreams=$DOCKER_REGISTRY:$CI_COMMIT_SHA \
+    - kubectl set image deployment/velostream \
+        velostream=$DOCKER_REGISTRY:$CI_COMMIT_SHA \
         -n $KUBERNETES_NAMESPACE-staging
   only:
     - develop
@@ -2618,8 +2618,8 @@ deploy-production:
   stage: deploy
   script:
     - kubectl config use-context production  
-    - kubectl set image deployment/ferrisstreams \
-        ferrisstreams=$DOCKER_REGISTRY:$CI_COMMIT_SHA \
+    - kubectl set image deployment/velostream \
+        velostream=$DOCKER_REGISTRY:$CI_COMMIT_SHA \
         -n $KUBERNETES_NAMESPACE-prod
   when: manual
   only:
@@ -2636,12 +2636,12 @@ global:
   evaluation_interval: 15s
 
 rule_files:
-  - "ferrisstreams_rules.yml"
+  - "velostream_rules.yml"
 
 scrape_configs:
-  - job_name: 'ferrisstreams'
+  - job_name: 'velostream'
     static_configs:
-      - targets: ['ferrisstreams:8080']
+      - targets: ['velostream:8080']
     metrics_path: /metrics
     scrape_interval: 5s
     scrape_timeout: 5s
@@ -2658,61 +2658,61 @@ alerting:
           - alertmanager:9093
 ```
 
-#### FerrisStreams Prometheus Rules
+#### VeloStream Prometheus Rules
 ```yaml
-# ferrisstreams_rules.yml
+# velostream_rules.yml
 groups:
-- name: ferrisstreams.rules
+- name: velostream.rules
   rules:
-  - alert: FerrisStreamsHighMemoryUsage
-    expr: ferrisstreams_memory_usage_bytes > 8e9  # 8GB
+  - alert: VeloStreamHighMemoryUsage
+    expr: velostream_memory_usage_bytes > 8e9  # 8GB
     for: 2m
     labels:
       severity: warning
     annotations:
-      summary: "FerrisStreams high memory usage"
+      summary: "VeloStream high memory usage"
       description: "Memory usage is {{ $value | humanize1024 }}"
       
-  - alert: FerrisStreamsHighQueryLatency
-    expr: ferrisstreams_query_duration_seconds > 5.0
+  - alert: VeloStreamHighQueryLatency
+    expr: velostream_query_duration_seconds > 5.0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "FerrisStreams high query latency"
+      summary: "VeloStream high query latency"
       description: "Query latency is {{ $value }}s"
       
-  - alert: FerrisStreamsConsumerLag
-    expr: ferrisstreams_kafka_consumer_lag > 1000
+  - alert: VeloStreamConsumerLag
+    expr: velostream_kafka_consumer_lag > 1000
     for: 5m
     labels:
       severity: warning
     annotations:
-      summary: "FerrisStreams consumer lag"
+      summary: "VeloStream consumer lag"
       description: "Consumer lag is {{ $value }} messages"
       
-  - alert: FerrisStreamsDown
-    expr: up{job="ferrisstreams"} == 0
+  - alert: VeloStreamDown
+    expr: up{job="velostream"} == 0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "FerrisStreams is down"
-      description: "FerrisStreams has been down for more than 1 minute"
+      summary: "VeloStream is down"
+      description: "VeloStream has been down for more than 1 minute"
 ```
 
 #### Grafana Dashboard Configuration
 ```json
 {
   "dashboard": {
-    "title": "FerrisStreams SQL Monitoring",
+    "title": "VeloStream SQL Monitoring",
     "panels": [
       {
         "title": "Query Throughput",
         "type": "graph",
         "targets": [
           {
-            "expr": "rate(ferrisstreams_queries_total[5m])",
+            "expr": "rate(velostream_queries_total[5m])",
             "legendFormat": "Queries/sec"
           }
         ]
@@ -2722,7 +2722,7 @@ groups:
         "type": "graph", 
         "targets": [
           {
-            "expr": "ferrisstreams_memory_usage_bytes",
+            "expr": "velostream_memory_usage_bytes",
             "legendFormat": "Memory Usage"
           }
         ]
@@ -2732,7 +2732,7 @@ groups:
         "type": "graph",
         "targets": [
           {
-            "expr": "ferrisstreams_kafka_consumer_lag",
+            "expr": "velostream_kafka_consumer_lag",
             "legendFormat": "Consumer Lag"
           }
         ]
@@ -2742,7 +2742,7 @@ groups:
         "type": "stat",
         "targets": [
           {
-            "expr": "ferrisstreams_active_jobs",
+            "expr": "velostream_active_jobs",
             "legendFormat": "Active Jobs"
           }
         ]
@@ -2756,14 +2756,14 @@ groups:
 
 #### Apache Flink Integration
 ```yaml
-# flink-ferrisstreams-bridge.yaml
+# flink-velostream-bridge.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: flink-ferrisstreams-config
+  name: flink-velostream-config
 data:
   schema-compatibility.yaml: |
-    # Shared Avro schemas between Flink and FerrisStreams
+    # Shared Avro schemas between Flink and VeloStream
     schemas:
       financial_transaction:
         type: "record"
@@ -2798,8 +2798,8 @@ spec:
         env:
         - name: FLINK_CHECKPOINT_DIR
           value: "s3://checkpoints/flink"
-        - name: FERRISSTREAMS_CONFIG
-          value: "/config/ferrisstreams.yaml"
+        - name: VELOSTREAM_CONFIG
+          value: "/config/velostream.yaml"
         volumeMounts:
         - name: config
           mountPath: /config
@@ -2808,19 +2808,19 @@ spec:
 #### Kafka Connect Integration
 ```json
 {
-  "name": "ferrisstreams-sink-connector",
+  "name": "velostream-sink-connector",
   "config": {
     "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
     "tasks.max": "3",
-    "topics": "ferrisstreams_output",
+    "topics": "velostream_output",
     "connection.url": "jdbc:postgresql://postgres:5432/analytics",
-    "connection.user": "ferrisstreams",
+    "connection.user": "velostream",
     "connection.password": "${securepass:postgres_password}",
     "auto.create": "true",
     "auto.evolve": "true",
     "insert.mode": "upsert",
     "pk.mode": "record_key",
-    "table.name.format": "ferrisstreams_${topic}",
+    "table.name.format": "velostream_${topic}",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "io.confluent.connect.avro.AvroConverter",
     "value.converter.schema.registry.url": "http://schema-registry:8081"
@@ -2836,26 +2836,26 @@ kind: ConfigMap
 metadata:
   name: elasticsearch-pipeline
 data:
-  ferrisstreams-pipeline.conf: |
+  velostream-pipeline.conf: |
     input {
       kafka {
         bootstrap_servers => "kafka:9092"
-        topics => ["ferrisstreams_logs", "ferrisstreams_metrics"]
+        topics => ["velostream_logs", "velostream_metrics"]
         codec => "json"
         group_id => "elasticsearch_indexer"
       }
     }
     
     filter {
-      if [source] == "ferrisstreams" {
+      if [source] == "velostream" {
         mutate {
-          add_field => { "[@metadata][index]" => "ferrisstreams-logs-%{+YYYY.MM.dd}" }
+          add_field => { "[@metadata][index]" => "velostream-logs-%{+YYYY.MM.dd}" }
         }
       }
       
       if [type] == "metrics" {
         mutate {
-          add_field => { "[@metadata][index]" => "ferrisstreams-metrics-%{+YYYY.MM}" }
+          add_field => { "[@metadata][index]" => "velostream-metrics-%{+YYYY.MM}" }
         }
       }
     }
@@ -2864,8 +2864,8 @@ data:
       elasticsearch {
         hosts => ["elasticsearch:9200"]
         index => "%{[@metadata][index]}"
-        template_name => "ferrisstreams"
-        template => "/usr/share/logstash/templates/ferrisstreams.json"
+        template_name => "velostream"
+        template => "/usr/share/logstash/templates/velostream.json"
         template_overwrite => true
       }
     }
@@ -2875,22 +2875,22 @@ data:
 
 #### Infrastructure as Code (Terraform)
 ```hcl
-# ferrisstreams.tf
-resource "kubernetes_namespace" "ferrisstreams" {
+# velostream.tf
+resource "kubernetes_namespace" "velostream" {
   metadata {
-    name = "ferrisstreams-${var.environment}"
+    name = "velostream-${var.environment}"
     
     labels = {
-      name = "ferrisstreams"
+      name = "velostream"
       environment = var.environment
     }
   }
 }
 
-resource "kubernetes_deployment" "ferrisstreams" {
+resource "kubernetes_deployment" "velostream" {
   metadata {
-    name      = "ferrisstreams"
-    namespace = kubernetes_namespace.ferrisstreams.metadata[0].name
+    name      = "velostream"
+    namespace = kubernetes_namespace.velostream.metadata[0].name
   }
   
   spec {
@@ -2898,15 +2898,15 @@ resource "kubernetes_deployment" "ferrisstreams" {
     
     selector {
       match_labels = {
-        app = "ferrisstreams"
+        app = "velostream"
       }
     }
     
     template {
       metadata {
         labels = {
-          app = "ferrisstreams"
-          version = var.ferrisstreams_version
+          app = "velostream"
+          version = var.velostream_version
         }
         annotations = {
           "prometheus.io/scrape" = "true"
@@ -2917,8 +2917,8 @@ resource "kubernetes_deployment" "ferrisstreams" {
       
       spec {
         container {
-          name  = "ferrisstreams"
-          image = "ferrisstreams:${var.ferrisstreams_version}"
+          name  = "velostream"
+          image = "velostream:${var.velostream_version}"
           
           port {
             container_port = 8080
@@ -2973,7 +2973,7 @@ resource "kubernetes_deployment" "ferrisstreams" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.ferrisstreams.metadata[0].name
+            name = kubernetes_config_map.velostream.metadata[0].name
           }
         }
       }
@@ -2981,15 +2981,15 @@ resource "kubernetes_deployment" "ferrisstreams" {
   }
 }
 
-resource "kubernetes_service" "ferrisstreams" {
+resource "kubernetes_service" "velostream" {
   metadata {
-    name      = "ferrisstreams-service"
-    namespace = kubernetes_namespace.ferrisstreams.metadata[0].name
+    name      = "velostream-service"
+    namespace = kubernetes_namespace.velostream.metadata[0].name
   }
   
   spec {
     selector = {
-      app = "ferrisstreams"
+      app = "velostream"
     }
     
     port {
@@ -3002,10 +3002,10 @@ resource "kubernetes_service" "ferrisstreams" {
   }
 }
 
-resource "kubernetes_config_map" "ferrisstreams" {
+resource "kubernetes_config_map" "velostream" {
   metadata {
-    name      = "ferrisstreams-config"
-    namespace = kubernetes_namespace.ferrisstreams.metadata[0].name
+    name      = "velostream-config"
+    namespace = kubernetes_namespace.velostream.metadata[0].name
   }
   
   data = {
@@ -3026,7 +3026,7 @@ resource "kubernetes_config_map" "ferrisstreams" {
 replicaCount: 3
 
 image:
-  repository: ferrisstreams
+  repository: velostream
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -3042,14 +3042,14 @@ ingress:
     nginx.ingress.kubernetes.io/rewrite-target: /
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
   hosts:
-    - host: ferrisstreams.yourdomain.com
+    - host: velostream.yourdomain.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: ferrisstreams-tls
+    - secretName: velostream-tls
       hosts:
-        - ferrisstreams.yourdomain.com
+        - velostream.yourdomain.com
 
 resources:
   limits:
@@ -3090,7 +3090,7 @@ monitoring:
   
   grafana:
     enabled: true
-    dashboard_config_map: ferrisstreams-dashboard
+    dashboard_config_map: velostream-dashboard
 ```
 
 #### ArgoCD Application Configuration
@@ -3099,7 +3099,7 @@ monitoring:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ferrisstreams
+  name: velostream
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
@@ -3107,9 +3107,9 @@ spec:
   project: default
   
   source:
-    repoURL: https://github.com/yourorg/ferrisstreams-helm
+    repoURL: https://github.com/yourorg/velostream-helm
     targetRevision: HEAD
-    path: charts/ferrisstreams
+    path: charts/velostream
     helm:
       valueFiles:
       - values-production.yaml
@@ -3121,7 +3121,7 @@ spec:
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: ferrisstreams-prod
+    namespace: velostream-prod
   
   syncPolicy:
     automated:
@@ -3159,7 +3159,7 @@ data:
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig  
 metadata:
-  name: ferrisstreams-pagerduty
+  name: velostream-pagerduty
   namespace: monitoring
 spec:
   route:
@@ -3182,7 +3182,7 @@ spec:
     - routingKey:
         key: integration_key
         name: pagerduty-config
-      description: 'Critical FerrisStreams Alert: {{ .GroupLabels.alertname }}'
+      description: 'Critical VeloStream Alert: {{ .GroupLabels.alertname }}'
       severity: 'critical'
       
   - name: 'pagerduty-warning'  
@@ -3190,7 +3190,7 @@ spec:
     - routingKey:
         key: integration_key
         name: pagerduty-config
-      description: 'Warning FerrisStreams Alert: {{ .GroupLabels.alertname }}'
+      description: 'Warning VeloStream Alert: {{ .GroupLabels.alertname }}'
       severity: 'warning'
 ```
 
@@ -3208,7 +3208,7 @@ data:
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
 metadata:
-  name: ferrisstreams-slack
+  name: velostream-slack
   namespace: monitoring
 spec:
   route:
@@ -3224,8 +3224,8 @@ spec:
     - apiURL:
         key: url
         name: slack-webhook
-      channel: '#ferrisstreams-alerts'
-      title: 'FerrisStreams Alert: {{ .GroupLabels.alertname }}'
+      channel: '#velostream-alerts'
+      title: 'VeloStream Alert: {{ .GroupLabels.alertname }}'
       text: |
         {{ range .Alerts }}
         Alert: {{ .Annotations.summary }}
@@ -3240,8 +3240,8 @@ spec:
     - apiURL:
         key: url
         name: slack-webhook
-      channel: '#ferrisstreams-info'
-      title: 'FerrisStreams Info: {{ .GroupLabels.alertname }}'
+      channel: '#velostream-info'
+      title: 'VeloStream Info: {{ .GroupLabels.alertname }}'
       color: 'good'
 ```
 
@@ -3249,7 +3249,7 @@ spec:
 
 ## 🎉 Conclusion
 
-**🎊 FerrisStreams SQL is now production-ready with:**
+**🎊 VeloStream SQL is now production-ready with:**
 - **Complete Docker deployment** with all serialization formats
 - **Financial precision arithmetic** (42x performance improvement)
 - **Flink-compatible Avro** decimal logical types  

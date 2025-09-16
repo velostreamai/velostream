@@ -1,4 +1,4 @@
-# Clippy configuration for FerrisStreams
+# Clippy configuration for VeloStream
 # Allow certain patterns that are common in streaming frameworks
 
 # Allow breaking exported API during development
