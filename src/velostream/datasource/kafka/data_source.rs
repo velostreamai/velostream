@@ -368,6 +368,54 @@ impl KafkaDataSource {
             Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
         }
     }
+
+    /// Validate Kafka source configuration properties
+    /// Returns (missing_required, missing_recommended, warnings)
+    pub fn validate_source_config(
+        properties: &HashMap<String, String>,
+        name: &str,
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let required_keys = vec!["consumer_config.bootstrap_servers", "topic"];
+        let recommended_keys = vec!["group.id"];
+
+        let mut missing_required = Vec::new();
+        let mut missing_recommended = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Check required properties
+        for key in &required_keys {
+            if !properties.contains_key(*key) {
+                missing_required.push(format!(
+                    "Kafka source '{}' missing required config: {}",
+                    name, key
+                ));
+            }
+        }
+
+        // Check recommended properties
+        for key in &recommended_keys {
+            if !properties.contains_key(*key) {
+                missing_recommended.push(format!(
+                    "Kafka source '{}' missing recommended config: {}",
+                    name, key
+                ));
+            }
+        }
+
+        // Check for batch configuration presence
+        let has_batch_config = properties.keys().any(|k| {
+            k.contains("batch") || k.contains("poll") || k.contains("fetch")
+        });
+
+        if has_batch_config {
+            warnings.push(format!(
+                "Kafka source '{}' has batch configuration - ensure this is intended",
+                name
+            ));
+        }
+
+        (missing_required, missing_recommended, warnings)
+    }
 }
 
 #[async_trait]

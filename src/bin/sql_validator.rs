@@ -45,6 +45,8 @@ pub struct QueryValidationResult {
     pub warnings: Vec<String>,
     pub sources_found: Vec<String>,
     pub sinks_found: Vec<String>,
+    pub source_configs: HashMap<String, HashMap<String, String>>, // source_name -> flattened config
+    pub sink_configs: HashMap<String, HashMap<String, String>>,   // sink_name -> flattened config
     pub missing_source_configs: Vec<String>,
     pub missing_sink_configs: Vec<String>,
     pub syntax_issues: Vec<String>,
@@ -150,6 +152,8 @@ impl SqlValidator {
             warnings: Vec::new(),
             sources_found: Vec::new(),
             sinks_found: Vec::new(),
+            source_configs: HashMap::new(),
+            sink_configs: HashMap::new(),
             missing_source_configs: Vec::new(),
             missing_sink_configs: Vec::new(),
             syntax_issues: Vec::new(),
@@ -339,6 +343,9 @@ impl SqlValidator {
         result: &mut QueryValidationResult,
     ) {
         for source in sources {
+            // Store the flattened configuration for later use
+            result.source_configs.insert(source.name.clone(), source.properties.clone());
+
             match source.source_type {
                 DataSourceType::Kafka => {
                     self.validate_kafka_source_config(&source.properties, &source.name, result);
@@ -368,6 +375,9 @@ impl SqlValidator {
         result: &mut QueryValidationResult,
     ) {
         for sink in sinks {
+            // Store the flattened configuration for later use
+            result.sink_configs.insert(sink.name.clone(), sink.properties.clone());
+
             match sink.sink_type {
                 DataSinkType::Kafka => {
                     self.validate_kafka_sink_config(&sink.properties, &sink.name, result);
@@ -394,64 +404,51 @@ impl SqlValidator {
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
-        let recommended_keys = vec!["value.format", "group.id", "failure_strategy"];
+        // Delegate to KafkaDataSource validation method
+        use velostream::velostream::datasource::kafka::data_source::KafkaDataSource;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_source_configs.push(format!(
-                    "Kafka source '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (missing_required, missing_recommended, warnings) =
+            KafkaDataSource::validate_source_config(properties, name);
+
+        // Add missing required configs to result
+        for missing in missing_required {
+            result.missing_source_configs.push(missing);
+            result.is_valid = false;
         }
 
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                result.warnings.push(format!(
-                    "Kafka source '{}' missing recommended config: {}",
-                    name, key
-                ));
-            }
+        // Add missing recommended configs as warnings
+        for missing in missing_recommended {
+            result.warnings.push(missing);
         }
 
-        // Check for batch configuration
-        if self.has_batch_config(properties) {
-            result.warnings.push(format!(
-                "Kafka source '{}' has batch configuration - ensure this is intended",
-                name
-            ));
+        // Add additional warnings
+        for warning in warnings {
+            result.warnings.push(warning);
         }
     }
 
-    /// Validate Kafka sink configuration
+    /// Validate Kafka sink configuration (delegated to KafkaDataSink)
     fn validate_kafka_sink_config(
         &self,
         properties: &HashMap<String, String>,
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
-        let recommended_keys = vec!["value.format", "failure_strategy"];
+        use velostream::velostream::datasource::kafka::data_sink::KafkaDataSink;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!(
-                    "Kafka sink '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (errors, warnings, recommendations) = KafkaDataSink::validate_sink_config(properties, name);
+
+        for error in errors {
+            result.missing_sink_configs.push(error);
+            result.is_valid = false;
         }
 
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                result.warnings.push(format!(
-                    "Kafka sink '{}' missing recommended config: {}",
-                    name, key
-                ));
-            }
+        for warning in warnings {
+            result.warnings.push(warning);
+        }
+
+        for recommendation in recommendations {
+            result.performance_warnings.push(recommendation);
         }
     }
 
@@ -486,36 +483,28 @@ impl SqlValidator {
         }
     }
 
-    /// Validate File sink configuration  
+    /// Validate File sink configuration (delegated to FileDataSink)
     fn validate_file_sink_config(
         &self,
         properties: &HashMap<String, String>,
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["path", "format"];
+        use velostream::velostream::datasource::file::data_sink::FileDataSink;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!(
-                    "File sink '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (errors, warnings, recommendations) = FileDataSink::validate_sink_config(properties, name);
+
+        for error in errors {
+            result.missing_sink_configs.push(error);
+            result.is_valid = false;
         }
 
-        // Check if output directory exists
-        if let Some(path) = properties.get("path") {
-            if let Some(parent) = Path::new(path).parent() {
-                if !parent.exists() {
-                    result.warnings.push(format!(
-                        "File sink '{}' output directory does not exist: {}",
-                        name,
-                        parent.display()
-                    ));
-                }
-            }
+        for warning in warnings {
+            result.warnings.push(warning);
+        }
+
+        for recommendation in recommendations {
+            result.performance_warnings.push(recommendation);
         }
     }
 
@@ -525,6 +514,93 @@ impl SqlValidator {
             k.contains("batch.strategy") || k.contains("batch.size") || k.contains("batch.timeout")
         })
     }
+
+    /// Check if a source configuration specifies a serialization format
+    fn check_serialization_format_in_config(&self, config: &HashMap<String, String>) -> bool {
+        let format = self.detect_serialization_format(config);
+        !format.is_empty()
+    }
+
+    /// Detect the serialization format from configuration
+    fn detect_serialization_format(&self, config: &HashMap<String, String>) -> String {
+        // Check explicit format configurations first
+        if let Some(format) = config.get("value.format") {
+            return format.clone();
+        }
+        if let Some(format) = config.get("schema.value.format") {
+            return format.clone();
+        }
+
+        // Check serializer configurations
+        if let Some(serializer) = config.get("value.serializer") {
+            return serializer.clone();
+        }
+        if let Some(serializer) = config.get("schema.value.serializer") {
+            return serializer.clone();
+        }
+
+        // SPECIAL HANDLING: Check if the "schema" key contains serialization info
+        if let Some(schema_str) = config.get("schema") {
+            // Check for value.serializer pattern in the schema string
+            if schema_str.contains("\"value.serializer\": String(\"avro\")") {
+                return "avro".to_string();
+            }
+            if schema_str.contains("\"value.serializer\": String(\"protobuf\")") {
+                return "protobuf".to_string();
+            }
+            if schema_str.contains("\"value.serializer\": String(\"json\")") {
+                return "json".to_string();
+            }
+
+            // Check for value_schema which implies Avro
+            if schema_str.contains("\"value_schema\":") {
+                return "avro".to_string();
+            }
+        }
+
+
+        // Check for schema configurations that imply format
+        if config.contains_key("value_schema") {
+            return "avro".to_string(); // Inline schema implies Avro
+        }
+        if config.contains_key("schema.value_schema") {
+            return "avro".to_string(); // Nested inline schema implies Avro
+        }
+        if config.contains_key("avro.schema") {
+            return "avro".to_string();
+        }
+        if config.contains_key("schema.avro.schema") {
+            return "avro".to_string();
+        }
+        if config.contains_key("protobuf.schema") {
+            return "protobuf".to_string();
+        }
+        if config.contains_key("schema.protobuf.schema") {
+            return "protobuf".to_string();
+        }
+        if config.contains_key("json.schema") {
+            return "json".to_string();
+        }
+        if config.contains_key("schema.json.schema") {
+            return "json".to_string();
+        }
+
+        // Check for implied formats in flattened keys
+        for (key, value) in config {
+            if key.contains("avro") && key.contains("schema") && !value.trim().is_empty() {
+                return "avro".to_string();
+            }
+            if key.contains("protobuf") && key.contains("schema") && !value.trim().is_empty() {
+                return "protobuf".to_string();
+            }
+            if key.contains("json") && key.contains("schema") && !value.trim().is_empty() {
+                return "json".to_string();
+            }
+        }
+
+        "json".to_string() // Default to JSON when no format detected
+    }
+
 
     /// Check for syntax compatibility issues
     fn check_syntax_compatibility(
@@ -649,6 +725,9 @@ impl SqlValidator {
 
         // Generate recommendations
         self.generate_recommendations(&result.query_results, &mut result.recommendations);
+
+        // Validate batch processing and cross-cutting concerns
+        self.validate_batch_processing(&mut result.query_results, &mut result.recommendations);
 
         // Final validation
         if result.valid_queries != result.total_queries {
@@ -808,6 +887,202 @@ impl SqlValidator {
         }
     }
 
+    /// Validate batch processing and cross-cutting configuration concerns
+    fn validate_batch_processing(
+        &self,
+        query_results: &mut Vec<QueryValidationResult>,
+        recommendations: &mut Vec<String>,
+    ) {
+        let mut sources_without_failure_strategy = Vec::new();
+        let mut sources_without_value_format = Vec::new();
+        let mut has_batch_strategy = false;
+        let mut total_sources = 0;
+        let mut total_sinks = 0;
+
+        // Check each query for missing batch processing configurations
+        for query_result in query_results.iter_mut() {
+            total_sources += query_result.sources_found.len();
+            total_sinks += query_result.sinks_found.len();
+
+            let mut query_sources_missing_batch_strategy = Vec::new();
+            let mut query_sources_missing_value_format = Vec::new();
+            let mut query_missing_failure_strategy = false;
+
+            // Check for batch.strategy configuration
+            if query_result.query_text.contains("batch.strategy") {
+                has_batch_strategy = true;
+            } else if !query_result.sources_found.is_empty() {
+                query_sources_missing_batch_strategy = query_result.sources_found.clone();
+            }
+
+            // Check for processor type configuration
+            let has_processor_type = query_result.query_text.contains("processor.type");
+            let mut query_missing_processor_type = false;
+
+            if !has_processor_type && (!query_result.sources_found.is_empty() || !query_result.sinks_found.is_empty()) {
+                query_missing_processor_type = true;
+            }
+
+            // Check for processor-level failure.strategy configuration
+            // failure.strategy applies to both simple and transactional processors
+            let has_failure_strategy = query_result.query_text.contains("failure.strategy");
+
+            if !has_failure_strategy && (!query_result.sources_found.is_empty() || !query_result.sinks_found.is_empty()) {
+                query_missing_failure_strategy = true;
+                // Add all sources to the global tracking for the summary
+                sources_without_failure_strategy.extend(query_result.sources_found.clone());
+            }
+
+            // Check for missing serialization format in source configs and always display detected format
+            for source_name in &query_result.sources_found {
+                if let Some(source_config) = query_result.source_configs.get(source_name) {
+                    let detected_format = self.detect_serialization_format(source_config);
+                    let has_serialization_format = self.check_serialization_format_in_config(source_config);
+
+                    // Always display the detected serialization format
+                    query_result.performance_warnings.push(format!(
+                        "📋 Source '{}': Serialization format detected as '{}'",
+                        source_name, detected_format
+                    ));
+
+                    if !has_serialization_format {
+                        sources_without_value_format.push(source_name.clone());
+                        query_sources_missing_value_format.push(source_name.clone());
+                    }
+                }
+            }
+
+            // Check for serialization format in sink configs and always display detected format
+            for sink_name in &query_result.sinks_found {
+                if let Some(sink_config) = query_result.sink_configs.get(sink_name) {
+                    let detected_format = self.detect_serialization_format(sink_config);
+
+                    // Always display the detected serialization format
+                    query_result.performance_warnings.push(format!(
+                        "📋 Sink '{}': Serialization format detected as '{}'",
+                        sink_name, detected_format
+                    ));
+                }
+            }
+
+            // Note: failure_strategy is processor-level, not sink-specific
+
+            // Add batch processing recommendations to this specific query
+            if !query_sources_missing_value_format.is_empty() {
+                query_result.warnings.push(format!(
+                    "Serialization - value.format: Missing for sources [{}]. Example: 'value.format' = 'avro'. Possible values: 'json' (dev/simple), 'avro' (prod/schema), 'protobuf' (performance), 'string', 'bytes'",
+                    query_sources_missing_value_format.join(", ")
+                ));
+            }
+
+            if query_missing_processor_type {
+                query_result.warnings.push(
+                    "Job Processing - processor.type: Not specified (default: simple). Example: 'processor.type' = 'simple'".to_string()
+                );
+                query_result.warnings.push(
+                    "   Parameters for simple: buffer.size (default: 64KB), parallelism (default: available cores), flush.interval (default: 100ms)".to_string()
+                );
+                query_result.warnings.push(
+                    "   Parameters for transactional: transaction.timeout (default: 30s), isolation.level ('read_uncommitted', 'read_committed', 'repeatable_read', 'serializable'), checkpoint.interval (default: 10s)".to_string()
+                );
+                query_result.warnings.push(
+                    "   Possible values: 'simple' (fast, low-latency, default), 'transactional' (ACID guarantees)".to_string()
+                );
+            }
+
+            if query_missing_failure_strategy {
+                query_result.warnings.push(
+                    "Batch Processing - failure.strategy: Recommended for robust error handling (default: LogAndContinue).".to_string()
+                );
+                query_result.warnings.push(
+                    "   Example: 'failure.strategy' = 'SendToDLQ', 'dlq.topic' = 'failed_records', 'retry.attempts' = '3'".to_string()
+                );
+                query_result.warnings.push(
+                    "   Possible values:".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'LogAndContinue' - Log errors and continue processing. Parameters: log.level (default: ERROR)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'SendToDLQ' - Send failed records to dead letter queue. Parameters: dlq.topic, dlq.bootstrap.servers, retry.attempts (default: 3)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'Halt' - Stop processing on first error. Parameters: halt.timeout (default: 0s), cleanup.on.halt (default: true)".to_string()
+                );
+            }
+
+            if !query_sources_missing_batch_strategy.is_empty() {
+                query_result.warnings.push(
+                    "Batch Processing - batch.strategy: Not specified (default: FixedSize). Example: 'batch.strategy' = 'FixedSize', 'batch.size' = '1000', 'batch.timeout' = '5s'".to_string()
+                );
+                query_result.warnings.push(
+                    "   Possible values:".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'FixedSize' - Fixed number of records per batch. Parameters: batch.size (default: 1000), batch.timeout (default: 10s)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'TimeWindow' - Time-based batching. Parameters: window.size (default: 1m), window.grace (default: 10s)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'AdaptiveSize' - Dynamic batch sizing. Parameters: min.batch.size (default: 100), max.batch.size (default: 10000), target.latency (default: 100ms)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'MemoryBased' - Memory-based batching. Parameters: max.memory (default: 64MB), memory.check.interval (default: 1s)".to_string()
+                );
+                query_result.warnings.push(
+                    "   • 'LowLatency' - Minimal delay processing. Parameters: flush.interval (default: 1ms), max.wait (default: 10ms)".to_string()
+                );
+            }
+        }
+
+        // Generate batch processing recommendations
+        if !sources_without_value_format.is_empty() {
+            recommendations.push(format!(
+                "⚠️  Serialization - value.format: Missing for sources [{}]. Example: 'value.format' = 'avro'. Possible values: 'json' (dev/simple), 'avro' (prod/schema), 'protobuf' (performance), 'string', 'bytes'",
+                sources_without_value_format.join(", ")
+            ));
+        }
+
+        if !sources_without_failure_strategy.is_empty() {
+            recommendations.push(
+                "⚠️  Batch Processing - failure.strategy: Recommended for robust error handling in data processing (default: LogAndContinue). Example: 'failure.strategy' = 'LogAndContinue'. Possible values: 'LogAndContinue' (dev), 'SendToDLQ' (prod), 'Halt'".to_string()
+            );
+        }
+
+        // WARN about missing batch.strategy with detailed examples
+        if !has_batch_strategy && (total_sources > 0 || total_sinks > 0) {
+            recommendations.push(
+                "⚠️  Batch Processing - batch.strategy: Not specified (default: FixedSize). Example: 'batch.strategy' = 'FixedSize'. Possible values:".to_string()
+            );
+            recommendations.push(
+                "   • 'FixedSize' - Process fixed number of records per batch (good for consistent workloads)".to_string()
+            );
+            recommendations.push(
+                "   • 'TimeWindow' - Process records within time windows (good for real-time processing)".to_string()
+            );
+            recommendations.push(
+                "   • 'AdaptiveSize' - Dynamically adjust batch size based on throughput (good for variable workloads)".to_string()
+            );
+            recommendations.push(
+                "   • 'MemoryBased' - Batch based on memory usage (good for large records)".to_string()
+            );
+            recommendations.push(
+                "   • 'LowLatency' - Optimize for minimal processing delay (good for trading/alerts)".to_string()
+            );
+            recommendations.push(
+                "   Example configuration: WITH ('batch.strategy' = 'FixedSize', 'batch.size' = '1000', 'batch.timeout' = '5s')".to_string()
+            );
+        }
+
+        // Additional recommendations for complex applications
+        if total_sources > 1 || total_sinks > 1 {
+            recommendations.push(
+                "💡 Batch Processing - Multi-source/sink: Consider different strategies per source/sink based on data characteristics and latency requirements".to_string()
+            );
+        }
+    }
+
     /// Validate multiple SQL files
     pub fn validate_directory(&self, dir_path: &Path) -> Vec<ApplicationValidationResult> {
         let mut results = Vec::new();
@@ -926,7 +1201,16 @@ fn print_validation_result(result: &ApplicationValidationResult) {
 
     // Query-level results
     for (index, query_result) in result.query_results.iter().enumerate() {
-        if !query_result.is_valid || !query_result.warnings.is_empty() {
+        // Show all queries - valid ones for confirmation, invalid ones for debugging
+        let should_show = !query_result.is_valid ||
+                         !query_result.warnings.is_empty() ||
+                         !query_result.parsing_errors.is_empty() ||
+                         !query_result.configuration_errors.is_empty() ||
+                         !query_result.syntax_issues.is_empty() ||
+                         !query_result.performance_warnings.is_empty() ||
+                         query_result.is_valid; // Always show valid queries for confirmation
+
+        if should_show {
             println!(
                 "\n📝 Query #{} ({}): {}",
                 index + 1,

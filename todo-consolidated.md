@@ -15,6 +15,12 @@
 
 ### **📋 Essential Working Demos**
 - [ ] **Financial Trading Demo** (PRIMARY - use Protobuf)
+  - [ ] Run sql-validator.sh to validate .sql files and related config
+  - [ ] Refactor sql_validator to delegate datasource property checks to respective modules
+  - [ ] Refactor sql_validator to delegate data sink property checks to respective modules
+  - [ ] Verify window() function support in SQL queries
+  - [ ] Verify having() clause support in SQL queries
+  - [ ] Verify subquery support in SQL queries
   - [ ] Fix Grafana startup issues in existing demo
   - [ ] Convert market data to Protobuf messages for performance
   - [ ] Add ScaledInteger financial precision showcase

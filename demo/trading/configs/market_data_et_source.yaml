@@ -5,10 +5,8 @@ extends: common_kafka_source.yaml
 
 # Topic-specific settings
 topic:
-  name: "market_data"
+  name: "market_data_et"
   
-# Consumer group for this specific use case
-consumer_group: "trading_analytics_group"
 
 # Performance profile override
 performance_profile: ultra_low_latency
@@ -17,7 +15,7 @@ performance_profile: ultra_low_latency
 schema:
   key_field: symbol
   value.serializer: "avro"
-  value.schema.file: "schemas/market_data.avsc"
+  value.schema.file: "schemas/market_data_et.avsc"
   
   # Alternative inline schema definition:
   # avro.schema: |

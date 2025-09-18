@@ -543,37 +543,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "velostream"
-version = "0.1.0"
-dependencies = [
- "apache-avro",
- "async-trait",
- "base64",
- "chrono",
- "clap",
- "env_logger 0.11.8",
- "futures",
- "lazy_static",
- "log",
- "logtest",
- "nom",
- "pretty_env_logger",
- "prost",
- "prost-build",
- "rand 0.8.5",
- "rdkafka",
- "regex",
- "reqwest",
- "rust_decimal",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,6 +833,15 @@ dependencies = [
  "native-tls",
  "tokio",
  "tokio-native-tls",
+]
+
+[[package]]
+name = "hyperloglogplus"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "621debdf94dcac33e50475fdd76d34d5ea9c0362a834b9db08c3024696c1fbe3"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1483,6 +1461,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot",
+ "protobuf",
+ "thiserror 2.0.16",
+]
+
+[[package]]
 name = "prost"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1532,6 +1525,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
  "prost",
+]
+
+[[package]]
+name = "protobuf"
+version = "3.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d65a1d4ddae7d8b5de68153b48f6aa3bba8cb002b243dbdbc55a5afbc98f99f4"
+dependencies = [
+ "once_cell",
+ "protobuf-support",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "protobuf-support"
+version = "3.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e36c2f31e0a47f9280fb347ef5e461ffcd2c52dd520d8e216b52f93b0b0d7d6"
+dependencies = [
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2296,7 +2309,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "env_logger 0.11.8",
- "velostream",
  "log",
  "rand 0.8.5",
  "rdkafka",
@@ -2304,6 +2316,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "velostream",
 ]
 
 [[package]]
@@ -2376,6 +2389,39 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "velostream"
+version = "0.1.0"
+dependencies = [
+ "apache-avro",
+ "async-trait",
+ "base64",
+ "chrono",
+ "clap",
+ "env_logger 0.11.8",
+ "futures",
+ "hyperloglogplus",
+ "lazy_static",
+ "log",
+ "logtest",
+ "nom",
+ "pretty_env_logger",
+ "prometheus",
+ "prost",
+ "prost-build",
+ "rand 0.8.5",
+ "rdkafka",
+ "regex",
+ "reqwest",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "version_check"

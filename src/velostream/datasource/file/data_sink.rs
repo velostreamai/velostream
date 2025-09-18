@@ -114,6 +114,69 @@ impl FileDataSink {
         self.config.as_ref()
     }
 
+    /// Validate File sink configuration properties
+    /// Returns (errors, warnings, recommendations) tuples
+    pub fn validate_sink_config(
+        properties: &HashMap<String, String>,
+        name: &str,
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut recommendations = Vec::new();
+
+        // Required properties
+        let required_keys = vec!["path", "format"];
+        for key in &required_keys {
+            if !properties.contains_key(*key) {
+                errors.push(format!(
+                    "File sink '{}' missing required config: {}",
+                    name, key
+                ));
+            }
+        }
+
+        // Validate path directory exists
+        if let Some(path) = properties.get("path") {
+            if let Some(parent) = std::path::Path::new(path).parent() {
+                if !parent.exists() {
+                    warnings.push(format!(
+                        "File sink '{}' output directory does not exist: {}",
+                        name,
+                        parent.display()
+                    ));
+                }
+            }
+        }
+
+        // Validate format
+        if let Some(format) = properties.get("format") {
+            let valid_formats = ["json", "csv", "jsonlines", "parquet"];
+            if !valid_formats.contains(&format.as_str()) {
+                errors.push(format!(
+                    "File sink '{}' has invalid format '{}'. Valid formats: {}",
+                    name, format, valid_formats.join(", ")
+                ));
+            }
+        }
+
+        // Performance recommendations
+        if !properties.contains_key("buffer_size") {
+            recommendations.push(format!(
+                "File sink '{}' could benefit from buffer_size configuration for better write performance",
+                name
+            ));
+        }
+
+        if properties.get("format") == Some(&"csv".to_string()) && !properties.contains_key("has_headers") {
+            recommendations.push(format!(
+                "File sink '{}' using CSV format should specify has_headers configuration",
+                name
+            ));
+        }
+
+        (errors, warnings, recommendations)
+    }
+
     /// Validate output directory exists and is writable
     async fn validate_output_path(&self, path: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let path_obj = Path::new(path);

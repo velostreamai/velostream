@@ -296,9 +296,19 @@ pub fn load_yaml_config<P: AsRef<Path>>(
     file_path: P,
 ) -> Result<ResolvedYamlConfig, YamlConfigError> {
     let path = file_path.as_ref();
-    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
+    // If path is relative, use current working directory as base
+    // If path is absolute, use its parent directory as base
+    let (base_dir, config_path) = if path.is_absolute() {
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("/"));
+        (base_dir, path)
+    } else {
+        // For relative paths, use current directory as base and keep path as-is
+        (Path::new("."), path)
+    };
+
     let mut loader = YamlConfigLoader::new(base_dir);
-    loader.load_config(path)
+    loader.load_config(config_path)
 }
 
 #[cfg(test)]

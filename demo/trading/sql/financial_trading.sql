@@ -14,7 +14,7 @@
 -- Showcases event-time processing with watermarks for handling out-of-order market data
 -- Demonstrates late data detection and proper windowing based on trade execution time
 
-CREATE STREAM market_data_with_event_time AS
+CREATE STREAM market_data_ts AS
 SELECT 
     symbol,
     price,
@@ -34,7 +34,10 @@ WITH (
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
     
     'market_data_stream.type' = 'kafka_source',
-    'market_data_stream.config_file' = 'configs/market_data_source.yaml'
+    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+
+    'market_data_et.type' = 'kafka_sink',
+    'market_data_et.config_file' = 'configs/market_data_et_sink.yaml'
 );
 
 -- ====================================================================================
@@ -187,7 +190,7 @@ SELECT
     NOW() as detection_time
 FROM market_data_with_event_time
 -- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
-WINDOW SLIDING (event_time, INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
+WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
 -- Phase 3: Complex subquery in HAVING clause
 HAVING EXISTS (
     SELECT 1 FROM market_data_with_event_time m2 

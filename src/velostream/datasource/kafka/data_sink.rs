@@ -278,6 +278,57 @@ impl KafkaDataSink {
     pub fn config(&self) -> &HashMap<String, String> {
         &self.config
     }
+
+    /// Validate Kafka sink configuration properties
+    /// Returns (errors, warnings, recommendations) tuples
+    pub fn validate_sink_config(
+        properties: &HashMap<String, String>,
+        name: &str,
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut recommendations = Vec::new();
+
+
+        // Required properties
+        let required_keys = vec!["producer_config.bootstrap_servers", "topic"];
+        for key in &required_keys {
+            if !properties.contains_key(*key) {
+                errors.push(format!(
+                    "Kafka sink '{}' missing required config: {}",
+                    name, key
+                ));
+            }
+        }
+
+        // Recommended properties (generate warnings)
+        let recommended_keys = vec!["acks", "compression.type"];
+        for key in &recommended_keys {
+            if !properties.contains_key(*key) {
+                warnings.push(format!(
+                    "Kafka sink '{}' missing recommended config: {}",
+                    name, key
+                ));
+            }
+        }
+
+        // Performance recommendations
+        if !properties.contains_key("batch.size") && !properties.contains_key("linger.ms") {
+            recommendations.push(format!(
+                "Kafka sink '{}' could benefit from batch configuration (batch.size, linger.ms) for better throughput",
+                name
+            ));
+        }
+
+        if properties.get("acks").map_or(false, |v| v == "0") {
+            recommendations.push(format!(
+                "Kafka sink '{}' has acks=0 which may lead to data loss. Consider acks=1 or acks=all",
+                name
+            ));
+        }
+
+        (errors, warnings, recommendations)
+    }
 }
 
 #[async_trait]

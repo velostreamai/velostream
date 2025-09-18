@@ -27,7 +27,7 @@ datasink:
     
   # Default headers for all messages
   headers:
-    source_system: "velo_streams"
+    source_system: "velo_stream"
     compliance: "FR-047"
     
 # Delivery profiles for different alert types

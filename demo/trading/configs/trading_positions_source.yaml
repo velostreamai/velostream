@@ -1,0 +1,29 @@
+# Trading Positions Source Configuration
+# Extends the common Kafka source configuration for trading positions
+
+extends: common_kafka_source.yaml
+
+# Topic-specific configuration
+topic:
+  name: "trading_positions"
+  partitions: 6
+
+# Trading positions specific schema
+schema:
+  key_field: trader_id
+  value_schema: |
+    {
+      "type": "record",
+      "name": "TradingPosition",
+      "fields": [
+        {"name": "trader_id", "type": "string"},
+        {"name": "symbol", "type": "string"},
+        {"name": "position_size", "type": "long"},
+        {"name": "avg_entry_price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+        {"name": "current_pnl", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+        {"name": "event_time", "type": "string"}
+      ]
+    }
+
+# Performance profile for balanced processing
+performance_profile: balanced
