@@ -12,13 +12,13 @@ delivery_profile: high_priority
 
 # Topic-specific schema
 schema:
-  key_field: symbol
+  key.field: symbol
   schema_file: "schemas/price_alerts.avsc"
   
 # Topic properties
 topic_config:
   partitions: 6
-  retention_ms: 604800000  # 7 days retention for alerts
+  retention.ms: 604800000  # 7 days retention for alerts
   
 # Alert-specific headers
 headers:

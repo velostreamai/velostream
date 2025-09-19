@@ -1,14 +1,14 @@
-# VeloStream SQL Table Architecture
+# Velostream SQL Table Architecture
 
 ## Overview
 
-VeloStream implements SQL tables as materialized views with **datasource-agnostic** state management. The system provides a unified SQL interface while delegating state management to pluggable datasource implementations. This architecture enables high-performance stream-table joins, real-time aggregations, and stateful stream processing across heterogeneous data sources including Kafka, files, databases, and more.
+Velostream implements SQL tables as materialized views with **datasource-agnostic** state management. The system provides a unified SQL interface while delegating state management to pluggable datasource implementations. This architecture enables high-performance stream-table joins, real-time aggregations, and stateful stream processing across heterogeneous data sources including Kafka, files, databases, and more.
 
 ## Architecture Components
 
 ### 1. Unified SQL Interface
 
-SQL tables in VeloStream are created using `CREATE TABLE AS SELECT` statements that work with **any datasource**:
+SQL tables in Velostream are created using `CREATE TABLE AS SELECT` statements that work with **any datasource**:
 
 ```sql
 -- File-based materialized table
@@ -336,7 +336,7 @@ impl DataSourceStats for FileDataSource {
 
 ## Integration with Financial Precision
 
-VeloStream' financial precision system works across **all datasource types**:
+Velostream' financial precision system works across **all datasource types**:
 
 ```rust
 // ScaledInteger maintains exact precision regardless of storage

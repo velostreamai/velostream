@@ -2,7 +2,7 @@
 
 ## Overview
 
-VeloStream supports two distinct GROUP BY aggregation modes designed for different streaming use cases:
+Velostream supports two distinct GROUP BY aggregation modes designed for different streaming use cases:
 
 1. **Windowed Aggregation** - Accumulates data within windows, emits results when windows close
 2. **Continuous Aggregation** - Emits updated results for each input record (CDC-style)
@@ -395,4 +395,4 @@ for (i, record) in records.enumerate() {
 
 ---
 
-*This documentation covers the dual-mode GROUP BY aggregation system implemented in VeloStream Phase 5.*
+*This documentation covers the dual-mode GROUP BY aggregation system implemented in Velostream Phase 5.*

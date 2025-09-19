@@ -1,6 +1,6 @@
-# VeloStream Grafana Dashboard Setup
+# Velostream Grafana Dashboard Setup
 
-This directory contains the complete Grafana monitoring setup for VeloStream SQL Engine, including Prometheus configuration and a comprehensive dashboard.
+This directory contains the complete Grafana monitoring setup for Velostream SQL Engine, including Prometheus configuration and a comprehensive dashboard.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ This directory contains the complete Grafana monitoring setup for VeloStream SQL
    - Grafana: http://localhost:3000 (admin/admin)
    - Prometheus: http://localhost:9090
 
-3. **Start VeloStream with observability enabled:**
+3. **Start Velostream with observability enabled:**
    ```rust
    let config = StreamingConfig {
        prometheus: Some(PrometheusConfig::default()), // Exposes metrics on :9091
@@ -61,7 +61,7 @@ grafana/
 
 ### Prometheus Setup
 - **Scrape interval**: 5 seconds for high-resolution monitoring
-- **Target**: `host.docker.internal:9091` (VeloStream metrics endpoint)
+- **Target**: `host.docker.internal:9091` (Velostream metrics endpoint)
 - **Retention**: Standard Prometheus defaults
 - **Evaluation**: 15-second rule evaluation
 
@@ -121,7 +121,7 @@ Create alert rules in Grafana:
 
 ### Resource Requirements
 - **Memory**: 512MB for Grafana, 1GB for Prometheus
-- **CPU**: Minimal for typical VeloStream workloads
+- **CPU**: Minimal for typical Velostream workloads
 - **Disk**: ~100MB/day for metrics storage
 - **Network**: <1MB/s for metrics scraping
 
@@ -138,7 +138,7 @@ For production deployments:
 
 1. **No data in dashboard**:
    ```bash
-   # Check VeloStream is exposing metrics
+   # Check Velostream is exposing metrics
    curl http://localhost:9091/metrics
    
    # Verify Prometheus is scraping
@@ -199,7 +199,7 @@ If experiencing performance issues:
 
 ### Adding Business Metrics
 
-1. **Register metrics in VeloStream**:
+1. **Register metrics in Velostream**:
    ```rust
    let business_counter = register_int_counter_with_registry!(
        Opts::new("velo_orders_processed_total", "Orders processed"),
@@ -239,8 +239,8 @@ groups:
 For monitoring setup issues:
 1. Check Docker Compose logs for startup errors
 2. Verify network connectivity between containers
-3. Ensure VeloStream observability is properly configured
+3. Ensure Velostream observability is properly configured
 4. Review Prometheus targets and Grafana datasource health
 5. Check file permissions on provisioning directories
 
-The dashboard is designed to provide comprehensive visibility into VeloStream performance with minimal setup effort.
+The dashboard is designed to provide comprehensive visibility into Velostream performance with minimal setup effort.

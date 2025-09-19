@@ -1,8 +1,8 @@
-# VeloStream Multi-Source/Multi-Sink Processing Guide
+# Velostream Multi-Source/Multi-Sink Processing Guide
 
 ## Overview
 
-VeloStream provides comprehensive support for processing data from **multiple sources simultaneously** and routing output to **multiple sinks concurrently**. This enables complex analytical pipelines, data enrichment workflows, and enterprise-scale streaming applications.
+Velostream provides comprehensive support for processing data from **multiple sources simultaneously** and routing output to **multiple sinks concurrently**. This enables complex analytical pipelines, data enrichment workflows, and enterprise-scale streaming applications.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ VeloStream provides comprehensive support for processing data from **multiple so
 
 ### Architecture
 
-VeloStream processes multiple data sources through coordinated readers managed by the `StreamJobServer`. Each source is created independently and processed in a round-robin fashion within each batch cycle.
+Velostream processes multiple data sources through coordinated readers managed by the `StreamJobServer`. Each source is created independently and processed in a round-robin fashion within each batch cycle.
 
 ```rust
 // Internal architecture (for reference)
@@ -331,7 +331,7 @@ VELO_BATCH_TIMEOUT_MS: 5000
 
 #### **Named Source/Sink Configuration Pattern**
 
-VeloStream uses **named source/sink configuration** for clean separation and precise type detection. Each source and sink is configured using its specific name prefix.
+Velostream uses **named source/sink configuration** for clean separation and precise type detection. Each source and sink is configured using its specific name prefix.
 
 **Named Configuration Approach**:
 ```sql
@@ -348,7 +348,7 @@ WITH (
 
 #### **Explicit Type Declaration Options**
 
-VeloStream supports multiple ways to explicitly declare source and sink types, making configuration clear and obvious:
+Velostream supports multiple ways to explicitly declare source and sink types, making configuration clear and obvious:
 
 **Method 1: Using `.type` (Recommended)**
 ```sql
@@ -379,7 +379,7 @@ WITH (
 
 ### Source/Sink Type Detection
 
-VeloStream uses **explicit type declaration only** (no autodetection). Types must be explicitly specified using one of these configuration keys:
+Velostream uses **explicit type declaration only** (no autodetection). Types must be explicitly specified using one of these configuration keys:
 
 #### **Type Declaration Methods**
 
@@ -421,7 +421,7 @@ Use: 'orders_source.type' with values like 'kafka_source', 'file_source', 's3_so
 
 #### **YAML Configuration File Examples**
 
-VeloStream supports comprehensive YAML configuration with advanced features including `extends`, environment variable substitution, and profile-based configurations.
+Velostream supports comprehensive YAML configuration with advanced features including `extends`, environment variable substitution, and profile-based configurations.
 
 **SQL Usage with YAML Config Files:**
 
@@ -795,7 +795,7 @@ WITH (
 
 #### **Environment Variables and Profile Support**
 
-VeloStream provides comprehensive environment variable substitution and profile-based configuration management.
+Velostream provides comprehensive environment variable substitution and profile-based configuration management.
 
 **Environment Variable Patterns:**
 ```yaml
@@ -885,7 +885,7 @@ profiles:
 
 **Configuration File Discovery:**
 
-VeloStream searches for configuration files in the following order:
+Velostream searches for configuration files in the following order:
 1. `--config` command line argument
 2. `VELO_CONFIG_FILE` environment variable
 3. `./velo.yaml` in current directory
@@ -977,7 +977,7 @@ WITH (
 
 ### Processing Mode Selection
 
-VeloStream automatically selects the appropriate processor based on:
+Velostream automatically selects the appropriate processor based on:
 
 1. **`use_transactions` setting**
 2. **Source transaction support**
@@ -1823,7 +1823,7 @@ println!("Sinks: {}", analysis.required_sinks.len());
 
 ## Conclusion
 
-VeloStream' multi-source/multi-sink processing enables sophisticated streaming analytics pipelines that can:
+Velostream' multi-source/multi-sink processing enables sophisticated streaming analytics pipelines that can:
 
 - **Process data from unlimited sources simultaneously**
 - **Route output to multiple destinations concurrently**  

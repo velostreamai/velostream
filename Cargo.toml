@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.70.0"
 license = "Apache-2.0"
-authors = ["VeloStream Contributors"]
+authors = ["Velostream Contributors"]
 description = "High-performance stream processing engine with SQL support"
 repository = "https://github.com/velostreamai/velostream"
 keywords = ["streaming", "sql", "kafka", "data-processing", "real-time"]
@@ -93,7 +93,7 @@ path = "examples/performance/quick_performance_test.rs"
 name = "velo-sql-multi"
 path = "src/bin/velo-sql-multi.rs"
 
-# VeloStream CLI Binary
+# Velostream CLI Binary
 [[bin]]
 name = "velo-cli"
 path = "src/bin/velo_cli.rs"
@@ -140,6 +140,8 @@ path = "tests/debug/test_streamrecord_performance.rs"
 [[bin]]
 name = "test_final_performance"
 path = "tests/debug/test_final_performance.rs"
+
+
 
 # Features for test categorization
 [features]

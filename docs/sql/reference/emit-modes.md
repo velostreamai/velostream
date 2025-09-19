@@ -1,10 +1,10 @@
 # EMIT Modes SQL Reference
 
-Complete guide to EMIT clauses in VeloStream SQL for controlling when GROUP BY aggregation results are emitted.
+Complete guide to EMIT clauses in Velostream SQL for controlling when GROUP BY aggregation results are emitted.
 
 ## Overview
 
-VeloStream implements KSQL-style `EMIT` clauses that control the timing and behavior of result emission in streaming GROUP BY queries. The EMIT mode determines when aggregated results are sent to output topics.
+Velostream implements KSQL-style `EMIT` clauses that control the timing and behavior of result emission in streaming GROUP BY queries. The EMIT mode determines when aggregated results are sent to output topics.
 
 ## Syntax
 
@@ -103,7 +103,7 @@ Window 2 (10:00-11:00):
 
 ## Default Behavior (No EMIT Clause)
 
-When no EMIT clause is specified, VeloStream uses intelligent defaults:
+When no EMIT clause is specified, Velostream uses intelligent defaults:
 
 ### Without WINDOW Clause → Continuous Aggregation
 ```sql
@@ -276,4 +276,4 @@ ExecutionError: "EMIT FINAL requires WINDOW clause for proper aggregation bounda
 
 ---
 
-*This comprehensive guide covers all EMIT mode functionality in VeloStream SQL. For additional examples, see SQL_REFERENCE_GROUP_BY.md and performance benchmarks in PERFORMANCE_BENCHMARK_RESULTS.MD.*
+*This comprehensive guide covers all EMIT mode functionality in Velostream SQL. For additional examples, see SQL_REFERENCE_GROUP_BY.md and performance benchmarks in PERFORMANCE_BENCHMARK_RESULTS.MD.*

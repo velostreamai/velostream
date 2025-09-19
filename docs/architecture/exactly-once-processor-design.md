@@ -1,6 +1,6 @@
 # ExactlyOnceJobProcessor Architecture Design [TODO]
 
-**Comprehensive design document for implementing true exactly-once semantics in VeloStream**
+**Comprehensive design document for implementing true exactly-once semantics in Velostream**
 
 This document outlines the architecture and implementation strategy for the `ExactlyOnceJobProcessor`, which provides genuine exactly-once delivery semantics unlike the current `TransactionalJobProcessor` that offers at-least-once delivery with ACID boundaries.
 
@@ -921,7 +921,7 @@ cockroachdb:
 - Compliance and audit challenges
 - No guarantee of correctness
 
-**After**: VeloStream + Multi-Region State Store
+**After**: Velostream + Multi-Region State Store
 - $200K-300K annual operational cost
 - Production-ready in 3-4 months
 - Battle-tested exactly-once guarantees
@@ -1530,7 +1530,7 @@ job_processors:
 | **Apache Flink CDC** | ❌ At-least-once cross-cluster | ❌ Not cross-cluster | Medium | Complex setup, cluster-local only |
 | **Debezium + Kafka** | ❌ At-least-once only | ❌ Not supported | Medium | Source database changes only |
 | **Custom Solutions** | 🤔 Varies | 🤔 Usually no | 🤔 Varies | Expensive, error-prone, maintenance |
-| **🚀 VeloStream** | ✅ **True exactly-once** | ✅ **Full support** | **High** | **None - solves the problem** |
+| **🚀 Velostream** | ✅ **True exactly-once** | ✅ **Full support** | **High** | **None - solves the problem** |
 
 ### **What Enterprises Currently Do (And Why It Fails)**
 
@@ -1557,7 +1557,7 @@ business_logic.handle_duplicate_gracefully()? // ❌ Complex business logic
 ### **Our Competitive Advantages**
 
 ```rust
-// VeloStream solves all these problems:
+// Velostream solves all these problems:
 
 // ✅ Built-in exactly-once cross-cluster
 velo_processor.process_cross_cluster(source, sink).await?; // Zero config needed
@@ -1575,19 +1575,19 @@ health_checks.validate_cross_cluster_state().await?;       // Operational excell
 
 ### **Market Impact**
 
-**Before VeloStream**:
+**Before Velostream**:
 - Financial institutions: Build custom $2M+ solutions for cross-region exactly-once
 - Global platforms: Accept "eventual consistency" and duplicate transaction costs
 - Enterprises: Choose between performance OR exactly-once (never both)
 - Compliance teams: Spend months auditing "at-least-once" systems
 
-**After VeloStream**:
+**After Velostream**:
 - ✅ Out-of-box exactly-once cross-cluster processing
 - ✅ 250K+ records/sec performance with zero duplicates
 - ✅ Single solution for all exactly-once use cases
 - ✅ Compliance-ready audit trails and monitoring
 
-**Conservative Market Size**: $500M+ annually in duplicate transaction costs, custom solution development, and compliance penalties that VeloStream eliminates.
+**Conservative Market Size**: $500M+ annually in duplicate transaction costs, custom solution development, and compliance penalties that Velostream eliminates.
 
 ---
 
@@ -1607,12 +1607,12 @@ health_checks.validate_cross_cluster_state().await?;       // Operational excell
 
 ## 🎯 **Executive Summary**
 
-**VeloStream ExactlyOnceJobProcessor solves the streaming industry's most challenging problem**: enabling true exactly-once processing across Kafka clusters, regions, and cloud providers.
+**Velostream ExactlyOnceJobProcessor solves the streaming industry's most challenging problem**: enabling true exactly-once processing across Kafka clusters, regions, and cloud providers.
 
 **Key Innovation**: External state coordination breaks the fundamental limitations of cluster-local transaction coordinators, enabling exactly-once semantics where Kafka's built-in solutions fail.
 
-**Market Differentiator**: While every competitor is limited to at-least-once cross-cluster processing, VeloStream delivers true exactly-once with enterprise-grade performance (250K+ records/sec).
+**Market Differentiator**: While every competitor is limited to at-least-once cross-cluster processing, Velostream delivers true exactly-once with enterprise-grade performance (250K+ records/sec).
 
 **Target Market**: The $500M+ annual market in duplicate transaction costs, custom exactly-once solutions, and compliance penalties that existing tools cannot address.
 
-This architecture provides a comprehensive foundation for implementing true exactly-once semantics in VeloStream while solving problems that are considered unsolvable by the rest of the industry.
+This architecture provides a comprehensive foundation for implementing true exactly-once semantics in Velostream while solving problems that are considered unsolvable by the rest of the industry.

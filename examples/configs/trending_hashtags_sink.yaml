@@ -10,9 +10,9 @@ delivery_profile: high_priority
 
 topic_config:
   partitions: 8
-  retention_ms: 2592000000  # 30 days retention for trending analysis
+  retention.ms: 2592000000  # 30 days retention for trending analysis
   
 metadata:
   description: "Trending hashtag analytics"
-  data_classification: "trend_analytics"
+  data.classification: "trend_analytics"
   priority: "high"

@@ -1,6 +1,6 @@
-# 🏦 VeloStream Financial Trading Demo
+# 🏦 Velostream Financial Trading Demo
 
-A comprehensive demonstration of real-time financial trading analytics using VeloStream, featuring market data processing, risk management, and arbitrage detection.
+A comprehensive demonstration of real-time financial trading analytics using Velostream, featuring market data processing, risk management, and arbitrage detection.
 
 ## 📋 Overview
 
@@ -51,7 +51,7 @@ make build
 ./build_cli.sh
 ```
 
-This will build the main VeloStream project and create symlinks for easy access.
+This will build the main Velostream project and create symlinks for easy access.
 
 ### 2. Start the Demo
 
@@ -78,7 +78,7 @@ DEMO_DURATION=1 ./run_demo.sh  # Custom duration
 ./stop_demo.sh
 ```
 
-### 2. Monitor with VeloStream CLI
+### 2. Monitor with Velostream CLI
 
 Build and use the CLI tool to monitor all components:
 
@@ -109,8 +109,8 @@ The demo automatically starts Grafana with pre-configured dashboards:
 ```
 
 **Available Dashboards:**
-- **VeloStream Trading Demo** - Real-time trading analytics, alerts, and market data
-- **VeloStream Overview** - System health, throughput, and resource usage  
+- **Velostream Trading Demo** - Real-time trading analytics, alerts, and market data
+- **Velostream Overview** - System health, throughput, and resource usage  
 - **Kafka Metrics** - Broker performance, topic statistics, and consumer lag
 
 ### 4. Launch the Python Visualization Dashboard
@@ -348,14 +348,14 @@ pip install -r requirements.txt
 
 The demo includes comprehensive Grafana dashboards accessible at **http://localhost:3000** (admin/admin):
 
-**🏦 VeloStream Trading Demo Dashboard:**
+**🏦 Velostream Trading Demo Dashboard:**
 - Real-time trading alerts and price movements
 - Volume spike detection and analysis
 - Risk management metrics
 - Arbitrage opportunity tracking
 - SQL query performance monitoring
 
-**📈 VeloStream Overview Dashboard:**
+**📈 Velostream Overview Dashboard:**
 - System health and component status
 - Stream processing throughput
 - Memory and CPU usage
@@ -367,7 +367,7 @@ The demo includes comprehensive Grafana dashboards accessible at **http://localh
 - Partition and replica statistics
 - Disk usage and log size tracking
 
-### VeloStream CLI Tool
+### Velostream CLI Tool
 
 The `velo-cli` provides comprehensive monitoring and management capabilities:
 
@@ -390,7 +390,7 @@ The `velo-cli` provides comprehensive monitoring and management capabilities:
 # Monitor Docker containers
 ./velo-cli docker --velo-only
 
-# View VeloStream processes
+# View Velostream processes
 ./velo-cli processes
 
 # Monitor active jobs and streaming tasks
@@ -494,4 +494,4 @@ Found an issue or want to enhance the demo? Please:
 
 ---
 
-🎉 **Enjoy exploring real-time financial analytics with VeloStream!**
+🎉 **Enjoy exploring real-time financial analytics with Velostream!**

@@ -342,12 +342,12 @@ impl QueryAnalyzer {
                             if let Some(key_str) = key.as_str() {
                                 match key_str {
                                     "datasource" => {
-                                        // Handle nested datasource configuration
+                                        // Handle nested datasource configuration with proper prefix
                                         if let Some(datasource_map) = value.as_mapping() {
                                             for (nested_key, nested_value) in datasource_map {
                                                 if let Some(nested_k) = nested_key.as_str() {
                                                     if nested_k == "consumer_config" {
-                                                        // Flatten consumer_config
+                                                        // Flatten consumer_config with datasource prefix
                                                         if let Some(consumer_map) =
                                                             nested_value.as_mapping()
                                                         {
@@ -358,9 +358,10 @@ impl QueryAnalyzer {
                                                                     consumer_key.as_str(),
                                                                     consumer_value.as_str(),
                                                                 ) {
+                                                                    // Create the full flattened path that validation expects
                                                                     properties.insert(
                                                                         format!(
-                                                                            "consumer_config.{}",
+                                                                            "datasource.consumer_config.{}",
                                                                             ck
                                                                         ),
                                                                         cv.to_string(),
@@ -369,12 +370,13 @@ impl QueryAnalyzer {
                                                             }
                                                         }
                                                     } else if let Some(nv) = nested_value.as_str() {
+                                                        // Add datasource prefix for direct properties
                                                         properties.insert(
-                                                            nested_k.to_string(),
+                                                            format!("datasource.{}", nested_k),
                                                             nv.to_string(),
                                                         );
                                                     } else {
-                                                        // Handle non-string nested values
+                                                        // Handle non-string nested values with datasource prefix
                                                         let value_str = match nested_value {
                                                             serde_yaml::Value::Number(n) => {
                                                                 n.to_string()
@@ -399,7 +401,7 @@ impl QueryAnalyzer {
                                                             }
                                                         };
                                                         properties.insert(
-                                                            nested_k.to_string(),
+                                                            format!("datasource.{}", nested_k),
                                                             value_str,
                                                         );
                                                     }
@@ -565,24 +567,105 @@ impl QueryAnalyzer {
         if let Some(config_file_path) = config.get(&config_file_key) {
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
-                    // Convert YAML config to properties map
+                    // Convert YAML config to properties map with proper nested flattening
                     if let Some(mapping) = yaml_config.config.as_mapping() {
                         for (key, value) in mapping {
-                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
-                            {
-                                properties.insert(key_str.to_string(), value_str.to_string());
-                            } else if let Some(key_str) = key.as_str() {
-                                // Handle non-string values (convert to string)
-                                let value_str = match value {
-                                    serde_yaml::Value::Number(n) => n.to_string(),
-                                    serde_yaml::Value::Bool(b) => b.to_string(),
-                                    serde_yaml::Value::Null => "null".to_string(),
-                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
-                                    serde_yaml::Value::String(s) => s.clone(),
-                                };
-                                properties.insert(key_str.to_string(), value_str);
+                            if let Some(key_str) = key.as_str() {
+                                match key_str {
+                                    "datasink" => {
+                                        // Handle nested datasink configuration with proper prefix
+                                        if let Some(datasink_map) = value.as_mapping() {
+                                            for (nested_key, nested_value) in datasink_map {
+                                                if let Some(nested_k) = nested_key.as_str() {
+                                                    if nested_k == "producer_config" {
+                                                        // Flatten producer_config with datasink prefix
+                                                        if let Some(producer_map) =
+                                                            nested_value.as_mapping()
+                                                        {
+                                                            for (producer_key, producer_value) in
+                                                                producer_map
+                                                            {
+                                                                if let (Some(pk), Some(pv)) = (
+                                                                    producer_key.as_str(),
+                                                                    producer_value.as_str(),
+                                                                ) {
+                                                                    // Create the full flattened path that validation expects
+                                                                    properties.insert(
+                                                                        format!(
+                                                                            "datasink.producer_config.{}",
+                                                                            pk
+                                                                        ),
+                                                                        pv.to_string(),
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+                                                    } else if let Some(nv) = nested_value.as_str() {
+                                                        // Add datasink prefix for direct properties
+                                                        properties.insert(
+                                                            format!("datasink.{}", nested_k),
+                                                            nv.to_string(),
+                                                        );
+                                                    } else {
+                                                        // Handle non-string nested values with datasink prefix
+                                                        let value_str = match nested_value {
+                                                            serde_yaml::Value::Number(n) => {
+                                                                n.to_string()
+                                                            }
+                                                            serde_yaml::Value::Bool(b) => {
+                                                                b.to_string()
+                                                            }
+                                                            serde_yaml::Value::Null => {
+                                                                "null".to_string()
+                                                            }
+                                                            serde_yaml::Value::Sequence(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Mapping(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Tagged(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::String(s) => {
+                                                                s.clone()
+                                                            }
+                                                        };
+                                                        properties.insert(
+                                                            format!("datasink.{}", nested_k),
+                                                            value_str,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // Handle top-level keys
+                                        if let Some(value_str) = value.as_str() {
+                                            properties
+                                                .insert(key_str.to_string(), value_str.to_string());
+                                        } else {
+                                            // Handle non-string values (convert to string)
+                                            let value_str = match value {
+                                                serde_yaml::Value::Number(n) => n.to_string(),
+                                                serde_yaml::Value::Bool(b) => b.to_string(),
+                                                serde_yaml::Value::Null => "null".to_string(),
+                                                serde_yaml::Value::Sequence(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Mapping(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Tagged(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::String(s) => s.clone(),
+                                            };
+                                            properties.insert(key_str.to_string(), value_str);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1085,7 +1168,7 @@ impl QueryAnalyzer {
                                                                             prod_key.as_str(),
                                                                             prod_value.as_str(),
                                                                         ) {
-                                                                            properties.insert(format!("producer_config.{}", pk), pv.to_string());
+                                                                            properties.insert(format!("datasink.producer_config.{}", pk), pv.to_string());
                                                                         }
                                                                     }
                                                                 }

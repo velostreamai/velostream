@@ -1,6 +1,6 @@
 //! SQL Validator Module
 //!
-//! Provides comprehensive SQL validation for VeloStream applications
+//! Provides comprehensive SQL validation for Velostream applications
 //! before deployment to StreamJobServer to prevent runtime failures.
 
 use crate::velostream::sql::{
@@ -73,7 +73,7 @@ pub struct ConfigurationSummary {
     pub duplicate_names: Vec<String>,
 }
 
-/// Main SQL Validator for VeloStream
+/// Main SQL Validator for Velostream
 pub struct SqlValidator {
     parser: StreamingSqlParser,
     analyzer: QueryAnalyzer,

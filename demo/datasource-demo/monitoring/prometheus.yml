@@ -1,4 +1,4 @@
-# Prometheus configuration for VeloStream Demo monitoring
+# Prometheus configuration for Velostream Demo monitoring
 
 global:
   scrape_interval: 15s
@@ -30,7 +30,7 @@ scrape_configs:
     scrape_interval: 30s
     scrape_timeout: 10s
 
-  # VeloStream application metrics (if exposed)
+  # Velostream application metrics (if exposed)
   - job_name: 'velostream'
     static_configs:
       - targets: ['host.docker.internal:8888']  # Adjust port as needed
@@ -65,7 +65,7 @@ scrape_configs:
       - targets: ['node-exporter:9100']
     scrape_interval: 30s
 
-# Custom recording rules for VeloStream metrics
+# Custom recording rules for Velostream metrics
 recording_rules:
   - name: velostream_aggregations
     rules:

@@ -1,6 +1,6 @@
 //! Unit-level Performance Benchmarks
 //!
-//! This module contains component-specific benchmarks for individual VeloStream components.
+//! This module contains component-specific benchmarks for individual Velostream components.
 //! Each module focuses on a specific component's performance characteristics.
 
 pub mod financial_precision;

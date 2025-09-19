@@ -1,6 +1,6 @@
-# VeloStream SQL - Your First Query in 2 Minutes
+# Velostream SQL - Your First Query in 2 Minutes
 
-Get productive with VeloStream SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
+Get productive with Velostream SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
 
 ## ⚡ Quick Start (30 seconds)
 

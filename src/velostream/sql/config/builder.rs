@@ -384,7 +384,7 @@ impl KafkaConfigBuilder {
         Self {
             inner: self
                 .inner
-                .int_parameter("session_timeout_ms", timeout.as_millis() as i64),
+                .int_parameter("session.timeout.ms", timeout.as_millis() as i64),
         }
     }
 
@@ -665,7 +665,7 @@ impl ConfigTemplate {
                 config: {
                     let mut config = DataSourceConfig::new("kafka");
                     config.set_parameter("security_protocol", "SASL_SSL");
-                    config.set_parameter("session_timeout_ms", "30000");
+                    config.set_parameter("session.timeout.ms", "30000");
                     config.set_parameter("auto_commit", "false");
                     config
                 },

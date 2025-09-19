@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=./velostream-config.schema.json
 
-# VeloStream Configuration Example
+# Velostream Configuration Example
 # This file demonstrates the configuration schema with IDE support
 
 global:

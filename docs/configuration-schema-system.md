@@ -2,7 +2,7 @@
 
 ## Overview
 
-The VeloStream Self-Registering Configuration Schema System provides automated validation, IDE integration, and comprehensive error checking for complex multi-source/multi-sink configurations. Each configuration-consuming component implements the `ConfigSchemaProvider` trait to own and maintain its validation schema.
+The Velostream Self-Registering Configuration Schema System provides automated validation, IDE integration, and comprehensive error checking for complex multi-source/multi-sink configurations. Each configuration-consuming component implements the `ConfigSchemaProvider` trait to own and maintain its validation schema.
 
 ## Table of Contents
 
@@ -426,9 +426,9 @@ RUST_LOG=debug cargo run
 env::set_var("RUST_LOG", "velostream::config=debug");
 ```
 
-## Integration with VeloStream
+## Integration with Velostream
 
-The configuration schema system integrates seamlessly with VeloStream components:
+The configuration schema system integrates seamlessly with Velostream components:
 
 ```rust
 // SQL query with validated configuration
@@ -443,4 +443,4 @@ WITH (
 
 The system ensures all configuration properties are validated before query execution, preventing runtime failures due to invalid configurations.
 
-This comprehensive documentation covers the implementation, usage, and advanced features of the VeloStream Self-Registering Configuration Schema System.
+This comprehensive documentation covers the implementation, usage, and advanced features of the Velostream Self-Registering Configuration Schema System.

@@ -1,5 +1,5 @@
--- VeloStream SQL Demo: File Processing Pipeline (FR-047 Compliant)
--- This demo showcases VeloStream' pluggable data sources with unified URI syntax
+-- Velostream SQL Demo: File Processing Pipeline (FR-047 Compliant)
+-- This demo showcases Velostream' pluggable data sources with unified URI syntax
 -- File → processing → file pipelines with exact financial precision
 --
 -- PREREQUISITES: Run './generate_demo_data.sh' to create sample data
@@ -238,7 +238,7 @@ To run this SQL demo:
    cd demo/datasource-demo
    ./generate_demo_data.sh
 
-2. Start VeloStream SQL server:
+2. Start Velostream SQL server:
    cargo run --bin velo-sql --no-default-features
 
 3. Connect and execute the SQL:

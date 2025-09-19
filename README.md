@@ -1,4 +1,4 @@
-# VeloStream
+# Velostream
 
 ![Rust CI](https://github.com/bluemonk3y/velostream/workflows/Rust%20CI/badge.svg)
 [![Crates.io](https://img.shields.io/crates/v/velostream.svg)](https://crates.io/crates/velostream)
@@ -330,12 +330,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 🛠️ VeloStream CLI
+## 🛠️ Velostream CLI
 
-VeloStream includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
+Velostream includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
 
 ### Features
-- **Health Monitoring**: Real-time health checks of all VeloStream components
+- **Health Monitoring**: Real-time health checks of all Velostream components
 - **Job Management**: Monitor SQL jobs, data generators, and streaming tasks
 - **Kafka Monitoring**: Topic inspection, consumer group monitoring, and cluster health
 - **Remote Support**: Connect to production servers via HTTP APIs

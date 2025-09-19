@@ -1,11 +1,11 @@
-# VeloStream StreamJobServer Operations Guide
+# Velostream StreamJobServer Operations Guide
 
 ## Overview
 
-The VeloStream StreamJobServer is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
+The Velostream StreamJobServer is a production-ready streaming SQL engine that can execute multiple concurrent SQL jobs with full isolation. This guide covers how to operate the deployed server, manage jobs, and create SQL job definition files.
 
 **Prerequisites**: 
-- VeloStream StreamJobServer deployed (via Docker or Kubernetes)
+- Velostream StreamJobServer deployed (via Docker or Kubernetes)
 - Access to the server container or cluster
 - Basic SQL knowledge
 
@@ -989,4 +989,4 @@ Each job handles its own schema evolution independently:
 
 This approach allows gradual migration of schemas without affecting other jobs.
 
-This guide provides everything needed to operate the VeloStream StreamJobServer in production environments without requiring access to source code.
+This guide provides everything needed to operate the Velostream StreamJobServer in production environments without requiring access to source code.

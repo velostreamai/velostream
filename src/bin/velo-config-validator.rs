@@ -1,7 +1,7 @@
 #!/usr/bin/env cargo
-//! VeloStream Configuration Validator CLI
+//! Velostream Configuration Validator CLI
 //!
-//! A command-line tool for validating VeloStream configuration files
+//! A command-line tool for validating Velostream configuration files
 //! against the generated JSON Schema. Supports YAML and JSON config files.
 
 use clap::{Arg, Command};
@@ -16,8 +16,8 @@ use velostream::velostream::config::HierarchicalSchemaRegistry;
 fn main() {
     let matches = Command::new("velo-config-validator")
         .version("1.0.0")
-        .about("VeloStream Configuration Validator")
-        .long_about("Validates VeloStream configuration files against the schema and performs comprehensive validation checks.")
+        .about("Velostream Configuration Validator")
+        .long_about("Validates Velostream configuration files against the schema and performs comprehensive validation checks.")
         .arg(
             Arg::new("config")
                 .help("Configuration file to validate")
@@ -52,7 +52,7 @@ fn main() {
     let strict = matches.get_flag("strict");
 
     if verbose {
-        println!("🔧 VeloStream Configuration Validator");
+        println!("🔧 Velostream Configuration Validator");
         println!("📁 Config file: {}", config_path);
         println!("📋 Schema file: {}", schema_path);
         println!();

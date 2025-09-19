@@ -28,7 +28,7 @@
 //!   name: "market_data"
 //!   partitions: 12
 //! schema:
-//!   key_field: symbol
+//!   key.field: symbol
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -369,7 +369,7 @@ topic:
   name: "test_topic"
   partitions: 4
 schema:
-  key_field: "id"
+  key.field: "id"
 "#,
         )
         .unwrap();
@@ -386,7 +386,7 @@ schema:
         assert_eq!(config["datasource"]["host"], "localhost");
         assert_eq!(config["topic"]["name"], "test_topic");
         assert_eq!(config["schema"]["format"], "avro");
-        assert_eq!(config["schema"]["key_field"], "id");
+        assert_eq!(config["schema"]["key.field"], "id");
     }
 
     #[test]

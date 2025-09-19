@@ -1,6 +1,6 @@
 # Test Categorization Guide
 
-This document explains the test categorization system used in VeloStream for optimizing CI/CD performance and developer workflows.
+This document explains the test categorization system used in Velostream for optimizing CI/CD performance and developer workflows.
 
 ## Test Categories
 

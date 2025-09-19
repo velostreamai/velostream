@@ -413,4 +413,85 @@ mod serialization_format_tests {
             );
         }
     }
+
+    #[test]
+    fn test_property_fallback_behavior() {
+        // Test that dot notation takes precedence over underscore notation
+        let mut sql_params = HashMap::new();
+        sql_params.insert(
+            "schema.registry.url".to_string(),
+            "http://dot-notation:8081".to_string(),
+        );
+        sql_params.insert(
+            "schema_registry_url".to_string(),
+            "http://underscore:8081".to_string(),
+        );
+        sql_params.insert("avro.schema".to_string(), "dot_schema".to_string());
+        sql_params.insert("avro_schema".to_string(), "underscore_schema".to_string());
+
+        let config = SerializationConfig::from_sql_params(&sql_params).unwrap();
+
+        // Dot notation should take precedence
+        assert_eq!(
+            config.schema_registry_url,
+            Some("http://dot-notation:8081".to_string())
+        );
+        assert_eq!(config.avro_schema, Some("dot_schema".to_string()));
+    }
+
+    #[test]
+    fn test_property_underscore_fallback() {
+        // Test that underscore notation works when dot notation is not present
+        let mut sql_params = HashMap::new();
+        sql_params.insert(
+            "schema_registry_url".to_string(),
+            "http://underscore:8081".to_string(),
+        );
+        sql_params.insert("avro_schema".to_string(), "underscore_schema".to_string());
+        sql_params.insert(
+            "protobuf_schema".to_string(),
+            "proto_underscore".to_string(),
+        );
+        sql_params.insert(
+            "schema_file".to_string(),
+            "/path/to/underscore/schema.avsc".to_string(),
+        );
+
+        let config = SerializationConfig::from_sql_params(&sql_params).unwrap();
+
+        // Underscore notation should be used as fallback
+        assert_eq!(
+            config.schema_registry_url,
+            Some("http://underscore:8081".to_string())
+        );
+        assert_eq!(config.avro_schema, Some("underscore_schema".to_string()));
+        assert_eq!(config.protobuf_schema, Some("proto_underscore".to_string()));
+        assert_eq!(
+            config.schema_file,
+            Some("/path/to/underscore/schema.avsc".to_string())
+        );
+    }
+
+    #[test]
+    fn test_mixed_notation_compatibility() {
+        // Test that users can mix dot and underscore notation
+        let mut sql_params = HashMap::new();
+        sql_params.insert("key.serializer".to_string(), "string".to_string());
+        sql_params.insert("value_serializer".to_string(), "json".to_string()); // Using underscore
+        sql_params.insert(
+            "schema.registry.url".to_string(),
+            "http://mixed:8081".to_string(),
+        );
+        sql_params.insert("avro_schema".to_string(), "mixed_schema".to_string()); // Using underscore
+
+        let config = SerializationConfig::from_sql_params(&sql_params).unwrap();
+
+        assert_eq!(config.key_format(), SerializationFormat::String);
+        assert_eq!(config.value_format(), SerializationFormat::Json);
+        assert_eq!(
+            config.schema_registry_url,
+            Some("http://mixed:8081".to_string())
+        );
+        assert_eq!(config.avro_schema, Some("mixed_schema".to_string()));
+    }
 }

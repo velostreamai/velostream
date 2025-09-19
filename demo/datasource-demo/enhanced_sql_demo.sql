@@ -1,6 +1,6 @@
 -- SQL Application: enhanced file processing financial_transaction_processing_demo
 -- Description: Enhanced Financial Transaction Processing Demo  
--- Description: Demonstrates VeloStream advanced SQL capabilities with file data sources
+-- Description: Demonstrates Velostream advanced SQL capabilities with file data sources
 -- Version: 4.1.0
 -- Author: Quantitative Trading Team
 -- Data Sources: Named sources and sinks with individual config files

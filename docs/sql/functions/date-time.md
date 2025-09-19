@@ -1,6 +1,6 @@
 # Date/Time Functions
 
-Complete reference for date and time manipulation functions in VeloStream. Use these functions to process timestamps, extract date components, and perform temporal calculations.
+Complete reference for date and time manipulation functions in Velostream. Use these functions to process timestamps, extract date components, and perform temporal calculations.
 
 ## Current Time Functions
 

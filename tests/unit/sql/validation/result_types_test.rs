@@ -1,6 +1,7 @@
 //! Unit tests for validation result types
 
 use std::collections::HashMap;
+use velostream::velostream::sql::execution::processors::BatchValidationTarget;
 use velostream::velostream::sql::validation::result_types::{
     ApplicationValidationResult, ParsingError, QueryValidationResult,
 };
@@ -104,37 +105,52 @@ fn test_query_validation_result_sources_and_sinks() {
 
 #[test]
 fn test_application_validation_result_creation() {
-    let result = ApplicationValidationResult::new();
+    let result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
 
     assert!(result.is_valid);
-    assert!(result.configuration_errors.is_empty());
-    assert!(result.all_source_configs.is_empty());
-    assert!(result.all_sink_configs.is_empty());
     assert!(result.query_results.is_empty());
-    assert!(result.source_configs.is_empty());
-    assert!(result.sink_configs.is_empty());
-    assert!(result.missing_source_configs.is_empty());
-    assert!(result.missing_sink_configs.is_empty());
+    assert!(result.recommendations.is_empty());
+    assert!(result.configuration_summary.is_empty());
+    assert!(result.file_errors.is_empty());
+    assert_eq!(result.file_path, "test_file.sql");
+    assert_eq!(result.application_name, "Test Application");
 }
 
 #[test]
-fn test_application_validation_result_add_configuration_error() {
-    let mut result = ApplicationValidationResult::new();
+fn test_application_validation_result_with_configuration_summary() {
+    let mut result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
 
-    result.add_configuration_error("Global configuration error".to_string());
+    // ApplicationValidationResult doesn't have add_configuration_error,
+    // but we can add to configuration_summary directly
+    result
+        .configuration_summary
+        .push("Global configuration error".to_string());
+    result.is_valid = false;
 
-    assert_eq!(result.configuration_errors.len(), 1);
-    assert_eq!(result.configuration_errors[0], "Global configuration error");
+    assert_eq!(result.configuration_summary.len(), 1);
+    assert_eq!(
+        result.configuration_summary[0],
+        "Global configuration error"
+    );
     assert!(!result.is_valid);
 }
 
 #[test]
 fn test_application_validation_result_add_query_result() {
-    let mut result = ApplicationValidationResult::new();
+    let mut result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
     let query = "SELECT * FROM test".to_string();
     let query_result = QueryValidationResult::new(query);
 
-    result.add_query_result(query_result);
+    result.query_results.push(query_result);
 
     assert_eq!(result.query_results.len(), 1);
     assert_eq!(result.query_results[0].query_text, "SELECT * FROM test");
@@ -142,13 +158,17 @@ fn test_application_validation_result_add_query_result() {
 
 #[test]
 fn test_application_validation_result_add_invalid_query() {
-    let mut result = ApplicationValidationResult::new();
+    let mut result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
     let query = "INVALID SQL".to_string();
     let mut query_result = QueryValidationResult::new(query);
     query_result.is_valid = false;
     query_result.add_configuration_error("Syntax error".to_string());
 
-    result.add_query_result(query_result);
+    result.query_results.push(query_result);
+    result.update_statistics(); // This is needed to update the is_valid field
 
     assert_eq!(result.query_results.len(), 1);
     assert!(!result.query_results[0].is_valid);
@@ -156,38 +176,42 @@ fn test_application_validation_result_add_invalid_query() {
 }
 
 #[test]
-fn test_application_validation_result_configurations() {
-    let mut result = ApplicationValidationResult::new();
+fn test_application_validation_result_with_query_configurations() {
+    let mut result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
+
+    // Create a query result with configurations (this is where configs belong)
+    let mut query_result = QueryValidationResult::new("SELECT * FROM test_source".to_string());
 
     let mut source_config = HashMap::new();
     source_config.insert("topic".to_string(), "test_topic".to_string());
-    result
+    query_result
         .source_configs
         .insert("test_source".to_string(), source_config);
 
     let mut sink_config = HashMap::new();
     sink_config.insert("topic".to_string(), "output_topic".to_string());
-    result
+    query_result
         .sink_configs
         .insert("test_sink".to_string(), sink_config);
 
-    result
+    query_result
         .missing_source_configs
         .push("missing_source".to_string());
-    result.missing_sink_configs.push("missing_sink".to_string());
-
-    assert_eq!(result.source_configs.len(), 1);
-    assert_eq!(result.sink_configs.len(), 1);
-    assert_eq!(result.missing_source_configs.len(), 1);
-    assert_eq!(result.missing_sink_configs.len(), 1);
-    assert!(result.source_configs.contains_key("test_source"));
-    assert!(result.sink_configs.contains_key("test_sink"));
-    assert!(result
-        .missing_source_configs
-        .contains(&"missing_source".to_string()));
-    assert!(result
+    query_result
         .missing_sink_configs
-        .contains(&"missing_sink".to_string()));
+        .push("missing_sink".to_string());
+
+    result.query_results.push(query_result);
+
+    // Verify the configurations are in the query result
+    assert_eq!(result.query_results.len(), 1);
+    assert_eq!(result.query_results[0].source_configs.len(), 1);
+    assert_eq!(result.query_results[0].sink_configs.len(), 1);
+    assert_eq!(result.query_results[0].missing_source_configs.len(), 1);
+    assert_eq!(result.query_results[0].missing_sink_configs.len(), 1);
 }
 
 #[test]
@@ -268,14 +292,18 @@ fn test_query_validation_result_multiple_errors() {
 
 #[test]
 fn test_application_validation_result_multiple_queries() {
-    let mut result = ApplicationValidationResult::new();
+    let mut result = ApplicationValidationResult::new(
+        "test_file.sql".to_string(),
+        "Test Application".to_string(),
+    );
 
     let query1 = QueryValidationResult::new("SELECT * FROM stream1".to_string());
     let mut query2 = QueryValidationResult::new("INVALID SQL".to_string());
     query2.is_valid = false;
 
-    result.add_query_result(query1);
-    result.add_query_result(query2);
+    result.query_results.push(query1);
+    result.query_results.push(query2);
+    result.update_statistics(); // This is needed to update the is_valid field
 
     assert_eq!(result.query_results.len(), 2);
     assert!(result.query_results[0].is_valid);

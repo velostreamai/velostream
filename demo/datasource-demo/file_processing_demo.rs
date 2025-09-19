@@ -1,6 +1,6 @@
 //! File Processing Demo - File → Processing → File Pipeline
 //!
-//! This demo showcases VeloStream' file processing capabilities:
+//! This demo showcases Velostream' file processing capabilities:
 //! 1. Reading financial transaction data from CSV files
 //! 2. Processing with exact decimal precision (42x faster arithmetic)
 //! 3. Writing processed results to JSON files with compression
@@ -72,7 +72,7 @@ impl ProcessingMetrics {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("🚀 VeloStream File Processing Demo");
+    println!("🚀 Velostream File Processing Demo");
     println!("=====================================");
 
     let metrics = ProcessingMetrics::new();

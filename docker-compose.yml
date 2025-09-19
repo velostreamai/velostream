@@ -1,4 +1,4 @@
-# VeloStream with All Serialization Formats (JSON, Avro, Protobuf)
+# Velostream with All Serialization Formats (JSON, Avro, Protobuf)
 version: '3.8'
 
 services:
@@ -56,7 +56,7 @@ services:
     networks:
       - velo-network
 
-  # VeloStream with ALL serialization formats (JSON, Avro, Protobuf)
+  # Velostream with ALL serialization formats (JSON, Avro, Protobuf)
   velo-streams:
     build: .
     container_name: velo-streams

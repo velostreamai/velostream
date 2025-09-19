@@ -27,7 +27,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Overview of VeloStream Trading Demo System Health",
+      "description": "Overview of Velostream Trading Demo System Health",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -569,7 +569,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Memory and CPU usage of VeloStream components",
+      "description": "Memory and CPU usage of Velostream components",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -672,7 +672,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "VeloStream Trading Demo",
+  "title": "Velostream Trading Demo",
   "uid": "velostream-trading",
   "version": 1,
   "weekStart": ""

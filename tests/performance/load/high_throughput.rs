@@ -1,6 +1,6 @@
 //! High Throughput Load Testing
 //!
-//! Benchmarks designed to test VeloStream under extreme throughput conditions,
+//! Benchmarks designed to test Velostream under extreme throughput conditions,
 //! validating performance with large datasets and high-speed data ingestion.
 
 use super::super::common::{

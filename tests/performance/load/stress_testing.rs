@@ -1,6 +1,6 @@
 //! Stress Testing Benchmarks
 //!
-//! Extreme load testing to validate VeloStream behavior under stress conditions,
+//! Extreme load testing to validate Velostream behavior under stress conditions,
 //! including memory pressure, CPU saturation, and resource exhaustion scenarios.
 
 use super::super::common::{

@@ -10,7 +10,7 @@ topic:
 
 # Trading positions specific schema
 schema:
-  key_field: trader_id
+  key.field: trader_id
   value_schema: |
     {
       "type": "record",

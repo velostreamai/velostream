@@ -2,9 +2,9 @@
 
 ## Overview
 
-The VeloStream SQL Validator is a comprehensive validation tool that checks SQL queries and applications for:
+The Velostream SQL Validator is a comprehensive validation tool that checks SQL queries and applications for:
 
-- **Parsing Correctness**: Validates SQL syntax compatibility with VeloStream parser
+- **Parsing Correctness**: Validates SQL syntax compatibility with Velostream parser
 - **Configuration Completeness**: Ensures all required source/sink configurations are present
 - **Performance Warnings**: Identifies potential performance issues in streaming queries
 - **Syntax Compatibility**: Flags SQL constructs that may not be fully supported
@@ -202,7 +202,7 @@ pub struct ApplicationValidationResult {
 
 ## SQL Query Design Guidelines
 
-Based on validation results, here are recommendations for writing VeloStream-compatible SQL:
+Based on validation results, here are recommendations for writing Velostream-compatible SQL:
 
 ### ✅ **Recommended Patterns**
 
@@ -245,7 +245,7 @@ JOIN customers c ON t.customer_id = c.id;
 
 ## Conclusion
 
-The SQL Validator is a powerful tool for ensuring SQL query compatibility and performance in VeloStream. While some parsing limitations currently exist, it provides valuable validation for:
+The SQL Validator is a powerful tool for ensuring SQL query compatibility and performance in Velostream. While some parsing limitations currently exist, it provides valuable validation for:
 
 - Configuration completeness
 - Performance optimization

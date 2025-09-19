@@ -6,7 +6,7 @@ use velostream::velostream::{server::StreamJobServer, sql::app_parser::SqlApplic
 
 #[derive(Parser)]
 #[command(name = "velo-sql-multi")]
-#[command(about = "VeloStream StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
+#[command(about = "Velostream StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
 #[command(version = "1.0.0")]
 struct Cli {
     #[command(subcommand)]
@@ -65,7 +65,7 @@ enum Commands {
     },
 }
 
-// VeloStream StreamJobServer - Execute multiple streaming SQL jobs concurrently
+// Velostream StreamJobServer - Execute multiple streaming SQL jobs concurrently
 
 async fn start_stream_job_server(
     brokers: String,
@@ -75,7 +75,7 @@ async fn start_stream_job_server(
     enable_metrics: bool,
     metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting VeloStream StreamJobServer on port {}", port);
+    info!("Starting Velostream StreamJobServer on port {}", port);
     info!("Max concurrent jobs: {}", max_jobs);
 
     let server = StreamJobServer::new_with_monitoring(

@@ -1,6 +1,6 @@
 //! Consolidated Performance Test Suite
 //!
-//! This module provides a unified structure for all VeloStream performance tests,
+//! This module provides a unified structure for all Velostream performance tests,
 //! organized by functional area with clear separation between unit benchmarks,
 //! integration tests, and production simulations.
 

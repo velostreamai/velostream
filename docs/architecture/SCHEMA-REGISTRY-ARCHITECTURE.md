@@ -2,7 +2,7 @@
 
 ## Overview
 
-The VeloStream Schema Registry is an enterprise-grade, high-performance system for managing schema definitions, references, evolution, and compatibility across heterogeneous data sources. It provides comprehensive schema lifecycle management with advanced caching, reference resolution, and performance optimization.
+The Velostream Schema Registry is an enterprise-grade, high-performance system for managing schema definitions, references, evolution, and compatibility across heterogeneous data sources. It provides comprehensive schema lifecycle management with advanced caching, reference resolution, and performance optimization.
 
 ## Architecture Components
 
@@ -178,7 +178,7 @@ pub struct CacheMetrics {
 
 ### Reference Architecture
 
-VeloStream provides comprehensive support for Confluent Schema Registry schema references, enabling:
+Velostream provides comprehensive support for Confluent Schema Registry schema references, enabling:
 
 - **Schema Composition**: Build complex schemas from reusable components
 - **Dependency Management**: Track and resolve schema dependencies  

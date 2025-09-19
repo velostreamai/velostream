@@ -1,6 +1,6 @@
 //! Complete File → Kafka → File Pipeline Demo
 //!
-//! This demo showcases VeloStream' end-to-end processing capabilities:
+//! This demo showcases Velostream' end-to-end processing capabilities:
 //! 1. Reading financial transaction data from CSV files (FileDataSource)
 //! 2. Processing with streaming SQL (aggregation + windowing)  
 //! 3. Writing intermediate results to Kafka topics (KafkaProducer)
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
-    println!("🚀 VeloStream Complete Pipeline Demo");
+    println!("🚀 Velostream Complete Pipeline Demo");
     println!("=========================================");
     println!("📄 File → 📨 Kafka → 📄 File Pipeline");
     println!();

@@ -1,6 +1,6 @@
 //! File Data Source Implementation
 //!
-//! This module provides file-based data sources for VeloStream, enabling:
+//! This module provides file-based data sources for Velostream, enabling:
 //!
 //! - **CSV File Reading**: Parse CSV files with schema inference
 //! - **JSON File Reading**: Parse JSONL (newline-delimited JSON) files  

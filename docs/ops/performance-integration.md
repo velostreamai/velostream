@@ -97,7 +97,7 @@ curl http://localhost:9080/report
 Example output:
 ```
 =====================================
-VeloStream Performance Report
+Velostream Performance Report
 =====================================
 Generated: 2025-01-24 10:30:00 UTC
 Status: Healthy

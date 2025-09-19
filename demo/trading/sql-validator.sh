@@ -118,7 +118,7 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS] [SQL_FILE]
 
-Validates SQL files for the VeloStream Financial Trading Demo
+Validates SQL files for the Velostream Financial Trading Demo
 
 Options:
     -h, --help          Show this help message
@@ -172,7 +172,7 @@ main() {
     done
 
     print_color "$GREEN" "╔════════════════════════════════════════════════════╗"
-    print_color "$GREEN" "║   VeloStream SQL Validator - Financial Trading    ║"
+    print_color "$GREEN" "║   Velostream SQL Validator - Financial Trading    ║"
     print_color "$GREEN" "╚════════════════════════════════════════════════════╝"
     echo ""
 

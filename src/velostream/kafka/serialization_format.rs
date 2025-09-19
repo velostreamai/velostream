@@ -82,7 +82,7 @@ impl std::str::FromStr for SerializationFormat {
 pub struct SerializationConfig {
     /// Key serialization format
     pub key_format: Option<SerializationFormat>,
-    /// Value serialization format  
+    /// Value serialization format
     pub value_format: Option<SerializationFormat>,
     /// Schema Registry URL for Avro serialization
     pub schema_registry_url: Option<String>,
@@ -90,6 +90,12 @@ pub struct SerializationConfig {
     pub key_subject: Option<String>,
     /// Subject name for value schema (Avro)
     pub value_subject: Option<String>,
+    /// Inline Avro schema definition
+    pub avro_schema: Option<String>,
+    /// Inline Protobuf schema definition
+    pub protobuf_schema: Option<String>,
+    /// Schema file path
+    pub schema_file: Option<String>,
     /// Custom properties for advanced configuration
     pub custom_properties: HashMap<String, String>,
 }
@@ -102,16 +108,19 @@ impl SerializationConfig {
 
     /// Parse serialization configuration from SQL WITH clause parameters
     ///
-    /// Expected parameters:
+    /// Expected parameters (dot notation preferred, underscore fallback supported):
     /// - `key.serializer` or `key_serializer`: Key serialization format
-    /// - `value.serializer` or `value_serializer`: Value serialization format  
-    /// - `schema.registry.url`: Schema Registry URL for Avro
+    /// - `value.serializer` or `value_serializer`: Value serialization format
+    /// - `schema.registry.url` or `schema_registry_url`: Schema Registry URL for Avro
     /// - `key.subject`: Avro subject for key schema
     /// - `value.subject`: Avro subject for value schema
+    /// - `avro.schema` or `avro_schema`: Inline Avro schema
+    /// - `protobuf.schema` or `protobuf_schema`: Inline Protobuf schema
+    /// - `schema.file` or `schema_file`: Schema file path
     pub fn from_sql_params(params: &HashMap<String, String>) -> Result<Self, SerializationError> {
         let mut config = SerializationConfig::new();
 
-        // Parse key serializer
+        // Parse key serializer with dot notation preference
         if let Some(key_serializer) = params
             .get("key.serializer")
             .or_else(|| params.get("key_serializer"))
@@ -124,7 +133,10 @@ impl SerializationConfig {
                 subject,
             } = &mut format
             {
-                if let Some(registry_url) = params.get("schema.registry.url") {
+                if let Some(registry_url) = params
+                    .get("schema.registry.url")
+                    .or_else(|| params.get("schema_registry_url"))
+                {
                     *schema_registry_url = registry_url.clone();
                 }
                 if let Some(key_subject) = params.get("key.subject") {
@@ -135,7 +147,7 @@ impl SerializationConfig {
             config.key_format = Some(format);
         }
 
-        // Parse value serializer
+        // Parse value serializer with dot notation preference
         if let Some(value_serializer) = params
             .get("value.serializer")
             .or_else(|| params.get("value_serializer"))
@@ -148,7 +160,10 @@ impl SerializationConfig {
                 subject,
             } = &mut format
             {
-                if let Some(registry_url) = params.get("schema.registry.url") {
+                if let Some(registry_url) = params
+                    .get("schema.registry.url")
+                    .or_else(|| params.get("schema_registry_url"))
+                {
                     *schema_registry_url = registry_url.clone();
                 }
                 if let Some(value_subject) = params.get("value.subject") {
@@ -159,10 +174,27 @@ impl SerializationConfig {
             config.value_format = Some(format);
         }
 
-        // Store additional parameters
-        config.schema_registry_url = params.get("schema.registry.url").cloned();
+        // Store additional parameters with fallback support
+        config.schema_registry_url = params
+            .get("schema.registry.url")
+            .or_else(|| params.get("schema_registry_url"))
+            .cloned();
         config.key_subject = params.get("key.subject").cloned();
         config.value_subject = params.get("value.subject").cloned();
+
+        // Schema definition parameters with dot notation preferred
+        config.avro_schema = params
+            .get("avro.schema")
+            .or_else(|| params.get("avro_schema"))
+            .cloned();
+        config.protobuf_schema = params
+            .get("protobuf.schema")
+            .or_else(|| params.get("protobuf_schema"))
+            .cloned();
+        config.schema_file = params
+            .get("schema.file")
+            .or_else(|| params.get("schema_file"))
+            .cloned();
 
         // Store any custom properties
         for (key, value) in params {

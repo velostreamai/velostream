@@ -1,8 +1,8 @@
-# VeloStream SQL Deployment Summary
+# Velostream SQL Deployment Summary
 
 ## 🚀 Complete Deployment Infrastructure
 
-VeloStream SQL now includes comprehensive Docker and Kubernetes deployment infrastructure for production-ready streaming SQL processing with **Phase 2 hash join optimization** delivering 10x+ performance improvements for large datasets.
+Velostream SQL now includes comprehensive Docker and Kubernetes deployment infrastructure for production-ready streaming SQL processing with **Phase 2 hash join optimization** delivering 10x+ performance improvements for large datasets.
 
 ## 📦 What's Included
 
@@ -139,10 +139,10 @@ cd velostream
 docker-compose up --build
 
 # Access services
-# - VeloStream (All Formats): http://localhost:8080
+# - Velostream (All Formats): http://localhost:8080
 # - Kafka UI: http://localhost:8085
 # - Test multi-format data producer included
-# Note: Schema Registry included in docker-compose but not yet implemented in VeloStream
+# Note: Schema Registry included in docker-compose but not yet implemented in Velostream
 ```
 
 ### 2. Production (Kubernetes)
@@ -199,13 +199,13 @@ curl http://localhost:9080/metrics/report
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      VeloStream SQL Stack                           │
+│                      Velostream SQL Stack                           │
 │       ⚡ Multi-Format + Financial Precision + Hash Join Optimized      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  🌐 Kafka UI        📊 Schema Reg     💰 Financial     🔍 Protobuf       │
 │  (Port 8085)        (Port 8081)       Precision       Support          │
 ├─────────────────────────────────────────────────────────────────────────┤
-│        📡 VeloStream (All Formats) + 🔧 Multi-Format Producer        │
+│        📡 Velostream (All Formats) + 🔧 Multi-Format Producer        │
 │               (Port 8080) + (Port 9090)                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │        🚀 Kafka + Zookeeper + 📁 Persistent Storage Volumes             │
@@ -222,7 +222,7 @@ curl http://localhost:9080/metrics/report
 
 ## 📋 Service Details
 
-### VeloStream Multi-Format SQL Server (PRIMARY)
+### Velostream Multi-Format SQL Server (PRIMARY)
 - **Purpose**: Execute SQL with all serialization formats (JSON, Avro, Protobuf)
 - **Container**: `velo-streams`
 - **Ports**: 8080 (API), 9090 (Metrics)
@@ -233,14 +233,14 @@ curl http://localhost:9080/metrics/report
   - Cross-system compatibility
 - **Use Cases**: Production financial analytics, multi-format data processing
 
-### VeloStream SQL Multi-Job Server  
+### Velostream SQL Multi-Job Server  
 - **Purpose**: Manage multiple concurrent SQL jobs with advanced orchestration
 - **Container**: `velo-sql-multi`
 - **Ports**: 8081 (API), 9091 (Metrics)
 - **Performance**: 10x+ JOIN performance, comprehensive monitoring
 - **Use Cases**: Complex analytics, job orchestration, enterprise workloads
 
-### VeloStream SQL File Deployment
+### Velostream SQL File Deployment
 - **Purpose**: Single-process deployment with SQL file input
 - **Container**: Built from `Dockerfile.sqlfile`
 - **Ports**: 8080 (API), 9080 (Metrics)  
@@ -478,7 +478,7 @@ curl -X POST http://localhost:8080/sql \
 ### 2. Avro with Flink-Compatible Decimal Types
 
 ```bash
-# Note: Schema Registry not yet implemented in VeloStream
+# Note: Schema Registry not yet implemented in Velostream
 # Use schema files instead (see Schema Files section below)
 
 # Execute with Avro decimal processing (using schema file)
@@ -505,7 +505,7 @@ curl -X POST http://localhost:8080/sql \
 
 ## 📄 Schema Files
 
-VeloStream requires schema files for structured data formats (Avro and Protobuf). JSON format works schema-less.
+Velostream requires schema files for structured data formats (Avro and Protobuf). JSON format works schema-less.
 
 ### Required Schema Files by Format
 
@@ -1069,7 +1069,7 @@ docker exec velo-streams velo-sql-multi deploy-app \
 
 ### Job Failure Detection and Recovery
 
-VeloStream provides comprehensive error handling and automatic recovery mechanisms for production deployments.
+Velostream provides comprehensive error handling and automatic recovery mechanisms for production deployments.
 
 #### Automatic Recovery Policies
 
@@ -1254,7 +1254,7 @@ groups:
     labels:
       severity: critical
     annotations:
-      summary: "VeloStream job {{ $labels.job_id }} has failed"
+      summary: "Velostream job {{ $labels.job_id }} has failed"
       description: "Job {{ $labels.job_id }} has been in failed state for more than 1 minute"
 
   - alert: VeloHighMemoryUsage
@@ -1263,7 +1263,7 @@ groups:
     labels:
       severity: warning
     annotations:
-      summary: "VeloStream job {{ $labels.job_id }} high memory usage"
+      summary: "Velostream job {{ $labels.job_id }} high memory usage"
       description: "Job {{ $labels.job_id }} is using {{ $value }}% of allocated memory"
 
   - alert: VeloKafkaConsumerLag
@@ -1386,15 +1386,15 @@ docker-compose exec velo-sql-single tail -f /app/logs/performance.log
 
 ### Metrics & Dashboards
 ```bash
-# VeloStream performance dashboard
+# Velostream performance dashboard
 curl http://localhost:9080/metrics/performance
 
-# Prometheus metrics (includes VeloStream metrics)
+# Prometheus metrics (includes Velostream metrics)
 curl http://localhost:9093/metrics
 
-# Grafana dashboards with VeloStream integration
+# Grafana dashboards with Velostream integration
 open http://localhost:3000  # admin/velo123
-# - VeloStream Performance Dashboard
+# - Velostream Performance Dashboard
 # - Query Execution Analytics  
 # - Hash Join Performance Metrics
 # - Memory Usage Analysis
@@ -1612,7 +1612,7 @@ vault kv get -field=password secret/velo/kafka > /tmp/kafka_password
 export KAFKA_PASSWORD=$(cat /tmp/kafka_password)
 rm /tmp/kafka_password
 
-# Start VeloStream with secrets
+# Start Velostream with secrets
 docker run -d \
   -e KAFKA_PASSWORD="$KAFKA_PASSWORD" \
   -e VAULT_TOKEN="$VAULT_TOKEN" \
@@ -1653,7 +1653,7 @@ services:
 
 ##### SQL Injection Prevention
 ```sql
--- VeloStream automatically prevents SQL injection by:
+-- Velostream automatically prevents SQL injection by:
 -- 1. Using parameterized queries internally
 -- 2. Validating all SQL syntax before execution
 -- 3. Sandboxing query execution environment
@@ -2346,7 +2346,7 @@ done
 
 VELO_CONTAINER="velo-streams"
 
-echo "Running VeloStream Performance Benchmark"
+echo "Running Velostream Performance Benchmark"
 echo "============================================"
 
 # 1. Query Performance Test
@@ -2469,7 +2469,7 @@ performance:
 pipeline {
     agent any
     stages {
-        stage('Build VeloStream Image') {
+        stage('Build Velostream Image') {
             steps {
                 script {
                     def image = docker.build("velostream:${env.BUILD_ID}")
@@ -2526,7 +2526,7 @@ pipeline {
 #### GitHub Actions Workflow
 ```yaml
 # .github/workflows/deploy.yml
-name: VeloStream Deployment
+name: Velostream Deployment
 on:
   push:
     branches: [main, develop]
@@ -2550,7 +2550,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Build VeloStream
+    - name: Build Velostream
       run: |
         docker build -t velostream:test .
         
@@ -2658,54 +2658,54 @@ alerting:
           - alertmanager:9093
 ```
 
-#### VeloStream Prometheus Rules
+#### Velostream Prometheus Rules
 ```yaml
 # velostream_rules.yml
 groups:
 - name: velostream.rules
   rules:
-  - alert: VeloStreamHighMemoryUsage
+  - alert: VelostreamHighMemoryUsage
     expr: velostream_memory_usage_bytes > 8e9  # 8GB
     for: 2m
     labels:
       severity: warning
     annotations:
-      summary: "VeloStream high memory usage"
+      summary: "Velostream high memory usage"
       description: "Memory usage is {{ $value | humanize1024 }}"
       
-  - alert: VeloStreamHighQueryLatency
+  - alert: VelostreamHighQueryLatency
     expr: velostream_query_duration_seconds > 5.0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "VeloStream high query latency"
+      summary: "Velostream high query latency"
       description: "Query latency is {{ $value }}s"
       
-  - alert: VeloStreamConsumerLag
+  - alert: VelostreamConsumerLag
     expr: velostream_kafka_consumer_lag > 1000
     for: 5m
     labels:
       severity: warning
     annotations:
-      summary: "VeloStream consumer lag"
+      summary: "Velostream consumer lag"
       description: "Consumer lag is {{ $value }} messages"
       
-  - alert: VeloStreamDown
+  - alert: VelostreamDown
     expr: up{job="velostream"} == 0
     for: 1m
     labels:
       severity: critical
     annotations:
-      summary: "VeloStream is down"
-      description: "VeloStream has been down for more than 1 minute"
+      summary: "Velostream is down"
+      description: "Velostream has been down for more than 1 minute"
 ```
 
 #### Grafana Dashboard Configuration
 ```json
 {
   "dashboard": {
-    "title": "VeloStream SQL Monitoring",
+    "title": "Velostream SQL Monitoring",
     "panels": [
       {
         "title": "Query Throughput",
@@ -2763,7 +2763,7 @@ metadata:
   name: flink-velostream-config
 data:
   schema-compatibility.yaml: |
-    # Shared Avro schemas between Flink and VeloStream
+    # Shared Avro schemas between Flink and Velostream
     schemas:
       financial_transaction:
         type: "record"
@@ -3182,7 +3182,7 @@ spec:
     - routingKey:
         key: integration_key
         name: pagerduty-config
-      description: 'Critical VeloStream Alert: {{ .GroupLabels.alertname }}'
+      description: 'Critical Velostream Alert: {{ .GroupLabels.alertname }}'
       severity: 'critical'
       
   - name: 'pagerduty-warning'  
@@ -3190,7 +3190,7 @@ spec:
     - routingKey:
         key: integration_key
         name: pagerduty-config
-      description: 'Warning VeloStream Alert: {{ .GroupLabels.alertname }}'
+      description: 'Warning Velostream Alert: {{ .GroupLabels.alertname }}'
       severity: 'warning'
 ```
 
@@ -3225,7 +3225,7 @@ spec:
         key: url
         name: slack-webhook
       channel: '#velostream-alerts'
-      title: 'VeloStream Alert: {{ .GroupLabels.alertname }}'
+      title: 'Velostream Alert: {{ .GroupLabels.alertname }}'
       text: |
         {{ range .Alerts }}
         Alert: {{ .Annotations.summary }}
@@ -3241,7 +3241,7 @@ spec:
         key: url
         name: slack-webhook
       channel: '#velostream-info'
-      title: 'VeloStream Info: {{ .GroupLabels.alertname }}'
+      title: 'Velostream Info: {{ .GroupLabels.alertname }}'
       color: 'good'
 ```
 
@@ -3249,7 +3249,7 @@ spec:
 
 ## 🎉 Conclusion
 
-**🎊 VeloStream SQL is now production-ready with:**
+**🎊 Velostream SQL is now production-ready with:**
 - **Complete Docker deployment** with all serialization formats
 - **Financial precision arithmetic** (42x performance improvement)
 - **Flink-compatible Avro** decimal logical types  

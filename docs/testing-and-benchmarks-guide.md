@@ -1,8 +1,8 @@
 # Testing and Benchmarks Guide
 
-**Complete guide to running tests and benchmarks in VeloStream**
+**Complete guide to running tests and benchmarks in Velostream**
 
-This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in VeloStream, organized by purpose and execution time.
+This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in Velostream, organized by purpose and execution time.
 
 ---
 

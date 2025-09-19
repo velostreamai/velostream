@@ -1,6 +1,6 @@
 # Advanced and Utility Functions
 
-Complete reference for utility functions, advanced operations, and specialized functions in VeloStream.
+Complete reference for utility functions, advanced operations, and specialized functions in Velostream.
 
 ## Null Handling Functions
 

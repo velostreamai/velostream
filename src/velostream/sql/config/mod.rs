@@ -1,6 +1,6 @@
 //! Configuration & URI Parsing Module
 //!
-//! This module provides comprehensive configuration management for VeloStream,
+//! This module provides comprehensive configuration management for Velostream,
 //! including URI parsing, configuration validation, and environment-based configuration.
 //!
 //! ## Features

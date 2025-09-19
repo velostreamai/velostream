@@ -1,8 +1,8 @@
-# VeloStream Performance Monitoring
+# Velostream Performance Monitoring
 
 **Phase 1: Statistics & Monitoring Infrastructure**
 
-This document describes the comprehensive performance monitoring system implemented for the VeloStream SQL engine. The monitoring infrastructure provides real-time visibility into query execution performance, memory usage, and system health.
+This document describes the comprehensive performance monitoring system implemented for the Velostream SQL engine. The monitoring infrastructure provides real-time visibility into query execution performance, memory usage, and system health.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This document describes the comprehensive performance monitoring system implemen
 
 ## Overview
 
-The VeloStream Performance Monitoring system tracks query execution across the entire SQL engine pipeline, providing insights into:
+The Velostream Performance Monitoring system tracks query execution across the entire SQL engine pipeline, providing insights into:
 
 - **Query Execution Time**: Total time and per-processor breakdown
 - **Memory Usage**: Allocated memory, peak usage, and component-specific tracking
@@ -324,7 +324,7 @@ println!("{}", report);
 
 // Example output:
 // =====================================
-// VeloStream Performance Report
+// Velostream Performance Report
 // =====================================
 // Generated: 2025-01-24 10:30:00 UTC
 // Status: Healthy

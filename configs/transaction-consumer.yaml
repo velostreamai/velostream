@@ -1,30 +1,30 @@
 # Transaction-Enabled Kafka Consumer Configuration
 # Optimized for exactly-once processing with transactional guarantees
-# Compatible with VeloStream transactional multi-job processing
+# Compatible with Velostream transactional multi-job processing
 
 datasource:
   type: kafka
   
   # Transactional consumer configuration
   consumer_config:
-    bootstrap_servers: "localhost:9092"
+    bootstrap.servers: "localhost:9092"
     
     # Transactional settings
     isolation_level: "read_committed"  # Only read committed transactions
-    enable_auto_commit: false          # Manual commit for transaction control
+    enable.auto.commit: false          # Manual commit for transaction control
     
     # Group coordination for transaction consistency
     group_id: "velo-tx-consumer-group"
-    auto_offset_reset: "earliest"      # Ensure no data loss in transactions
-    session_timeout_ms: 30000          # Increased for transaction stability
-    heartbeat_interval_ms: 3000        # More frequent heartbeats
+    auto.offset.reset: "earliest"      # Ensure no data loss in transactions
+    session.timeout.ms: 30000          # Increased for transaction stability
+    heartbeat.interval.ms: 3000        # More frequent heartbeats
     max_poll_interval_ms: 300000       # 5 minutes for complex transactions
     
     # Optimized for transactional throughput
-    fetch_min_bytes: 1024              # Small batches for low latency
+    fetch.min.bytes: 1024              # Small batches for low latency
     fetch_max_bytes: 52428800          # 50MB max fetch
-    fetch_max_wait_ms: 500             # Balance latency vs throughput
-    max_poll_records: 500              # Manageable transaction batch size
+    fetch.max.wait.ms: 500             # Balance latency vs throughput
+    max.poll.records: 500              # Manageable transaction batch size
     max_partition_fetch_bytes: 1048576 # 1MB per partition
     
     # Connection reliability for transactions
@@ -36,8 +36,8 @@ datasource:
     
   # Schema configuration supporting transactional data
   schema:
-    key_format: string
-    value_format: json
+    key.format: string
+    value.format: json
     
     # Enhanced schema for transactional metadata
     include_transaction_metadata: true
@@ -96,25 +96,25 @@ transaction_profiles:
   financial_strict:
     # Strictest consistency for financial transactions
     isolation_level: "read_committed"
-    max_poll_records: 100
-    session_timeout_ms: 45000
+    max.poll.records: 100
+    session.timeout.ms: 45000
     enable_idempotence: true
     transaction_timeout_ms: 60000
     
   batch_processing:
     # Optimized for batch transaction processing
     isolation_level: "read_committed"
-    max_poll_records: 1000
-    session_timeout_ms: 30000
-    fetch_max_wait_ms: 1000
+    max.poll.records: 1000
+    session.timeout.ms: 30000
+    fetch.max.wait.ms: 1000
     transaction_timeout_ms: 300000
     
   real_time:
     # Low latency with transaction guarantees
     isolation_level: "read_committed"
-    max_poll_records: 50
-    session_timeout_ms: 15000
-    fetch_max_wait_ms: 100
+    max.poll.records: 50
+    session.timeout.ms: 15000
+    fetch.max.wait.ms: 100
     transaction_timeout_ms: 30000
 
 # Error handling and recovery
@@ -131,7 +131,7 @@ error_handling:
     original_topic: "#{source_topic}"
     failure_timestamp: "#{current_timestamp}"
   
-# Integration with VeloStream multi-job processor
+# Integration with Velostream multi-job processor
 velo_integration:
   processor_type: "transactional"        # Use TransactionalJobProcessor
   job_config:
@@ -145,7 +145,7 @@ velo_integration:
   memory_config:
     record_pool_size: 1000
     field_map_pool_size: 1000
-    transaction_buffer_size: 10000
+    transaction_buffer.size: 10000
     
 # Validation rules for transactional data
 validation:

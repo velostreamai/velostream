@@ -616,7 +616,7 @@ impl ConfigSchemaProvider for FileDataSource {
         serde_json::json!({
             "type": "object",
             "title": "File Data Source Configuration Schema",
-            "description": "Configuration schema for file-based data sources in VeloStream",
+            "description": "Configuration schema for file-based data sources in Velostream",
             "properties": {
                 "path": {
                     "type": "string",

@@ -10,9 +10,9 @@ delivery_profile: medium_priority
 
 topic_config:
   partitions: 4
-  retention_ms: 1209600000  # 14 days retention
+  retention.ms: 1209600000  # 14 days retention
   
 metadata:
   description: "Battery level alerts"
-  data_classification: "maintenance_alerts"
+  data.classification: "maintenance_alerts"
   priority: "medium"

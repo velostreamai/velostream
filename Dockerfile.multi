@@ -1,4 +1,4 @@
-# VeloStream Multi-Job SQL Server Docker Image
+# Velostream Multi-Job SQL Server Docker Image
 FROM rust:1.85-bookworm as builder
 
 # Configure Git and Cargo to handle SSL issues

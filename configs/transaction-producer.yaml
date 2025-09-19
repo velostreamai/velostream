@@ -1,13 +1,13 @@
 # Transaction-Enabled Kafka Producer Configuration
 # Optimized for exactly-once delivery with transactional guarantees
-# Compatible with VeloStream transactional multi-job processing
+# Compatible with Velostream transactional multi-job processing
 
 datasink:
   type: kafka
   
   # Transactional producer configuration
   producer_config:
-    bootstrap_servers: "localhost:9092"
+    bootstrap.servers: "localhost:9092"
     
     # Exactly-once semantics configuration
     enable_idempotence: true              # Required for transactions
@@ -21,8 +21,8 @@ datasink:
     retry_backoff_ms: 100
     
     # Batching optimized for transactions
-    batch_size: 16384                    # 16KB batches
-    linger_ms: 5                        # Small linger for low latency
+    batch.size: 16384                    # 16KB batches
+    linger.ms: 5                        # Small linger for low latency
     buffer_memory: 33554432             # 32MB buffer
     
     # Delivery timeouts
@@ -30,7 +30,7 @@ datasink:
     request_timeout_ms: 30000           # 30 second request timeout
     
     # Compression for efficiency
-    compression_type: "lz4"              # Fast compression for real-time
+    compression.type: "lz4"              # Fast compression for real-time
     
     # Connection management
     connections_max_idle_ms: 540000      # 9 minutes
@@ -39,8 +39,8 @@ datasink:
     
   # Schema configuration for transactional messages
   schema:
-    key_format: string                   # Simple string keys for transactions
-    value_format: json                   # JSON for flexibility
+    key.format: string                   # Simple string keys for transactions
+    value.format: json                   # JSON for flexibility
     
     # Transaction envelope schema
     envelope_schema: |
@@ -78,11 +78,11 @@ datasink:
       
   # Default topic configuration for transactional topics
   topic_config:
-    replication_factor: 3                # High availability
+    replication.factor: 3                # High availability
     min_insync_replicas: 2              # Durability
-    cleanup_policy: "delete"            # Standard cleanup
+    cleanup.policy: "delete"            # Standard cleanup
     segment_ms: 86400000                # 24 hour segments
-    retention_ms: 604800000             # 7 days retention
+    retention.ms: 604800000             # 7 days retention
     
     # Transaction-specific topic settings
     max_message_bytes: 1048576          # 1MB max message
@@ -186,7 +186,7 @@ error_handling:
     failure_timestamp: "#{current_timestamp}"
     retry_count: "#{retry_attempt}"
 
-# VeloStream integration configuration
+# Velostream integration configuration
 velo_integration:
   processor_type: "transactional"
   

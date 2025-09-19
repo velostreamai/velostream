@@ -196,7 +196,7 @@ async fn run_raw_performance_test(
     let partition_count = admin_client.get_partition_count(&topic).await?;
     println!("✅ Raw topic created with {} partitions", partition_count);
 
-    // Create high-throughput producer configuration using VeloStream
+    // Create high-throughput producer configuration using Velostream
     let producer_config = ProducerConfig::new("localhost:9092", &topic)
         .client_id("raw-perf-producer")
         .compression(CompressionType::Lz4) // Fast compression
@@ -315,14 +315,14 @@ async fn run_raw_performance_test(
                 let message_id = (producer_id as u64 * messages_per_producer) + i;
                 let key = format!("raw-key-{}", message_id);
 
-                // Create headers using VeloStream Headers
+                // Create headers using Velostream Headers
                 let headers = Headers::new()
                     .insert("test-type", "raw-performance")
                     .insert("producer-id", &producer_id_str)
                     .insert("message-id", message_id.to_string())
                     .insert("payload-size", payload_size_bytes.to_string());
 
-                // Send raw bytes directly using VeloStream producer
+                // Send raw bytes directly using Velostream producer
                 match producer_clone
                     .send(Some(&key), &payload_clone, headers, None)
                     .await

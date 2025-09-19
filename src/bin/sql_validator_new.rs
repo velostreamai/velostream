@@ -1,6 +1,6 @@
 //! SQL Query and Application Validator
 //!
-//! Comprehensive validation tool for VeloStream SQL queries and applications.
+//! Comprehensive validation tool for Velostream SQL queries and applications.
 //! This is the refactored, object-oriented version of the SQL validator.
 
 use log::info;
@@ -157,7 +157,7 @@ fn validate_directory(dir_path: &str) {
 }
 
 fn show_usage() {
-    println!("VeloStream SQL Validator");
+    println!("Velostream SQL Validator");
     println!();
     println!("USAGE:");
     println!("    sql_validator <COMMAND> [OPTIONS]");

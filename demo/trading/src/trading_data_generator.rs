@@ -1,6 +1,6 @@
 //! # Financial Trading Data Generator
 //! 
-//! Generates realistic financial trading data for the VeloStream SQL demo.
+//! Generates realistic financial trading data for the Velostream SQL demo.
 //! Produces market data, trading positions, and order book updates.
 
 use chrono::{Utc, Duration as ChronoDuration};

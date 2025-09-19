@@ -76,14 +76,14 @@ SELECT
     -- Detect significant movements
     CASE
         WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100) > 5.0 THEN 'SIGNIFICANT'
+                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 5.0 THEN 'SIGNIFICANT'
         WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100) > 2.0 THEN 'MODERATE'
+                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
     
     NOW() as detection_time
-FROM market_data_with_event_time
+FROM market_data_et
 -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 -- Phase 3: Complex HAVING clause with multiple conditions
@@ -104,6 +104,9 @@ WITH (
     
     'price_alerts_sink.type' = 'kafka_sink',
     'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml'
+
+    'market_data_et.type' = 'kafka_source',
+    'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
 );
 
 -- ====================================================================================

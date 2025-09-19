@@ -3,7 +3,7 @@
 
 Watermarks are critical for streaming systems to handle out-of-order events and determine
 when it's safe to emit results for time-based windows. This module provides a flexible,
-optional watermark system that integrates with existing VeloStream architecture.
+optional watermark system that integrates with existing Velostream architecture.
 
 ## Key Concepts
 
@@ -13,7 +13,7 @@ and emit results.
 
 **Event-Time vs Processing-Time**:
 - Event-time: When the event actually occurred (from `event_time` field)
-- Processing-time: When VeloStream processed the record (from `timestamp` field)
+- Processing-time: When Velostream processed the record (from `timestamp` field)
 
 ## Design Philosophy
 

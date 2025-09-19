@@ -43,7 +43,7 @@ fn test_cli_help_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify help output contains expected sections
-    assert!(stdout.contains("VeloStream StreamJobServer"));
+    assert!(stdout.contains("Velostream StreamJobServer"));
     assert!(stdout.contains("Usage:"));
     assert!(stdout.contains("Commands:"));
     assert!(stdout.contains("server"));

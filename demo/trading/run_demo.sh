@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Financial Trading Demo Script
-# Demonstrates real-time trading analytics with VeloStream
+# Demonstrates real-time trading analytics with Velostream
 
 set -e
 
@@ -17,7 +17,7 @@ KAFKA_BROKERS="${KAFKA_BROKERS:-localhost:9092}"
 DEMO_DURATION="${DEMO_DURATION:-5}" # minutes
 SQL_SERVER_PORT="${SQL_SERVER_PORT:-8080}"
 
-echo -e "${BLUE}🏦 VeloStream Financial Trading Demo${NC}"
+echo -e "${BLUE}🏦 Velostream Financial Trading Demo${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
@@ -110,7 +110,7 @@ done
 echo -e "${GREEN}✓ Kafka topics created${NC}"
 
 # Build the project
-echo -e "${YELLOW}🔨 Building VeloStream...${NC}"
+echo -e "${YELLOW}🔨 Building Velostream...${NC}"
 cd ../..
 cargo build --release
 cd demo/trading
@@ -212,8 +212,8 @@ echo ""
 echo -e "${BLUE}🎯 Access Points:${NC}"
 echo "• Kafka UI: http://localhost:8090 (monitor topics and messages)"
 echo "• Grafana Dashboards: http://localhost:3000 (admin/admin)"
-echo "  - VeloStream Trading Demo (real-time trading analytics)"
-echo "  - VeloStream Overview (system health and performance)"
+echo "  - Velostream Trading Demo (real-time trading analytics)"
+echo "  - Velostream Overview (system health and performance)"
 echo "  - Kafka Metrics (broker and topic statistics)"
 echo "• Prometheus: http://localhost:9090 (metrics and monitoring)"
 echo "• Python Dashboard: Run 'source dashboard_env/bin/activate && python3 dashboard.py'"

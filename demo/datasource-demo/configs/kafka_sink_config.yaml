@@ -6,7 +6,7 @@ datasink:
   name: "processed_transactions_producer"
   config:
     # Kafka connection settings
-    bootstrap_servers: "localhost:9092"
+    bootstrap.servers: "localhost:9092"
     topic: "processed-transactions"
     
     # Producer configuration
@@ -17,9 +17,9 @@ datasink:
       retries: 3               # Retry failed sends
       
       # Performance settings
-      batch_size: 16384        # 16KB batches
-      linger_ms: 10            # Wait 10ms to batch records
-      compression_type: "snappy" # Fast compression
+      batch.size: 16384        # 16KB batches
+      linger.ms: 10            # Wait 10ms to batch records
+      compression.type: "snappy" # Fast compression
       buffer_memory: 33554432  # 32MB total buffer
       
       # Timeout settings
@@ -40,7 +40,7 @@ datasink:
 # Serialization configuration
 serialization:
   format: "avro"
-  key_format: "string"  # Transaction ID as key
+  key.format: "string"  # Transaction ID as key
   value_schema_file: "./schemas/processed_transaction.avsc"
   
 # Producer processing settings  
@@ -49,7 +49,7 @@ processing:
   send_mode: "async"  # Options: "sync", "async"
   
   # Batch processing
-  batch_size: 100
+  batch.size: 100
   flush_interval_ms: 5000  # Flush every 5 seconds
   
   # Error handling
@@ -60,7 +60,7 @@ processing:
     dead_letter_topic: "processed-transactions-errors"
     
   # Key extraction (for partitioning)
-  key_field: "transaction_id"
+  key.field: "transaction_id"
   
   # Headers to add
   headers:
@@ -76,8 +76,8 @@ processing:
 # Topic management (optional - for auto-creation)
 topic_config:
   num_partitions: 3
-  replication_factor: 1
+  replication.factor: 1
   config:
-    cleanup_policy: "delete"
-    retention_ms: 604800000  # 7 days
+    cleanup.policy: "delete"
+    retention.ms: 604800000  # 7 days
     segment_ms: 86400000     # 1 day segments

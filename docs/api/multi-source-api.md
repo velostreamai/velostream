@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides detailed API reference for VeloStream' multi-source and multi-sink processing capabilities. It covers the core traits, methods, and configuration options for implementing custom sources and sinks.
+This document provides detailed API reference for Velostream' multi-source and multi-sink processing capabilities. It covers the core traits, methods, and configuration options for implementing custom sources and sinks.
 
 ## Table of Contents
 
@@ -720,4 +720,4 @@ async fn robust_multi_source_job() -> Result<JobExecutionStats, Box<dyn std::err
    - Track source/sink health separately
    - Set up alerts for failure rates and processing lag
 
-This API reference provides the foundation for implementing sophisticated multi-source streaming applications with VeloStream. For additional examples and advanced use cases, refer to the main documentation and example applications.
+This API reference provides the foundation for implementing sophisticated multi-source streaming applications with Velostream. For additional examples and advanced use cases, refer to the main documentation and example applications.

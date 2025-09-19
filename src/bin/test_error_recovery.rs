@@ -11,7 +11,7 @@ use velostream::velostream::sql::error::SqlError;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔧 Testing VeloStream Error Recovery System");
+    println!("🔧 Testing Velostream Error Recovery System");
     println!("===============================================");
 
     // Test 1: Circuit Breaker Pattern

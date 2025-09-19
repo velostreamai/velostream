@@ -1,4 +1,4 @@
-# Feature Request: SQL Support for VeloStream
+# Feature Request: SQL Support for Velostream
 
 ## Summary
 

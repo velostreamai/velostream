@@ -356,11 +356,11 @@ impl KafkaDataReader {
             }
 
             // Ultra-low latency consumer settings
-            //     fetch_min_bytes: 1           # Don't wait for batches
+            //     fetch.min.bytes: 1           # Don't wait for batches
             //     fetch_max_wait_ms: 1         # 1ms maximum wait
             //     max_poll_records: 10         # Process small batches quickly
             // session_timeout_ms: 6000     # Fast failure detection
-            //     heartbeat_interval_ms: 2000  # Frequent heartbeats
+            //     heartbeat.interval.ms: 2000  # Frequent heartbeats
             // auto_offset_reset: "latest"  # Start from newest messages
             BatchStrategy::LowLatency {
                 max_batch_size,

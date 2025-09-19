@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides practical examples for using the VeloStream Schema Registry system with its advanced caching and reference resolution capabilities.
+This guide provides practical examples for using the Velostream Schema Registry system with its advanced caching and reference resolution capabilities.
 
 ## Basic Setup
 

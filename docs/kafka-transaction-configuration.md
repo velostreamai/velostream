@@ -2,12 +2,12 @@
 
 ## Overview
 
-VeloStream provides comprehensive support for Kafka transactions to enable exactly-once processing semantics. This guide covers the transaction-enabled consumer and producer configurations for financial-grade data processing.
+Velostream provides comprehensive support for Kafka transactions to enable exactly-once processing semantics. This guide covers the transaction-enabled consumer and producer configurations for financial-grade data processing.
 
 ## Transaction Architecture
 
 ```
-Transactional Consumer → VeloStream Engine → Transactional Producer
+Transactional Consumer → Velostream Engine → Transactional Producer
        ↓                        ↓                        ↓
   Read Committed         Transaction Boundary      Exactly-Once Delivery
     Messages               Management                  Guarantees
@@ -105,11 +105,11 @@ datasink:
     linger_ms: 50
   ```
 
-## VeloStream Integration
+## Velostream Integration
 
 ### Multi-Job Processor Configuration
 
-Transaction configurations integrate with VeloStream' transactional job processor:
+Transaction configurations integrate with Velostream' transactional job processor:
 
 ```yaml
 velo_integration:
@@ -125,7 +125,7 @@ velo_integration:
 
 1. **Begin Transaction**: Producer starts transaction
 2. **Process Batch**: Consumer reads committed messages
-3. **Execute SQL**: VeloStream processes data
+3. **Execute SQL**: Velostream processes data
 4. **Produce Results**: Write to output topics
 5. **Commit Transaction**: Atomically commit all operations
 6. **Handle Failures**: Abort and retry on errors

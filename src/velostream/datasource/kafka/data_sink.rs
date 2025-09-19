@@ -6,6 +6,7 @@ use crate::velostream::config::{
 use crate::velostream::datasource::{
     BatchConfig, BatchStrategy, DataSink, DataWriter, SinkConfig, SinkMetadata,
 };
+// Note: unified config helpers available if needed for more complex validation
 use crate::velostream::schema::Schema;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -222,18 +223,21 @@ impl KafkaDataSink {
             "  - batch.size: {}",
             producer_config
                 .get("batch.size")
+                .or_else(|| producer_config.get("batch_size"))
                 .unwrap_or(&"default".to_string())
         );
         info!(
             "  - linger.ms: {}",
             producer_config
                 .get("linger.ms")
+                .or_else(|| producer_config.get("linger_ms"))
                 .unwrap_or(&"default".to_string())
         );
         info!(
             "  - compression.type: {}",
             producer_config
                 .get("compression.type")
+                .or_else(|| producer_config.get("compression_type"))
                 .unwrap_or(&"none".to_string())
         );
         info!(
@@ -285,45 +289,71 @@ impl KafkaDataSink {
         properties: &HashMap<String, String>,
         name: &str,
     ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        // Configuration keys with common prefixes
+        const DATASINK_PREFIX: &str = "datasink";
+        const PRODUCER_CONFIG: &str = "producer_config";
+        const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
+        const TOPIC: &str = "topic";
+
+        // Property names
+        const ACKS: &str = "acks";
+        const COMPRESSION_TYPE_DOT: &str = "compression.type";
+        const COMPRESSION_TYPE_UNDERSCORE: &str = "compression_type";
+        const BATCH_SIZE_DOT: &str = "batch.size";
+        const BATCH_SIZE_UNDERSCORE: &str = "batch_size";
+        const LINGER_MS_DOT: &str = "linger.ms";
+        const LINGER_MS_UNDERSCORE: &str = "linger_ms";
+
+        // Message helper functions
+        fn missing_required_msg(name: &str, key: &str) -> String {
+            format!("Kafka sink '{}' missing required config: {}", name, key)
+        }
+        fn missing_recommended_msg(name: &str, key: &str) -> String {
+            format!("Kafka sink '{}' missing recommended config: {}", name, key)
+        }
+        fn batch_perf_recommendation(name: &str) -> String {
+            format!("Kafka sink '{}' could benefit from batch configuration (batch.size, linger.ms) for better throughput", name)
+        }
+        fn acks_zero_warning(name: &str) -> String {
+            format!("Kafka sink '{}' has acks=0 which may lead to data loss. Consider acks=1 or acks=all", name)
+        }
+
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let mut recommendations = Vec::new();
 
-        // Required properties
-        let required_keys = vec!["producer_config.bootstrap_servers", "topic"];
+        // Build required configuration keys
+        let bootstrap_servers_key = format!("{}.{}.{}", DATASINK_PREFIX, PRODUCER_CONFIG, BOOTSTRAP_SERVERS);
+        let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
+
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                errors.push(format!(
-                    "Kafka sink '{}' missing required config: {}",
-                    name, key
-                ));
+                errors.push(missing_required_msg(name, key));
             }
         }
 
-        // Recommended properties (generate warnings)
-        let recommended_keys = vec!["acks", "compression.type"];
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                warnings.push(format!(
-                    "Kafka sink '{}' missing recommended config: {}",
-                    name, key
-                ));
+        // Recommended properties with fallback support
+        let recommended_keys = vec![
+            (ACKS, ACKS),
+            (COMPRESSION_TYPE_DOT, COMPRESSION_TYPE_UNDERSCORE),
+        ];
+
+        for (dot_key, underscore_key) in &recommended_keys {
+            if !properties.contains_key(*dot_key) && !properties.contains_key(*underscore_key) {
+                warnings.push(missing_recommended_msg(name, dot_key));
             }
         }
 
-        // Performance recommendations
-        if !properties.contains_key("batch.size") && !properties.contains_key("linger.ms") {
-            recommendations.push(format!(
-                "Kafka sink '{}' could benefit from batch configuration (batch.size, linger.ms) for better throughput",
-                name
-            ));
+        // Performance recommendations - check for both dot and underscore variants
+        let has_batch_size = properties.contains_key(BATCH_SIZE_DOT) || properties.contains_key(BATCH_SIZE_UNDERSCORE);
+        let has_linger_ms = properties.contains_key(LINGER_MS_DOT) || properties.contains_key(LINGER_MS_UNDERSCORE);
+
+        if !has_batch_size && !has_linger_ms {
+            recommendations.push(batch_perf_recommendation(name));
         }
 
-        if properties.get("acks").map_or(false, |v| v == "0") {
-            recommendations.push(format!(
-                "Kafka sink '{}' has acks=0 which may lead to data loss. Consider acks=1 or acks=all",
-                name
-            ));
+        if properties.get(ACKS).map_or(false, |v| v == "0") {
+            recommendations.push(acks_zero_warning(name));
         }
 
         (errors, warnings, recommendations)
@@ -669,7 +699,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
         serde_json::json!({
             "type": "object",
             "title": "Kafka Data Sink Configuration Schema",
-            "description": "Configuration schema for Kafka data sinks in VeloStream",
+            "description": "Configuration schema for Kafka data sinks in Velostream",
             "properties": {
                 "bootstrap.servers": {
                     "type": "string",
@@ -845,8 +875,10 @@ impl ConfigSchemaProvider for KafkaDataSink {
                 Ok(Some(default_protocol.to_string()))
             }
             "compression.type" => {
-                if let Some(global_compression) =
-                    global_context.global_properties.get("compression.type")
+                if let Some(global_compression) = global_context
+                    .global_properties
+                    .get("compression.type")
+                    .or_else(|| global_context.global_properties.get("compression_type"))
                 {
                     return Ok(Some(global_compression.clone()));
                 }

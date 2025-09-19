@@ -1,6 +1,6 @@
 # Essential SQL Functions
 
-The 10 most commonly used functions in VeloStream with practical examples you can use immediately.
+The 10 most commonly used functions in Velostream with practical examples you can use immediately.
 
 ## 1. COUNT - Count Records
 

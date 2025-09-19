@@ -1,4 +1,4 @@
-//! Pluggable serialization interface for VeloStream
+//! Pluggable serialization interface for Velostream
 //!
 //! This module provides a comprehensive trait-based approach to serialization that allows
 //! the system to work with multiple data formats (JSON, Avro, Protobuf, etc.) instead

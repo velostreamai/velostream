@@ -21,6 +21,6 @@ value.format: "json"
 key.format: "string"
 
 # Processing settings
-batch_size: 1000
+batch.size: 1000
 timeout_ms: 30000
 max_retries: 3

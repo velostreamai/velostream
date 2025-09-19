@@ -2,7 +2,7 @@
 
 ## Overview
 
-VeloStream supports independent compression configuration that works alongside batch strategies. Users can specify compression settings explicitly, and these settings will never be overridden by batch configuration optimizations. When no explicit compression is configured, batch strategies provide intelligent compression suggestions based on performance characteristics.
+Velostream supports independent compression configuration that works alongside batch strategies. Users can specify compression settings explicitly, and these settings will never be overridden by batch configuration optimizations. When no explicit compression is configured, batch strategies provide intelligent compression suggestions based on performance characteristics.
 
 ## Key Principle: Suggestion vs Override
 

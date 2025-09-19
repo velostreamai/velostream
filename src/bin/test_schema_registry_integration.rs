@@ -1,7 +1,7 @@
 //! Integration Test for Schema Registry with SQL Execution Engine
 //!
 //! This test demonstrates the integration of the pluggable Schema Registry
-//! with the VeloStream SQL execution engine, showing performance
+//! with the Velostream SQL execution engine, showing performance
 //! characteristics and real-world usage patterns.
 
 use std::sync::Arc;

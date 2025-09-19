@@ -1,10 +1,10 @@
-# VeloStream Native SQL Deployment Guide
+# Velostream Native SQL Deployment Guide
 
 > **⚠️ For Development Only**: This guide covers native binary deployment. For production deployment with containers, financial precision, and multi-format serialization, see **[DEPLOYMENT_SUMMARY.md](../DEPLOYMENT_SUMMARY.md)**
 
 ## Overview
 
-This guide covers how to deploy and run VeloStream SQL functionality for processing Kafka streams with SQL queries. The system provides both server mode for long-running SQL services and client mode for one-off query execution.
+This guide covers how to deploy and run Velostream SQL functionality for processing Kafka streams with SQL queries. The system provides both server mode for long-running SQL services and client mode for one-off query execution.
 
 ## Table of Contents
 
@@ -291,7 +291,7 @@ Create `/etc/systemd/system/velo-sql.service`:
 
 ```ini
 [Unit]
-Description=VeloStream SQL Server
+Description=Velostream SQL Server
 After=network.target
 Wants=network.target
 

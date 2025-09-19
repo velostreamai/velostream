@@ -2,13 +2,13 @@
 
 ## **Overview**
 
-This document describes the verified behavior of `EMIT CHANGES` with late arriving and out-of-order data in VeloStream, based on comprehensive test results.
+This document describes the verified behavior of `EMIT CHANGES` with late arriving and out-of-order data in Velostream, based on comprehensive test results.
 
 ## **Late Data Handling Semantics**
 
 ### **✅ CONFIRMED: Append-Only Correction Semantics**
 
-VeloStream implements **Append-Only Correction** semantics for EMIT CHANGES with late data:
+Velostream implements **Append-Only Correction** semantics for EMIT CHANGES with late data:
 
 1. **No Retractions**: When late data arrives, EMIT CHANGES does NOT emit retraction records
 2. **Immediate Corrections**: Late data triggers immediate re-emission of corrected aggregation results  
@@ -75,7 +75,7 @@ t=5:  order_5, status=pending, amount=50   [VERY LATE - t=5 < t=30]
 
 | System | Late Data Handling | Retractions | Watermarks |
 |--------|-------------------|------------|------------|
-| **VeloStream EMIT CHANGES** | ✅ Append-Only Corrections | ❌ No | ❌ No |
+| **Velostream EMIT CHANGES** | ✅ Append-Only Corrections | ❌ No | ❌ No |
 | Kafka Streams | ✅ Retract/Insert | ✅ Yes | ✅ Yes |
 | Apache Flink | ✅ Configurable | ✅ Yes | ✅ Yes |  
 | ksqlDB EMIT CHANGES | ✅ Append-Only | ❌ No | ⚠️ Optional |

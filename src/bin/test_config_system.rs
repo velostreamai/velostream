@@ -10,7 +10,7 @@ use velostream::velostream::sql::config::{builder::DataSourceConfigBuilder, *};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔧 Testing VeloStream Configuration & URI Parsing System");
+    println!("🔧 Testing Velostream Configuration & URI Parsing System");
     println!("===========================================================");
 
     // Test 1: URI Parsing
@@ -354,7 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create a test TOML config file
     let test_config_content = r#"
-# Test VeloStream Configuration
+# Test Velostream Configuration
 
 [kafka]
 host = "config-file-host"

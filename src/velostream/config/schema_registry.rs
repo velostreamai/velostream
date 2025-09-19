@@ -437,8 +437,8 @@ impl HierarchicalSchemaRegistry {
     pub fn generate_complete_json_schema(&self) -> Value {
         let mut schema = serde_json::json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "VeloStream Configuration Schema",
-            "description": "Comprehensive schema for VeloStream configuration validation",
+            "title": "Velostream Configuration Schema",
+            "description": "Comprehensive schema for Velostream configuration validation",
             "type": "object",
             "properties": {},
             "definitions": {}

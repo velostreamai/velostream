@@ -2,7 +2,7 @@
 
 Copy-paste SQL queries for detecting fraudulent activities and suspicious patterns in real-time.
 
-> **⚠️ Important**: All examples include required CREATE STREAM statements. These queries are ready to run in VeloStream.
+> **⚠️ Important**: All examples include required CREATE STREAM statements. These queries are ready to run in Velostream.
 
 ## Transaction-Based Fraud Detection
 

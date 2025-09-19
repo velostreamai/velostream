@@ -1,4 +1,4 @@
-# Clippy configuration for VeloStream
+# Clippy configuration for Velostream
 # Allow certain patterns that are common in streaming frameworks
 
 # Allow breaking exported API during development

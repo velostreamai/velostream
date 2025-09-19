@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Core VeloStream
+# Core Velostream
 velostream = { path = ".." }
 
 # Benchmarking framework

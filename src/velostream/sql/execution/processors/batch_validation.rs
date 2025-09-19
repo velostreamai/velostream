@@ -247,7 +247,7 @@ impl BatchProcessingValidator {
         if let Some(format) = config.get("schema.value.format") {
             return format.clone();
         }
-        if let Some(format) = config.get("value_format") {
+        if let Some(format) = config.get("value.format") {
             return format.clone();
         }
         if let Some(format) = config.get("format") {
@@ -283,7 +283,7 @@ impl BatchProcessingValidator {
     fn check_serialization_format_in_config(&self, config: &HashMap<String, String>) -> bool {
         config.contains_key("value.format")
             || config.contains_key("schema.value.format")
-            || config.contains_key("value_format")
+            || config.contains_key("value.format")
             || config.contains_key("format")
     }
 }

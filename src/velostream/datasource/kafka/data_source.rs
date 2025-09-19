@@ -4,6 +4,7 @@ use crate::velostream::config::{
     ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
 };
 use crate::velostream::datasource::{DataReader, DataSource, SourceConfig, SourceMetadata};
+// Note: unified config helpers available if needed for more complex validation
 use crate::velostream::schema::{FieldDefinition, Schema};
 use crate::velostream::sql::ast::DataType;
 use async_trait::async_trait;
@@ -375,8 +376,33 @@ impl KafkaDataSource {
         properties: &HashMap<String, String>,
         name: &str,
     ) -> (Vec<String>, Vec<String>, Vec<String>) {
-        let required_keys = vec!["consumer_config.bootstrap_servers", "topic"];
-        let recommended_keys = vec!["group.id"];
+        // Configuration keys with common prefixes
+        const DATASOURCE_PREFIX: &str = "datasource";
+        const CONSUMER_CONFIG: &str = "consumer_config";
+        const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
+        const TOPIC: &str = "topic";
+        const GROUP_ID_DOT: &str = "group.id";
+        const GROUP_ID_UNDERSCORE: &str = "group_id";
+
+        // Error message helper function
+        fn missing_required_msg(name: &str, key: &str) -> String {
+            format!("Kafka source '{}' missing required config: {}", name, key)
+        }
+        fn missing_recommended_msg(name: &str, key: &str) -> String {
+            format!("Kafka source '{}' missing recommended config: {}", name, key)
+        }
+        fn batch_config_warning(name: &str) -> String {
+            format!("Kafka source '{}' has batch configuration - ensure this is intended", name)
+        }
+
+        // Build required configuration keys
+        let bootstrap_servers_key = format!("{}.{}.{}", DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS);
+        let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
+
+        // Recommended properties with fallback support
+        let recommended_keys = vec![
+            (GROUP_ID_DOT, GROUP_ID_UNDERSCORE),
+        ];
 
         let mut missing_required = Vec::new();
         let mut missing_recommended = Vec::new();
@@ -385,33 +411,25 @@ impl KafkaDataSource {
         // Check required properties
         for key in &required_keys {
             if !properties.contains_key(*key) {
-                missing_required.push(format!(
-                    "Kafka source '{}' missing required config: {}",
-                    name, key
-                ));
+                missing_required.push(missing_required_msg(name, key));
             }
         }
 
-        // Check recommended properties
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                missing_recommended.push(format!(
-                    "Kafka source '{}' missing recommended config: {}",
-                    name, key
-                ));
+        // Check recommended properties with fallback support
+        for (dot_key, underscore_key) in &recommended_keys {
+            if !properties.contains_key(*dot_key) && !properties.contains_key(*underscore_key) {
+                missing_recommended.push(missing_recommended_msg(name, dot_key));
             }
         }
 
         // Check for batch configuration presence
+        let batch_indicators = ["batch", "poll", "fetch"];
         let has_batch_config = properties
             .keys()
-            .any(|k| k.contains("batch") || k.contains("poll") || k.contains("fetch"));
+            .any(|k| batch_indicators.iter().any(|indicator| k.contains(indicator)));
 
         if has_batch_config {
-            warnings.push(format!(
-                "Kafka source '{}' has batch configuration - ensure this is intended",
-                name
-            ));
+            warnings.push(batch_config_warning(name));
         }
 
         (missing_required, missing_recommended, warnings)
@@ -766,7 +784,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
         serde_json::json!({
             "type": "object",
             "title": "Kafka Data Source Configuration Schema",
-            "description": "Configuration schema for Kafka data sources in VeloStream",
+            "description": "Configuration schema for Kafka data sources in Velostream",
             "properties": {
                 "bootstrap.servers": {
                     "type": "string",

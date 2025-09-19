@@ -467,7 +467,7 @@ fn test_schema_registry_complete_json_schema_generation() {
         complete_schema["$schema"],
         "https://json-schema.org/draft/2020-12/schema"
     );
-    assert_eq!(complete_schema["title"], "VeloStream Configuration Schema");
+    assert_eq!(complete_schema["title"], "Velostream Configuration Schema");
     assert!(complete_schema["definitions"].is_object());
     assert!(complete_schema["definitions"]["batch_config"].is_object());
     assert!(complete_schema["definitions"]["kafka_source"].is_object());

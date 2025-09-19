@@ -65,7 +65,7 @@ serialization:
 # Processing settings
 processing:
   # Batch writing for performance
-  batch_size: 100
+  batch.size: 100
   batch_timeout_ms: 1000
   
   # Field transformations

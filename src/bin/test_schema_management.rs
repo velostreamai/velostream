@@ -16,7 +16,7 @@ use velostream::velostream::sql::ast::DataType;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("🔍 Testing VeloStream Schema Management System");
+    println!("🔍 Testing Velostream Schema Management System");
     println!("================================================");
 
     // Test 1: Schema Registry with Default Providers

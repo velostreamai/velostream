@@ -1074,7 +1074,7 @@ impl ConfigSchemaProvider for FileDataSink {
         serde_json::json!({
             "type": "object",
             "title": "File Data Sink Configuration Schema",
-            "description": "Configuration schema for file-based data sinks in VeloStream",
+            "description": "Configuration schema for file-based data sinks in Velostream",
             "properties": {
                 "path": {
                     "type": "string",

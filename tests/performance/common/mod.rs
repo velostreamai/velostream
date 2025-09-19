@@ -1,4 +1,4 @@
-//! Common utilities for VeloStream performance testing
+//! Common utilities for Velostream performance testing
 //!
 //! This module provides shared utilities to eliminate code duplication across
 //! performance tests and ensure consistent measurement approaches.

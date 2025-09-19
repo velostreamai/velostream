@@ -1,6 +1,7 @@
 //! Unit tests for ValidationReportGenerator
 
 use std::path::Path;
+use velostream::velostream::sql::execution::processors::BatchValidationTarget;
 use velostream::velostream::sql::validation::report_generator::ValidationReportGenerator;
 use velostream::velostream::sql::validation::result_types::QueryValidationResult;
 use velostream::velostream::sql::validation::ApplicationMetadata;
@@ -39,16 +40,16 @@ fn test_generate_application_result_empty() {
     let path = Path::new("test.sql");
     let metadata = ApplicationMetadata {
         name: "Test Application".to_string(),
-        description: Some("Test description".to_string()),
-        version: Some("1.0.0".to_string()),
+        description: "Test description".to_string(),
+        version: "1.0.0".to_string(),
     };
     let query_results = vec![];
 
     let result = generator.generate_application_result(path, metadata, query_results);
 
     assert_eq!(result.application_name, "Test Application");
-    assert_eq!(result.description, Some("Test description".to_string()));
-    assert_eq!(result.version, Some("1.0.0".to_string()));
+    assert_eq!(result.description, "Test description".to_string());
+    assert_eq!(result.version, "1.0.0".to_string());
     assert_eq!(result.query_results.len(), 0);
 }
 
@@ -58,8 +59,8 @@ fn test_generate_application_result_with_queries() {
     let path = Path::new("test.sql");
     let metadata = ApplicationMetadata {
         name: "Test Application".to_string(),
-        description: Some("Test SQL application".to_string()),
-        version: Some("2.0.0".to_string()),
+        description: "Test SQL application".to_string(),
+        version: "2.0.0".to_string(),
     };
 
     let query1 = QueryValidationResult::new("SELECT * FROM stream1".to_string());
@@ -85,8 +86,8 @@ fn test_generate_application_result_with_invalid_queries() {
     let path = Path::new("invalid.sql");
     let metadata = ApplicationMetadata {
         name: "Invalid Application".to_string(),
-        description: None,
-        version: None,
+        description: String::new(),
+        version: String::new(),
     };
 
     let mut query1 = QueryValidationResult::new("INVALID SQL".to_string());
@@ -98,8 +99,8 @@ fn test_generate_application_result_with_invalid_queries() {
     let result = generator.generate_application_result(path, metadata, query_results);
 
     assert_eq!(result.application_name, "Invalid Application");
-    assert_eq!(result.description, None);
-    assert_eq!(result.version, None);
+    assert_eq!(result.description, String::new());
+    assert_eq!(result.version, String::new());
     assert_eq!(result.query_results.len(), 1);
     assert!(!result.query_results[0].is_valid);
 }
@@ -113,8 +114,8 @@ fn test_generate_application_result_builder_pattern() {
     let path = Path::new("builder_test.sql");
     let metadata = ApplicationMetadata {
         name: "Builder Test".to_string(),
-        description: Some("Testing builder pattern".to_string()),
-        version: Some("1.0.0".to_string()),
+        description: "Testing builder pattern".to_string(),
+        version: "1.0.0".to_string(),
     };
 
     let query = QueryValidationResult::new("SELECT 1".to_string());
@@ -133,8 +134,8 @@ fn test_generate_application_result_minimal_config() {
     let path = Path::new("minimal.sql");
     let metadata = ApplicationMetadata {
         name: "Minimal Test".to_string(),
-        description: Some("Minimal configuration test".to_string()),
-        version: Some("0.1.0".to_string()),
+        description: "Minimal configuration test".to_string(),
+        version: "0.1.0".to_string(),
     };
 
     let query = QueryValidationResult::new("SELECT * FROM test".to_string());
@@ -154,8 +155,8 @@ fn test_generator_reusability() {
     let path1 = Path::new("test1.sql");
     let metadata1 = ApplicationMetadata {
         name: "Test 1".to_string(),
-        description: None,
-        version: None,
+        description: String::new(),
+        version: String::new(),
     };
     let query1 = QueryValidationResult::new("SELECT * FROM table1".to_string());
     let result1 = generator.generate_application_result(path1, metadata1, vec![query1]);
@@ -164,8 +165,8 @@ fn test_generator_reusability() {
     let path2 = Path::new("test2.sql");
     let metadata2 = ApplicationMetadata {
         name: "Test 2".to_string(),
-        description: None,
-        version: None,
+        description: String::new(),
+        version: String::new(),
     };
     let query2 = QueryValidationResult::new("SELECT * FROM table2".to_string());
     let result2 = generator.generate_application_result(path2, metadata2, vec![query2]);

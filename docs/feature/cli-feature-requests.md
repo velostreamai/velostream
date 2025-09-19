@@ -1,10 +1,10 @@
-# VeloStream CLI Feature Requests
+# Velostream CLI Feature Requests
 
-This document outlines proposed enhancements and new features for the VeloStream CLI tool (`velo-cli`).
+This document outlines proposed enhancements and new features for the Velostream CLI tool (`velo-cli`).
 
 ## 🎯 Current Status
 
-The VeloStream CLI currently provides:
+The Velostream CLI currently provides:
 - ✅ Health monitoring and system status
 - ✅ Kafka cluster and topic inspection
 - ✅ Job monitoring (SQL servers, data generators)
@@ -116,7 +116,7 @@ remote = false
 # Launch interactive dashboard
 ./velo-cli dashboard
 
-┌─ VeloStream Dashboard ────────────────────────────────────────────────┐
+┌─ Velostream Dashboard ────────────────────────────────────────────────┐
 │                                                                          │
 │ ┌─ System Health ──────┐ ┌─ Active Jobs ────────────┐ ┌─ Kafka ─────────┐ │
 │ │ ● SQL Server: OK     │ │ price_alerts      [RUN] │ │ Brokers: 3/3 ●  │ │ 

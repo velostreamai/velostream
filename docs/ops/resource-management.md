@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 2 introduces comprehensive resource management and fault tolerance capabilities to VeloStream. This includes memory allocation limits, connection pooling, circuit breakers, and retry logic to ensure robust production operations.
+Phase 2 introduces comprehensive resource management and fault tolerance capabilities to Velostream. This includes memory allocation limits, connection pooling, circuit breakers, and retry logic to ensure robust production operations.
 
 ## Resource Management
 

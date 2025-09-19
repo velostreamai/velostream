@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate demo data for VeloStream SQL file processing demo
+# Generate demo data for Velostream SQL file processing demo
 
 # Create directories
 mkdir -p demo_data demo_output

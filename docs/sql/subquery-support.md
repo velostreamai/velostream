@@ -1,6 +1,6 @@
-# Subquery Support in VeloStream
+# Subquery Support in Velostream
 
-VeloStream now provides comprehensive support for SQL subqueries, enabling complex analytical queries that were previously impossible. This feature addresses the limitation of "Subquery JOINs (blocks complex SQL queries)" and opens up advanced streaming SQL capabilities.
+Velostream now provides comprehensive support for SQL subqueries, enabling complex analytical queries that were previously impossible. This feature addresses the limitation of "Subquery JOINs (blocks complex SQL queries)" and opens up advanced streaming SQL capabilities.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ VeloStream now provides comprehensive support for SQL subqueries, enabling compl
 
 ## Overview
 
-Subqueries are nested SELECT statements that can be used within other SQL statements to perform complex data analysis. VeloStream supports all standard SQL subquery types, adapted for streaming data processing.
+Subqueries are nested SELECT statements that can be used within other SQL statements to perform complex data analysis. Velostream supports all standard SQL subquery types, adapted for streaming data processing.
 
 ### Key Features
 
@@ -434,6 +434,6 @@ log::debug!("EXISTS subquery result: {:?}", result);
 
 ## Conclusion
 
-VeloStream subquery support provides a solid foundation for complex streaming SQL analytics. The implementation follows SQL standards while being optimized for streaming contexts, offering both immediate utility through mock implementations and a clear path to production enhancement.
+Velostream subquery support provides a solid foundation for complex streaming SQL analytics. The implementation follows SQL standards while being optimized for streaming contexts, offering both immediate utility through mock implementations and a clear path to production enhancement.
 
-For questions or contributions, see the main VeloStream documentation or open an issue on GitHub.
+For questions or contributions, see the main Velostream documentation or open an issue on GitHub.

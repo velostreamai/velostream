@@ -177,7 +177,7 @@ impl PerformanceMonitor {
         let top_patterns = self.get_top_query_patterns(5);
 
         format!(
-            "=== VeloStream Performance Report ===\n\
+            "=== Velostream Performance Report ===\n\
             Status: {:?}\n\
             Uptime: {:.1} hours\n\
             \n\

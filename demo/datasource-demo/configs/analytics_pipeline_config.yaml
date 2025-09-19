@@ -20,7 +20,7 @@ pipeline:
             watching:
               enabled: true
               poll_interval_ms: 1000
-            buffer_size: 8192
+            buffer.size: 8192
             
     # Stage 2: Transform and enrich
     - name: "transaction_enricher" 
@@ -55,13 +55,13 @@ pipeline:
         datasink:
           type: "kafka"
           config:
-            bootstrap_servers: "localhost:9092"
+            bootstrap.servers: "localhost:9092"
             topic: "enriched-transactions"
             producer:
               acks: "all"
               enable_idempotence: true
-              batch_size: 16384
-              linger_ms: 10
+              batch.size: 16384
+              linger.ms: 10
               
     # Stage 4: Analytics aggregation (windowed)
     - name: "transaction_analytics"
@@ -110,8 +110,8 @@ settings:
   # Performance tuning
   performance:
     parallelism: 4
-    batch_size: 100
-    buffer_size: 8192
+    batch.size: 100
+    buffer.size: 8192
     
   # Error handling
   error_handling:
@@ -158,7 +158,7 @@ environments:
     settings:
       performance:
         parallelism: 8             # More parallelism in prod
-        batch_size: 500
+        batch.size: 500
       monitoring:
         metrics_interval_ms: 30000 # Less frequent metrics in prod
       error_handling:

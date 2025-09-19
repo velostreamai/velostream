@@ -13,7 +13,7 @@ Proposal to add a new serialization format called **RegExp Code** that enables s
 
 ### Current Limitations
 
-VeloStream currently supports structured serialization formats (Avro, Protobuf, JSON) but lacks native support for extracting structured data from text-based or semi-structured sources such as:
+Velostream currently supports structured serialization formats (Avro, Protobuf, JSON) but lacks native support for extracting structured data from text-based or semi-structured sources such as:
 
 - **Application Logs**: Apache access logs, application debug logs, syslog formats
 - **Legacy Data Formats**: Fixed-width files, custom delimited formats, proprietary log formats  
@@ -46,7 +46,7 @@ SENSOR:(?P<device_id>\w+):TEMP:(?P<temperature>-?\d+\.\d+):HUMIDITY:(?P<humidity
 
 ### RegExp Code Codec Implementation
 
-Implement a new serialization codec that uses regular expressions with named capture groups to deserialize text-based data into structured `StreamRecord` objects. This codec would integrate with VeloStream' existing serialization framework alongside JSON, Avro, and Protobuf codecs.
+Implement a new serialization codec that uses regular expressions with named capture groups to deserialize text-based data into structured `StreamRecord` objects. This codec would integrate with Velostream' existing serialization framework alongside JSON, Avro, and Protobuf codecs.
 
 #### Schema Definition
 ```yaml
@@ -276,7 +276,7 @@ datasource:
 
 ### SQL Engine Integration
 ```sql
--- VeloStream SQL with RegExp Code source
+-- Velostream SQL with RegExp Code source
 CREATE STREAM apache_logs (
     ip STRING,
     timestamp TIMESTAMP,
@@ -328,7 +328,7 @@ Based on Vector's regex performance analysis and our streaming architecture:
 
 1. **Pattern Compilation Caching**: Pre-compile and cache regex patterns
    - *Insight from Vector*: Compilation overhead is significant for complex patterns
-   - *VeloStream Approach*: LRU cache with configurable size limits
+   - *Velostream Approach*: LRU cache with configurable size limits
 
 2. **Backtrack Limiting**: Prevent catastrophic backtracking in complex patterns
    - *Vector Finding*: Unbounded backtracking can cause 100x+ performance degradation
@@ -547,7 +547,7 @@ fn benchmark_regexp_throughput() {
 - [ ] Match or exceed Vector test harness performance benchmarks
 - [ ] Memory usage <2MB per 1K records for complex patterns
 - [ ] Zero precision loss for financial data parsing
-- [ ] Seamless integration with existing VeloStream codec framework
+- [ ] Seamless integration with existing Velostream codec framework
 
 ## Future Enhancements
 
@@ -565,7 +565,7 @@ fn benchmark_regexp_throughput() {
 ---
 
 **RFC Feedback Period**: 30 days  
-**Implementation Target**: VeloStream v0.3.0  
+**Implementation Target**: Velostream v0.3.0  
 **Maintainer**: @velo-streams/core-team  
 
 Please provide feedback on:
@@ -576,4 +576,4 @@ Please provide feedback on:
 
 ---
 
-*This feature request is part of the VeloStream performance and compatibility enhancement initiative.*
+*This feature request is part of the Velostream performance and compatibility enhancement initiative.*

@@ -15,7 +15,7 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 VeloStream File Sink Demo");
+    println!("🚀 Velostream File Sink Demo");
     println!("=================================");
 
     // Demo 1: JSON Lines output with file rotation

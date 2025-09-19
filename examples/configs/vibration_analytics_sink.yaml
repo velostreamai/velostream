@@ -10,9 +10,9 @@ delivery_profile: high_priority
 
 topic_config:
   partitions: 4
-  retention_ms: 7776000000  # 90 days retention for trend analysis
+  retention.ms: 7776000000  # 90 days retention for trend analysis
   
 metadata:
   description: "Vibration analysis results"
-  data_classification: "analytical_data"
+  data.classification: "analytical_data"
   priority: "high"

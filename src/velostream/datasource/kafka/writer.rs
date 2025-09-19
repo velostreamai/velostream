@@ -257,7 +257,7 @@ impl KafkaDataWriter {
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         match format {
             SerializationFormat::Avro { .. } => {
-                // Look for Avro schema in various config keys
+                // Look for Avro schema in various config keys (dot notation preferred, underscore fallback)
                 let schema = properties
                     .get("avro.schema")
                     .or_else(|| properties.get("value.avro.schema"))
@@ -266,11 +266,12 @@ impl KafkaDataWriter {
                     .cloned();
 
                 if schema.is_none() {
-                    // Check for schema file path
+                    // Check for schema file path (dot notation preferred, underscore fallback)
                     if let Some(schema_file) = properties
                         .get("avro.schema.file")
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("avro_schema_file"))
+                        .or_else(|| properties.get("schema_file"))
                     {
                         return Self::load_schema_from_file(schema_file);
                     }
@@ -278,7 +279,7 @@ impl KafkaDataWriter {
                 Ok(schema)
             }
             SerializationFormat::Protobuf { .. } => {
-                // Look for Protobuf schema in various config keys
+                // Look for Protobuf schema in various config keys (dot notation preferred, underscore fallback)
                 let schema = properties
                     .get("protobuf.schema")
                     .or_else(|| properties.get("value.protobuf.schema"))
@@ -288,12 +289,13 @@ impl KafkaDataWriter {
                     .cloned();
 
                 if schema.is_none() {
-                    // Check for schema file path
+                    // Check for schema file path (dot notation preferred, underscore fallback)
                     if let Some(schema_file) = properties
                         .get("protobuf.schema.file")
                         .or_else(|| properties.get("proto.schema.file"))
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("protobuf_schema_file"))
+                        .or_else(|| properties.get("schema_file"))
                     {
                         return Self::load_schema_from_file(schema_file);
                     }

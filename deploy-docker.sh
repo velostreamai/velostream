@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# VeloStream SQL Docker Deployment Script
+# Velostream SQL Docker Deployment Script
 set -e
 
-echo "🚀 VeloStream SQL Docker Deployment"
+echo "🚀 Velostream SQL Docker Deployment"
 echo "====================================="
 
 # Configuration
@@ -78,7 +78,7 @@ if [ "$AVAILABLE_MEMORY" -lt 4096 ]; then
 fi
 
 # Build images
-echo "🔨 Building VeloStream SQL images..."
+echo "🔨 Building Velostream SQL images..."
 docker-compose build velo-sql-single velo-sql-multi data-producer
 
 if [ $? -ne 0 ]; then
@@ -89,7 +89,7 @@ fi
 echo "✅ Images built successfully"
 
 # Start services
-echo "🚀 Starting VeloStream SQL infrastructure..."
+echo "🚀 Starting Velostream SQL infrastructure..."
 
 if [ "$MONITORING_ENABLED" = true ]; then
     echo "📊 Starting with monitoring services..."
@@ -182,4 +182,4 @@ echo "  • SQL Reference:            docs/SQL_REFERENCE_GUIDE.md"
 echo "  • Multi-Job Guide:          MULTI_JOB_SQL_GUIDE.md"
 echo ""
 
-echo "🎊 VeloStream SQL is ready for streaming analytics!"
+echo "🎊 Velostream SQL is ready for streaming analytics!"

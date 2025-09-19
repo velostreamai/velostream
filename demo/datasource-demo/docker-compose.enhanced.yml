@@ -1,4 +1,4 @@
-# Enhanced Docker Compose for VeloStream DataSource Demo
+# Enhanced Docker Compose for Velostream DataSource Demo
 # Includes Kafka, Schema Registry, and monitoring tools
 
 version: '3.8'
@@ -172,7 +172,7 @@ services:
     networks:
       - velo-demo
 
-  # KSQL Server for stream processing (alternative to VeloStream SQL)
+  # KSQL Server for stream processing (alternative to Velostream SQL)
   ksqldb-server:
     image: confluentinc/ksqldb-server:0.29.0
     hostname: ksqldb-server

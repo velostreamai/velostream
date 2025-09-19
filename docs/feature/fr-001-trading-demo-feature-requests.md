@@ -1,6 +1,6 @@
-# VeloStream Trading Demo - Feature Requests
+# Velostream Trading Demo - Feature Requests
 
-This document outlines proposed enhancements and new features for the VeloStream Financial Trading Demo.
+This document outlines proposed enhancements and new features for the Velostream Financial Trading Demo.
 
 ## 🎯 Current Demo Status
 

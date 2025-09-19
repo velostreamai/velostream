@@ -17,13 +17,13 @@ producer_config:
 
 # Topic-specific schema
 schema:
-  key_field: symbol
+  key.field: symbol
   schema_file: "schemas/arbitrage_opportunities.avsc"
   
 # Topic properties
 topic_config:
   partitions: 6
-  retention_ms: 86400000  # 1 day retention (opportunities are short-lived)
+  retention.ms: 86400000  # 1 day retention (opportunities are short-lived)
   segment_ms: 1800000     # 30 minute segments
   
 # Alert-specific headers

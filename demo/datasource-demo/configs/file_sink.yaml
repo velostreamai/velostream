@@ -10,7 +10,7 @@ format: "json"
 append: true
 
 # Processing settings
-batch_size: 1000
+batch.size: 1000
 flush_interval: 10000
 failure_strategy: "LogAndContinue"
 timeout_ms: 30000
@@ -18,4 +18,4 @@ max_retries: 3
 
 # File settings
 create_directories: true
-buffer_size: 8192
+buffer.size: 8192

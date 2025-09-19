@@ -1,7 +1,7 @@
 //! Environment-based Configuration
 //!
 //! This module provides environment variable and file-based configuration support
-//! for VeloStream. It supports multiple configuration sources with priority
+//! for Velostream. It supports multiple configuration sources with priority
 //! ordering and automatic type conversion.
 //!
 //! ## Features

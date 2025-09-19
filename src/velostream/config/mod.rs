@@ -1,6 +1,6 @@
-//! VeloStream Configuration Management
+//! Velostream Configuration Management
 //!
-//! This module provides the self-registering configuration schema system for VeloStream.
+//! This module provides the self-registering configuration schema system for Velostream.
 //! It includes hierarchical validation, property inheritance, and JSON schema generation
 //! for comprehensive configuration management.
 

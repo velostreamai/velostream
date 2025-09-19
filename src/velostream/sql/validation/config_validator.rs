@@ -67,6 +67,12 @@ impl ConfigurationValidator {
     fn load_source_configurations(&self, query_results: &mut Vec<QueryValidationResult>) {
         for result in query_results.iter_mut() {
             for source_name in result.sources_found.clone() {
+                // Check if configuration is already loaded by query analyzer
+                if result.source_configs.contains_key(&source_name) {
+                    // Configuration already loaded from config_file - skip default loading
+                    continue;
+                }
+
                 match self.load_source_config(&source_name) {
                     Ok(config) => {
                         result.source_configs.insert(source_name, config);
@@ -86,6 +92,12 @@ impl ConfigurationValidator {
     fn load_sink_configurations(&self, query_results: &mut Vec<QueryValidationResult>) {
         for result in query_results.iter_mut() {
             for sink_name in result.sinks_found.clone() {
+                // Check if configuration is already loaded by query analyzer
+                if result.sink_configs.contains_key(&sink_name) {
+                    // Configuration already loaded from config_file - skip default loading
+                    continue;
+                }
+
                 match self.load_sink_config(&sink_name) {
                     Ok(config) => {
                         result.sink_configs.insert(sink_name, config);

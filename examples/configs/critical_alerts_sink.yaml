@@ -10,10 +10,10 @@ delivery_profile: critical
 
 topic_config:
   partitions: 8
-  replication_factor: 3
-  retention_ms: 2592000000  # 30 days retention for compliance
+  replication.factor: 3
+  retention.ms: 2592000000  # 30 days retention for compliance
   
 metadata:
   description: "Critical IoT sensor alerts"
-  data_classification: "operational_critical"
+  data.classification: "operational_critical"
   priority: "critical"

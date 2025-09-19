@@ -1,6 +1,6 @@
 # Complete SQL Syntax Reference
 
-Comprehensive reference for all VeloStream SQL features, organized by category.
+Comprehensive reference for all Velostream SQL features, organized by category.
 
 > **⚠️ Important**: All queries require CREATE STREAM statements with WITH clauses. See [Quick Start](../quickstart/hello-world.md) for complete examples.
 

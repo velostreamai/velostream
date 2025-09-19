@@ -1,7 +1,7 @@
 /*!
 # Multi-Source/Multi-Sink Integration Tests
 
-Comprehensive test suite for VeloStream multi-source and multi-sink processing capabilities.
+Comprehensive test suite for Velostream multi-source and multi-sink processing capabilities.
 Tests the complete pipeline from query analysis through job execution with multiple data sources and sinks.
 */
 

@@ -10,9 +10,9 @@ delivery_profile: high_priority
 
 topic_config:
   partitions: 6
-  retention_ms: 604800000  # 7 days retention
+  retention.ms: 604800000  # 7 days retention
   
 metadata:
   description: "Viral content detection alerts"
-  data_classification: "content_analytics"
+  data.classification: "content_analytics"
   priority: "high"

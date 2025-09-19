@@ -340,7 +340,7 @@ impl ConfigValidator for KafkaValidator {
         for param in config.parameters.keys() {
             if matches!(
                 param.as_str(),
-                "auto_commit" | "enable_auto_commit" | "enable_partition_eof"
+                "auto_commit" | "enable.auto.commit" | "enable_partition_eof"
             ) && config.get_bool_parameter(param).is_none()
             {
                 warnings.push(ValidationWarning {
@@ -353,7 +353,7 @@ impl ConfigValidator for KafkaValidator {
         }
 
         // Validate timeout values
-        if let Some(timeout) = config.get_int_parameter("session_timeout_ms") {
+        if let Some(timeout) = config.get_int_parameter("session.timeout.ms") {
             if !(6000..=300000).contains(&timeout) {
                 warnings.push(ValidationWarning {
                     code: "TIMEOUT_OUT_OF_RANGE".to_string(),
@@ -361,7 +361,7 @@ impl ConfigValidator for KafkaValidator {
                         "Session timeout {}ms is outside recommended range 6000-300000ms",
                         timeout
                     ),
-                    parameter: Some("session_timeout_ms".to_string()),
+                    parameter: Some("session.timeout.ms".to_string()),
                     suggestion: Some("Use timeout between 6000ms and 300000ms".to_string()),
                 });
             }

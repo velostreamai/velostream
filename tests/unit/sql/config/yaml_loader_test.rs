@@ -46,9 +46,9 @@ fn test_extends_inheritance() {
         r#"
 datasource:
   type: "kafka"
-  bootstrap_servers: "localhost:9092"
+  bootstrap.servers: "localhost:9092"
   consumer_config:
-    auto_offset_reset: "latest"
+    auto.offset.reset: "latest"
     session_timeout_ms: 6000
 schema:
   format: "avro"
@@ -69,9 +69,9 @@ topic:
   name: "market_data"
   partitions: 12
 schema:
-  key_field: "symbol"
+  key.field: "symbol"
 performance:
-  fetch_max_wait_ms: 10
+  fetch.max.wait.ms: 10
 metadata:
   description: "Market data feed"
 "#,
@@ -89,9 +89,9 @@ metadata:
 
     // Base values should be present
     assert_eq!(config["datasource"]["type"], "kafka");
-    assert_eq!(config["datasource"]["bootstrap_servers"], "localhost:9092");
+    assert_eq!(config["datasource"]["bootstrap.servers"], "localhost:9092");
     assert_eq!(
-        config["datasource"]["consumer_config"]["auto_offset_reset"],
+        config["datasource"]["consumer_config"]["auto.offset.reset"],
         "latest"
     );
 
@@ -106,11 +106,11 @@ metadata:
         config["schema"]["registry_url"],
         "http://schema-registry:8081"
     );
-    assert_eq!(config["schema"]["key_field"], "symbol");
+    assert_eq!(config["schema"]["key.field"], "symbol");
 
-    // Performance should be merged (base buffer_size + derived fetch_max_wait_ms)
+    // Performance should be merged (base buffer_size + derived fetch.max.wait.ms)
     assert_eq!(config["performance"]["buffer_size"], 65536);
-    assert_eq!(config["performance"]["fetch_max_wait_ms"], 10);
+    assert_eq!(config["performance"]["fetch.max.wait.ms"], 10);
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn test_multi_level_inheritance() {
         r#"
 datasource:
   type: "kafka"
-  bootstrap_servers: "localhost:9092"
+  bootstrap.servers: "localhost:9092"
 common_setting: "base_value"
 "#,
     )
@@ -138,7 +138,7 @@ common_setting: "base_value"
 extends: common_kafka.yaml
 datasource:
   consumer_config:
-    auto_offset_reset: "latest"
+    auto.offset.reset: "latest"
 intermediate_setting: "intermediate_value"
 "#,
     )
@@ -170,7 +170,7 @@ final_setting: "final_value"
     assert_eq!(config["final_setting"], "final_value");
     assert_eq!(config["datasource"]["type"], "kafka");
     assert_eq!(
-        config["datasource"]["consumer_config"]["auto_offset_reset"],
+        config["datasource"]["consumer_config"]["auto.offset.reset"],
         "latest"
     );
     assert_eq!(config["topic"]["name"], "specific_topic");
@@ -361,21 +361,21 @@ fn test_trading_system_config_structure() {
 datasource:
   type: kafka
   consumer_config:
-    bootstrap_servers: "broker:9092"
-    auto_offset_reset: "latest"
+    bootstrap.servers: "broker:9092"
+    auto.offset.reset: "latest"
     enable_auto_commit: true
     session_timeout_ms: 6000
   schema:
     key_format: string
-    value_format: avro
+    value.format: avro
     schema_registry_url: "http://schema-registry:8081"
-  stream_config:
+  stream.config:
     replication_factor: 3
     cleanup_policy: "delete"
 
 performance_profiles:
   ultra_low_latency:
-    fetch_max_wait_ms: 10
+    fetch.max.wait.ms: 10
     max_poll_records: 1000
     buffer_size: 65536
 "#,
@@ -390,11 +390,11 @@ performance_profiles:
 extends: common_kafka_source.yaml
 topic:
   name: "market_data"
-consumer_group: "trading_analytics_group"
+consumer.group: "trading_analytics_group"
 performance_profile: ultra_low_latency
 datasource:
   schema:
-    key_field: symbol
+    key.field: symbol
     schema_file: "schemas/market_data.avsc"
 topic_config:
   partitions: 12
@@ -415,16 +415,16 @@ metadata:
     // Verify inheritance worked correctly
     assert_eq!(config["datasource"]["type"], "kafka");
     assert_eq!(
-        config["datasource"]["consumer_config"]["bootstrap_servers"],
+        config["datasource"]["consumer_config"]["bootstrap.servers"],
         "broker:9092"
     );
     assert_eq!(config["topic"]["name"], "market_data");
-    assert_eq!(config["consumer_group"], "trading_analytics_group");
-    assert_eq!(config["datasource"]["schema"]["key_field"], "symbol");
-    assert_eq!(config["datasource"]["schema"]["value_format"], "avro"); // inherited
+    assert_eq!(config["consumer.group"], "trading_analytics_group");
+    assert_eq!(config["datasource"]["schema"]["key.field"], "symbol");
+    assert_eq!(config["datasource"]["schema"]["value.format"], "avro"); // inherited
     assert_eq!(config["topic_config"]["partitions"], 12);
     assert_eq!(
-        config["performance_profiles"]["ultra_low_latency"]["fetch_max_wait_ms"],
+        config["performance_profiles"]["ultra_low_latency"]["fetch.max.wait.ms"],
         10
     );
 }

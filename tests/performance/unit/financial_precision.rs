@@ -472,7 +472,7 @@ mod performance_benchmarks {
 mod integration_tests {
     use super::*;
 
-    /// Test how different numeric types would integrate with VeloStream aggregations
+    /// Test how different numeric types would integrate with Velostream aggregations
     #[test]
     fn test_aggregation_accuracy_real_world() {
         println!("\n=== REAL-WORLD FINANCIAL AGGREGATION TEST ===");

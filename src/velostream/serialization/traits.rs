@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// Trait for pluggable serialization formats
 ///
 /// This trait provides a consistent interface for different serialization formats
-/// (JSON, Avro, Protocol Buffers) used throughout VeloStream. All formats must
+/// (JSON, Avro, Protocol Buffers) used throughout Velostream. All formats must
 /// support bidirectional conversion between external records and bytes, as well as
 /// conversion to/from the SQL execution engine's internal representation.
 ///

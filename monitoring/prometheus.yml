@@ -1,4 +1,4 @@
-# Prometheus configuration for VeloStream SQL monitoring
+# Prometheus configuration for Velostream SQL monitoring
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -14,7 +14,7 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # VeloStream SQL Single Server
+  # Velostream SQL Single Server
   - job_name: 'velo-sql-single'
     static_configs:
       - targets: ['velo-sql-single:9090']
@@ -22,7 +22,7 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  # VeloStream SQL Multi-Job Server
+  # Velostream SQL Multi-Job Server
   - job_name: 'velo-sql-multi'
     static_configs:
       - targets: ['velo-sql-multi:9091']

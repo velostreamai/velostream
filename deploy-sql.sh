@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# VeloStream SQL Deployment Script
+# Velostream SQL Deployment Script
 set -e
 
-echo "🚀 VeloStream SQL Deployment"
+echo "🚀 Velostream SQL Deployment"
 echo "================================"
 
 # Configuration

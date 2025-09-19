@@ -1,7 +1,7 @@
-# VeloStream Performance Guide
+# Velostream Performance Guide
 
 > **Unified Performance Documentation**  
-> This guide consolidates all performance-related information for VeloStream,
+> This guide consolidates all performance-related information for Velostream,
 > replacing scattered documentation with a single comprehensive resource.
 
 ## Table of Contents
@@ -16,7 +16,7 @@
 
 ## Performance Overview
 
-VeloStream is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with **883/883 tests passing (100% success rate)**.
+Velostream is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with **883/883 tests passing (100% success rate)**.
 
 ### Architecture Performance Profile
 
@@ -181,7 +181,7 @@ async fn process_batch_pipeline(
 ### 3. Unified Configuration System (✅ Implemented)
 
 #### Configuration Management Architecture
-VeloStream now features a comprehensive unified configuration system that dramatically simplifies configuration management while ensuring user settings are never overridden.
+Velostream now features a comprehensive unified configuration system that dramatically simplifies configuration management while ensuring user settings are never overridden.
 
 **Key Benefits:**
 - **90% Code Reduction**: KafkaDataWriter reduced from 150+ lines to 10 lines
@@ -215,7 +215,7 @@ if batch_config.enable_batching {
 
 ### Overview
 
-VeloStream provides five distinct batch processing strategies, each optimized for different use cases. This section provides complete configuration details, default values, and SQL examples for each strategy across all source and sink types.
+Velostream provides five distinct batch processing strategies, each optimized for different use cases. This section provides complete configuration details, default values, and SQL examples for each strategy across all source and sink types.
 
 ### Batch Strategy Configuration in SQL
 
@@ -788,7 +788,7 @@ pub enum BatchStrategy {
 
 ### Performance Monitoring Integration
 
-VeloStream includes comprehensive performance monitoring with HTTP endpoints:
+Velostream includes comprehensive performance monitoring with HTTP endpoints:
 
 #### SQL Server Monitoring
 ```bash
@@ -845,7 +845,7 @@ cargo run --bin velo-sql-multi server --enable-metrics
 
 ### Criterion Integration
 
-VeloStream uses Criterion.rs for statistical benchmarking:
+Velostream uses Criterion.rs for statistical benchmarking:
 
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BatchSize};

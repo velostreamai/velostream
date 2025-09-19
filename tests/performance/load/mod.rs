@@ -1,7 +1,7 @@
 //! Load Testing Benchmarks
 //!
 //! High-throughput and stress testing benchmarks for validating
-//! VeloStream performance under extreme loads and concurrent access patterns.
+//! Velostream performance under extreme loads and concurrent access patterns.
 
 pub mod concurrent_access;
 pub mod high_throughput;

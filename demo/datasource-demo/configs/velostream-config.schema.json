@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2019-09/schema",
   "$id": "https://velostream.io/schemas/config.schema.json",
-  "title": "VeloStream Configuration Schema",
-  "description": "JSON Schema for validating VeloStream YAML configuration files with flat dot-notation structure",
+  "title": "Velostream Configuration Schema",
+  "description": "JSON Schema for validating Velostream YAML configuration files with flat dot-notation structure",
   "type": "object",
   "properties": {
     "type": {

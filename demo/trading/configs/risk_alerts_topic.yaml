@@ -12,13 +12,13 @@ delivery_profile: critical
 
 # Topic-specific schema
 schema:
-  key_field: trader_id
+  key.field: trader_id
   schema_file: "schemas/risk_alerts.avsc"
   
 # Topic properties
 topic_config:
   partitions: 8
-  retention_ms: 2592000000  # 30 days retention for compliance
+  retention.ms: 2592000000  # 30 days retention for compliance
   min_in_sync_replicas: 2   # Ensure durability
   
 # Risk-specific headers

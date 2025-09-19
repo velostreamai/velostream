@@ -6,14 +6,14 @@ use tokio::time;
 
 #[derive(Parser)]
 #[command(name = "velo-cli")]
-#[command(about = "VeloStream CLI - Monitor and manage VeloStream components")]
+#[command(about = "Velostream CLI - Monitor and manage Velostream components")]
 #[command(version = "1.0.0")]
 struct Cli {
-    /// VeloStream SQL server host
+    /// Velostream SQL server host
     #[arg(long, default_value = "localhost", global = true)]
     sql_host: String,
 
-    /// VeloStream SQL server port
+    /// Velostream SQL server port
     #[arg(long, default_value = "8080", global = true)]
     sql_port: u16,
 
@@ -31,7 +31,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Show status of all VeloStream components
+    /// Show status of all Velostream components
     Status {
         /// Include verbose output
         #[arg(short, long)]
@@ -67,13 +67,13 @@ enum Commands {
     },
     /// Show Docker containers status
     Docker {
-        /// Show only VeloStream related containers
+        /// Show only Velostream related containers
         #[arg(short, long)]
         velo_only: bool,
     },
     /// Show process information
     Processes {
-        /// Show all processes or just VeloStream
+        /// Show all processes or just Velostream
         #[arg(short, long)]
         all: bool,
     },
@@ -111,7 +111,7 @@ struct ComponentStatus {
     healthy: bool,
 }
 
-struct VeloStreamMonitor {
+struct VelostreamMonitor {
     verbose: bool,
     sql_host: String,
     sql_port: u16,
@@ -119,7 +119,7 @@ struct VeloStreamMonitor {
     remote: bool,
 }
 
-impl VeloStreamMonitor {
+impl VelostreamMonitor {
     fn new(
         verbose: bool,
         sql_host: String,
@@ -525,7 +525,7 @@ impl VeloStreamMonitor {
                 let pids: Vec<&str> = stdout.lines().filter(|line| !line.is_empty()).collect();
 
                 let details = if pids.is_empty() {
-                    vec!["No VeloStream processes running".to_string()]
+                    vec!["No Velostream processes running".to_string()]
                 } else {
                     vec![
                         format!("Active processes: {}", pids.len()),
@@ -534,14 +534,14 @@ impl VeloStreamMonitor {
                 };
 
                 ComponentStatus {
-                    name: "VeloStream Processes".to_string(),
+                    name: "Velostream Processes".to_string(),
                     status: if pids.is_empty() { "Idle" } else { "Active" }.to_string(),
                     details,
                     healthy: true, // Idle is also healthy
                 }
             }
             Err(e) => ComponentStatus {
-                name: "VeloStream Processes".to_string(),
+                name: "Velostream Processes".to_string(),
                 status: "Error".to_string(),
                 details: vec![format!("Process check failed: {}", e)],
                 healthy: false,
@@ -550,7 +550,7 @@ impl VeloStreamMonitor {
     }
 
     fn print_status(&self, statuses: &[ComponentStatus]) {
-        println!("\n🔍 VeloStream Status Overview");
+        println!("\n🔍 Velostream Status Overview");
         println!("================================");
 
         let healthy_count = statuses.iter().filter(|s| s.healthy).count();
@@ -648,7 +648,7 @@ impl VeloStreamMonitor {
     }
 
     async fn health_check(&self) {
-        println!("\n🏥 VeloStream Health Check");
+        println!("\n🏥 Velostream Health Check");
         println!("=============================");
 
         let statuses = self.check_all_status().await;
@@ -682,7 +682,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Status { verbose, refresh } => {
-            let monitor = VeloStreamMonitor::new(
+            let monitor = VelostreamMonitor::new(
                 verbose,
                 cli.sql_host.clone(),
                 cli.sql_port,
@@ -692,7 +692,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if refresh > 0 {
                 println!(
-                    "🔄 Monitoring VeloStream (refresh every {}s, Ctrl+C to stop)",
+                    "🔄 Monitoring Velostream (refresh every {}s, Ctrl+C to stop)",
                     refresh
                 );
                 loop {
@@ -712,7 +712,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             topics,
             groups,
         } => {
-            let monitor = VeloStreamMonitor::new(
+            let monitor = VelostreamMonitor::new(
                 true,
                 cli.sql_host.clone(),
                 cli.sql_port,
@@ -729,7 +729,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if jobs {
                 println!("\n📋 Active Jobs & Tasks:");
-                let monitor = VeloStreamMonitor::new(
+                let monitor = VelostreamMonitor::new(
                     true,
                     cli.sql_host.clone(),
                     port,
@@ -835,7 +835,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Health => {
-            let monitor = VeloStreamMonitor::new(
+            let monitor = VelostreamMonitor::new(
                 false,
                 cli.sql_host.clone(),
                 cli.sql_port,
@@ -850,7 +850,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             topics,
             sql,
         } => {
-            let monitor = VeloStreamMonitor::new(
+            let monitor = VelostreamMonitor::new(
                 true,
                 cli.sql_host.clone(),
                 cli.sql_port,
@@ -858,7 +858,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.remote,
             );
 
-            println!("\n🔄 VeloStream Jobs & Tasks");
+            println!("\n🔄 Velostream Jobs & Tasks");
             println!("=============================");
 
             // Show all by default if no specific flags
@@ -1033,7 +1033,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Start { duration } => {
-            println!("🚀 Starting VeloStream demo ({}m duration)", duration);
+            println!("🚀 Starting Velostream demo ({}m duration)", duration);
             println!(
                 "💡 Use 'cd demo/trading && DEMO_DURATION={} ./run_demo.sh'",
                 duration
@@ -1041,7 +1041,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Stop => {
-            println!("🛑 Stopping VeloStream demo");
+            println!("🛑 Stopping Velostream demo");
             println!("💡 Use 'cd demo/trading && ./stop_demo.sh'");
         }
     }

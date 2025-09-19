@@ -1,8 +1,8 @@
-# Hello World - Your First VeloStream Query
+# Hello World - Your First Velostream Query
 
-Learn the basics of VeloStream SQL with simple, working examples.
+Learn the basics of Velostream SQL with simple, working examples.
 
-> **⚠️ Important**: All VeloStream queries require data sources and sinks to be defined with `CREATE STREAM` statements and `WITH` clauses. The examples below show complete, runnable queries.
+> **⚠️ Important**: All Velostream queries require data sources and sinks to be defined with `CREATE STREAM` statements and `WITH` clauses. The examples below show complete, runnable queries.
 
 ## Your First Complete Query
 
@@ -193,7 +193,7 @@ Now that you understand the basics:
 
 ## Quick Reference
 
-**Complete VeloStream query pattern:**
+**Complete Velostream query pattern:**
 ```sql
 -- Step 1: Define input stream
 CREATE STREAM input_stream WITH (

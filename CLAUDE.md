@@ -1,4 +1,4 @@
-# VeloStream Development Guide for Claude
+# Velostream Development Guide for Claude
 
 
 ## Behaviour
@@ -15,7 +15,7 @@ Always look for opportunities to improve the code. (refactoring, code restructur
 
 ## Project Overview
 
-VeloStream is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
+Velostream is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
 
 ## Key Components
 
@@ -186,7 +186,7 @@ cargo run --bin test_serialization_compatibility ```
 ## Schema Configuration
 
 ### Kafka Schema Support
-VeloStream now supports comprehensive schema configuration for Kafka data sources:
+Velostream now supports comprehensive schema configuration for Kafka data sources:
 
 **Avro Schema Configuration**:
 ```yaml

@@ -2,13 +2,13 @@
 
 ## Overview
 
-Phase 3 introduces advanced SQL capabilities to VeloStream, including enhanced window functions, complex aggregations, join operations, subquery support, and advanced SQL functions. This guide covers all the new query features and their usage patterns.
+Phase 3 introduces advanced SQL capabilities to Velostream, including enhanced window functions, complex aggregations, join operations, subquery support, and advanced SQL functions. This guide covers all the new query features and their usage patterns.
 
 ## Window Functions
 
 ### Enhanced OVER Clause Support
 
-VeloStream supports comprehensive window functions with partitioning and ordering:
+Velostream supports comprehensive window functions with partitioning and ordering:
 
 ```sql
 -- ROW_NUMBER with partitioning
@@ -363,7 +363,7 @@ WHERE JSON_VALUE(event_data, '$.event_type') = 'purchase';
 
 ### Query Plan Optimization
 
-VeloStream automatically optimizes query plans:
+Velostream automatically optimizes query plans:
 
 ```sql
 -- Predicate pushdown optimization

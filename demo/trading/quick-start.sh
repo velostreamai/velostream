@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# VeloStream Trading Demo - Quick Start
+# Velostream Trading Demo - Quick Start
 # Builds everything and runs a 1-minute demo
 
 set -e
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 VeloStream Trading Demo - Quick Start${NC}"
+echo -e "${BLUE}🚀 Velostream Trading Demo - Quick Start${NC}"
 echo -e "${BLUE}===========================================${NC}"
 echo ""
 

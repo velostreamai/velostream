@@ -6,18 +6,18 @@ extends: common_kafka_source.yaml
 topic:
   name: "orders"
   
-consumer_group: "ecommerce_analytics_group"
+consumer.group: "ecommerce_analytics_group"
 performance_profile: balanced
 
 datasource:
   schema:
-    key_field: customer_id
+    key.field: customer_id
 
 topic_config:
   partitions: 4
-  retention_ms: 604800000  # 7 days retention
+  retention.ms: 604800000  # 7 days retention
   
 metadata:
   description: "E-commerce orders stream"
-  data_classification: "business_critical"
-  update_frequency: "real_time"
+  data.classification: "business_critical"
+  update.frequency: "real_time"

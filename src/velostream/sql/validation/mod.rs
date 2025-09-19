@@ -1,6 +1,6 @@
 //! SQL Validator Module
 //!
-//! A modular, object-oriented SQL validation system for VeloStream applications.
+//! A modular, object-oriented SQL validation system for Velostream applications.
 //! This module provides validation for SQL queries, configurations, and applications
 //! with clear separation of concerns and extensible architecture.
 

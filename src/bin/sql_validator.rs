@@ -1,6 +1,6 @@
 //! SQL Query and Application Validator
 //!
-//! Comprehensive validation tool for VeloStream SQL queries and applications.
+//! Comprehensive validation tool for Velostream SQL queries and applications.
 //! Checks for:
 //! - SQL parsing correctness
 //! - Missing source/sink configurations  
@@ -831,7 +831,7 @@ impl SqlValidator {
 
         if has_syntax_issues {
             recommendations
-                .push("Update SQL syntax to use VeloStream-compatible constructs".to_string());
+                .push("Update SQL syntax to use Velostream-compatible constructs".to_string());
         }
 
         if query_results.len() > 5 {

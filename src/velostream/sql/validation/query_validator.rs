@@ -203,17 +203,17 @@ impl QueryValidator {
 
     fn build_source_config(
         &self,
-        _source: &DataSourceRequirement,
+        source: &DataSourceRequirement,
     ) -> Option<HashMap<String, String>> {
-        // Build flattened configuration for source
-        // This would integrate with the YAML config loading system
-        Some(HashMap::new()) // Placeholder
+        // Return the actual properties from the source requirement
+        // which now include the properly flattened YAML config
+        Some(source.properties.clone())
     }
 
-    fn build_sink_config(&self, _sink: &DataSinkRequirement) -> Option<HashMap<String, String>> {
-        // Build flattened configuration for sink
-        // This would integrate with the YAML config loading system
-        Some(HashMap::new()) // Placeholder
+    fn build_sink_config(&self, sink: &DataSinkRequirement) -> Option<HashMap<String, String>> {
+        // Return the actual properties from the sink requirement
+        // which include the properly flattened YAML config
+        Some(sink.properties.clone())
     }
 
     fn check_syntax_compatibility(
