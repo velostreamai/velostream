@@ -98,10 +98,15 @@ path = "src/bin/velo-sql-multi.rs"
 name = "velo-cli"
 path = "src/bin/velo_cli.rs"
 
+# SQL Validator Binary (Object-Oriented Version)
+[[bin]]
+name = "sql-validator-new"
+path = "src/bin/sql_validator_new.rs"
+
 # File Processing Demo Binary
 [[bin]]
 name = "file_processing_demo"
-path = "src/bin/file_processing_demo.rs"
+path = "demo/datasource-demo/file_processing_demo.rs"
 
 # Complete Pipeline Demo Binary
 [[bin]]

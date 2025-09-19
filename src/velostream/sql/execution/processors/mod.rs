@@ -189,6 +189,7 @@ impl QueryProcessor {
 pub use self::join_context::JoinContext;
 
 // Re-export processor modules
+pub use self::batch_validation::{BatchProcessingValidator, BatchValidationTarget};
 pub use self::delete::DeleteProcessor;
 pub use self::insert::InsertProcessor;
 pub use self::join::JoinProcessor;
@@ -199,6 +200,7 @@ pub use self::update::UpdateProcessor;
 pub use self::window::WindowProcessor;
 
 // Re-export sub-modules for direct access
+pub mod batch_validation;
 pub mod delete;
 pub mod insert;
 pub mod job;

@@ -348,27 +348,60 @@ impl QueryAnalyzer {
                                                 if let Some(nested_k) = nested_key.as_str() {
                                                     if nested_k == "consumer_config" {
                                                         // Flatten consumer_config
-                                                        if let Some(consumer_map) = nested_value.as_mapping() {
-                                                            for (consumer_key, consumer_value) in consumer_map {
-                                                                if let (Some(ck), Some(cv)) = (consumer_key.as_str(), consumer_value.as_str()) {
-                                                                    properties.insert(format!("consumer_config.{}", ck), cv.to_string());
+                                                        if let Some(consumer_map) =
+                                                            nested_value.as_mapping()
+                                                        {
+                                                            for (consumer_key, consumer_value) in
+                                                                consumer_map
+                                                            {
+                                                                if let (Some(ck), Some(cv)) = (
+                                                                    consumer_key.as_str(),
+                                                                    consumer_value.as_str(),
+                                                                ) {
+                                                                    properties.insert(
+                                                                        format!(
+                                                                            "consumer_config.{}",
+                                                                            ck
+                                                                        ),
+                                                                        cv.to_string(),
+                                                                    );
                                                                 }
                                                             }
                                                         }
                                                     } else if let Some(nv) = nested_value.as_str() {
-                                                        properties.insert(nested_k.to_string(), nv.to_string());
+                                                        properties.insert(
+                                                            nested_k.to_string(),
+                                                            nv.to_string(),
+                                                        );
                                                     } else {
                                                         // Handle non-string nested values
                                                         let value_str = match nested_value {
-                                                            serde_yaml::Value::Number(n) => n.to_string(),
-                                                            serde_yaml::Value::Bool(b) => b.to_string(),
-                                                            serde_yaml::Value::Null => "null".to_string(),
-                                                            serde_yaml::Value::Sequence(_) => format!("{:?}", nested_value),
-                                                            serde_yaml::Value::Mapping(_) => format!("{:?}", nested_value),
-                                                            serde_yaml::Value::Tagged(_) => format!("{:?}", nested_value),
-                                                            serde_yaml::Value::String(s) => s.clone(),
+                                                            serde_yaml::Value::Number(n) => {
+                                                                n.to_string()
+                                                            }
+                                                            serde_yaml::Value::Bool(b) => {
+                                                                b.to_string()
+                                                            }
+                                                            serde_yaml::Value::Null => {
+                                                                "null".to_string()
+                                                            }
+                                                            serde_yaml::Value::Sequence(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Mapping(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Tagged(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::String(s) => {
+                                                                s.clone()
+                                                            }
                                                         };
-                                                        properties.insert(nested_k.to_string(), value_str);
+                                                        properties.insert(
+                                                            nested_k.to_string(),
+                                                            value_str,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -377,16 +410,23 @@ impl QueryAnalyzer {
                                     _ => {
                                         // Handle top-level keys
                                         if let Some(value_str) = value.as_str() {
-                                            properties.insert(key_str.to_string(), value_str.to_string());
+                                            properties
+                                                .insert(key_str.to_string(), value_str.to_string());
                                         } else {
                                             // Handle non-string values (convert to string)
                                             let value_str = match value {
                                                 serde_yaml::Value::Number(n) => n.to_string(),
                                                 serde_yaml::Value::Bool(b) => b.to_string(),
                                                 serde_yaml::Value::Null => "null".to_string(),
-                                                serde_yaml::Value::Sequence(_) => format!("{:?}", value),
-                                                serde_yaml::Value::Mapping(_) => format!("{:?}", value),
-                                                serde_yaml::Value::Tagged(_) => format!("{:?}", value),
+                                                serde_yaml::Value::Sequence(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Mapping(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Tagged(_) => {
+                                                    format!("{:?}", value)
+                                                }
                                                 serde_yaml::Value::String(s) => s.clone(),
                                             };
                                             properties.insert(key_str.to_string(), value_str);
@@ -1028,18 +1068,33 @@ impl QueryAnalyzer {
                                                 // Handle nested datasink configuration
                                                 if let Some(datasink_map) = value.as_mapping() {
                                                     for (nested_key, nested_value) in datasink_map {
-                                                        if let Some(nested_k) = nested_key.as_str() {
+                                                        if let Some(nested_k) = nested_key.as_str()
+                                                        {
                                                             if nested_k == "producer_config" {
                                                                 // Flatten producer_config
-                                                                if let Some(producer_map) = nested_value.as_mapping() {
-                                                                    for (prod_key, prod_value) in producer_map {
-                                                                        if let (Some(pk), Some(pv)) = (prod_key.as_str(), prod_value.as_str()) {
+                                                                if let Some(producer_map) =
+                                                                    nested_value.as_mapping()
+                                                                {
+                                                                    for (prod_key, prod_value) in
+                                                                        producer_map
+                                                                    {
+                                                                        if let (
+                                                                            Some(pk),
+                                                                            Some(pv),
+                                                                        ) = (
+                                                                            prod_key.as_str(),
+                                                                            prod_value.as_str(),
+                                                                        ) {
                                                                             properties.insert(format!("producer_config.{}", pk), pv.to_string());
                                                                         }
                                                                     }
                                                                 }
-                                                            } else if let Some(nv) = nested_value.as_str() {
-                                                                properties.entry(nested_k.to_string()).or_insert(nv.to_string());
+                                                            } else if let Some(nv) =
+                                                                nested_value.as_str()
+                                                            {
+                                                                properties
+                                                                    .entry(nested_k.to_string())
+                                                                    .or_insert(nv.to_string());
                                                             }
                                                         }
                                                     }
@@ -1048,7 +1103,9 @@ impl QueryAnalyzer {
                                             _ => {
                                                 // Handle direct string values
                                                 if let Some(v) = value.as_str() {
-                                                    properties.entry(k.to_string()).or_insert(v.to_string());
+                                                    properties
+                                                        .entry(k.to_string())
+                                                        .or_insert(v.to_string());
                                                 }
                                             }
                                         }

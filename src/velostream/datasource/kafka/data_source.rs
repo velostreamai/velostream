@@ -403,9 +403,9 @@ impl KafkaDataSource {
         }
 
         // Check for batch configuration presence
-        let has_batch_config = properties.keys().any(|k| {
-            k.contains("batch") || k.contains("poll") || k.contains("fetch")
-        });
+        let has_batch_config = properties
+            .keys()
+            .any(|k| k.contains("batch") || k.contains("poll") || k.contains("fetch"));
 
         if has_batch_config {
             warnings.push(format!(

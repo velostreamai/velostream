@@ -154,7 +154,9 @@ impl FileDataSink {
             if !valid_formats.contains(&format.as_str()) {
                 errors.push(format!(
                     "File sink '{}' has invalid format '{}'. Valid formats: {}",
-                    name, format, valid_formats.join(", ")
+                    name,
+                    format,
+                    valid_formats.join(", ")
                 ));
             }
         }
@@ -167,7 +169,9 @@ impl FileDataSink {
             ));
         }
 
-        if properties.get("format") == Some(&"csv".to_string()) && !properties.contains_key("has_headers") {
+        if properties.get("format") == Some(&"csv".to_string())
+            && !properties.contains_key("has_headers")
+        {
             recommendations.push(format!(
                 "File sink '{}' using CSV format should specify has_headers configuration",
                 name

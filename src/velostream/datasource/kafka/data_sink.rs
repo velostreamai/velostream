@@ -289,7 +289,6 @@ impl KafkaDataSink {
         let mut warnings = Vec::new();
         let mut recommendations = Vec::new();
 
-
         // Required properties
         let required_keys = vec!["producer_config.bootstrap_servers", "topic"];
         for key in &required_keys {

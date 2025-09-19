@@ -10,6 +10,7 @@ pub mod execution;
 // Legacy multi_job modules removed - functionality moved to src/velo/server/processors/
 pub mod parser;
 pub mod query_analyzer;
+pub mod validation;
 pub mod validator;
 
 // Re-export main API
@@ -18,6 +19,7 @@ pub use ast::StreamingQuery;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine};
 pub use parser::StreamingSqlParser;
+pub use validation::SqlValidationService;
 pub use validator::SqlValidator;
 
 // Version and feature info
