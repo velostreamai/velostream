@@ -78,10 +78,7 @@ pub fn get_kafka_property<'a>(
 }
 
 /// Check if Kafka property is user-set with both notations
-pub fn is_kafka_property_user_set(
-    config: &HashMap<String, String>,
-    property_name: &str,
-) -> bool {
+pub fn is_kafka_property_user_set(config: &HashMap<String, String>, property_name: &str) -> bool {
     let dot_notation = property_name;
     let underscore_notation = &property_name.replace('.', "_");
     is_user_set_with_fallback(config, dot_notation, underscore_notation)

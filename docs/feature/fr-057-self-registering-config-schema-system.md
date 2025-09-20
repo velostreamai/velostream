@@ -615,14 +615,14 @@ impl LanguageServer for VelostreamSQLLanguageServer {
 
 ##### **CLI Tool Validation**
 ```bash
-# Standalone configuration validation
-velo-config validate ./enhanced_sql_demo.sql
-velo-config validate --config-dir ./configs/
-velo-config validate --schema-version 2.0.0
+# Unified SQL validation (includes configuration schema validation)
+velo-cli validate ./enhanced_sql_demo.sql
+velo-cli validate --config-dir ./configs/
+velo-cli validate --format json
 
-# Integration with existing velo-sql-multi CLI
-velo-sql-multi deploy-app --file ./demo.sql --validate-only
-velo-sql-multi deploy-app --file ./demo.sql --dry-run
+# Integration with velo-sql-multi CLI (includes pre-deployment validation)
+velo-sql-multi deploy-app --file ./demo.sql --no-monitor
+# Note: Pre-deployment validation is now automatic - no separate --validate-only flag needed
 ```
 
 ##### **CI/CD Pipeline Integration**
@@ -630,20 +630,17 @@ velo-sql-multi deploy-app --file ./demo.sql --dry-run
 # GitHub Actions / GitLab CI integration
 - name: Validate Velostream Configuration
   run: |
-    # Validate all SQL files in repository
-    find . -name "*.sql" -exec velo-config validate {} \;
-    
-    # Validate config file inheritance chains
-    velo-config validate-configs --config-dir ./configs/
-    
-    # Schema compatibility check
-    velo-config schema-check --target-version 2.0.0
-    
-    # Generate validation report
-    velo-config validate --output-format json --output-file validation-report.json
+    # Validate all SQL files in repository (includes config schema validation)
+    find . -name "*.sql" -exec velo-cli validate {} \;
+
+    # Validate with JSON output for CI reporting
+    velo-cli validate --format json sql/ > validation-report.json
+
+    # Strict validation mode (fail on warnings)
+    velo-cli validate --strict sql/
 
 # Docker-based validation
-docker run velo-streams/config-validator:latest validate /workspace/configs/
+docker run velo-streams/velo-cli:latest validate /workspace/sql/
 ```
 
 ##### **REST API Validation**
@@ -934,14 +931,13 @@ impl StreamJobServer {
 
 ##### **CLI Integration with SQL Validator**
 ```bash
-# Enhanced velo-sql-multi with integrated validation
-velo-sql-multi validate --file ./demo.sql                    # SQL + Config validation
-velo-sql-multi validate --file ./demo.sql --config-only      # Config validation only
-velo-sql-multi validate --file ./demo.sql --sql-only         # SQL validation only
+# Unified validation through velo-cli (replaces old sql-validator and velo-config-validator)
+velo-cli validate ./demo.sql                                 # Combined SQL + Config validation
+velo-cli validate ./demo.sql --verbose                       # Detailed validation output
+velo-cli validate ./demo.sql --format json                   # JSON output for CI/CD
 
-# Standalone config validator with SQL integration  
-velo-config validate-sql ./demo.sql                          # Validate SQL WITH clauses
-velo-config validate-sql --check-syntax ./demo.sql           # Combined SQL + config check
+# Pre-deployment validation through velo-sql-multi (automatic)
+velo-sql-multi deploy-app --file ./demo.sql                  # Validates before deployment
 ```
 
 ##### **Runtime Validation Points**

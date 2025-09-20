@@ -351,6 +351,10 @@ Velostream includes a powerful CLI tool for monitoring and managing deployments 
 ./velo-cli status --verbose
 ./velo-cli jobs --sql --topics
 
+# SQL validation
+./velo-cli validate sql/my_query.sql --verbose
+./velo-cli validate sql/ --strict --format json
+
 # Remote production monitoring
 ./velo-cli --remote --sql-host prod-server.com health
 ./velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
@@ -359,6 +363,7 @@ Velostream includes a powerful CLI tool for monitoring and managing deployments 
 ### Available Commands
 - `health` - Quick health check of all components
 - `status` - Comprehensive system status with optional real-time monitoring
+- `validate` - SQL validation for files or directories
 - `jobs` - Detailed job and task information (SQL, generators, topics)
 - `kafka` - Kafka cluster and topic monitoring
 - `sql` - SQL server information and job details

@@ -389,20 +389,27 @@ impl KafkaDataSource {
             format!("Kafka source '{}' missing required config: {}", name, key)
         }
         fn missing_recommended_msg(name: &str, key: &str) -> String {
-            format!("Kafka source '{}' missing recommended config: {}", name, key)
+            format!(
+                "Kafka source '{}' missing recommended config: {}",
+                name, key
+            )
         }
         fn batch_config_warning(name: &str) -> String {
-            format!("Kafka source '{}' has batch configuration - ensure this is intended", name)
+            format!(
+                "Kafka source '{}' has batch configuration - ensure this is intended",
+                name
+            )
         }
 
         // Build required configuration keys
-        let bootstrap_servers_key = format!("{}.{}.{}", DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS);
+        let bootstrap_servers_key = format!(
+            "{}.{}.{}",
+            DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS
+        );
         let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
 
         // Recommended properties with fallback support
-        let recommended_keys = vec![
-            (GROUP_ID_DOT, GROUP_ID_UNDERSCORE),
-        ];
+        let recommended_keys = vec![(GROUP_ID_DOT, GROUP_ID_UNDERSCORE)];
 
         let mut missing_required = Vec::new();
         let mut missing_recommended = Vec::new();
@@ -424,9 +431,11 @@ impl KafkaDataSource {
 
         // Check for batch configuration presence
         let batch_indicators = ["batch", "poll", "fetch"];
-        let has_batch_config = properties
-            .keys()
-            .any(|k| batch_indicators.iter().any(|indicator| k.contains(indicator)));
+        let has_batch_config = properties.keys().any(|k| {
+            batch_indicators
+                .iter()
+                .any(|indicator| k.contains(indicator))
+        });
 
         if has_batch_config {
             warnings.push(batch_config_warning(name));

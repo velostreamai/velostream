@@ -323,7 +323,10 @@ impl KafkaDataSink {
         let mut recommendations = Vec::new();
 
         // Build required configuration keys
-        let bootstrap_servers_key = format!("{}.{}.{}", DATASINK_PREFIX, PRODUCER_CONFIG, BOOTSTRAP_SERVERS);
+        let bootstrap_servers_key = format!(
+            "{}.{}.{}",
+            DATASINK_PREFIX, PRODUCER_CONFIG, BOOTSTRAP_SERVERS
+        );
         let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
 
         for key in &required_keys {
@@ -345,8 +348,10 @@ impl KafkaDataSink {
         }
 
         // Performance recommendations - check for both dot and underscore variants
-        let has_batch_size = properties.contains_key(BATCH_SIZE_DOT) || properties.contains_key(BATCH_SIZE_UNDERSCORE);
-        let has_linger_ms = properties.contains_key(LINGER_MS_DOT) || properties.contains_key(LINGER_MS_UNDERSCORE);
+        let has_batch_size = properties.contains_key(BATCH_SIZE_DOT)
+            || properties.contains_key(BATCH_SIZE_UNDERSCORE);
+        let has_linger_ms =
+            properties.contains_key(LINGER_MS_DOT) || properties.contains_key(LINGER_MS_UNDERSCORE);
 
         if !has_batch_size && !has_linger_ms {
             recommendations.push(batch_perf_recommendation(name));

@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ValidationError {
     pub message: String,
     pub line: Option<usize>,
@@ -22,7 +22,17 @@ pub struct ValidationError {
     pub severity: ErrorSeverity,
 }
 
-#[derive(Debug, Clone)]
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(line) = self.line {
+            write!(f, "Line {}: {}", line, self.message)
+        } else {
+            write!(f, "{}", self.message)
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum ErrorSeverity {
     Error,
     Warning,
@@ -79,7 +89,7 @@ pub struct SqlValidator {
     analyzer: QueryAnalyzer,
     with_clause_parser: WithClauseParser,
     strict_mode: bool,
-    check_performance: bool,
+    pub check_performance: bool,
 }
 
 impl SqlValidator {
@@ -147,6 +157,27 @@ impl SqlValidator {
         self.analyze_configuration_completeness(&mut result);
 
         result
+    }
+
+    /// Validate multiple SQL files in a directory
+    pub fn validate_directory(&self, dir_path: &Path) -> Vec<ApplicationValidationResult> {
+        let mut results = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+                    results.push(self.validate_application_file(&path));
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Alias for validate_application_file for compatibility
+    pub fn validate_application(&self, file_path: &Path) -> ApplicationValidationResult {
+        self.validate_application_file(file_path)
     }
 
     /// Validate a SQL application file

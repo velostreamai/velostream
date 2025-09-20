@@ -15,8 +15,8 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 
-# SQL Validator binary path
-SQL_VALIDATOR="$PROJECT_ROOT/target/debug/sql_validator"
+# Velo CLI binary path (unified validator)
+VELO_CLI="$PROJECT_ROOT/target/debug/velo-cli"
 
 # Default SQL file to validate
 DEFAULT_SQL_FILE="$SCRIPT_DIR/sql/financial_trading.sql"
@@ -28,14 +28,14 @@ print_color() {
     echo -e "${color}${message}${NC}"
 }
 
-# Function to build SQL validator if it doesn't exist
-build_sql_validator() {
-    if [ ! -f "$SQL_VALIDATOR" ]; then
-        print_color "$YELLOW" "SQL Validator binary not found. Building..."
+# Function to build Velo CLI if it doesn't exist
+build_velo_cli() {
+    if [ ! -f "$VELO_CLI" ]; then
+        print_color "$YELLOW" "Velo CLI binary not found. Building..."
         cd "$PROJECT_ROOT"
-        cargo build --bin sql_validator
+        cargo build --bin velo-cli
         cd "$SCRIPT_DIR"
-        print_color "$GREEN" "✓ SQL Validator built successfully"
+        print_color "$GREEN" "✓ Velo CLI built successfully"
     fi
 }
 
@@ -61,7 +61,7 @@ validate_sql_file() {
     local output_file="/tmp/sql_validator_output_$$.txt"
 
     # Run validator and capture output
-    if $SQL_VALIDATOR "$sql_file" > "$output_file" 2>&1; then
+    if $VELO_CLI validate "$sql_file" > "$output_file" 2>&1; then
         print_color "$GREEN" "✓ SQL validation passed"
 
         # Show summary of results
@@ -79,10 +79,10 @@ validate_sql_file() {
         return 1
     fi
 
-    # Run with strict mode if verbose
+    # Run with verbose mode if requested
     if [ "$verbose" = true ]; then
-        print_color "$YELLOW" "\n► Running strict validation..."
-        $SQL_VALIDATOR "$sql_file" --strict 2>&1 || true
+        print_color "$YELLOW" "\n► Running verbose validation..."
+        $VELO_CLI validate "$sql_file" --verbose 2>&1 || true
     fi
 
     # Clean up
@@ -123,7 +123,7 @@ Validates SQL files for the Velostream Financial Trading Demo
 Options:
     -h, --help          Show this help message
     -a, --all           Validate all SQL files in the sql/ directory
-    -b, --build         Force rebuild of SQL validator binary
+    -b, --build         Force rebuild of Velo CLI binary
     -v, --verbose       Show detailed validation output
 
 Arguments:
@@ -178,11 +178,11 @@ main() {
 
     # Force rebuild if requested
     if [ "$force_build" = true ]; then
-        rm -f "$SQL_VALIDATOR"
+        rm -f "$VELO_CLI"
     fi
 
-    # Build SQL validator if needed
-    build_sql_validator
+    # Build Velo CLI if needed
+    build_velo_cli
 
     # Validate files
     if [ "$validate_all" = true ]; then

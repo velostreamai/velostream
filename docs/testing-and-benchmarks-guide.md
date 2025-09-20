@@ -111,16 +111,22 @@ cargo run --bin test_streamrecord_performance --no-default-features
 cargo run --bin test_final_performance --no-default-features
 ```
 
-### Configuration Validation
+### SQL Validation Testing
 ```bash
+# SQL validation with integrated validator
+cargo run --bin velo-cli validate examples/sql/ --verbose --no-default-features
+
+# Validation with JSON output for CI/CD
+cargo run --bin velo-cli validate examples/sql/ --format json --no-default-features
+
+# Test pre-deployment validation
+cargo run --bin velo-sql-multi deploy-app --file examples/sql/simple.sql --no-monitor --no-default-features
+
 # Kafka configuration testing
 cargo run --bin test_kafka_configuration --no-default-features
 
 # Schema registry validation
 cargo run --bin test_schema_registry --no-default-features
-
-# Configuration validator tool
-cargo run --bin velo-config-validator --no-default-features
 ```
 
 ---

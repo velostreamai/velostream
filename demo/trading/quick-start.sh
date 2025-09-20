@@ -22,24 +22,24 @@ if command -v make >/dev/null 2>&1; then
     make build
     
     echo -e "${YELLOW}🎬 Starting 1-minute trading demo...${NC}"
-    echo -e "${YELLOW}    (To run longer, use: DEMO_DURATION=5 ./run_demo.sh)${NC}"
+    echo -e "${YELLOW}    (To run longer, use: DEMO_DURATION=5 ./run-demo.sh)${NC}"
     echo ""
     
-    DEMO_DURATION=1 ./run_demo.sh
+    DEMO_DURATION=1 ./run-demo.sh
 else
     echo -e "${YELLOW}📦 Building CLI (no make found)...${NC}"
-    ./build_cli.sh
+    ./build-cli.sh
     
     echo -e "${YELLOW}🎬 Starting 1-minute trading demo...${NC}"
     echo ""
     
-    DEMO_DURATION=1 ./run_demo.sh
+    DEMO_DURATION=1 ./run-demo.sh
 fi
 
 echo -e "${GREEN}🎉 Quick start demo completed!${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
-echo "• Full demo: ${YELLOW}./run_demo.sh${NC}"
+echo "• Full demo: ${YELLOW}./run-demo.sh${NC}"
 echo "• CLI monitoring: ${YELLOW}./velo-cli status${NC}"
 echo "• Grafana dashboards: ${YELLOW}http://localhost:3000${NC} (admin/admin)"
-echo "• Stop services: ${YELLOW}./stop_demo.sh${NC}"
+echo "• Stop services: ${YELLOW}./stop-demo.sh${NC}"

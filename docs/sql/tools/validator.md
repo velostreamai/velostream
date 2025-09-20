@@ -2,255 +2,346 @@
 
 ## Overview
 
-The Velostream SQL Validator is a comprehensive validation tool that checks SQL queries and applications for:
+Velostream provides comprehensive SQL validation through an integrated validation system that checks SQL queries and applications for:
 
 - **Parsing Correctness**: Validates SQL syntax compatibility with Velostream parser
 - **Configuration Completeness**: Ensures all required source/sink configurations are present
 - **Performance Warnings**: Identifies potential performance issues in streaming queries
 - **Syntax Compatibility**: Flags SQL constructs that may not be fully supported
+- **Pre-deployment Validation**: Prevents deployment of invalid SQL applications
 
-## Usage
+## Unified Validation Architecture
 
-### Command Line Interface
+As of the latest update, SQL validation is now integrated directly into Velostream's primary tools:
 
+### 🎯 **Primary Validation Methods**
+
+#### 1. **CLI Validation** (Development & CI/CD)
 ```bash
 # Validate a single SQL file
-./target/debug/sql_validator <file.sql>
+velo-cli validate path/to/file.sql
 
 # Validate all SQL files in a directory
-./target/debug/sql_validator <directory>
+velo-cli validate path/to/sql/
 
-# Strict mode (treats warnings as errors)
-./target/debug/sql_validator <file.sql> --strict
+# Strict mode (fail on warnings)
+velo-cli validate path/to/sql/ --strict
 
-# Disable performance checks
-./target/debug/sql_validator <file.sql> --no-performance
+# Verbose output with recommendations
+velo-cli validate path/to/file.sql --verbose
+
+# JSON output for CI/CD integration
+velo-cli validate path/to/sql/ --format json
 ```
 
-### Building the Validator
+#### 2. **Pre-deployment Validation** (Production)
+```bash
+# Automatic validation before deployment
+velo-sql-multi deploy-app --file production.sql
+
+# Validation occurs automatically and blocks deployment if invalid
+# ❌ Deployment blocked if validation fails
+# ✅ Deployment proceeds only if validation passes
+```
+
+## Installation & Setup
+
+### Building the Tools
 
 ```bash
-cargo build --bin sql_validator --no-default-features
+# Build the Velostream CLI with validation support
+cargo build --bin velo-cli
+
+# Build the SQL multi-job server with integrated validation
+cargo build --bin velo-sql-multi
+
+# No longer needed (deprecated):
+# ❌ cargo build --bin sql-validator
+# ❌ cargo build --bin velo-config-validator
 ```
 
-## Validation Results
+## Validation Features
 
-### Current SQL File Status
+### 1. **Application-Level Validation** ✅
 
-Based on validation of demo SQL files, here are the current issues found:
+The validator now understands SQL applications as complete units:
 
-#### ❌ **Critical Issues Found**
+```bash
+velo-cli validate trading.sql --verbose
 
-1. **SQL Parser Limitations**
-   - Complex CREATE STREAM/TABLE statements with WITH clauses not parsing correctly
-   - Multi-line SQL statements causing parsing failures
-   - SQL constructs like subqueries and complex JOINs may have limited support
-
-2. **Syntax Compatibility Issues**
-   - WINDOW clauses (TUMBLING, SLIDING, SESSION) have parsing issues
-   - Complex WITH clause configurations not fully supported
-   - Advanced SQL functions may not be recognized
-
-3. **Missing Configuration Validation**
-   - Source/sink configuration requirements not properly validated due to parsing failures
-   - Named sources and sinks configuration completeness cannot be checked
-
-### ⚠️ **Warnings Detected**
-
-1. **Performance Concerns**
-   - ORDER BY without LIMIT in streaming contexts
-   - Stream-to-stream JOINs without time windows
-   - Complex subqueries in streaming contexts
-
-2. **Configuration Recommendations**
-   - Missing batch processing configurations for high-throughput scenarios
-   - Missing failure strategy configurations
-   - Incomplete Kafka source/sink configurations
-
-## Validation Categories
-
-### 1. Parsing Validation ✅ **Implemented**
-
-```rust
-// Validates SQL parsing correctness
-let parsed_query = match self.parser.parse(query) {
-    Ok(q) => q,
-    Err(e) => {
-        result.parsing_errors.push(format!("SQL parsing failed: {}", e));
-        return result;
-    }
-};
+📊 Validation Results
+====================
+📄 trading.sql
+  📦 Application: Real-Time Trading Analytics
+  📊 Queries: 5 total, 4 valid
+  ✅ Valid (with warnings)
 ```
 
-### 2. Configuration Validation ✅ **Implemented**
+### 2. **Query-Level Analysis** ✅
 
-- **Kafka Sources**: Validates `bootstrap.servers`, `topic`, `group.id`
-- **Kafka Sinks**: Validates `bootstrap.servers`, `topic`, `value.format`
-- **File Sources**: Validates `path`, `format`, checks file existence
-- **File Sinks**: Validates `path`, `format`, checks directory existence
-
-### 3. Syntax Compatibility ✅ **Implemented** 
-
-- Detects unsupported WINDOW syntax
-- Identifies potentially problematic subqueries
-- Flags performance-problematic constructs
-
-### 4. Performance Analysis ✅ **Implemented**
-
-- **JOIN Analysis**: Warns about expensive stream-to-stream JOINs
-- **Memory Concerns**: Flags ORDER BY without LIMIT
-- **State Management**: Warns about LAG/LEAD functions
-- **Batch Configuration**: Suggests batch processing for multi-source queries
-
-## Validation Output Format
-
-### Report Structure
+Detailed per-query validation with line numbers:
 
 ```
-╔══════════════════════════════════════════════════════════════════════
-║ SQL APPLICATION VALIDATION REPORT
-╠══════════════════════════════════════════════════════════════════════
-║ File: path/to/file.sql
-║ Application: application_name_from_comments
-║ Status: ✅ VALID / ❌ INVALID
-║ Queries: X/Y valid
-╚══════════════════════════════════════════════════════════════════════
-
-🚨 GLOBAL ERRORS:          # File-level errors
-📝 Query #N (Status):      # Per-query validation
-🚫 Parsing Errors:         # SQL syntax errors
-⚙️ Configuration Errors:   # Missing/invalid configurations
-📥 Missing Source Configs: # Required source configurations
-📤 Missing Sink Configs:   # Required sink configurations
-🔧 Syntax Issues:          # Compatibility problems
-⚠️ Warnings:               # Non-critical issues
-⚡ Performance Warnings:   # Performance concerns
-📊 CONFIGURATION SUMMARY:  # Overall configuration analysis
-💡 RECOMMENDATIONS:        # Improvement suggestions
+❌ Query #2 (Line 45):
+  📝 Parsing Errors:
+    • SQL parse error at position 234
+  ⚙️ Configuration Errors:
+    • Missing datasource.consumer_config.bootstrap.servers
+  📥 Missing Source Configs:
+    • market_data: bootstrap.servers, topic
 ```
 
-### JSON Output (Future Enhancement)
+### 3. **Configuration Validation** ✅
 
-The validator supports structured output that can be integrated into CI/CD pipelines:
+#### **YAML Inheritance Support**
+```yaml
+# market_data_source.yaml
+extends: common_kafka_source.yaml
+topic:
+  name: "market_data"
+```
 
-```rust
-#[derive(Serialize, Deserialize)]
-pub struct ApplicationValidationResult {
-    pub file_path: String,
-    pub is_valid: bool,
-    pub query_results: Vec<QueryValidationResult>,
-    pub configuration_summary: ConfigurationSummary,
-    pub recommendations: Vec<String>,
+The validator correctly handles:
+- `extends:` inheritance chains
+- Nested configuration merging
+- Property flattening (e.g., `datasource.consumer_config.bootstrap.servers`)
+
+### 4. **Performance Analysis** ✅
+
+```
+⚡ Performance Warnings:
+  • Stream-to-stream JOINs without time windows can be expensive
+  • GROUP BY with DISTINCT operations can be memory-intensive
+  • Consider batch configuration for multi-source queries
+```
+
+## Command Line Options
+
+### `velo-cli validate`
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--verbose, -v` | Show detailed validation output | `velo-cli validate file.sql -v` |
+| `--strict, -s` | Fail on warnings (exit code 1) | `velo-cli validate file.sql --strict` |
+| `--format, -f` | Output format (text/json) | `velo-cli validate file.sql -f json` |
+
+### JSON Output Format
+
+Perfect for CI/CD integration:
+
+```json
+{
+  "total_files": 1,
+  "valid_files": 0,
+  "results": [{
+    "file": "trading.sql",
+    "application_name": "Real-Time Trading Analytics",
+    "valid": false,
+    "total_queries": 5,
+    "valid_queries": 3,
+    "errors": [...],
+    "recommendations": [
+      "Add time windows to JOIN operations",
+      "Consider batch configuration for throughput"
+    ]
+  }]
 }
 ```
 
-## Recommended Workflow
+## Integration Scenarios
 
-### 1. Development Phase
+### 1. **Development Workflow**
+
 ```bash
-# Validate SQL files during development
-./target/debug/sql_validator demo/datasource-demo/enhanced_sql_demo.sql
+# During development, validate as you write
+velo-cli validate my_query.sql --verbose
+
+# Check all queries in your project
+velo-cli validate sql/ --verbose
 ```
 
-### 2. CI/CD Integration
-```bash
-# Validate all SQL files in strict mode
-./target/debug/sql_validator sql/ --strict
+### 2. **CI/CD Pipeline**
+
+```yaml
+# GitHub Actions example
+- name: Validate SQL
+  run: |
+    velo-cli validate sql/ --strict --format json > validation.json
+    if [ $? -ne 0 ]; then
+      echo "SQL validation failed"
+      cat validation.json | jq '.'
+      exit 1
+    fi
 ```
 
-### 3. Pre-Production Validation
+### 3. **Pre-commit Hook**
+
 ```bash
-# Comprehensive validation with performance analysis
-./target/debug/sql_validator production_queries/ --strict
+#!/bin/bash
+# .git/hooks/pre-commit
+velo-cli validate $(git diff --cached --name-only | grep '.sql$') --strict
+if [ $? -ne 0 ]; then
+  echo "❌ SQL validation failed. Please fix errors before committing."
+  exit 1
+fi
 ```
 
-## Current Limitations and Next Steps
+### 4. **Production Deployment**
 
-### 🔧 **Immediate Fixes Needed**
+```bash
+# Automatic validation during deployment
+velo-sql-multi deploy-app --file production.sql
 
-1. **SQL Parser Enhancement**
-   - Improve parsing of CREATE STREAM/TABLE with WITH clauses
-   - Better handling of multi-line SQL statements
-   - Support for more complex SQL constructs
+# Output:
+Starting deployment from file: production.sql
+Reading SQL file: production.sql
+Validating SQL application...
+✅ SQL validation passed!
+📦 Application: Trading Analytics v1.0.0
+📊 3 queries validated successfully
+Deploying application...
+```
 
-2. **Configuration Parser Integration**
-   - Fix WITH clause parser integration
-   - Improve source/sink name extraction
-   - Better configuration validation
+## Validation Rules
 
-3. **Error Reporting**
-   - More specific parsing error messages
-   - Line number reporting for errors
-   - Better context in error messages
+### ✅ **Required Configurations**
 
-### 🚀 **Future Enhancements**
+#### Kafka Sources
+- `datasource.consumer_config.bootstrap.servers`
+- `datasource.consumer_config.topic` or topic specification
+- `datasource.consumer_config.group.id` (recommended)
 
-1. **Advanced Validation**
-   - Schema compatibility checking
-   - Data type validation
-   - Join condition analysis
+#### Kafka Sinks
+- `datasink.producer_config.bootstrap.servers`
+- `datasink.producer_config.topic`
+- `datasink.producer_config.value.format`
 
-2. **Performance Modeling**
-   - Query cost estimation
-   - Memory usage prediction
-   - Throughput analysis
+#### File Sources
+- `datasource.path`
+- `datasource.format` (csv/json/jsonlines)
 
-3. **Integration Features**
-   - IDE integration
-   - Git hooks for automated validation
-   - CI/CD pipeline integration
+### ⚠️ **Performance Warnings**
 
-## SQL Query Design Guidelines
+1. **Memory Concerns**
+   - `ORDER BY` without `LIMIT`
+   - `GROUP BY` with `DISTINCT`
+   - Unbounded state accumulation
 
-Based on validation results, here are recommendations for writing Velostream-compatible SQL:
+2. **JOIN Performance**
+   - Stream-to-stream JOINs without time windows
+   - Large table lookups without indexes
+   - Cartesian products
 
-### ✅ **Recommended Patterns**
+3. **Throughput Optimization**
+   - Missing batch configuration for multi-source queries
+   - Inefficient serialization formats
+   - Missing compression settings
 
+## Migration Guide
+
+### From Standalone Validators
+
+#### **Old Way** (Deprecated)
+```bash
+# ❌ Don't use these anymore:
+sql-validator path/to/file.sql
+velo-config-validator config.yaml
+```
+
+#### **New Way** (Recommended)
+```bash
+# ✅ Use integrated validation:
+velo-cli validate path/to/file.sql
+# Config validation happens automatically within SQL validation
+```
+
+### Benefits of New System
+
+1. **Unified Interface**: Single tool for all validation needs
+2. **Context-Aware**: Understands complete applications, not just queries
+3. **Pre-deployment Safety**: Automatic validation prevents bad deployments
+4. **Better Error Messages**: Application-level context in error reporting
+5. **YAML Inheritance**: Full support for configuration inheritance
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. **Missing Configuration Files**
+```
+❌ Configuration error: Failed to load config file 'configs/source.yaml'
+```
+**Solution**: Ensure config files exist relative to where you run validation
+
+#### 2. **YAML Inheritance Issues**
+```
+❌ Circular dependency detected in YAML inheritance
+```
+**Solution**: Check for circular `extends:` references
+
+#### 3. **Property Name Mismatches**
+```
+❌ Missing required config: datasource.consumer_config.bootstrap.servers
+```
+**Solution**: Use dot notation for nested properties (not underscores)
+
+## Best Practices
+
+### 1. **Validate Early and Often**
+```bash
+# Add to your development workflow
+alias vsql='velo-cli validate --verbose'
+vsql my_query.sql
+```
+
+### 2. **Use Strict Mode in CI/CD**
+```bash
+# Fail fast on any issues
+velo-cli validate sql/ --strict
+```
+
+### 3. **Leverage JSON for Automation**
+```bash
+# Parse validation results programmatically
+velo-cli validate sql/ --format json | jq '.results[] | select(.valid == false)'
+```
+
+### 4. **Document SQL Applications**
 ```sql
--- Simple stream processing
-CREATE STREAM processed_data AS
-SELECT id, amount, customer_id
-FROM source_stream
-WHERE amount > 100
-INTO kafka_sink
-WITH (
-    'kafka_sink.type' = 'kafka_sink',
-    'kafka_sink.bootstrap.servers' = 'localhost:9092',
-    'kafka_sink.topic' = 'processed-data'
-);
+-- SQL Application: Trading Analytics
+-- Description: Real-time trading analysis pipeline
+-- Version: 1.0.0
 
--- Windowed aggregation
-SELECT customer_id, SUM(amount) as total
-FROM transactions
-GROUP BY customer_id
-WINDOW TUMBLING(1 HOUR);
+-- Your SQL queries here...
 ```
 
-### ⚠️ **Patterns to Avoid**
+## Current Status
 
-```sql
--- Complex subqueries (may not parse correctly)
-SELECT * FROM (
-    SELECT customer_id, amount FROM transactions 
-    WHERE amount > (SELECT AVG(amount) FROM transactions)
-);
+### ✅ **Production Ready**
+- Configuration validation
+- Performance analysis
+- Pre-deployment validation
+- YAML inheritance support
+- CI/CD integration
 
--- ORDER BY without LIMIT (memory issues)
-SELECT * FROM transactions ORDER BY amount DESC;
+### 🚀 **Recent Improvements**
+- Unified validation architecture
+- Application-level understanding
+- Enhanced error messages
+- JSON output support
+- Automatic pre-deployment validation
 
--- Complex JOIN without time windows (performance issues) 
-SELECT t.*, c.name FROM transactions t
-JOIN customers c ON t.customer_id = c.id;
-```
+### 🔧 **Known Limitations**
+- Complex nested subqueries may have limited support
+- Some advanced window functions still being implemented
+- Schema inference for complex types in progress
 
 ## Conclusion
 
-The SQL Validator is a powerful tool for ensuring SQL query compatibility and performance in Velostream. While some parsing limitations currently exist, it provides valuable validation for:
+The Velostream SQL Validator is now fully integrated into the core toolchain, providing comprehensive validation at every stage from development to deployment. The unified architecture ensures consistency and prevents invalid SQL from reaching production.
 
-- Configuration completeness
-- Performance optimization
-- Syntax compatibility
-- Best practices enforcement
+**Key Commands**:
+- `velo-cli validate` - Development and CI/CD validation
+- `velo-sql-multi deploy-app` - Automatic pre-deployment validation
 
-**Current Status**: ✅ **Production Ready** for configuration and performance validation
-**Next Phase**: 🔧 **Parser Enhancement** for complete SQL parsing support
+For more information, see the [Velostream CLI Guide](../cli-guide.md) and [SQL Deployment Guide](../deployment-guide.md).
