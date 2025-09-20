@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use serde_json::Value;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time;
+use velostream::velostream::sql::validator::SqlValidator;
 
 #[derive(Parser)]
 #[command(name = "velo-cli")]
@@ -64,6 +66,23 @@ enum Commands {
         /// Show job details
         #[arg(short, long)]
         jobs: bool,
+    },
+    /// Validate SQL files
+    Validate {
+        /// Path to SQL file or directory to validate
+        path: String,
+
+        /// Show verbose validation output
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Fail on warnings (strict mode)
+        #[arg(short, long)]
+        strict: bool,
+
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
     },
     /// Show Docker containers status
     Docker {
@@ -784,6 +803,183 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        Commands::Validate {
+            path,
+            verbose,
+            strict,
+            format,
+        } => {
+            // Create validator with appropriate settings
+            let mut validator = if strict {
+                SqlValidator::new_strict()
+            } else {
+                SqlValidator::new()
+            };
+
+            validator.check_performance = true;
+
+            let path_obj = Path::new(&path);
+
+            if !path_obj.exists() {
+                eprintln!("❌ Error: Path '{}' does not exist", path);
+                std::process::exit(1);
+            }
+
+            // Delegate to SqlValidator for all validation logic
+            let results = if path_obj.is_file() {
+                if verbose {
+                    println!("🔍 Validating SQL file: {}", path);
+                }
+                vec![validator.validate_application(path_obj)]
+            } else if path_obj.is_dir() {
+                if verbose {
+                    println!("🔍 Validating SQL files in directory: {}", path);
+                }
+                validator.validate_directory(path_obj)
+            } else {
+                eprintln!("❌ Error: Path '{}' is neither a file nor directory", path);
+                std::process::exit(1);
+            };
+
+            // Calculate totals
+            let total_files = results.len();
+            let valid_files = results.iter().filter(|r| r.is_valid).count();
+
+            // Output results based on format
+            if format == "json" {
+                let json_output = serde_json::json!({
+                    "total_files": total_files,
+                    "valid_files": valid_files,
+                    "results": results.iter().map(|result| {
+                        serde_json::json!({
+                            "file": result.file_path,
+                            "application_name": result.application_name,
+                            "valid": result.is_valid,
+                            "total_queries": result.total_queries,
+                            "valid_queries": result.valid_queries,
+                            "errors": result.global_errors,
+                            "recommendations": result.recommendations,
+                            "queries": result.query_results.iter().map(|q| {
+                                serde_json::json!({
+                                    "valid": q.is_valid,
+                                    "sources_count": q.sources_found.len(),
+                                    "sinks_count": q.sinks_found.len(),
+                                    "errors": q.configuration_errors,
+                                    "warnings": q.warnings,
+                                })
+                            }).collect::<Vec<_>>()
+                        })
+                    }).collect::<Vec<_>>()
+                });
+                println!("{}", serde_json::to_string_pretty(&json_output).unwrap());
+            } else {
+                // Text format output
+                println!("\n📊 Validation Results");
+                println!("====================");
+                println!("Total files: {}", total_files);
+                println!("Valid files: {}", valid_files);
+                println!("Failed files: {}", total_files - valid_files);
+
+                for result in &results {
+                    if !result.is_valid || verbose {
+                        println!("\n📄 {}", result.file_path);
+
+                        if let Some(app_name) = &result.application_name {
+                            println!("  📦 Application: {}", app_name);
+                        }
+
+                        println!(
+                            "  📊 Queries: {} total, {} valid",
+                            result.total_queries, result.valid_queries
+                        );
+
+                        if result.is_valid {
+                            println!("  ✅ Valid");
+                        } else {
+                            println!("  ❌ Invalid");
+
+                            if !result.global_errors.is_empty() {
+                                println!("  🚨 Global Errors:");
+                                for error in &result.global_errors {
+                                    println!("    • {}", error);
+                                }
+                            }
+
+                            // Show query-specific errors
+                            for (idx, query_result) in result.query_results.iter().enumerate() {
+                                if !query_result.is_valid {
+                                    println!(
+                                        "  Query #{} (Line {}):",
+                                        idx + 1,
+                                        query_result.start_line
+                                    );
+
+                                    if !query_result.parsing_errors.is_empty() {
+                                        println!("    📝 Parsing Errors:");
+                                        for error in &query_result.parsing_errors {
+                                            println!("      • {}", error.message);
+                                        }
+                                    }
+
+                                    if !query_result.configuration_errors.is_empty() {
+                                        println!("    ⚙️ Configuration Errors:");
+                                        for error in &query_result.configuration_errors {
+                                            println!("      • {}", error);
+                                        }
+                                    }
+
+                                    if !query_result.missing_source_configs.is_empty() {
+                                        println!("    📥 Missing Source Configs:");
+                                        for config in &query_result.missing_source_configs {
+                                            println!(
+                                                "      • {}: {}",
+                                                config.name,
+                                                config.missing_keys.join(", ")
+                                            );
+                                        }
+                                    }
+
+                                    if !query_result.missing_sink_configs.is_empty() {
+                                        println!("    📤 Missing Sink Configs:");
+                                        for config in &query_result.missing_sink_configs {
+                                            println!(
+                                                "      • {}: {}",
+                                                config.name,
+                                                config.missing_keys.join(", ")
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if verbose {
+                            if !result.recommendations.is_empty() {
+                                println!("  💡 Recommendations:");
+                                for rec in &result.recommendations {
+                                    println!("    • {}", rec);
+                                }
+                            }
+
+                            // Show warnings for all queries
+                            for (idx, query_result) in result.query_results.iter().enumerate() {
+                                if !query_result.warnings.is_empty() {
+                                    println!("  Query #{} Warnings:", idx + 1);
+                                    for warning in &query_result.warnings {
+                                        println!("    ⚠️ {}", warning);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Exit with error code if validation failed and strict mode
+                if strict && valid_files < total_files {
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::Docker { velo_only } => {
             println!("\n🐳 Docker Containers");
             println!("===================");
