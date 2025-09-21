@@ -250,7 +250,7 @@ impl WatermarkManager {
 
         // Extract event time from record, fallback to processing time
         let event_time = record.event_time.unwrap_or_else(|| {
-            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
         });
 
         let new_watermark = self.generate_watermark_for_source(source_id, record, event_time);
@@ -288,7 +288,7 @@ impl WatermarkManager {
 
         if let Some(global_watermark) = self.get_global_watermark() {
             let event_time = record.event_time.unwrap_or_else(|| {
-                DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+                DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
             });
 
             event_time < global_watermark
@@ -305,7 +305,7 @@ impl WatermarkManager {
 
         let global_watermark = self.get_global_watermark()?;
         let event_time = record.event_time.unwrap_or_else(|| {
-            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
         });
 
         if event_time < global_watermark {

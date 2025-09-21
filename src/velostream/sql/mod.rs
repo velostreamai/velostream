@@ -19,7 +19,6 @@ pub use ast::StreamingQuery;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine};
 pub use parser::StreamingSqlParser;
-pub use validation::SqlValidationService;
 pub use validator::SqlValidator;
 
 // Version and feature info

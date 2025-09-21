@@ -129,6 +129,40 @@ SELECT
 FROM market_data m
 JOIN positions p ON m.symbol = p.symbol;
 ```
+
+### ✨ Subqueries (FULLY SUPPORTED)
+```sql
+-- Complex subquery analytics for risk management
+SELECT
+    trader_id,
+    position_size,
+    current_pnl,
+    -- EXISTS subquery for risk classification
+    CASE
+        WHEN EXISTS (
+            SELECT 1 FROM trading_positions p2
+            WHERE p2.trader_id = positions.trader_id
+            AND p2.event_time >= positions.event_time - INTERVAL '1' HOUR
+            AND ABS(p2.current_pnl) > 50000
+        ) THEN 'HIGH_VOLATILITY_TRADER'
+        ELSE 'NORMAL'
+    END as risk_status,
+    -- IN subquery for filtering
+    symbol IN (SELECT symbol FROM high_volume_stocks) as is_high_volume,
+    -- Scalar subquery for comparison
+    (SELECT AVG(current_pnl) FROM trading_positions) as avg_pnl
+FROM trading_positions positions
+WHERE trader_id IN (
+    SELECT trader_id FROM active_traders WHERE status = 'ACTIVE'
+);
+```
+
+**Supported Subquery Features:**
+- ✅ **EXISTS / NOT EXISTS** - Correlated existence checks
+- ✅ **IN / NOT IN** - Set membership testing
+- ✅ **Scalar subqueries** - Single value returns
+- ✅ **Correlated subqueries** - Reference outer query
+- ✅ **Complex nesting** - Multiple levels supported
 [→ Advanced SQL features](functions/enhanced-sql-features.md)
 
 ## 🎯 Task-Oriented Guides

@@ -9,4 +9,3 @@ pub mod server;
 pub mod sql;
 
 // Re-export server types for examples and tests
-pub use server::StreamJobServer;

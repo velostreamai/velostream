@@ -33,4 +33,3 @@ pub mod stream_job_server;
 pub mod processors;
 
 // Re-exports for convenience
-pub use stream_job_server::StreamJobServer;

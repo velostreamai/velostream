@@ -104,7 +104,7 @@ pub struct CircuitBreaker {
     enabled: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct CircuitBreakerStats {
     /// Consecutive failure count
     consecutive_failures: u32,
@@ -133,22 +133,6 @@ struct CallRecord {
     timestamp: SystemTime,
     success: bool,
     duration: Duration,
-}
-
-impl Default for CircuitBreakerStats {
-    fn default() -> Self {
-        Self {
-            consecutive_failures: 0,
-            consecutive_successes: 0,
-            last_failure_time: None,
-            next_retry_time: None,
-            call_history: Vec::new(),
-            total_calls: 0,
-            total_successes: 0,
-            total_failures: 0,
-            total_timeouts: 0,
-        }
-    }
 }
 
 impl CircuitBreaker {

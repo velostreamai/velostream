@@ -241,8 +241,7 @@ fn generate_ide_configurations(_schema: &Value) -> Result<(), Box<dyn std::error
     println!("📝 Generated: .vscode/velo-schema-settings.json");
 
     // Generate example configuration with schema reference
-    let example_config = format!(
-        r#"# yaml-language-server: $schema=./velostream-config.schema.json
+    let example_config = r#"# yaml-language-server: $schema=./velostream-config.schema.json
 
 # Velostream Configuration Example
 # This file demonstrates the configuration schema with IDE support
@@ -281,7 +280,7 @@ batch:
     max_size: 1000
     timeout_ms: 5000
 "#
-    );
+    .to_string();
 
     fs::write("velo-config.example.yaml", example_config)?;
     println!("📄 Generated: velo-config.example.yaml");

@@ -3,7 +3,6 @@
 //! Handles formatting of validation errors and results for display.
 
 use super::result_types::{ApplicationValidationResult, ParsingError, QueryValidationResult};
-use std::collections::HashMap;
 
 /// Formats validation errors and results for display
 pub struct ValidationErrorFormatter {
@@ -54,7 +53,7 @@ impl ValidationErrorFormatter {
         let mut output = Vec::new();
 
         // Main error message
-        output.push(format!("🚫 Parsing Errors:"));
+        output.push("🚫 Parsing Errors:".to_string());
         output.push(format!("  • {}", error.message));
 
         if self.show_context {

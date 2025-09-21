@@ -11,7 +11,6 @@ use std::fs;
 use std::path::Path;
 use std::process;
 use velostream::velostream::config::schema_registry::validate_configuration;
-use velostream::velostream::config::HierarchicalSchemaRegistry;
 
 fn main() {
     let matches = Command::new("velo-config-validator")

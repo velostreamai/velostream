@@ -22,9 +22,9 @@ fn test_simple_session_syntax() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Session {
                     gap,
                     time_column,
@@ -68,7 +68,7 @@ fn test_session_with_various_durations() {
         match result.unwrap() {
             StreamingQuery::Select { window_spec, .. } => {
                 let window = window_spec.expect("Should have window specification");
-                match window {
+                match window_spec {
                     WindowSpec::Session { gap, .. } => {
                         assert_eq!(
                             gap.as_secs(),
@@ -105,9 +105,9 @@ fn test_complex_session_syntax_with_table_aliases() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Session {
                     gap,
                     time_column,
@@ -153,7 +153,7 @@ fn test_session_with_interval_variations() {
         match result.unwrap() {
             StreamingQuery::Select { window_spec, .. } => {
                 let window = window_spec.expect("Should have window specification");
-                match window {
+                match window_spec {
                     WindowSpec::Session {
                         gap,
                         time_column,
@@ -185,9 +185,9 @@ fn test_session_without_partition_key() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Session {
                     gap,
                     time_column,
@@ -229,8 +229,8 @@ fn test_session_in_financial_context() {
 
     // Verify it's parsed as a Session window
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
             assert!(
                 matches!(window, WindowSpec::Session { .. }),
                 "Should be Session window"

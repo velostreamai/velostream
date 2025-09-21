@@ -1,48 +1,101 @@
 # Velostream Consolidated Development TODO
 
-**Last Updated**: September 2025
-**Status**: 🚀 **PRODUCTION READY** - Core infrastructure complete, ready for advanced optimization
-**Current Priority**: **Phase 3: Cost-Based Query Optimization**
+**Last Updated**: September 21, 2025
+**Status**: 🚀 **PRODUCTION READY** - Core infrastructure complete, streaming SQL gaps identified & prioritized
+**Current Priority**: **Phase 1: Critical SQL Parser Gaps - Complex Subquery Support**
 
 ---
 
 # 📋 **ACTIVE DEVELOPMENT PRIORITIES**
 
-## 🎯 **PRIORITY 1: Financial SQL Parser Completion** 🔧 **IN PROGRESS**
-**Status**: 🔧 **70% COMPLETE** - Critical gaps found in financial trading SQL support
-**Effort**: 2-3 days | **Impact**: CRITICAL (Complete financial SQL compatibility)
-**Source**: Analysis of demo/trading/sql/financial_trading.sql with SQL validator
+## 🎯 **PRIORITY 1: Critical SQL Parser Gaps** ⚡ **ENTERPRISE BLOCKERS**
+**Status**: 🔴 **CRITICAL** - Advanced analytics blocked by subquery limitations
+**Effort**: 3-4 weeks | **Impact**: CRITICAL (Enterprise SQL compatibility, advanced analytics)
+**Source**: Financial SQL analysis + comprehensive streaming SQL gap assessment
 
-### **🚨 IMMEDIATE BLOCKERS** (September 2025)
+### **🚨 IMMEDIATE CRITICAL GAPS** (September 21, 2025)
 
-#### **1. Complex TUMBLING Window Syntax** ⚡ **CRITICAL BLOCKER**
-**Current Issue**: Query #2 fails with "Expected RightParen, found Comma"
+#### **1.1 Complex Subquery Support** ⚡ **HIGHEST PRIORITY**
+**Current Issue**: EXISTS and correlated subqueries fail in financial SQL Query #3
 ```sql
--- Financial SQL uses: TUMBLING (event_time, INTERVAL '1' MINUTE)
--- Current parser only supports: TUMBLING(1m)
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+-- FAILS: Advanced pattern detection
+HAVING EXISTS (
+    SELECT 1 FROM market_data_with_event_time m2
+    WHERE m2.symbol = market_data_with_event_time.symbol  -- Correlated reference
+    AND m2.event_time >= market_data_with_event_time.event_time - INTERVAL '1' MINUTE
+)
 ```
-**Impact**: Prevents 1+ financial queries from parsing
-**Effort**: 4-6 hours (similar to SESSION fix)
-**Priority**: **DO IMMEDIATELY**
+**Business Impact**:
+- **Financial Analytics**: Advanced pattern detection impossible (major competitive gap)
+- **Enterprise Adoption**: Common SQL patterns don't work (blocks PoCs and migrations)
+- **Developer Experience**: Forces non-standard workarounds (reduces adoption)
+- **Competitive Position**: Behind Flink SQL and ksqlDB in subquery support
 
-#### **2. WINDOW Clauses in GROUP BY** 🔧 **HIGH PRIORITY**
-**Current Issue**: Query #3 shows "WINDOW clauses in GROUP BY are not fully supported"
-**Impact**: Limits complex windowed aggregations in financial analytics
-**Effort**: 1-2 days
-**Priority**: **AFTER TUMBLING FIX**
+**Technical Requirements**:
+- EXISTS clause parsing and AST representation
+- Correlated subquery resolution engine
+- Streaming context handling for subquery execution
+- Cross-table reference validation
 
-#### **3. Complex Subqueries** ⚠️ **MEDIUM PRIORITY**
-**Current Issue**: Multiple queries show "Complex subqueries detected - ensure supported in streaming context"
-**Impact**: Limits advanced financial analytics patterns
-**Effort**: 2-3 days (requires streaming SQL design decisions)
-**Priority**: **LOWER PRIORITY**
+**Implementation Strategy**:
+- **Phase 1** [1 week]: Basic EXISTS subquery support (non-correlated)
+- **Phase 2** [1 week]: Correlated subquery resolution and execution engine
+- **Phase 3** [1 week]: Streaming context optimization and performance tuning
+**Total Effort**: 3 weeks | **Priority**: **DO IMMEDIATELY** | **LoE**: Senior developer + architect
+
+#### **1.2 IN/NOT IN Subquery Support** 🔧 **HIGH PRIORITY**
+**Current Issue**: Code explicitly returns "not yet implemented" error
+```sql
+-- FAILS: Common SQL patterns
+WHERE symbol IN (SELECT symbol FROM top_performers)      -- ❌ Not supported
+WHERE trader_id NOT IN (SELECT id FROM restricted_list)  -- ❌ Not supported
+```
+**Business Impact**:
+- **Developer Experience**: Basic SQL patterns don't work (major frustration)
+- **Migration Barrier**: Existing SQL queries need rewriting (blocks adoption)
+- **Productivity**: Forces EXISTS workarounds (slows development)
+- **SQL Standard Compliance**: Missing fundamental SQL capability
+
+**Technical Requirements**:
+- IN/NOT IN clause parsing with subquery support
+- Subquery result materialization for IN operations
+- NULL handling for NOT IN operations (SQL standard compliance)
+- Performance optimization for streaming scenarios
+
+**Implementation Strategy**:
+- **Phase 1** [3 days]: Simple IN subquery (non-correlated, small result sets)
+- **Phase 2** [4 days]: NOT IN subquery with proper NULL handling
+- **Phase 3** [3 days]: Performance optimization and streaming integration
+**Total Effort**: 1.5 weeks | **Priority**: **AFTER COMPLEX SUBQUERIES** | **LoE**: Senior developer
+
+#### **1.3 WINDOW Clauses in GROUP BY** 🔧 **MEDIUM PRIORITY**
+**Current Issue**: Limited support warning in financial SQL queries
+```sql
+-- LIMITED: Query #2 pattern
+GROUP BY symbol, EXTRACT(HOUR FROM event_time)  -- Window function in GROUP BY
+WINDOW TUMBLING(1h)
+```
+**Business Impact**:
+- **Advanced Analytics**: Temporal grouping patterns restricted
+- **Query Flexibility**: Can't combine time functions with window operations
+- **SQL Standard**: Missing expected functionality
+
+**Technical Requirements**:
+- Enhanced GROUP BY parser to handle window function expressions
+- Execution engine integration for temporal grouping
+- Proper window frame alignment with GROUP BY semantics
+
+**Implementation Strategy**:
+- **Phase 1** [4 days]: Parser enhancement for window functions in GROUP BY
+- **Phase 2** [3 days]: Execution engine integration and testing
+**Total Effort**: 1 week | **Priority**: **AFTER IN/NOT IN** | **LoE**: Mid-level developer
 
 ### **🎯 Success Criteria (Priority 1 Complete)**
-- ✅ Complex TUMBLING syntax: `TUMBLING (time_column, INTERVAL duration)` working
-- ✅ Financial trading SQL: **5+ out of 7 queries** parsing successfully (vs current 0/7)
-- ✅ All window types support complex syntax: TUMBLING, SLIDING, SESSION
-- ✅ Parser compatibility: **90%+ for financial SQL** (vs current 70%)
+- ✅ Complex TUMBLING syntax: `TUMBLING (time_column, INTERVAL duration)` - **COMPLETED**
+- ✅ Complex subqueries: EXISTS with correlated references working
+- ✅ IN/NOT IN subqueries: Common SQL patterns supported
+- ✅ Financial trading SQL: **6+ out of 7 queries** parsing successfully (vs current 2/7)
+- ✅ Enterprise SQL compatibility: Advanced analytics patterns supported
 
 ### **📋 Implementation Plan**
 1. **[4-6 hours] Implement Complex TUMBLING Syntax** - Highest priority
@@ -356,9 +409,582 @@ VeloStream will have **complete SQL window function compatibility** rivaling maj
 - **Critical Blockers**: **🔧 NEW GAPS IDENTIFIED** - Additional parser features needed
 
 ### **🚨 NEWLY IDENTIFIED GAPS** (September 2025)
-- **❌ Complex TUMBLING syntax**: `TUMBLING (event_time, INTERVAL '1' MINUTE)` - **CRITICAL BLOCKER**
-- **❌ WINDOW clauses in GROUP BY**: Not fully supported - **HIGH PRIORITY**
-- **⚠️ Complex subqueries**: Limited streaming context support - **MEDIUM PRIORITY**
+- **✅ Complex TUMBLING syntax**: `TUMBLING (event_time, INTERVAL '1' MINUTE)` - **COMPLETED**
+- **🔧 WINDOW clauses in GROUP BY**: Not fully supported - **MEDIUM PRIORITY**
+- **❌ Complex subqueries**: Critical limitation for advanced analytics - **HIGH PRIORITY**
+- **❌ IN/NOT IN subqueries**: Common SQL patterns missing - **HIGH PRIORITY**
+
+### **🎯 NEW STREAMING SQL PRIORITY MATRIX** (September 2025)
+Based on comprehensive analysis of financial SQL and enterprise streaming SQL requirements.
+
+## 🎯 **PRIORITY 1: Critical SQL Parser Gaps** ⚡ **ENTERPRISE BLOCKERS**
+**Status**: 🔴 **CRITICAL** - Blocking advanced analytics and enterprise adoption
+**Effort**: 3-4 weeks | **Impact**: CRITICAL (Advanced analytics, enterprise SQL patterns)
+
+### **1.1 Complex Subquery Support** ⚡ **HIGHEST PRIORITY**
+**Current Issue**: EXISTS, correlated subqueries fail in financial SQL
+```sql
+-- FAILS: Query #3 financial SQL pattern
+HAVING EXISTS (
+    SELECT 1 FROM market_data_with_event_time m2
+    WHERE m2.symbol = market_data_with_event_time.symbol  -- Correlated reference
+    AND m2.event_time >= market_data_with_event_time.event_time - INTERVAL '1' MINUTE
+)
+```
+**Impact**:
+- **Financial Analytics**: Advanced pattern detection impossible
+- **Enterprise Adoption**: Common SQL patterns don't work
+- **Competitive Gap**: Behind Flink SQL and ksqlDB in subquery support
+
+**Implementation Strategy**:
+- **Phase 1** [1 week]: Basic EXISTS subquery support
+- **Phase 2** [1 week]: Correlated subquery resolution
+- **Phase 3** [1 week]: Streaming context optimization
+**Effort**: 3 weeks | **Priority**: **DO IMMEDIATELY**
+
+### **1.2 IN/NOT IN Subquery Support** 🔧 **HIGH PRIORITY**
+**Current Issue**: Code explicitly returns "not yet implemented"
+```sql
+-- FAILS: Common SQL patterns
+WHERE symbol IN (SELECT symbol FROM top_performers)      -- ❌ Not supported
+WHERE trader_id NOT IN (SELECT id FROM restricted_list)  -- ❌ Not supported
+```
+**Impact**:
+- **Developer Experience**: Basic SQL patterns don't work
+- **Migration Barrier**: Existing SQL queries need rewriting
+- **Productivity**: Forces EXISTS workarounds
+
+**Implementation Strategy**:
+- **Phase 1** [3 days]: Simple IN subquery (non-correlated)
+- **Phase 2** [4 days]: NOT IN subquery with NULL handling
+- **Phase 3** [3 days]: Performance optimization for streaming
+**Effort**: 1.5 weeks | **Priority**: **AFTER COMPLEX SUBQUERIES**
+
+### **1.3 WINDOW Clauses in GROUP BY** 🔧 **MEDIUM PRIORITY**
+**Current Issue**: Limited support warning in financial SQL
+```sql
+-- LIMITED: Query #2 pattern
+GROUP BY symbol, EXTRACT(HOUR FROM event_time)  -- Window function in GROUP BY
+WINDOW TUMBLING(1h)
+```
+**Impact**: Advanced temporal grouping patterns restricted
+**Effort**: 1 week | **Priority**: **AFTER IN/NOT IN**
+
+## 🎯 **PRIORITY 2: Advanced Streaming SQL Features** 📊 **COMPETITIVE ADVANTAGE**
+**Status**: 🟡 **ENHANCEMENT** - For enterprise feature parity and competitive positioning
+**Effort**: 12-16 weeks | **Impact**: HIGH (Feature parity with Flink SQL/ksqlDB, enterprise readiness)
+**Source**: Comprehensive streaming SQL landscape analysis
+
+### **2.1 Common Table Expressions (CTEs)** 🏗️ **ARCHITECTURAL FOUNDATION**
+**Current State**: Limited support, recursive CTEs flagged as experimental
+**Priority Rank**: #4 overall (after critical parser gaps)
+```sql
+-- GOAL: Full CTE support for complex analytics
+WITH hourly_aggregates AS (
+    SELECT symbol, AVG(price) as avg_price
+    FROM market_data GROUP BY symbol WINDOW TUMBLING(1h)
+),
+ranked_symbols AS (
+    SELECT *, RANK() OVER (ORDER BY avg_price) as price_rank
+    FROM hourly_aggregates
+),
+top_movers AS (
+    SELECT *, LAG(avg_price, 1) OVER (ORDER BY price_rank) as prev_avg
+    FROM ranked_symbols WHERE price_rank <= 10
+)
+SELECT * FROM top_movers;
+```
+**Business Value**:
+- **Complex Analytics**: Multi-step analysis pipelines (essential for financial analytics)
+- **Code Reusability**: Modular query construction (reduces duplicate code)
+- **Enterprise Standard**: Expected in modern SQL engines (table stakes for adoption)
+- **Streaming Analytics**: Enables advanced pattern detection workflows
+
+**Technical Requirements**:
+- WITH clause parsing and AST representation
+- CTE materialization and caching strategy
+- Streaming-optimized CTE execution (memory management)
+- Recursive CTE support with cycle detection
+- Cross-CTE dependency resolution
+
+**Implementation Strategy**:
+- **Phase 1** [2 weeks]: Basic WITH clause parsing, single CTE execution
+- **Phase 2** [1.5 weeks]: Multiple CTEs in single query, dependency resolution
+- **Phase 3** [1.5 weeks]: Recursive CTE support with streaming constraints
+- **Phase 4** [1 week]: Performance optimization and memory management
+**Total Effort**: 6 weeks | **Priority**: **HIGH ENTERPRISE VALUE** | **LoE**: Senior developer + architect
+
+### **2.2 MERGE/UPSERT Statements** 🔄 **MODERN SQL REQUIREMENT**
+**Current State**: Explicitly not supported ("use INSERT/UPDATE/DELETE")
+**Priority Rank**: #5 overall (high enterprise value)
+```sql
+-- GOAL: UPSERT operations for streaming analytics
+MERGE INTO customer_summary cs
+USING (
+    SELECT customer_id, SUM(amount) as total, COUNT(*) as order_count
+    FROM orders
+    WHERE event_time >= NOW() - INTERVAL '1' HOUR
+    GROUP BY customer_id
+) o
+ON cs.customer_id = o.customer_id
+WHEN MATCHED THEN UPDATE SET
+    total_spent = cs.total_spent + o.total,
+    last_updated = NOW(),
+    order_count = cs.order_count + o.order_count
+WHEN NOT MATCHED THEN INSERT (customer_id, total_spent, last_updated, order_count)
+    VALUES (o.customer_id, o.total, NOW(), o.order_count);
+```
+**Business Value**:
+- **Modern SQL Standard**: Industry expectation (competitive requirement)
+- **Streaming Analytics**: Incremental updates pattern (core use case)
+- **Performance**: Single operation vs separate INSERT/UPDATE (efficiency)
+- **State Management**: Essential for maintaining materialized views
+
+**Technical Requirements**:
+- MERGE statement parsing with multiple WHEN clauses
+- Join-based execution for USING clause
+- State store integration for target table updates
+- Transaction semantics for streaming context
+- Performance optimization for high-throughput scenarios
+
+**Implementation Strategy**:
+- **Phase 1** [2 weeks]: MERGE statement parsing and AST representation
+- **Phase 2** [2 weeks]: Execution engine for MERGE operations
+- **Phase 3** [1 week]: Streaming optimization and state management
+- **Phase 4** [1 week]: Performance tuning and testing
+**Total Effort**: 6 weeks | **Priority**: **MEDIUM ENTERPRISE VALUE** | **LoE**: Senior developer
+
+### **2.3 Advanced Analytics Functions** 📈 **COMPETITIVE DIFFERENTIATOR**
+**Current Gap**: Missing statistical and time-series functions vs Flink SQL
+**Priority Rank**: #6 overall (competitive positioning)
+```sql
+-- GOAL: Advanced statistical analytics for financial markets
+SELECT symbol,
+    -- Percentile functions for risk analysis
+    PERCENTILE_CONT(0.5) OVER (PARTITION BY symbol ORDER BY price) as median_price,
+    PERCENTILE_DISC(0.95) OVER (PARTITION BY symbol ORDER BY price) as price_95th_percentile,
+
+    -- Statistical correlation analysis
+    CORR(price, volume) OVER (
+        PARTITION BY symbol ORDER BY trade_time
+        ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+    ) as price_volume_correlation,
+
+    -- Regression analysis for trend detection
+    REGR_SLOPE(price, volume) OVER (
+        PARTITION BY symbol ORDER BY trade_time
+        ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
+    ) as price_trend_slope,
+
+    -- Advanced window functions
+    NTH_VALUE(price, 10) OVER (PARTITION BY symbol ORDER BY trade_time) as tenth_price,
+    CUME_DIST() OVER (PARTITION BY symbol ORDER BY price) as price_cumulative_distribution
+FROM market_data;
+```
+**Functions to Add**:
+- **Percentile**: `PERCENTILE_CONT`, `PERCENTILE_DISC` (essential for risk analysis)
+- **Statistical**: `CORR`, `COVAR_POP`, `COVAR_SAMP`, `REGR_SLOPE`, `REGR_INTERCEPT`
+- **Advanced Window**: `NTH_VALUE`, `NTILE` enhancements, `CUME_DIST` improvements
+- **Financial**: `STDDEV_POP`, `STDDEV_SAMP`, `VAR_POP`, `VAR_SAMP`
+
+**Business Value**:
+- **Financial Analytics**: Risk analysis and statistical modeling capabilities
+- **Competitive Position**: Feature parity with Flink SQL and ksqlDB
+- **Advanced Use Cases**: Quantitative finance and algorithmic trading support
+- **Enterprise Readiness**: Statistical functions expected in modern streaming SQL
+
+**Technical Requirements**:
+- Statistical computation algorithms (correlation, regression)
+- Streaming-optimized percentile calculation (approximate algorithms)
+- Window-based statistical accumulation
+- Numerical stability for financial precision
+
+**Implementation Strategy**:
+- **Phase 1** [1.5 weeks]: Percentile functions (PERCENTILE_CONT, PERCENTILE_DISC)
+- **Phase 2** [2 weeks]: Statistical correlation functions (CORR, COVAR family)
+- **Phase 3** [1.5 weeks]: Regression functions (REGR family)
+- **Phase 4** [1 week]: Advanced window function variants and optimization
+**Total Effort**: 6 weeks | **Priority**: **MEDIUM COMPETITIVE VALUE** | **LoE**: Senior developer with statistics background
+
+### **2.4 Materialized Views** 🏪 **STREAMING CORE CAPABILITY**
+**Current State**: Not demonstrated, unclear support level
+**Priority Rank**: #7 overall (core streaming capability)
+```sql
+-- GOAL: Persistent streaming views for real-time analytics
+CREATE MATERIALIZED VIEW customer_metrics AS
+SELECT
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_spent,
+    AVG(amount) as avg_order_value,
+    MAX(order_date) as last_order_date,
+    STDDEV(amount) as spending_volatility
+FROM orders
+GROUP BY customer_id
+WINDOW TUMBLING(1h)
+EMIT CHANGES
+WITH (
+    'state.backend' = 'rocksdb',
+    'state.ttl' = '7 days',
+    'changelog.mode' = 'upsert'
+);
+
+-- Query materialized view
+SELECT * FROM customer_metrics
+WHERE total_spent > 1000
+ORDER BY spending_volatility DESC;
+```
+**Business Value**:
+- **Core Streaming SQL**: Essential capability for streaming platforms
+- **Performance**: Pre-computed aggregations (10x+ query speedup)
+- **Real-time Dashboards**: Live data serving for analytics applications
+- **Memory Efficiency**: Persistent state management vs in-memory aggregations
+- **Enterprise Standard**: Expected in streaming SQL platforms
+
+**Technical Requirements**:
+- MATERIALIZED VIEW DDL parsing and lifecycle management
+- State store integration (RocksDB, memory, distributed stores)
+- Incremental view maintenance for streaming updates
+- EMIT CHANGES integration with change stream protocols
+- View metadata management and discovery
+- Query optimization for materialized view usage
+
+**Implementation Strategy**:
+- **Phase 1** [2 weeks]: MATERIALIZED VIEW syntax parsing and DDL processing
+- **Phase 2** [3 weeks]: State store integration and view materialization
+- **Phase 3** [2 weeks]: Incremental maintenance and EMIT CHANGES
+- **Phase 4** [1 week]: Query optimization and view usage patterns
+**Total Effort**: 8 weeks | **Priority**: **HIGH STREAMING VALUE** | **LoE**: Senior developer + streaming systems architect
+
+## 🎯 **PRIORITY 3: Advanced Streaming Patterns** 🔮 **SPECIALIZED FEATURES**
+**Status**: 🔵 **FUTURE** - Advanced/specialized streaming SQL capabilities
+**Effort**: 16-20 weeks | **Impact**: MEDIUM-HIGH (Specialized use cases, competitive differentiation)
+**Source**: Advanced streaming SQL patterns and Complex Event Processing requirements
+
+### **3.1 Complex Event Processing (CEP)** 🎭 **SPECIALIZED ANALYTICS**
+**Current State**: Not available (major gap vs Flink SQL)
+**Priority Rank**: #8 overall (specialized but high-value use cases)
+```sql
+-- GOAL: Advanced pattern detection for financial markets
+SELECT * FROM trades
+MATCH_RECOGNIZE (
+    PARTITION BY symbol ORDER BY event_time
+    MEASURES
+        A.price as breakout_price,
+        B.price as peak_price,
+        C.price as crash_price,
+        LAST(B.event_time) - FIRST(A.event_time) as pattern_duration
+    ONE ROW PER MATCH
+    PATTERN (A B+ C)
+    DEFINE
+        A AS A.price > 100 AND A.volume > AVG(volume),  -- Breakout start
+        B AS B.price > PREV(B.price) * 1.02,            -- Upward trend
+        C AS C.price < PREV(C.price) * 0.95             -- Sharp decline
+    WITHIN INTERVAL '1' HOUR
+);
+
+-- Advanced CEP: Multi-symbol correlation patterns
+SELECT * FROM market_data
+MATCH_RECOGNIZE (
+    PARTITION BY sector ORDER BY event_time
+    MEASURES
+        FIRST(A.symbol) as lead_symbol,
+        COUNT(B.symbol) as following_symbols,
+        AVG(B.price_change) as avg_follow_change
+    PATTERN (A B{2,5} C)
+    DEFINE
+        A AS A.price_change > 0.05,              -- Leader moves up 5%+
+        B AS B.price_change > 0.02               -- Followers move up 2%+
+            AND B.event_time <= A.event_time + INTERVAL '10' MINUTE,
+        C AS COUNT(B.*) >= 2                     -- At least 2 followers
+);
+```
+**Business Value**:
+- **Algorithmic Trading**: Pattern-based trading strategies
+- **Risk Management**: Early warning systems for market anomalies
+- **Fraud Detection**: Complex transaction pattern analysis
+- **IoT Analytics**: Sensor failure pattern detection
+- **Competitive Advantage**: Advanced analytics capabilities vs traditional SQL
+
+**Technical Requirements**:
+- MATCH_RECOGNIZE syntax parsing and AST representation
+- Pattern matching engine with NFA/DFA implementation
+- Streaming pattern matching with bounded memory
+- Time-based pattern constraints (WITHIN clause)
+- Multi-event correlation and aggregation
+- Pattern library and template system
+
+**Implementation Strategy**:
+- **Phase 1** [3 weeks]: Basic MATCH_RECOGNIZE parsing and simple patterns
+- **Phase 2** [3 weeks]: Pattern matching engine and event correlation
+- **Phase 3** [2 weeks]: Time-based constraints and advanced pattern syntax
+- **Phase 4** [2 weeks]: Performance optimization and pattern library
+**Total Effort**: 10 weeks | **Priority**: **SPECIALIZED HIGH-VALUE** | **LoE**: Senior developer + pattern matching expert
+
+### **3.2 Temporal Table Joins** ⏰ **TIME-AWARE JOINS**
+**Current State**: Basic streaming joins only
+**Priority Rank**: #9 overall (important streaming capability)
+```sql
+-- GOAL: Version-aware joins for streaming analytics
+-- Example 1: Currency conversion with historical rates
+SELECT
+    o.order_id,
+    o.amount,
+    o.currency,
+    o.order_time,
+    r.rate,
+    o.amount * r.rate as usd_amount
+FROM orders o
+JOIN LATERAL (
+    SELECT rate, effective_time FROM exchange_rates r
+    WHERE r.currency = o.currency
+      AND r.effective_time <= o.order_time
+    ORDER BY r.effective_time DESC
+    LIMIT 1
+) r ON TRUE;
+
+-- Example 2: Price lookups with temporal consistency
+SELECT
+    t.trade_id,
+    t.symbol,
+    t.quantity,
+    t.trade_time,
+    p.price as reference_price,
+    t.quantity * p.price as notional_value
+FROM trades t
+FOR SYSTEM_TIME AS OF t.trade_time
+JOIN price_history p ON t.symbol = p.symbol;
+
+-- Example 3: Customer data versioning
+SELECT
+    o.order_id,
+    o.customer_id,
+    o.order_date,
+    c.customer_tier,
+    c.credit_limit
+FROM orders o
+JOIN customer_profiles FOR SYSTEM_TIME AS OF o.order_date c
+  ON o.customer_id = c.customer_id;
+```
+**Business Value**:
+- **Financial Analytics**: Accurate historical calculations with point-in-time data
+- **Regulatory Compliance**: Audit trails with temporal consistency
+- **Data Versioning**: Proper handling of slowly changing dimensions
+- **Business Intelligence**: Time-travel queries for historical analysis
+- **Streaming Analytics**: Join streaming data with versioned reference data
+
+**Technical Requirements**:
+- FOR SYSTEM_TIME AS OF syntax parsing
+- Temporal table storage and indexing
+- Version-aware join algorithms
+- Time-travel query optimization
+- Memory management for temporal data
+- Integration with state stores for version history
+
+**Implementation Strategy**:
+- **Phase 1** [2 weeks]: FOR SYSTEM_TIME syntax parsing and basic temporal joins
+- **Phase 2** [2 weeks]: Temporal storage and version management
+- **Phase 3** [1.5 weeks]: Advanced temporal join algorithms and optimization
+- **Phase 4** [0.5 week]: Performance tuning and integration testing
+**Total Effort**: 6 weeks | **Priority**: **MEDIUM STREAMING VALUE** | **LoE**: Senior developer + database expert
+
+### **3.3 Advanced Watermark Strategies** 🌊 **FINE-GRAINED CONTROL**
+**Current State**: Basic watermark support
+**Priority Rank**: #10 overall (fine-tuning capability)
+```sql
+-- GOAL: Custom watermark generation strategies
+-- Punctuated watermarks based on special events
+CREATE STREAM late_data_tolerant AS
+SELECT * FROM events
+WATERMARK FOR event_time AS
+    CASE
+        WHEN event_type = 'END_OF_BATCH' THEN event_time
+        WHEN LAG(event_time, 1) OVER (ORDER BY event_time) IS NULL THEN event_time - INTERVAL '10' SECOND
+        ELSE GREATEST(
+            event_time - INTERVAL '5' MINUTE,
+            LAG(event_time, 1) OVER (ORDER BY event_time)
+        )
+    END;
+
+-- Per-partition watermark strategies
+CREATE STREAM multi_source_stream AS
+SELECT * FROM kafka_events
+WATERMARK FOR event_time AS
+    PER_PARTITION(
+        event_time - CASE partition_id
+            WHEN 'high_frequency' THEN INTERVAL '1' SECOND
+            WHEN 'batch_data' THEN INTERVAL '10' MINUTE
+            ELSE INTERVAL '30' SECOND
+        END
+    );
+```
+**Business Value**:
+- **Late Data Handling**: Fine-grained control over late event processing
+- **Multi-Source Streams**: Different watermark strategies per data source
+- **Performance Tuning**: Optimal memory usage and latency balance
+- **Operational Control**: Runtime watermark strategy adjustments
+
+**Technical Requirements**:
+- Custom watermark function parsing and execution
+- Per-partition watermark management
+- Watermark progression guarantees
+- Integration with window triggering logic
+
+**Implementation Strategy**:
+- **Phase 1** [1 week]: Custom watermark expression parsing
+- **Phase 2** [1 week]: Per-partition watermark strategies
+- **Phase 3** [0.5 week]: Runtime watermark adjustment and monitoring
+**Total Effort**: 2.5 weeks | **Priority**: **LOW (FINE-TUNING)** | **LoE**: Mid-level developer
+
+## 🎯 **PRIORITY 4: Developer Experience & Operations** 🛠️ **USABILITY**
+**Status**: 🟢 **ENHANCEMENT** - Developer productivity and operational excellence
+**Effort**: 8-12 weeks | **Impact**: MEDIUM-HIGH (Usability, debugging, operational excellence)
+**Source**: Developer experience pain points and operational requirements
+
+### **4.1 Enhanced Error Handling** 🚨 **DEVELOPER PRODUCTIVITY**
+**Priority Rank**: #11 overall (high developer impact)
+```sql
+-- GOAL: Robust error handling for streaming SQL
+SELECT
+    TRY_CAST(corrupted_field AS DECIMAL(10,2)) as clean_amount,
+    CASE
+        WHEN TRY_PARSE_JSON(json_field) IS NULL THEN 'INVALID_JSON'
+        WHEN TRY_CAST(amount_str AS DECIMAL) IS NULL THEN 'INVALID_NUMBER'
+        ELSE 'VALID'
+    END as data_quality_flag,
+    COALESCE(TRY_CAST(timestamp_str AS TIMESTAMP), CURRENT_TIMESTAMP) as safe_timestamp
+FROM potentially_dirty_data
+WHERE TRY_CAST(amount_str AS DECIMAL) > 0  -- Filter invalid amounts safely
+   OR ISNULL(amount_str, 'default_handling');
+```
+**Business Value**:
+- **Production Resilience**: Handle corrupt data gracefully without query failures
+- **Developer Productivity**: Faster debugging with clear error messages
+- **Data Quality**: Built-in data validation and cleaning capabilities
+- **Operational Stability**: Reduce production incidents from bad data
+
+**Technical Requirements**:
+- TRY_CAST, TRY_PARSE_JSON, TRY_PARSE functions
+- Enhanced error messages with context
+- Error recovery strategies for streaming queries
+- Data quality metrics and monitoring
+
+**Implementation Strategy**:
+- **Phase 1** [1 week]: TRY_* function parsing and basic error handling
+- **Phase 2** [1 week]: Enhanced error messages and context
+- **Phase 3** [0.5 week]: Data quality monitoring integration
+**Total Effort**: 2.5 weeks | **Priority**: **HIGH USABILITY VALUE** | **LoE**: Mid-level developer
+
+### **4.2 Query Performance Analysis** 📊 **OPERATIONAL EXCELLENCE**
+**Priority Rank**: #12 overall (operational requirement)
+```sql
+-- GOAL: Comprehensive query analysis and optimization
+EXPLAIN (ANALYZE, BUFFERS, COSTS) SELECT
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_amount
+FROM orders
+GROUP BY customer_id
+WINDOW TUMBLING(1h);
+
+-- Output example:
+/*
+Streaming Execution Plan
+├─ Window Aggregation (cost=1.23..4.56 rows=1000 width=24)
+│  ├─ Window: TUMBLING(1h)
+│  ├─ Memory: 156MB (current), 512MB (peak)
+│  ├─ Throughput: 10K events/sec
+│  └─ Group By: customer_id
+└─ Kafka Source Scan (cost=0.00..1.23 rows=10000 width=16)
+   ├─ Topic: orders
+   ├─ Partitions: 0,1,2,3
+   └─ Consumer Lag: 245ms
+*/
+```
+**Business Value**:
+- **Performance Debugging**: Identify bottlenecks in complex streaming queries
+- **Capacity Planning**: Understand resource requirements for scaling
+- **Query Optimization**: Data-driven decisions for query improvements
+- **Operational Monitoring**: Real-time performance metrics
+
+**Technical Requirements**:
+- EXPLAIN PLAN functionality for streaming queries
+- Cost estimation models for streaming operations
+- Real-time performance metrics collection
+- Memory usage profiling for window operations
+- Throughput and latency monitoring
+
+**Implementation Strategy**:
+- **Phase 1** [2 weeks]: Basic EXPLAIN PLAN functionality
+- **Phase 2** [2 weeks]: Cost estimation and performance metrics
+- **Phase 3** [1 week]: Real-time monitoring integration
+**Total Effort**: 5 weeks | **Priority**: **MEDIUM OPERATIONAL VALUE** | **LoE**: Senior developer + performance engineer
+
+### **4.3 Advanced Debugging & Monitoring** 🔍 **OPERATIONAL INTELLIGENCE**
+**Priority Rank**: #13 overall (operational support)
+```sql
+-- GOAL: Comprehensive debugging capabilities
+-- Query execution monitoring
+SELECT * FROM SYSTEM.QUERY_STATS
+WHERE query_type = 'streaming'
+  AND execution_time > INTERVAL '10' SECOND;
+
+-- Stream health monitoring
+SELECT
+    stream_name,
+    throughput_events_per_sec,
+    avg_latency_ms,
+    error_rate_percent,
+    memory_usage_mb
+FROM SYSTEM.STREAM_HEALTH
+WHERE error_rate_percent > 1.0;
+
+-- Real-time query profiling
+PROFILE QUERY 'customer_analytics' FOR '5 minutes'
+SHOW (CPU, MEMORY, NETWORK, DISK);
+```
+**Business Value**:
+- **Operational Visibility**: Complete insight into streaming query performance
+- **Proactive Monitoring**: Early detection of performance degradation
+- **Troubleshooting**: Faster root cause analysis for production issues
+- **Resource Management**: Optimal resource allocation and scaling decisions
+
+**Technical Requirements**:
+- System tables for query and stream statistics
+- Real-time profiling capabilities
+- Alerting integration for performance thresholds
+- Historical performance data storage
+- Dashboard integration for monitoring tools
+
+**Implementation Strategy**:
+- **Phase 1** [1.5 weeks]: System tables and basic monitoring
+- **Phase 2** [1.5 weeks]: Real-time profiling and alerting
+- **Phase 3** [1 week]: Dashboard integration and historical analysis
+**Total Effort**: 4 weeks | **Priority**: **MEDIUM OPERATIONAL VALUE** | **LoE**: Mid-level developer + DevOps engineer
+
+## 📋 **COMPREHENSIVE IMPLEMENTATION ROADMAP**
+
+### **🔥 Phase 1: Critical Parser Gaps** (5.5 weeks) - **IMMEDIATE PRIORITY**
+**Goal**: Eliminate enterprise adoption blockers and enable advanced analytics
+1. **[3 weeks]** Complex subquery support (EXISTS, correlated subqueries)
+2. **[1.5 weeks]** IN/NOT IN subquery support with proper NULL handling
+3. **[1 week]** WINDOW clauses in GROUP BY enhancement
+
+### **📊 Phase 2: Advanced SQL Features** (32 weeks) - **ENTERPRISE READINESS**
+**Goal**: Feature parity with Flink SQL and ksqlDB, enterprise-grade capabilities
+1. **[6 weeks]** Common Table Expressions (CTEs) with recursive support
+2. **[6 weeks]** MERGE/UPSERT statements for streaming analytics
+3. **[6 weeks]** Advanced analytics functions (percentiles, correlations, regression)
+4. **[8 weeks]** Materialized Views with incremental maintenance
+5. **[6 weeks]** Enhanced error handling, performance analysis, debugging tools
+
+### **🔮 Phase 3: Specialized Streaming** (18.5 weeks) - **COMPETITIVE DIFFERENTIATION**
+**Goal**: Advanced streaming patterns and specialized analytics capabilities
+1. **[10 weeks]** Complex Event Processing (CEP) with MATCH_RECOGNIZE
+2. **[6 weeks]** Temporal table joins and time-travel queries
+3. **[2.5 weeks]** Advanced watermark strategies and fine-grained control
+
+### **📈 Total Implementation Effort**: 56 weeks (14 months) for complete enterprise streaming SQL platform
 
 ### **📋 Essential Working Demos**
 - [📈] **Financial Trading Demo** (PRIMARY - use Protobuf)

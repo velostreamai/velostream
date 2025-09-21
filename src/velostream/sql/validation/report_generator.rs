@@ -79,10 +79,10 @@ impl ValidationReportGenerator {
         let mut seen_recommendations = std::collections::HashSet::new();
         for query_result in &result.query_results {
             for warning in &query_result.performance_warnings {
-                if warning.starts_with("⚠️") || warning.starts_with("💡") {
-                    if seen_recommendations.insert(warning.clone()) {
-                        recommendations.push(warning.clone());
-                    }
+                if (warning.starts_with("⚠️") || warning.starts_with("💡"))
+                    && seen_recommendations.insert(warning.clone())
+                {
+                    recommendations.push(warning.clone());
                 }
             }
         }

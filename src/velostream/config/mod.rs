@@ -8,6 +8,6 @@ pub mod schema_registry;
 
 // Re-export main types for convenience
 pub use schema_registry::{
-    validate_environment_variables, ConfigSchemaProvider, GlobalSchemaContext,
-    HierarchicalSchemaRegistry, PropertyDefault, PropertyValidation,
+    ConfigSchemaProvider, GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
+    PropertyValidation,
 };

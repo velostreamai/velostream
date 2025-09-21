@@ -80,15 +80,12 @@ mod error;
 mod traits;
 // Format implementations
 mod json;
-pub use json::JsonFormat;
 
 mod avro;
-pub use avro::AvroFormat;
 
 pub mod avro_codec;
 
 mod protobuf;
-pub use protobuf::ProtobufFormat;
 
 pub mod protobuf_codec;
 
@@ -100,6 +97,7 @@ pub mod helpers;
 // Re-export public API
 pub use error::SerializationError;
 pub use traits::SerializationFormat;
+pub use json::JsonFormat;
 
 // Re-export format implementations for examples and tests only
 pub use avro_codec::AvroCodec;

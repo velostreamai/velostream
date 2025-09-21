@@ -357,7 +357,7 @@ impl KafkaDataSink {
             recommendations.push(batch_perf_recommendation(name));
         }
 
-        if properties.get(ACKS).map_or(false, |v| v == "0") {
+        if properties.get(ACKS).is_some_and(|v| v == "0") {
             recommendations.push(acks_zero_warning(name));
         }
 

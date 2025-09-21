@@ -3,7 +3,7 @@ use log::{error, info};
 use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
-    server::StreamJobServer,
+    server::stream_job_server::StreamJobServer,
     sql::{app_parser::SqlApplicationParser, validator::SqlValidator},
 };
 

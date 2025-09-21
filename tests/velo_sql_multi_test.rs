@@ -29,7 +29,7 @@ fn test_velo_sql_multi_binary_builds() {
 #[test]
 fn test_cli_help_output() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -54,7 +54,7 @@ fn test_cli_help_output() {
 #[test]
 fn test_cli_invalid_arguments() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -76,7 +76,7 @@ fn test_cli_invalid_arguments() {
 #[test]
 fn test_server_subcommand_args() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -103,7 +103,7 @@ fn test_server_subcommand_args() {
 #[test]
 fn test_deploy_app_subcommand_args() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -129,7 +129,7 @@ fn test_deploy_app_subcommand_args() {
 #[test]
 fn test_deploy_app_missing_file() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -169,7 +169,7 @@ WHERE amount > 100;
 
     // Test deploy with --no-monitor to exit immediately
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -211,7 +211,7 @@ fn test_metrics_endpoints_structure() {
 
     // Test that the binary recognizes metrics-related arguments
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -239,7 +239,7 @@ fn test_metrics_endpoints_structure() {
 fn test_configuration_validation() {
     // Test invalid port numbers
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -263,7 +263,7 @@ fn test_configuration_validation() {
 #[test]
 fn test_max_jobs_validation() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -298,7 +298,7 @@ INVALID QUERY STRUCTURE
     fs::write(temp_file, invalid_sql_content).expect("Failed to write temp SQL file");
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -360,7 +360,7 @@ FROM transactions;
     fs::write(temp_file, sql_content).expect("Failed to write temp SQL file");
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -411,7 +411,7 @@ fn test_error_recovery_and_shutdown() {
     // Note: This is a basic test - full signal handling requires more complex setup
 
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -447,7 +447,7 @@ fn test_error_recovery_and_shutdown() {
 #[test]
 fn test_logging_output() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -469,7 +469,7 @@ fn test_logging_output() {
 #[test]
 fn test_version_information() {
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -497,12 +497,12 @@ fn test_startup_performance() {
     let binary_path = "target/release/velo-sql-multi";
     let output = if std::path::Path::new(binary_path).exists() {
         Command::new(binary_path)
-            .args(&["--help"])
+            .args(["--help"])
             .output()
             .expect("Failed to run velo-sql-multi --help")
     } else {
         Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--bin",
                 "velo-sql-multi",
@@ -531,7 +531,7 @@ fn test_startup_performance() {
 fn test_binary_dependencies() {
     // Test that the binary can be executed and doesn't have missing dependencies
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -561,7 +561,7 @@ fn test_binary_dependencies() {
 fn test_memory_usage() {
     // Basic test that the binary doesn't immediately consume excessive memory
     let output = Command::new("cargo")
-        .args(&[
+        .args([
             "run",
             "--bin",
             "velo-sql-multi",
@@ -596,7 +596,7 @@ fn test_concurrent_help_requests() {
             barrier_clone.wait(); // Synchronize start
 
             let output = Command::new("cargo")
-                .args(&[
+                .args([
                     "run",
                     "--bin",
                     "velo-sql-multi",
@@ -605,7 +605,7 @@ fn test_concurrent_help_requests() {
                     "--help",
                 ])
                 .output()
-                .expect(&format!("Failed to run help command {}", i));
+                .unwrap_or_else(|_| panic!("Failed to run help command {}", i));
 
             assert!(output.status.success(), "Help command {} should succeed", i);
 
@@ -632,7 +632,7 @@ fn test_integration_test_suite_completeness() {
     // This test validates that our integration test suite covers key areas
 
     // Key areas that should be tested:
-    let test_areas = vec![
+    let test_areas = [
         "Binary builds successfully",
         "CLI argument parsing",
         "Help output generation",
@@ -668,12 +668,12 @@ fn test_end_to_end_smoke_test() {
     // Test 1: Version command
     let version_output = if use_prebuilt {
         Command::new(binary_path)
-            .args(&["--version"])
+            .args(["--version"])
             .output()
             .expect("Version command failed")
     } else {
         Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--bin",
                 "velo-sql-multi",
@@ -690,12 +690,12 @@ fn test_end_to_end_smoke_test() {
     // Test 2: Help command
     let help_output = if use_prebuilt {
         Command::new(binary_path)
-            .args(&["--help"])
+            .args(["--help"])
             .output()
             .expect("Help command failed")
     } else {
         Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--bin",
                 "velo-sql-multi",
@@ -712,12 +712,12 @@ fn test_end_to_end_smoke_test() {
     // Test 3: Subcommand help
     let server_help_output = if use_prebuilt {
         Command::new(binary_path)
-            .args(&["server", "--help"])
+            .args(["server", "--help"])
             .output()
             .expect("Server help command failed")
     } else {
         Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--bin",
                 "velo-sql-multi",
@@ -734,12 +734,12 @@ fn test_end_to_end_smoke_test() {
 
     let deploy_help_output = if use_prebuilt {
         Command::new(binary_path)
-            .args(&["deploy-app", "--help"])
+            .args(["deploy-app", "--help"])
             .output()
             .expect("Deploy-app help command failed")
     } else {
         Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--bin",
                 "velo-sql-multi",

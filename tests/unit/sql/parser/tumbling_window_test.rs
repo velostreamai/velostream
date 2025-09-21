@@ -22,9 +22,9 @@ fn test_simple_tumbling_syntax() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Tumbling { size, time_column } => {
                     assert_eq!(size.as_secs(), 5 * 60); // 5 minutes in seconds
                     assert_eq!(time_column, None); // Simple syntax has no explicit time column
@@ -63,7 +63,7 @@ fn test_tumbling_with_various_durations() {
         match result.unwrap() {
             StreamingQuery::Select { window_spec, .. } => {
                 let window = window_spec.expect("Should have window specification");
-                match window {
+                match window_spec {
                     WindowSpec::Tumbling { size, .. } => {
                         assert_eq!(
                             size.as_secs(),
@@ -100,9 +100,9 @@ fn test_complex_tumbling_syntax_with_time_column() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Tumbling { size, time_column } => {
                     assert_eq!(size.as_secs(), 60); // 1 minute
                     assert_eq!(time_column, Some("event_time".to_string()));
@@ -143,7 +143,7 @@ fn test_tumbling_with_interval_variations() {
         match result.unwrap() {
             StreamingQuery::Select { window_spec, .. } => {
                 let window = window_spec.expect("Should have window specification");
-                match window {
+                match window_spec {
                     WindowSpec::Tumbling { size, time_column } => {
                         assert_eq!(size.as_secs(), expected_seconds);
                         assert_eq!(time_column, Some("timestamp".to_string()));
@@ -170,9 +170,9 @@ fn test_tumbling_with_table_aliases() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Tumbling { size, time_column } => {
                     assert_eq!(size.as_secs(), 3600); // 1 hour
                     assert_eq!(time_column, Some("e.event_time".to_string()));
@@ -198,9 +198,9 @@ fn test_tumbling_without_interval_keyword() {
     );
 
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
-            match window {
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
+            match window_spec {
                 WindowSpec::Tumbling { size, time_column } => {
                     assert_eq!(size.as_secs(), 5 * 60); // 5 minutes
                     assert_eq!(time_column, Some("event_time".to_string()));
@@ -236,8 +236,8 @@ fn test_tumbling_in_financial_context() {
 
     // Verify it's parsed as a Tumbling window
     match result.unwrap() {
-        StreamingQuery::Select { window_spec, .. } => {
-            let window = window_spec.expect("Should have window specification");
+        StreamingQuery::Select { window, .. } => {
+            let window_spec = window.expect("Should have window specification");
             assert!(
                 matches!(window, WindowSpec::Tumbling { .. }),
                 "Should be Tumbling window"
@@ -293,7 +293,7 @@ fn test_tumbling_backward_compatibility() {
         match result.unwrap() {
             StreamingQuery::Select { window_spec, .. } => {
                 let window = window_spec.expect("Should have window specification");
-                match window {
+                match window_spec {
                     WindowSpec::Tumbling { time_column, .. } => {
                         assert_eq!(
                             time_column, None,
