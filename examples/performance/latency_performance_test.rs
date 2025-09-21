@@ -12,10 +12,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
+use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use velostream::{Headers, JsonSerializer, KafkaConsumer, ProducerBuilder};
 
 // Latency test configuration
 const MESSAGE_COUNT: u64 = 1_000; // Smaller count for latency focus

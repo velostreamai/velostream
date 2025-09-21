@@ -100,4 +100,7 @@
 pub mod velostream;
 
 // Re-export main API at crate root for easy access
-pub use velostream::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message};
+pub use velostream::kafka::{
+    ConsumerBuilder, Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message,
+    ProducerBuilder,
+};

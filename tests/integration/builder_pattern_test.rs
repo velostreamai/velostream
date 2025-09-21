@@ -1,5 +1,5 @@
 use super::*;
-// use velostream::velostream::kafka::ConsumerBuilder; // Not available
+use velostream::ConsumerBuilder;
 
 #[tokio::test]
 async fn test_producer_builder_basic() {

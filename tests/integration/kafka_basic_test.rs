@@ -1,6 +1,6 @@
 use super::*;
 use futures::StreamExt;
-// use velostream::velostream::kafka::ConsumerBuilder; // Not available
+use velostream::ConsumerBuilder;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct SimpleMessage {

@@ -11,10 +11,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
+use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{JsonSerializer, KafkaConsumer};
+use velostream::{JsonSerializer, KafkaConsumer, ProducerBuilder};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 5_000;

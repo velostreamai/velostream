@@ -25,8 +25,8 @@ pub mod kafka_error;
 pub mod performance_presets;
 
 // Re-export main API
-pub use kafka_consumer::KafkaConsumer;
-pub use kafka_producer::KafkaProducer;
+pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
+pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 
 // Re-export Phase 2 Enhanced APIs
 pub use serialization::JsonSerializer;

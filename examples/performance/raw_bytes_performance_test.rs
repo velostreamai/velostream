@@ -29,7 +29,7 @@ use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
-use velostream::{Headers, KafkaConsumer};
+use velostream::{Headers, KafkaConsumer, ProducerBuilder};
 
 use futures::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
