@@ -387,7 +387,13 @@ impl WindowProcessor {
     ) -> Result<StreamRecord, SqlError> {
         use crate::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 
+        println!(
+            "DEBUG: execute_windowed_aggregation_impl called with {} records",
+            windowed_buffer.len()
+        );
+
         if windowed_buffer.is_empty() {
+            println!("DEBUG: No records in windowed buffer");
             return Err(SqlError::ExecutionError {
                 message: "No records after filtering".to_string(),
                 query: None,
@@ -402,20 +408,36 @@ impl WindowProcessor {
             ..
         } = query
         {
+            println!(
+                "DEBUG: Processing SELECT query with {} fields",
+                fields.len()
+            );
+            for (i, field) in fields.iter().enumerate() {
+                println!("DEBUG: Field {}: {:?}", i, field);
+            }
+
             // Step 1: Filter records by WHERE clause
             let filtered_records: Vec<&StreamRecord> = windowed_buffer
                 .iter()
                 .filter(|record| {
                     if let Some(where_expr) = where_clause {
-                        ExpressionEvaluator::evaluate_expression(where_expr, record)
-                            .unwrap_or(false)
+                        let result = ExpressionEvaluator::evaluate_expression(where_expr, record)
+                            .unwrap_or(false);
+                        println!("DEBUG: WHERE clause evaluated to: {}", result);
+                        result
                     } else {
                         true
                     }
                 })
                 .collect();
 
+            println!(
+                "DEBUG: After WHERE filtering: {} records remain",
+                filtered_records.len()
+            );
+
             if filtered_records.is_empty() {
+                println!("DEBUG: No records after WHERE filtering");
                 return Err(SqlError::ExecutionError {
                     message: "No records after filtering".to_string(),
                     query: None,
@@ -425,12 +447,19 @@ impl WindowProcessor {
             // Step 2: For windowed queries, create aggregated result
             let mut result_fields = HashMap::new();
 
+            println!("DEBUG: Creating aggregated result fields");
+
             // Simple aggregation logic - process the first record as representative
             if let Some(first_record) = filtered_records.first() {
+                println!("DEBUG: Processing {} SELECT fields", fields.len());
+
                 // Process SELECT fields
-                for field in fields {
+                for (field_idx, field) in fields.iter().enumerate() {
+                    println!("DEBUG: Processing field {}: {:?}", field_idx, field);
+
                     match field {
                         crate::velostream::sql::ast::SelectField::Wildcard => {
+                            println!("DEBUG: Processing wildcard field");
                             // For windowed aggregations, add basic aggregate info instead of all fields
                             result_fields.insert(
                                 "window_size".to_string(),
@@ -438,28 +467,63 @@ impl WindowProcessor {
                             );
                         }
                         crate::velostream::sql::ast::SelectField::Expression { expr, alias } => {
-                            let field_name = alias
-                                .clone()
-                                .unwrap_or_else(|| format!("field_{}", result_fields.len()));
+                            let field_name = alias.clone().unwrap_or_else(|| {
+                                // For column expressions without alias, use the column name
+                                match expr {
+                                    crate::velostream::sql::ast::Expr::Column(col_name) => {
+                                        col_name.clone()
+                                    }
+                                    _ => format!("field_{}", result_fields.len()),
+                                }
+                            });
+
+                            println!(
+                                "DEBUG: Processing expression field '{}': {:?}",
+                                field_name, expr
+                            );
 
                             // Handle aggregate functions properly for windowed queries
-                            let value =
-                                Self::evaluate_aggregate_expression(expr, &filtered_records)?;
-                            result_fields.insert(field_name, value);
+                            match Self::evaluate_aggregate_expression(expr, &filtered_records) {
+                                Ok(value) => {
+                                    println!(
+                                        "DEBUG: Successfully evaluated field '{}' = {:?}",
+                                        field_name, value
+                                    );
+                                    result_fields.insert(field_name, value);
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "DEBUG: Failed to evaluate field '{}': {:?}",
+                                        field_name, e
+                                    );
+                                    return Err(e);
+                                }
+                            }
                         }
                         crate::velostream::sql::ast::SelectField::Column(column_name) => {
+                            println!("DEBUG: Processing column field '{}'", column_name);
                             // Simple column reference
                             if let Some(value) = first_record.fields.get(column_name) {
+                                println!("DEBUG: Found column '{}' = {:?}", column_name, value);
                                 result_fields.insert(column_name.clone(), value.clone());
+                            } else {
+                                println!("DEBUG: Column '{}' not found in record", column_name);
                             }
                         }
                         crate::velostream::sql::ast::SelectField::AliasedColumn {
                             column,
                             alias,
                         } => {
+                            println!(
+                                "DEBUG: Processing aliased column '{}' -> '{}'",
+                                column, alias
+                            );
                             // Aliased column reference
                             if let Some(value) = first_record.fields.get(column) {
+                                println!("DEBUG: Found aliased column '{}' = {:?}", column, value);
                                 result_fields.insert(alias.clone(), value.clone());
+                            } else {
+                                println!("DEBUG: Aliased column '{}' not found in record", column);
                             }
                         }
                     }
@@ -789,6 +853,12 @@ impl WindowProcessor {
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
+        println!(
+            "DEBUG: evaluate_aggregate_expression called with {} records, expr: {:?}",
+            records.len(),
+            expr
+        );
+
         match expr {
             Expr::Function { name, args } => {
                 match name.to_uppercase().as_str() {
@@ -948,8 +1018,28 @@ impl WindowProcessor {
                     }
                 }
             }
+            Expr::Column(column_name) => {
+                // For column references in windowed queries, return the value from the first record
+                // This represents the GROUP BY key value for the window
+                println!(
+                    "DEBUG: Processing column '{}' in aggregate context",
+                    column_name
+                );
+                if let Some(first_record) = records.first() {
+                    if let Some(value) = first_record.fields.get(column_name) {
+                        println!("DEBUG: Found column '{}' = {:?}", column_name, value);
+                        Ok(value.clone())
+                    } else {
+                        println!("DEBUG: Column '{}' not found, returning Null", column_name);
+                        Ok(FieldValue::Null)
+                    }
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
             _ => {
                 // For non-function expressions, evaluate on first record
+                println!("DEBUG: Processing non-function expression: {:?}", expr);
                 if let Some(first_record) = records.first() {
                     ExpressionEvaluator::evaluate_expression_value(expr, first_record)
                 } else {

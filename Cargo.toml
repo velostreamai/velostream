@@ -123,6 +123,8 @@ path = "src/bin/sql_batch.rs"
 name = "debug_encoding_test"
 path = "tests/debug/debug_encoding_test.rs"
 
+
+
 # Performance Benchmarks
 # (No active benchmarks currently - use cargo test for performance tests)
 
