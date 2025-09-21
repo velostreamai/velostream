@@ -11,11 +11,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use velostream::velostream::server::processors::common::*;
+use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::sql::{
     execution::types::{FieldValue, StreamRecord},
     StreamExecutionEngine,
 };
-use velostream::velostream::StreamJobServer;
 
 /// Helper function to create test records
 fn create_test_record(id: i64, name: &str, value: f64) -> StreamRecord {

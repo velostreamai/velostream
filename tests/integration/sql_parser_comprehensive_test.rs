@@ -65,7 +65,7 @@ fn test_complete_financial_trading_sql_parsing() {
             where_clause,
             group_by,
             having_clause,
-            window_spec,
+            window,
             order_by,
             limit,
             ..
@@ -89,7 +89,7 @@ fn test_complete_financial_trading_sql_parsing() {
             assert!(having_clause.is_some(), "Should have HAVING clause");
 
             // Verify WINDOW specification exists
-            assert!(window_spec.is_some(), "Should have WINDOW specification");
+            assert!(window.is_some(), "Should have WINDOW specification");
 
             // Verify ORDER BY exists
             assert!(order_by.is_some(), "Should have ORDER BY clause");

@@ -2,12 +2,11 @@
 
 use std::collections::HashMap;
 use velostream::velostream::config::schema_registry::{
-    is_schema_version_compatible, validate_config_file_inheritance, ConfigFileInheritance,
-    ConfigValidationError, EnvironmentVariablePattern,
+    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
+    ConfigFileInheritance, ConfigValidationError, EnvironmentVariablePattern,
 };
 use velostream::velostream::config::{
-    validate_environment_variables, ConfigSchemaProvider, GlobalSchemaContext,
-    HierarchicalSchemaRegistry, PropertyDefault,
+    ConfigSchemaProvider, GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
 };
 use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};

@@ -16,7 +16,7 @@ use tokio::time::interval;
 use velostream::velostream::kafka::consumer_config::ConsumerConfig;
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::ProducerConfig;
-use velostream::{JsonSerializer, KafkaConsumer, ProducerBuilder};
+use velostream::{JsonSerializer, KafkaConsumer};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ResourceTestMessage {

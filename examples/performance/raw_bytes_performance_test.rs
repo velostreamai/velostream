@@ -24,11 +24,12 @@
 //! - PAYLOAD_SIZE: Size of raw byte payload
 //! - CONCURRENT_PRODUCERS: Number of concurrent producers
 
+use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
-use velostream::{Headers, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use velostream::{Headers, KafkaConsumer};
 
 use futures::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};

@@ -96,10 +96,10 @@ mod tests {
                 ..
             } => {
                 assert!(window.is_some());
-                let window_spec = window.unwrap();
+                let window = window.unwrap();
 
-                assert!(matches!(window_spec, WindowSpec::Tumbling { .. }));
-                if let WindowSpec::Tumbling { size, .. } = window_spec {
+                assert!(matches!(window, WindowSpec::Tumbling { .. }));
+                if let WindowSpec::Tumbling { size, .. } = window {
                     assert_eq!(size.as_secs(), 300); // 5 minutes
                 }
             }
@@ -126,10 +126,10 @@ mod tests {
                 ..
             } => {
                 assert!(window.is_some());
-                let window_spec = window.unwrap();
+                let window = window.unwrap();
 
-                assert!(matches!(window_spec, WindowSpec::Sliding { .. }));
-                if let WindowSpec::Sliding { size, advance, .. } = window_spec {
+                assert!(matches!(window, WindowSpec::Sliding { .. }));
+                if let WindowSpec::Sliding { size, advance, .. } = window {
                     assert_eq!(size.as_secs(), 600); // 10 minutes
                     assert_eq!(advance.as_secs(), 300); // 5 minutes
                 }
@@ -157,10 +157,10 @@ mod tests {
                 ..
             } => {
                 assert!(window.is_some());
-                let window_spec = window.unwrap();
+                let window = window.unwrap();
 
-                assert!(matches!(window_spec, WindowSpec::Session { .. }));
-                if let WindowSpec::Session { gap, .. } = window_spec {
+                assert!(matches!(window, WindowSpec::Session { .. }));
+                if let WindowSpec::Session { gap, .. } = window {
                     assert_eq!(gap.as_secs(), 30);
                 }
             }

@@ -14,7 +14,7 @@ use tokio::sync::Semaphore;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{JsonSerializer, KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use velostream::{JsonSerializer, KafkaConsumer};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 5_000;

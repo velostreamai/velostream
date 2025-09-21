@@ -95,8 +95,10 @@ pub mod json_codec;
 pub mod helpers;
 
 // Re-export public API
+pub use avro::AvroFormat;
 pub use error::SerializationError;
 pub use json::JsonFormat;
+pub use protobuf::ProtobufFormat;
 pub use traits::SerializationFormat;
 
 // Re-export format implementations for examples and tests only

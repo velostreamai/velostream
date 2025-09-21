@@ -48,7 +48,7 @@ use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::KafkaConsumer;
-use velostream::{Headers, JsonSerializer, KafkaProducer, ProducerBuilder};
+use velostream::{Headers, JsonSerializer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {
