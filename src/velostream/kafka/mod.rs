@@ -27,6 +27,7 @@ pub mod performance_presets;
 // Re-export main API
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+pub use ktable::KTable;
 
 // Re-export Phase 2 Enhanced APIs
 pub use serialization::JsonSerializer;

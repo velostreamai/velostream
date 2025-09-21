@@ -1,6 +1,7 @@
 //! Tests for datasource property loading with source./sink. prefix support
 
 use std::collections::HashMap;
+use velostream::velostream::datasource::file::config::FileFormat;
 use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 
@@ -161,10 +162,7 @@ mod properties_prefix_tests {
         // Verify configuration was applied
         let config = file_source.config().unwrap();
         assert_eq!(config.path, "/path/to/source.csv");
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::Csv
-        ));
+        assert!(matches!(config.format, FileFormat::Csv));
         assert!(config.watch_for_changes);
         assert!(!config.csv_has_header);
     }
@@ -182,10 +180,7 @@ mod properties_prefix_tests {
         // Verify fallback properties are used
         let config = file_source.config().unwrap();
         assert_eq!(config.path, "/fallback/path.json");
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::Json
-        ));
+        assert!(matches!(config.format, FileFormat::Json));
         assert!(!config.watch_for_changes);
         assert!(config.csv_has_header);
     }
@@ -227,10 +222,7 @@ mod properties_prefix_tests {
 
         let config = file_source.config().unwrap();
         assert_eq!(config.path, "./demo_data/sample.csv");
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::Csv
-        ));
+        assert!(matches!(config.format, FileFormat::Csv));
         assert!(!config.watch_for_changes);
         assert!(config.csv_has_header);
     }
@@ -248,10 +240,7 @@ mod properties_prefix_tests {
         // Verify configuration was applied
         let config = file_sink.config().unwrap();
         assert_eq!(config.path, "/output/sink.json");
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::Json
-        ));
+        assert!(matches!(config.format, FileFormat::Json));
         assert!(config.append_if_exists);
         assert!(!config.csv_has_header);
     }
@@ -266,10 +255,7 @@ mod properties_prefix_tests {
 
         let config = file_sink.config().unwrap();
         assert_eq!(config.path, "output.json"); // Default
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::Csv
-        ));
+        assert!(matches!(config.format, FileFormat::Csv));
         assert!(!config.append_if_exists);
         assert!(config.csv_has_header); // Default
     }
@@ -282,10 +268,7 @@ mod properties_prefix_tests {
         let file_sink = FileDataSink::from_properties(&props);
 
         let config = file_sink.config().unwrap();
-        assert!(matches!(
-            config.format,
-            velostream::velostream::datasource::file::FileFormat::JsonLines
-        ));
+        assert!(matches!(config.format, FileFormat::JsonLines));
     }
 
     #[test]
