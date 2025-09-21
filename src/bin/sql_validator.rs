@@ -957,14 +957,8 @@ fn print_validation_result(result: &ApplicationValidationResult) {
 
     // Query-level results
     for (index, query_result) in result.query_results.iter().enumerate() {
-        // Show all queries - valid ones for confirmation, invalid ones for debugging
-        let should_show = !query_result.is_valid
-            || !query_result.warnings.is_empty()
-            || !query_result.parsing_errors.is_empty()
-            || !query_result.configuration_errors.is_empty()
-            || !query_result.syntax_issues.is_empty()
-            || !query_result.performance_warnings.is_empty()
-            || query_result.is_valid; // Always show valid queries for confirmation
+        // Show all queries - always show for comprehensive reporting
+        let should_show = true; // Always show all queries for comprehensive validation reporting
 
         if should_show {
             println!(

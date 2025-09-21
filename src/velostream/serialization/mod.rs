@@ -96,8 +96,8 @@ pub mod helpers;
 
 // Re-export public API
 pub use error::SerializationError;
-pub use traits::SerializationFormat;
 pub use json::JsonFormat;
+pub use traits::SerializationFormat;
 
 // Re-export format implementations for examples and tests only
 pub use avro_codec::AvroCodec;

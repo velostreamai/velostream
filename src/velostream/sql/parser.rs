@@ -1801,10 +1801,9 @@ impl<'a> TokenParser<'a> {
                         let part = self.expect(TokenType::Identifier)?.value;
 
                         // Expect FROM keyword
-                        if self.current_token().value.to_uppercase() != "FROM" {
+                        if self.current_token().token_type != TokenType::From {
                             return Err(SqlError::ParseError {
-                                message: "Expected FROM keyword or comma in EXTRACT function"
-                                    .to_string(),
+                                message: "Expected FROM keyword in EXTRACT function".to_string(),
                                 position: Some(self.current_token().position),
                             });
                         }
