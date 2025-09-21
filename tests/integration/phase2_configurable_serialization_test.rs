@@ -3,6 +3,7 @@
 //! These tests validate the complete configurable serialization system from
 //! SQL WITH clause parsing to consumer/producer creation.
 
+use velostream::ProducerBuilder;
 use velostream::velostream::kafka::{
     configurable_consumer::ConfigurableKafkaConsumerBuilder,
     configurable_producer::ConfigurableKafkaProducerBuilder,

@@ -1,5 +1,5 @@
 use super::*;
-use velostream::ConsumerBuilder;
+use velostream::{ConsumerBuilder, ProducerBuilder};
 
 #[tokio::test]
 async fn test_producer_builder_basic() {

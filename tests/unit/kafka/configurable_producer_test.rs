@@ -9,6 +9,7 @@ use velostream::velostream::kafka::{
     configurable_producer::ConfigurableKafkaProducerBuilder,
     serialization_format::{SerializationConfig, SerializationFormat},
 };
+use velostream::ProducerBuilder;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct TestMessage {
