@@ -275,6 +275,154 @@ ORDER BY last_name;
 
 ## Advanced Analytical Functions
 
+### PERCENTILE_CONT and PERCENTILE_DISC - Percentile Calculations
+
+```sql
+-- PERCENTILE_CONT: Interpolated percentile (continuous)
+SELECT
+    symbol,
+    price,
+    -- Calculate median (50th percentile) with interpolation
+    PERCENTILE_CONT(0.5) OVER (PARTITION BY symbol ORDER BY price) as median_price,
+    -- Calculate 95th percentile
+    PERCENTILE_CONT(0.95) OVER (PARTITION BY symbol ORDER BY price) as price_95th,
+    -- Calculate quartiles
+    PERCENTILE_CONT(0.25) OVER (PARTITION BY symbol ORDER BY price) as q1,
+    PERCENTILE_CONT(0.75) OVER (PARTITION BY symbol ORDER BY price) as q3
+FROM market_data;
+
+-- PERCENTILE_DISC: Discrete percentile (actual values from dataset)
+SELECT
+    product_category,
+    revenue,
+    -- Get actual value at 90th percentile
+    PERCENTILE_DISC(0.9) OVER (PARTITION BY product_category ORDER BY revenue) as top_10_percent_threshold,
+    -- Get actual median value
+    PERCENTILE_DISC(0.5) OVER (PARTITION BY product_category ORDER BY revenue) as median_revenue
+FROM sales_data;
+
+-- Compare continuous vs discrete percentiles
+SELECT
+    department,
+    salary,
+    PERCENTILE_CONT(0.5) OVER (PARTITION BY department ORDER BY salary) as median_interpolated,
+    PERCENTILE_DISC(0.5) OVER (PARTITION BY department ORDER BY salary) as median_actual_value
+FROM employee_salaries;
+```
+
+### CORR - Correlation Analysis
+
+```sql
+-- Calculate correlation between price and volume
+SELECT
+    symbol,
+    -- Pearson correlation coefficient (-1 to 1)
+    CORR(price, volume) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) as price_volume_correlation,
+    -- Correlation with lag for trend analysis
+    CORR(price, LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 10 PRECEDING AND CURRENT ROW) as price_autocorrelation
+FROM trading_data;
+
+-- Multi-asset correlation analysis
+SELECT
+    date_hour,
+    CORR(stock_price, bond_price) OVER (ORDER BY date_hour ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as stock_bond_correlation,
+    CORR(stock_price, commodity_price) OVER (ORDER BY date_hour ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as stock_commodity_correlation,
+    CORR(exchange_rate, stock_price) OVER (ORDER BY date_hour ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as fx_stock_correlation
+FROM market_indicators;
+```
+
+### COVAR_POP and COVAR_SAMP - Covariance Calculations
+
+```sql
+-- Population covariance (entire population)
+SELECT
+    symbol,
+    -- Calculate covariance between price and volume
+    COVAR_POP(price, volume) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) as price_volume_covariance,
+    -- Normalized covariance (divide by standard deviations for correlation)
+    COVAR_POP(price, volume) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) /
+    (STDDEV_POP(price) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) *
+     STDDEV_POP(volume) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW)) as normalized_covariance
+FROM financial_data;
+
+-- Sample covariance (sample from larger population)
+SELECT
+    customer_segment,
+    -- Covariance between purchase frequency and amount
+    COVAR_SAMP(purchase_frequency, avg_order_value) OVER (PARTITION BY customer_segment ORDER BY analysis_date ROWS BETWEEN 12 PRECEDING AND CURRENT ROW) as frequency_value_covariance
+FROM customer_analytics;
+```
+
+### REGR_SLOPE, REGR_INTERCEPT, REGR_R2 - Linear Regression
+
+```sql
+-- Complete linear regression analysis
+SELECT
+    symbol,
+    time_index,
+    price,
+    -- Linear regression components
+    REGR_SLOPE(price, time_index) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as price_trend_slope,
+    REGR_INTERCEPT(price, time_index) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as price_trend_intercept,
+    REGR_R2(price, time_index) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as trend_strength,
+    -- Predicted price using regression line
+    (REGR_SLOPE(price, time_index) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) * time_index +
+     REGR_INTERCEPT(price, time_index) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)) as predicted_price
+FROM stock_prices;
+
+-- Sales trend analysis with regression
+SELECT
+    product_id,
+    month_number,
+    monthly_sales,
+    -- Calculate trend metrics
+    REGR_SLOPE(monthly_sales, month_number) OVER (PARTITION BY product_id ORDER BY month_number ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as sales_trend,
+    REGR_R2(monthly_sales, month_number) OVER (PARTITION BY product_id ORDER BY month_number ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as trend_reliability,
+    -- Categorize trend strength
+    CASE
+        WHEN REGR_R2(monthly_sales, month_number) OVER (PARTITION BY product_id ORDER BY month_number ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) > 0.8 THEN 'Strong Trend'
+        WHEN REGR_R2(monthly_sales, month_number) OVER (PARTITION BY product_id ORDER BY month_number ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) > 0.5 THEN 'Moderate Trend'
+        ELSE 'Weak/No Trend'
+    END as trend_category
+FROM product_sales_monthly;
+```
+
+### Real-World Analytics Examples
+
+```sql
+-- Portfolio risk analysis using advanced analytics
+SELECT
+    portfolio_id,
+    asset_symbol,
+    returns,
+    -- Risk metrics using percentiles
+    PERCENTILE_CONT(0.05) OVER (PARTITION BY portfolio_id ORDER BY returns ROWS BETWEEN 252 PRECEDING AND CURRENT ROW) as var_95,  -- Value at Risk
+    PERCENTILE_CONT(0.01) OVER (PARTITION BY portfolio_id ORDER BY returns ROWS BETWEEN 252 PRECEDING AND CURRENT ROW) as var_99,  -- Extreme VaR
+    -- Correlation with market benchmark
+    CORR(returns, benchmark_returns) OVER (PARTITION BY portfolio_id ORDER BY date ROWS BETWEEN 60 PRECEDING AND CURRENT ROW) as beta_proxy,
+    -- Trend analysis
+    REGR_SLOPE(cumulative_returns, day_number) OVER (PARTITION BY portfolio_id ORDER BY date ROWS BETWEEN 90 PRECEDING AND CURRENT ROW) as return_trend,
+    REGR_R2(cumulative_returns, day_number) OVER (PARTITION BY portfolio_id ORDER BY date ROWS BETWEEN 90 PRECEDING AND CURRENT ROW) as trend_consistency
+FROM portfolio_performance;
+
+-- Customer behavior predictive analytics
+SELECT
+    customer_id,
+    transaction_date,
+    transaction_amount,
+    -- Spending pattern analysis
+    PERCENTILE_CONT(0.8) OVER (PARTITION BY customer_id ORDER BY transaction_amount ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) as high_spending_threshold,
+    -- Correlation between transaction frequency and amount
+    CORR(daily_transaction_count, avg_daily_amount) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN 30 PRECEDING AND CURRENT ROW) as frequency_amount_correlation,
+    -- Spending trend prediction
+    REGR_SLOPE(transaction_amount, EXTRACT('EPOCH', transaction_date)) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) as spending_trend,
+    -- Predict next transaction amount
+    (REGR_SLOPE(transaction_amount, EXTRACT('EPOCH', transaction_date)) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) *
+     EXTRACT('EPOCH', transaction_date + INTERVAL '1 day') +
+     REGR_INTERCEPT(transaction_amount, EXTRACT('EPOCH', transaction_date)) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)) as predicted_next_amount
+FROM customer_transactions;
+```
+
 ### GREATEST and LEAST - Min/Max of Values
 
 ```sql
