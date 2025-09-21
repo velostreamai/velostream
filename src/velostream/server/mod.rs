@@ -15,7 +15,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use velostream::velostream::server::StreamJobServer;
+//! use velostream::velostream::server::stream_job_server::StreamJobServer;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let server = StreamJobServer::new("localhost:9092".to_string(), "myapp".to_string(), 10);

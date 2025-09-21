@@ -13,6 +13,7 @@
 //! ### CSV File Source
 //! ```rust,no_run
 //! use velostream::velostream::datasource::file::*;
+//! use velostream::velostream::datasource::file::config::{FileSourceConfig, FileFormat};
 //! use velostream::velostream::datasource::traits::DataSource;
 //!
 //! #[tokio::main]
@@ -39,6 +40,7 @@
 //! ### Real-time File Watching
 //! ```rust,no_run
 //! use velostream::velostream::datasource::file::*;
+//! use velostream::velostream::datasource::file::config::{FileSourceConfig, FileFormat};
 //! use velostream::velostream::datasource::traits::DataSource;
 //!
 //! #[tokio::main]
