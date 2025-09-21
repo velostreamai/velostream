@@ -1776,6 +1776,51 @@ impl<'a> TokenParser<'a> {
                     });
                 }
 
+                // Special handling for EXTRACT function with multiple syntax support
+                if token.value.to_uppercase() == "EXTRACT" {
+                    self.advance(); // consume EXTRACT
+                    self.expect(TokenType::LeftParen)?; // consume '('
+
+                    // Support both syntaxes:
+                    // 1. EXTRACT('EPOCH', timestamp) - function call style
+                    // 2. EXTRACT(EPOCH FROM timestamp) - SQL standard style
+
+                    if self.current_token().token_type == TokenType::String {
+                        // Old syntax: EXTRACT('EPOCH', timestamp)
+                        let part_str = self.expect(TokenType::String)?.value;
+                        self.expect(TokenType::Comma)?; // consume ','
+                        let expr = self.parse_expression()?;
+                        self.expect(TokenType::RightParen)?; // consume ')'
+
+                        return Ok(Expr::Function {
+                            name: "EXTRACT".to_string(),
+                            args: vec![Expr::Literal(LiteralValue::String(part_str)), expr],
+                        });
+                    } else {
+                        // New syntax: EXTRACT(EPOCH FROM timestamp)
+                        let part = self.expect(TokenType::Identifier)?.value;
+
+                        // Expect FROM keyword
+                        if self.current_token().value.to_uppercase() != "FROM" {
+                            return Err(SqlError::ParseError {
+                                message: "Expected FROM keyword or comma in EXTRACT function"
+                                    .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                        self.advance(); // consume FROM
+
+                        // Parse the expression
+                        let expr = self.parse_expression()?;
+                        self.expect(TokenType::RightParen)?; // consume ')'
+
+                        return Ok(Expr::Function {
+                            name: "EXTRACT".to_string(),
+                            args: vec![Expr::Literal(LiteralValue::String(part)), expr],
+                        });
+                    }
+                }
+
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
@@ -2119,14 +2164,49 @@ impl<'a> TokenParser<'a> {
             "TUMBLING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration_str = self.parse_duration_token()?;
+
+                // Check if this is complex TUMBLING syntax with time column
+                // Complex: TUMBLING (time_column, INTERVAL duration)
+                // Simple: TUMBLING(duration)
+                let time_column;
+                let size;
+
+                // Peek ahead to see if we have a comma after the first parameter
+                let first_param = self.parse_session_parameter()?;
+
+                if self.current_token().token_type == TokenType::Comma {
+                    // Complex syntax: TUMBLING (time_column, INTERVAL duration)
+                    time_column = Some(first_param);
+                    self.advance(); // consume comma
+
+                    // Parse duration (could be INTERVAL syntax or simple duration)
+                    let size_str = if self.current_token().value.to_uppercase() == "INTERVAL" {
+                        self.advance(); // consume INTERVAL
+                        let value_str = self.expect(TokenType::String)?.value;
+                        let unit_str = self.expect(TokenType::Identifier)?.value.to_uppercase();
+                        // Convert full unit names to short forms
+                        let short_unit = match unit_str.as_str() {
+                            "MILLISECOND" | "MILLISECONDS" => "ms",
+                            "SECOND" | "SECONDS" => "s",
+                            "MINUTE" | "MINUTES" => "m",
+                            "HOUR" | "HOURS" => "h",
+                            "DAY" | "DAYS" => "d",
+                            _ => "s",
+                        };
+                        format!("{}{}", value_str, short_unit)
+                    } else {
+                        self.parse_duration_token()?
+                    };
+                    size = self.parse_duration(&size_str)?;
+                } else {
+                    // Simple syntax: TUMBLING(duration)
+                    time_column = None;
+                    size = self.parse_duration(&first_param)?;
+                }
+
                 self.expect(TokenType::RightParen)?;
 
-                let size = self.parse_duration(&duration_str)?;
-                WindowSpec::Tumbling {
-                    size,
-                    time_column: None,
-                }
+                WindowSpec::Tumbling { size, time_column }
             }
             "SLIDING" => {
                 self.advance();
@@ -2147,13 +2227,60 @@ impl<'a> TokenParser<'a> {
             "SESSION" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let gap_str = self.parse_duration_token()?;
+
+                // Check if this is complex SESSION syntax with time column and partition key
+                // Complex: SESSION (time_column, gap, partition_key)
+                // Simple: SESSION(gap)
+                let time_column;
+                let gap;
+                let mut partition_by = Vec::new();
+
+                // Peek ahead to see if we have a comma after the first parameter
+                let first_param = self.parse_session_parameter()?;
+
+                if self.current_token().token_type == TokenType::Comma {
+                    // Complex syntax: SESSION (time_column, gap, partition_key)
+                    time_column = Some(first_param);
+                    self.advance(); // consume comma
+
+                    // Parse gap (could be INTERVAL syntax or simple duration)
+                    let gap_str = if self.current_token().value.to_uppercase() == "INTERVAL" {
+                        self.advance(); // consume INTERVAL
+                        let value_str = self.expect(TokenType::String)?.value;
+                        let unit_str = self.expect(TokenType::Identifier)?.value.to_uppercase();
+                        // Convert full unit names to short forms (HOUR -> h, MINUTE -> m, etc.)
+                        let short_unit = match unit_str.as_str() {
+                            "MILLISECOND" | "MILLISECONDS" => "ms",
+                            "SECOND" | "SECONDS" => "s",
+                            "MINUTE" | "MINUTES" => "m",
+                            "HOUR" | "HOURS" => "h",
+                            "DAY" | "DAYS" => "d",
+                            _ => "s", // default to seconds
+                        };
+                        format!("{}{}", value_str, short_unit)
+                    } else {
+                        self.parse_duration_token()?
+                    };
+                    gap = self.parse_duration(&gap_str)?;
+
+                    // Check for partition key
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance(); // consume comma
+                        let partition_key = self.parse_session_parameter()?;
+                        partition_by.push(partition_key);
+                    }
+                } else {
+                    // Simple syntax: SESSION(gap)
+                    time_column = None;
+                    gap = self.parse_duration(&first_param)?;
+                }
+
                 self.expect(TokenType::RightParen)?;
 
-                let gap = self.parse_duration(&gap_str)?;
                 WindowSpec::Session {
                     gap,
-                    partition_by: Vec::new(), // Will be populated from GROUP BY during execution
+                    time_column,
+                    partition_by,
                 }
             }
             _ => {
@@ -2165,6 +2292,65 @@ impl<'a> TokenParser<'a> {
         };
 
         Ok(window_type)
+    }
+
+    fn parse_session_parameter(&mut self) -> Result<String, SqlError> {
+        // Parse a parameter for SESSION window which could be:
+        // - A simple identifier: event_time
+        // - A table-qualified column: p.event_time
+        // - A duration: 4h
+        // - INTERVAL duration: INTERVAL '4' HOUR
+        let token = self.current_token().clone();
+        match token.token_type {
+            TokenType::Identifier => {
+                // Check for INTERVAL syntax first
+                if token.value.to_uppercase() == "INTERVAL" {
+                    self.advance(); // consume INTERVAL
+                    let value_str = self.expect(TokenType::String)?.value;
+                    let unit_str = self.expect(TokenType::Identifier)?.value.to_uppercase();
+                    // Convert full unit names to short forms
+                    let short_unit = match unit_str.as_str() {
+                        "MILLISECOND" | "MILLISECONDS" => "ms",
+                        "SECOND" | "SECONDS" => "s",
+                        "MINUTE" | "MINUTES" => "m",
+                        "HOUR" | "HOURS" => "h",
+                        "DAY" | "DAYS" => "d",
+                        _ => "s",
+                    };
+                    Ok(format!("{}{}", value_str, short_unit))
+                } else {
+                    // Regular identifier, check for table.column syntax
+                    let first_part = token.value;
+                    self.advance();
+
+                    if self.current_token().token_type == TokenType::Dot {
+                        self.advance(); // consume dot
+                        let field_name = self.expect(TokenType::Identifier)?.value;
+                        Ok(format!("{}.{}", first_part, field_name))
+                    } else {
+                        Ok(first_part)
+                    }
+                }
+            }
+            TokenType::Number => {
+                // Handle numeric duration like in simple SESSION(4h)
+                self.advance();
+                if matches!(self.current_token().token_type, TokenType::Identifier) {
+                    let unit = self.current_token().value.clone();
+                    self.advance();
+                    Ok(format!("{}{}", token.value, unit))
+                } else {
+                    Ok(format!("{}s", token.value))
+                }
+            }
+            _ => Err(SqlError::ParseError {
+                message: format!(
+                    "Expected identifier, INTERVAL, or duration in SESSION parameter, found {}",
+                    token.value
+                ),
+                position: Some(token.position),
+            }),
+        }
     }
 
     fn parse_duration_token(&mut self) -> Result<String, SqlError> {
@@ -3183,7 +3369,15 @@ impl<'a> TokenParser<'a> {
             self.expect_keyword("BY")?;
 
             loop {
-                let column = self.expect(TokenType::Identifier)?.value;
+                // Parse column name, which could be "column" or "table.column"
+                let column_name = self.expect(TokenType::Identifier)?.value;
+                let column = if self.current_token().token_type == TokenType::Dot {
+                    self.advance(); // consume dot
+                    let field_name = self.expect(TokenType::Identifier)?.value;
+                    format!("{}.{}", column_name, field_name)
+                } else {
+                    column_name
+                };
                 partition_by.push(column);
 
                 if self.current_token().token_type == TokenType::Comma {
@@ -3200,8 +3394,16 @@ impl<'a> TokenParser<'a> {
             self.expect_keyword("BY")?;
 
             loop {
+                // Parse column name, which could be "column" or "table.column"
                 let column_name = self.expect(TokenType::Identifier)?.value;
-                let expr = Expr::Column(column_name);
+                let full_column_name = if self.current_token().token_type == TokenType::Dot {
+                    self.advance(); // consume dot
+                    let field_name = self.expect(TokenType::Identifier)?.value;
+                    format!("{}.{}", column_name, field_name)
+                } else {
+                    column_name
+                };
+                let expr = Expr::Column(full_column_name);
                 let direction = if self.current_token().token_type == TokenType::Asc {
                     self.advance();
                     OrderDirection::Asc
@@ -3325,8 +3527,48 @@ impl<'a> TokenParser<'a> {
                     }),
                 }
             }
+            TokenType::Interval => {
+                self.advance(); // consume INTERVAL
+
+                // Parse the interval value (as string literal)
+                let value_str = self.expect(TokenType::String)?.value;
+                let value = value_str.parse::<i64>().map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid interval value: {}", value_str),
+                    position: Some(self.current_token().position),
+                })?;
+
+                // Parse the time unit (DAY, HOUR, MINUTE, etc.)
+                let unit_str = self.expect(TokenType::Identifier)?.value.to_uppercase();
+                let unit = match unit_str.as_str() {
+                    "MILLISECOND" | "MILLISECONDS" => TimeUnit::Millisecond,
+                    "SECOND" | "SECONDS" => TimeUnit::Second,
+                    "MINUTE" | "MINUTES" => TimeUnit::Minute,
+                    "HOUR" | "HOURS" => TimeUnit::Hour,
+                    "DAY" | "DAYS" => TimeUnit::Day,
+                    _ => return Err(SqlError::ParseError {
+                        message: format!("Unsupported time unit '{}'. Supported units: MILLISECOND, SECOND, MINUTE, HOUR, DAY", unit_str),
+                        position: Some(self.current_token().position),
+                    }),
+                };
+
+                // Parse PRECEDING or FOLLOWING
+                match self.current_token().token_type {
+                    TokenType::Preceding => {
+                        self.advance();
+                        Ok(FrameBound::IntervalPreceding { value, unit })
+                    }
+                    TokenType::Following => {
+                        self.advance();
+                        Ok(FrameBound::IntervalFollowing { value, unit })
+                    }
+                    _ => Err(SqlError::ParseError {
+                        message: "Expected PRECEDING or FOLLOWING after INTERVAL".to_string(),
+                        position: Some(self.current_token().position),
+                    }),
+                }
+            }
             _ => Err(SqlError::ParseError {
-                message: "Expected UNBOUNDED, CURRENT, or numeric offset in frame bound"
+                message: "Expected UNBOUNDED, CURRENT, numeric offset, or INTERVAL in frame bound"
                     .to_string(),
                 position: Some(self.current_token().position),
             }),

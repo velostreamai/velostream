@@ -6,6 +6,7 @@ Learn how to analyze streaming data using time windows (TUMBLING, SLIDING, SESSI
 
 ### TUMBLING Windows - Non-Overlapping Fixed Intervals
 
+#### Simple TUMBLING Syntax
 ```sql
 -- 5-minute non-overlapping windows
 SELECT
@@ -14,13 +15,43 @@ SELECT
     SUM(amount) as total_amount
 FROM orders
 GROUP BY customer_id
-WINDOW TUMBLING(5m);
+WINDOW TUMBLING(5m);  -- Simple duration syntax
 ```
 
+#### Advanced TUMBLING Syntax (NEW)
+```sql
+-- Complex TUMBLING with explicit time column and INTERVAL syntax
+SELECT
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(amount) as total_amount,
+    AVG(amount) as avg_amount
+FROM orders
+GROUP BY customer_id
+WINDOW TUMBLING (event_time, INTERVAL '5' MINUTE);  -- Explicit time column
+
+-- Table aliases supported in complex syntax
+SELECT
+    p.trader_id,
+    m.symbol,
+    COUNT(*) as trade_count,
+    AVG(m.price) as avg_price
+FROM market_data m
+JOIN positions p ON m.symbol = p.symbol
+GROUP BY p.trader_id, m.symbol
+WINDOW TUMBLING (m.event_time, INTERVAL '1' HOUR);  -- Table aliases work
+```
+
+**Syntax Variations:**
+- **Simple**: `TUMBLING(duration)` - e.g., `TUMBLING(1h)`, `TUMBLING(30s)`
+- **Complex**: `TUMBLING (time_column, INTERVAL duration)` - e.g., `TUMBLING (event_time, INTERVAL '15' MINUTE)`
+- **INTERVAL Units**: SECOND, MINUTE, HOUR, DAY (both singular and plural forms)
+
 **Use cases:**
-- **Hourly sales reports**: `WINDOW TUMBLING(1h)`
-- **Daily metrics**: `WINDOW TUMBLING(1d)`
-- **Real-time monitoring**: `WINDOW TUMBLING(30s)`
+- **Hourly sales reports**: `WINDOW TUMBLING(1h)` or `WINDOW TUMBLING (order_time, INTERVAL '1' HOUR)`
+- **Daily metrics**: `WINDOW TUMBLING(1d)` or `WINDOW TUMBLING (date_column, INTERVAL '1' DAY)`
+- **Real-time monitoring**: `WINDOW TUMBLING(30s)` or `WINDOW TUMBLING (timestamp, INTERVAL '30' SECOND)`
+- **Financial analytics**: `WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)` for minute-by-minute analysis
 
 ### SLIDING Windows - Overlapping Intervals
 

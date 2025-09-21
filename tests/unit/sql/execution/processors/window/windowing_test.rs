@@ -246,6 +246,7 @@ async fn test_session_window_execution() {
         where_clause: None,
         window: Some(WindowSpec::Session {
             gap: Duration::from_secs(30), // 30 seconds
+            time_column: None,
             partition_by: vec!["customer_id".to_string()],
         }),
         group_by: None,

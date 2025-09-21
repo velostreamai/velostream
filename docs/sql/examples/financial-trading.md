@@ -2,6 +2,8 @@
 
 Copy-paste SQL queries for real-time financial trading analysis and risk management.
 
+**NEW**: Enhanced with latest SQL parser features including table aliases in window functions, INTERVAL-based window frames, and SQL standard EXTRACT syntax.
+
 ## Market Data Analysis
 
 ### Real-Time Price Monitoring
@@ -36,6 +38,48 @@ SELECT
     ) as avg_volume_10
 FROM market_data
 WHERE trade_timestamp > NOW() - INTERVAL '1' HOUR;
+```
+
+### Advanced Multi-Table Analytics (NEW)
+
+```sql
+-- Enterprise-grade trading analytics with table aliases and INTERVAL frames
+SELECT
+    p.trader_id,
+    p.symbol,
+    m.price,
+    m.volume,
+    m.event_time,
+    -- Table aliases in window PARTITION BY (NEW FEATURE)
+    LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_trader_price,
+    LEAD(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as next_trader_price,
+    RANK() OVER (PARTITION BY m.symbol ORDER BY m.volume DESC) as volume_rank,
+    -- Time-based rolling windows with INTERVAL syntax (NEW FEATURE)
+    AVG(m.price) OVER (
+        PARTITION BY p.trader_id
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+    ) as hourly_avg_price,
+    COUNT(*) OVER (
+        PARTITION BY m.symbol
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '15' MINUTE PRECEDING AND CURRENT ROW
+    ) as trades_last_15min,
+    STDDEV(m.price) OVER (
+        PARTITION BY p.trader_id
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
+    ) as daily_price_volatility,
+    -- SQL standard EXTRACT syntax (NEW FEATURE)
+    EXTRACT(HOUR FROM m.event_time) as trade_hour,
+    EXTRACT(DOW FROM m.event_time) as day_of_week,
+    EXTRACT(EPOCH FROM (m.event_time - p.event_time)) as position_age_seconds
+FROM market_data m
+JOIN positions p ON m.symbol = p.symbol
+WHERE m.event_time >= '2024-01-01T00:00:00Z'
+    AND p.quantity > 100
+    AND m.price BETWEEN 50.0 AND 500.0
+ORDER BY p.trader_id, m.event_time DESC;
 ```
 
 ### Market Volatility Detection

@@ -333,8 +333,8 @@ FROM trading_positions_with_event_time p
 LEFT JOIN market_data_with_event_time m ON p.symbol = m.symbol
     AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND 
                          AND p.event_time + INTERVAL '30' SECOND
--- Phase 1B: Event-time windows with session semantics (trader-based sessions)
-WINDOW SESSION (p.event_time, INTERVAL '4' HOUR, p.trader_id)
+-- Phase 1B: Event-time windows with session semantics (4-hour session gap)
+WINDOW SESSION(4h)
 -- Phase 3: Complex HAVING with nested aggregations and subqueries
 HAVING (
     -- High-value positions

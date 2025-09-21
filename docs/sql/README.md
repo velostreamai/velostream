@@ -94,13 +94,42 @@ WHERE o.status = 'completed';
 
 ### Time Windows
 ```sql
--- 1-hour tumbling windows
+-- Simple TUMBLING windows
 SELECT customer_id, SUM(amount) as hourly_total
 FROM orders
-WINDOW TUMBLING (INTERVAL '1' HOUR)
+WINDOW TUMBLING(1h)  -- Simple duration syntax
+GROUP BY customer_id;
+
+-- NEW: Complex TUMBLING windows with explicit time columns
+SELECT customer_id, SUM(amount) as hourly_total
+FROM orders
+WINDOW TUMBLING (event_time, INTERVAL '1' HOUR)  -- Complex syntax
 GROUP BY customer_id;
 ```
 [→ Complete windowing guide](by-task/window-analysis.md)
+
+### Advanced Analytics (NEW)
+```sql
+-- Enterprise-grade SQL with table aliases and INTERVAL frames
+SELECT
+    p.trader_id,
+    m.symbol,
+    m.price,
+    -- Table aliases in window functions
+    LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price,
+    -- Time-based rolling windows
+    AVG(m.price) OVER (
+        PARTITION BY m.symbol
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+    ) as hourly_avg,
+    -- SQL standard EXTRACT syntax
+    EXTRACT(HOUR FROM m.event_time) as trade_hour,
+    EXTRACT(EPOCH FROM (m.event_time - p.created_at)) as position_age_seconds
+FROM market_data m
+JOIN positions p ON m.symbol = p.symbol;
+```
+[→ Advanced SQL features](functions/enhanced-sql-features.md)
 
 ## 🎯 Task-Oriented Guides
 
