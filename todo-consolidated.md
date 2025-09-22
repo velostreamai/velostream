@@ -4,6 +4,27 @@
 **Status**: ⚠️ **CRITICAL GAPS** - Core infrastructure complete, but subqueries NOT functional
 **Current Priority**: **Priority 1: Critical Parser & Subquery Implementation**
 
+## Table of Contents
+
+- [📋 CRITICAL FINDING: SUBQUERY INFRASTRUCTURE EXISTS BUT NOT FUNCTIONAL](#-critical-finding-subquery-infrastructure-exists-but-not-functional-)
+  - [🔴 Priority 1 Subqueries - Only Mock Implementation](#-priority-1-subqueries---only-mock-implementation)
+  - [⚠️ SUBQUERY SUPPORT STATUS - MOCK ONLY](#️-subquery-support-status---mock-only)
+  - [📋 PHASED IMPLEMENTATION PLAN](#-phased-implementation-plan)
+    - [Phase 1: SQL Subquery Foundation (Weeks 1-3)](#phase-1-sql-subquery-foundation-weeks-1-3)
+    - [Phase 2: Basic Subquery Execution](#phase-2-basic-subquery-execution)
+    - [Phase 3: Correlated Subquery Support](#phase-3-correlated-subquery-support)
+    - [Phase 4: Streaming Optimizations](#phase-4-streaming-optimizations)
+    - [Phase 5: Advanced Features & Testing](#phase-5-advanced-features--testing)
+  - [🎯 Success Metrics](#-success-metrics)
+  - [🧪 Testing Strategy](#-testing-strategy)
+  - [🔒 Safety Requirements](#-safety-requirements)
+- [🔴 Priority 2: Advanced Window Functions](#-priority-2-advanced-window-functions)
+- [🔴 Priority 3: Enhanced JOIN Operations](#-priority-3-enhanced-join-operations)
+- [🔴 Priority 4: Comprehensive Aggregation Functions](#-priority-4-comprehensive-aggregation-functions)
+- [🔴 Priority 5: Advanced SQL Features](#-priority-5-advanced-sql-features)
+- [🔴 Priority 6: Financial Analytics Features](#-priority-6-financial-analytics-features)
+- [📊 Implementation Status Summary](#-implementation-status-summary)
+
 ---
 
 # 📋 **CRITICAL FINDING: SUBQUERY INFRASTRUCTURE EXISTS BUT NOT FUNCTIONAL** ⚠️
