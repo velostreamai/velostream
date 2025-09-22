@@ -6,92 +6,312 @@
 
 ---
 
-# 📋 **MAJOR DISCOVERY: SUBQUERIES ALREADY WORKING!** ✅
+# 📋 **CRITICAL FINDING: SUBQUERY INFRASTRUCTURE EXISTS BUT NOT FUNCTIONAL** ⚠️
 
-## 🎉 **CRITICAL FINDING: Priority 1 is Already Complete**
-**Status**: ✅ **COMPLETE** - Comprehensive subquery support already implemented and working
-**Discovery Date**: September 21, 2025
-**Source**: Investigation revealed complete SubqueryExecutor infrastructure
+## 🔴 **Priority 1 Subqueries - Only Mock Implementation**
+**Status**: ❌ **NOT COMPLETE** - Only mock/stub implementation exists
+**Investigation Date**: December 2024
+**Source**: Code investigation revealed infrastructure but no real functionality
 
-### **✅ SUBQUERY SUPPORT STATUS - FULLY IMPLEMENTED**
+### **⚠️ SUBQUERY SUPPORT STATUS - MOCK ONLY**
 
-**What's Actually Working:**
-- ✅ **EXISTS / NOT EXISTS** - Correlated existence checks (fully functional)
-- ✅ **IN / NOT IN** - Set membership testing (fully functional)
-- ✅ **Scalar subqueries** - Single value returns (fully functional)
-- ✅ **Correlated subqueries** - Reference outer query (fully functional)
-- ✅ **Complex nesting** - Multiple levels supported (fully functional)
+**What Actually Exists vs What Works:**
+- 🟡 **EXISTS / NOT EXISTS** - Always returns `true` (mock only)
+- 🟡 **IN / NOT IN** - Returns based on simple value checks, not actual data
+- 🟡 **Scalar subqueries** - Always returns constant `1` (mock only)
+- ❌ **Correlated subqueries** - No actual correlation implemented
+- ❌ **Complex nesting** - Infrastructure exists but no real execution
+- 🟡 **ANY / ALL** - Mock implementation only
 
-**Evidence**:
-- ✅ Complete `SubqueryExecutor` trait implementation in `SelectProcessor`
-- ✅ 15+ comprehensive test cases in `tests/unit/sql/execution/core/subquery_test.rs`
-- ✅ SQL validator successfully parses complex financial subqueries
-- ✅ Financial trading SQL (with EXISTS and correlated subqueries) parses correctly
+**🔍 Current Implementation Status**:
+| Component | Location | Real Status |
+|-----------|----------|--------|
+| **SubqueryExecutor Trait** | `/src/velostream/sql/execution/expression/subquery_executor.rs:15-183` | ✅ Interface defined |
+| **SelectProcessor Implementation** | `/src/velostream/sql/execution/processors/select.rs` | ⚠️ MOCK ONLY - returns hardcoded values |
+| **AST Support** | `/src/velostream/sql/ast.rs` - `SubqueryType` enum | ✅ Types defined |
+| **Test Coverage** | `/tests/unit/sql/execution/core/subquery_test.rs:1-327` | ⚠️ Tests pass with mocks |
+| **Documentation** | `/docs/sql/subquery-support.md` & `/docs/sql/subquery-quick-reference.md` | ⚠️ Documents future state |
 
-**Original Assessment Error**: The analysis was based on basic expression evaluator error messages, but VeloStream has enhanced evaluator methods that delegate to the working SubqueryExecutor implementation.
+**❌ What's NOT Working**:
+- No actual subquery execution against data
+- No state store integration
+- No correlation between inner and outer queries
+- No real data materialization for IN/NOT IN
+- Always returns mock values regardless of actual data
 
 ---
 
 # 📋 **UPDATED DEVELOPMENT PRIORITIES**
 
-## 🎯 **PRIORITY 1: Remaining Parser Gaps** 🔧 **MINOR ENHANCEMENTS**
-**Status**: 🟡 **ENHANCEMENT** - Minor compatibility improvements
-**Effort**: 1-2 weeks | **Impact**: MEDIUM (SQL standard compliance)
+## 🎯 **PRIORITY 1: Critical Parser & Subquery Gaps** ⚡ **HIGHEST PRIORITY**
+**Status**: 🔴 **CRITICAL** - Blocking advanced analytics and enterprise adoption
+**Effort**: 5-7 weeks | **Impact**: CRITICAL (Core functionality missing)
 
 ### **🚨 IMMEDIATE CRITICAL GAPS** (September 21, 2025)
 
-#### **1.1 Complex Subquery Support** ⚡ **HIGHEST PRIORITY**
-**Current Issue**: EXISTS and correlated subqueries fail in financial SQL Query #3
+#### **1.1 Complex Subquery Support** ❌ **NOT IMPLEMENTED - MOCK ONLY**
+**INVESTIGATION FINDING**: Only mock/stub implementation exists - NO real functionality!
+
+**Current Mock Implementation** (`/src/velostream/sql/execution/processors/select.rs`):
+```rust
+// MOCK ONLY - Always returns hardcoded values:
+fn execute_scalar_subquery(...) -> Result<FieldValue, SqlError> {
+    Ok(FieldValue::Integer(1))  // Always returns 1
+}
+
+fn execute_exists_subquery(...) -> Result<bool, SqlError> {
+    Ok(true)  // Always returns true
+}
+
+fn execute_in_subquery(...) -> Result<bool, SqlError> {
+    // Returns based on simple value checks, not actual data
+    match value {
+        FieldValue::Integer(i) => Ok(*i > 0),
+        FieldValue::String(s) => Ok(!s.is_empty()),
+        _ => Ok(false),
+    }
+}
+```
+
+**❌ What's Actually Broken**:
 ```sql
--- FAILS: Advanced pattern detection
+-- DOES NOT WORK: This query would always return true regardless of data
 HAVING EXISTS (
     SELECT 1 FROM market_data_with_event_time m2
-    WHERE m2.symbol = market_data_with_event_time.symbol  -- Correlated reference
+    WHERE m2.symbol = market_data_with_event_time.symbol  -- No correlation implemented
     AND m2.event_time >= market_data_with_event_time.event_time - INTERVAL '1' MINUTE
 )
+-- Result: Always returns true, ignores WHERE conditions entirely
 ```
-**Business Impact**:
-- **Financial Analytics**: Advanced pattern detection impossible (major competitive gap)
-- **Enterprise Adoption**: Common SQL patterns don't work (blocks PoCs and migrations)
-- **Developer Experience**: Forces non-standard workarounds (reduces adoption)
-- **Competitive Position**: Behind Flink SQL and ksqlDB in subquery support
 
-**Technical Requirements**:
-- EXISTS clause parsing and AST representation
-- Correlated subquery resolution engine
-- Streaming context handling for subquery execution
-- Cross-table reference validation
+**Required Implementation**:
+1. **State Store Integration**: Need to query actual data stores
+2. **Correlation Engine**: Handle correlated references between inner/outer queries
+3. **Data Materialization**: Actually execute subqueries and return real results
+4. **Streaming Context**: Handle time-windowed subqueries properly
+5. **Performance Optimization**: Caching and indexing for high-throughput
 
-**Implementation Strategy**:
-- **Phase 1** [1 week]: Basic EXISTS subquery support (non-correlated)
-- **Phase 2** [1 week]: Correlated subquery resolution and execution engine
-- **Phase 3** [1 week]: Streaming context optimization and performance tuning
-**Total Effort**: 3 weeks | **Priority**: **DO IMMEDIATELY** | **LoE**: Senior developer + architect
+**Infrastructure Status**:
+- ✅ Parser can parse subquery syntax
+- ✅ AST has subquery types defined
+- ✅ Trait interface exists
+- ❌ NO actual execution logic
+- ❌ NO data access
+- ❌ NO correlation support
+- ❌ Tests only validate mocks
 
-#### **1.2 IN/NOT IN Subquery Support** 🔧 **HIGH PRIORITY**
-**Current Issue**: Code explicitly returns "not yet implemented" error
+**📋 PHASED IMPLEMENTATION PLAN**:
+
+### **Phase 1: State Store Foundation** (Week 1)
+**Goal**: Establish data access layer for subqueries to query actual data
+
+**📚 Reference Documentation**:
+- Architecture: `/docs/architecture/sql-table-ktable-architecture.md`
+- KTable Design: `/docs/feature/fr-025-ktable-feature-request.md`
+- Exactly-Once: `/docs/architecture/exactly-once-processor-design.md`
+
+**Tasks**:
+1. **Design State Store Interface** (2 days)
+   - Create `StateStore` trait in `/src/velostream/sql/execution/state/mod.rs`
+   - Define methods: `query()`, `insert()`, `update()`, `delete()`
+   - Support for both in-memory and persistent backends
+
+2. **Implement In-Memory State Store** (2 days)
+   - `MemoryStateStore` for development/testing
+   - HashMap-based storage with table abstraction
+   - Support for basic query operations (filter, project)
+
+3. **Integrate with ProcessorContext** (1 day)
+   - Add `state_store: Arc<dyn StateStore>` to ProcessorContext
+   - Update processor initialization to include state store
+   - Create test fixtures with sample data
+
+**Deliverables**:
+- Working state store that subqueries can access
+- Test data fixtures for validation
+- Integration tests showing data retrieval
+
+### **Phase 2: Basic Subquery Execution** (Week 2)
+**Goal**: Implement real execution for non-correlated subqueries (scalar, EXISTS, IN)
+
+**Tasks**:
+1. **Implement Scalar Subquery Execution** (2 days)
+   ```rust
+   fn execute_scalar_subquery(...) -> Result<FieldValue, SqlError> {
+       // 1. Create child execution context
+       // 2. Execute subquery against state store
+       // 3. Validate single row/column result
+       // 4. Return actual value
+   }
+   ```
+   - Handle empty results (return NULL)
+   - Handle multiple rows (return error)
+   - Add caching for repeated executions
+
+2. **Implement EXISTS Subquery** (1.5 days)
+   ```rust
+   fn execute_exists_subquery(...) -> Result<bool, SqlError> {
+       // 1. Execute subquery with LIMIT 1 optimization
+       // 2. Return true if any rows, false otherwise
+   }
+   ```
+   - Early termination optimization
+   - Support NOT EXISTS variant
+
+3. **Implement IN Subquery** (1.5 days)
+   ```rust
+   fn execute_in_subquery(...) -> Result<bool, SqlError> {
+       // 1. Execute subquery and materialize results
+       // 2. Build HashSet for O(1) lookup
+       // 3. Check membership
+       // 4. Handle NULL semantics correctly
+   }
+   ```
+   - Implement SQL-compliant NULL handling
+   - Support NOT IN variant
+   - Add result size limits for safety
+
+**Deliverables**:
+- Working scalar, EXISTS, IN subqueries with real data
+- Comprehensive tests with actual data validation
+- Performance benchmarks
+
+### **Phase 3: Correlated Subquery Support** (Week 3)
+**Goal**: Handle correlation between inner and outer queries
+
+**Tasks**:
+1. **Correlation Context Management** (2 days)
+   - Create `CorrelationContext` to track outer query values
+   - Pass context through subquery execution chain
+   - Handle nested correlation (subqueries within subqueries)
+
+2. **Column Resolution Enhancement** (2 days)
+   ```rust
+   // Resolve references like: m2.symbol = outer.symbol
+   fn resolve_correlated_column(
+       column: &str,
+       correlation_context: &CorrelationContext,
+       inner_record: &StreamRecord
+   ) -> Result<FieldValue, SqlError>
+   ```
+   - Implement table alias resolution
+   - Support multi-level correlation
+   - Add validation for ambiguous references
+
+3. **Correlated Execution Logic** (1 day)
+   - Update all subquery executors to use correlation context
+   - Re-execute subquery for each outer row (with caching)
+   - Handle correlation in WHERE, SELECT, and HAVING clauses
+
+**Deliverables**:
+- Fully working correlated subqueries
+- Tests for complex correlation patterns
+- Documentation of correlation semantics
+
+### **Phase 4: Streaming Optimizations** (Week 4)
+**Goal**: Optimize for streaming SQL performance
+
+**Tasks**:
+1. **Result Caching Layer** (2 days)
+   - LRU cache for subquery results
+   - Cache key generation from query + parameters
+   - TTL-based expiration for streaming data
+
+2. **Incremental Materialization** (2 days)
+   - Maintain materialized views for IN subqueries
+   - Update incrementally as new data arrives
+   - Bloom filters for large NOT IN queries
+
+3. **Performance Tuning** (1 day)
+   - Query plan optimization for subqueries
+   - Parallel execution where possible
+   - Memory management for large result sets
+
+**Deliverables**:
+- 10x performance improvement for repeated subqueries
+- Memory-bounded execution for large datasets
+- Production-ready performance metrics
+
+### **Phase 5: Advanced Features & Testing** (Week 5)
+**Goal**: Complete implementation with advanced features
+
+**Tasks**:
+1. **ANY/ALL Subqueries** (2 days)
+   - Implement comparison operators with ANY/ALL
+   - Short-circuit evaluation optimization
+
+2. **Nested Subqueries** (1 day)
+   - Subqueries within subqueries
+   - Recursive correlation handling
+
+3. **Comprehensive Testing** (2 days)
+   - Integration tests with Kafka data sources
+   - Performance regression tests
+   - Edge cases and error scenarios
+   - SQL compliance validation
+
+**Deliverables**:
+- Complete subquery support matching SQL standard
+- Full test coverage with real data
+- Performance benchmarks and documentation
+
+**🎯 Success Metrics**:
+- All 15+ existing tests pass with real execution (not mocks)
+- Financial SQL queries work with actual data correlation
+- < 10ms latency for cached subqueries
+- < 100ms for uncached correlated subqueries
+- Memory usage < 100MB for 10K row IN subqueries
+
+**🧪 Testing Strategy**:
+1. **Unit Tests**: Each phase includes dedicated test suite
+2. **Integration Tests**: End-to-end tests with real Kafka data
+3. **Performance Tests**: Benchmark suite for each subquery type
+4. **Regression Tests**: Ensure existing functionality isn't broken
+5. **SQL Compliance**: Validate against SQL standard test suite
+
+**⚠️ Risk Mitigation**:
+1. **Backward Compatibility**: Keep mock implementation as fallback
+2. **Feature Flags**: Enable real execution via configuration
+3. **Gradual Rollout**: Start with scalar, then EXISTS, then IN
+4. **Memory Protection**: Hard limits on materialized result sizes
+5. **Timeout Protection**: Max execution time for subqueries
+
+**📅 Total Timeline**: 5 weeks for complete implementation
+**Team Required**: 1-2 senior developers
+**Dependencies**: None (can proceed immediately)
+
+#### **1.2 IN/NOT IN Subquery Support** ❌ **NOT IMPLEMENTED - MOCK ONLY**
+**INVESTIGATION FINDING**: IN/NOT IN only has mock implementation - NO real functionality!
+
+**Current Mock Implementation** (`/src/velostream/sql/execution/processors/select.rs`):
+```rust
+fn execute_in_subquery(value: &FieldValue, ...) -> Result<bool, SqlError> {
+    // MOCK ONLY - Does NOT execute subquery or check actual membership
+    match value {
+        FieldValue::Integer(i) => Ok(*i > 0),      // Just checks if positive
+        FieldValue::String(s) => Ok(!s.is_empty()), // Just checks if non-empty
+        FieldValue::Boolean(b) => Ok(*b),           // Returns boolean itself
+        _ => Ok(false),
+    }
+}
+```
+
+**❌ What's Actually Broken**:
 ```sql
--- FAILS: Common SQL patterns
-WHERE symbol IN (SELECT symbol FROM top_performers)      -- ❌ Not supported
-WHERE trader_id NOT IN (SELECT id FROM restricted_list)  -- ❌ Not supported
+-- DOES NOT WORK: These queries ignore the subquery entirely
+WHERE symbol IN (SELECT symbol FROM top_performers)
+-- Result: Returns true if symbol is non-empty string, ignores top_performers
+
+WHERE trader_id NOT IN (SELECT id FROM restricted_list)
+-- Result: Returns false if trader_id > 0, ignores restricted_list entirely
 ```
-**Business Impact**:
-- **Developer Experience**: Basic SQL patterns don't work (major frustration)
-- **Migration Barrier**: Existing SQL queries need rewriting (blocks adoption)
-- **Productivity**: Forces EXISTS workarounds (slows development)
-- **SQL Standard Compliance**: Missing fundamental SQL capability
 
-**Technical Requirements**:
-- IN/NOT IN clause parsing with subquery support
-- Subquery result materialization for IN operations
-- NULL handling for NOT IN operations (SQL standard compliance)
-- Performance optimization for streaming scenarios
-
-**Implementation Strategy**:
-- **Phase 1** [3 days]: Simple IN subquery (non-correlated, small result sets)
-- **Phase 2** [4 days]: NOT IN subquery with proper NULL handling
-- **Phase 3** [3 days]: Performance optimization and streaming integration
-**Total Effort**: 1.5 weeks | **Priority**: **AFTER COMPLEX SUBQUERIES** | **LoE**: Senior developer
+**Required Implementation**:
+1. **Execute Inner Query**: Actually run the subquery to get result set
+2. **Materialize Results**: Store subquery results for membership testing
+3. **Perform Real Comparison**: Check if value exists in materialized results
+4. **Handle NULLs Correctly**: SQL-compliant NULL handling for NOT IN
+5. **Optimize for Streaming**: Cache results, use bloom filters for large sets
 
 #### **1.3 WINDOW Clauses in GROUP BY** 🔧 **MEDIUM PRIORITY**
 **Current Issue**: Limited support warning in financial SQL queries
@@ -100,27 +320,39 @@ WHERE trader_id NOT IN (SELECT id FROM restricted_list)  -- ❌ Not supported
 GROUP BY symbol, EXTRACT(HOUR FROM event_time)  -- Window function in GROUP BY
 WINDOW TUMBLING(1h)
 ```
+
+**🔍 Current Implementation Status**:
+- **Parser Location**: `/src/velostream/sql/parser.rs:2000-2500` (GROUP BY parsing)
+- **Window Processing**: `/src/velostream/sql/execution/processors/window.rs`
+- **Group Processor**: `/src/velostream/sql/execution/processors/group.rs`
+- **Tests**: `/tests/unit/sql/execution/core/window_test.rs` (13 tests passing)
+
 **Business Impact**:
 - **Advanced Analytics**: Temporal grouping patterns restricted
 - **Query Flexibility**: Can't combine time functions with window operations
 - **SQL Standard**: Missing expected functionality
 
 **Technical Requirements**:
-- Enhanced GROUP BY parser to handle window function expressions
-- Execution engine integration for temporal grouping
+- Enhanced GROUP BY parser to handle window function expressions in `/src/velostream/sql/parser.rs`
+- Execution engine integration for temporal grouping in `/src/velostream/sql/execution/processors/group.rs`
 - Proper window frame alignment with GROUP BY semantics
+- Update AST in `/src/velostream/sql/ast.rs` for combined GROUP BY/WINDOW
 
 **Implementation Strategy**:
 - **Phase 1** [4 days]: Parser enhancement for window functions in GROUP BY
+  - Modify `parse_group_by()` function to accept window expressions
+  - Update AST `GroupBy` struct to include window function fields
 - **Phase 2** [3 days]: Execution engine integration and testing
+  - Enhance `GroupProcessor::execute()` to handle window functions
+  - Add tests in `/tests/unit/sql/execution/core/group_window_test.rs`
 **Total Effort**: 1 week | **Priority**: **AFTER IN/NOT IN** | **LoE**: Mid-level developer
 
 ### **🎯 Success Criteria (Priority 1 Complete)**
 - ✅ Complex TUMBLING syntax: `TUMBLING (time_column, INTERVAL duration)` - **COMPLETED**
-- ✅ Complex subqueries: EXISTS with correlated references working
-- ✅ IN/NOT IN subqueries: Common SQL patterns supported
-- ✅ Financial trading SQL: **6+ out of 7 queries** parsing successfully (vs current 2/7)
-- ✅ Enterprise SQL compatibility: Advanced analytics patterns supported
+- ❌ Complex subqueries: EXISTS with correlated references - **MOCK ONLY, NOT FUNCTIONAL**
+- ❌ IN/NOT IN subqueries: Common SQL patterns - **MOCK ONLY, NOT FUNCTIONAL**
+- ⚠️ Financial trading SQL: Parser works but subqueries return mock data
+- ❌ Enterprise SQL compatibility: Subqueries don't execute against real data
 
 ### **📋 Implementation Plan**
 1. **[4-6 hours] Implement Complex TUMBLING Syntax** - Highest priority
@@ -134,9 +366,9 @@ WINDOW TUMBLING(1h)
    - Evaluate streaming context requirements
    - Implement missing subquery patterns
 
-## 🎯 **PRIORITY 1: Advanced Window Function Enhancements** ✅ **COMPLETED**
+## ✅ **COMPLETED: Advanced Window Function Enhancements**
 **Status**: ✅ **100% COMPLETE** - All window functions now production ready!
-**Effort**: 1 day | **Impact**: HIGH (Complete SQL window function compatibility + streaming optimizations)
+**Effort**: Completed | **Impact**: HIGH (Complete SQL window function compatibility)
 **Achievement**: Complex financial analytics queries now fully supported with comprehensive window functions
 
 ### **🔍 Final State Assessment**
@@ -296,9 +528,9 @@ VeloStream will have **complete SQL window function compatibility** rivaling maj
 
 ---
 
-## 🎯 **PRIORITY 2: ✅ RESOLVED - Window Function Implementation Complete** 🎉 **MAJOR SUCCESS**
+## ✅ **COMPLETED: Window Function Implementation**
 **Status**: ✅ **FULLY RESOLVED** - All window function tests passing (13/13)
-**Effort**: 1 day | **Impact**: CRITICAL (Complex window functionality now fully operational)
+**Effort**: Completed | **Impact**: CRITICAL (Complex window functionality fully operational)
 **Source**: Successfully debugged and fixed window function execution engine issues
 
 ### **✅ Problem Resolution Summary**
@@ -373,7 +605,7 @@ VeloStream will have **complete SQL window function compatibility** rivaling maj
 
 ---
 
-## 🎯 **PRIORITY 2: Working Demos & Gap Detection** 🎬 **MAJOR MILESTONE ACHIEVED**
+## 🎯 **PRIORITY 2: Working Demos & Gap Detection** 🎬
 **Status**: 🟢 **BREAKTHROUGH SUCCESS** - SQL parser now 100% compatible with financial trading
 **Effort**: 1-2 weeks | **Impact**: HIGH (Core SQL gaps eliminated, financial demo ready)
 **Source**: Analysis of existing demo infrastructure + systematic parser enhancement
@@ -442,58 +674,7 @@ VeloStream will have **complete SQL window function compatibility** rivaling maj
 ### **🎯 NEW STREAMING SQL PRIORITY MATRIX** (September 2025)
 Based on comprehensive analysis of financial SQL and enterprise streaming SQL requirements.
 
-## 🎯 **PRIORITY 1: Critical SQL Parser Gaps** ⚡ **ENTERPRISE BLOCKERS**
-**Status**: 🔴 **CRITICAL** - Blocking advanced analytics and enterprise adoption
-**Effort**: 3-4 weeks | **Impact**: CRITICAL (Advanced analytics, enterprise SQL patterns)
-
-### **1.1 Complex Subquery Support** ⚡ **HIGHEST PRIORITY**
-**Current Issue**: EXISTS, correlated subqueries fail in financial SQL
-```sql
--- FAILS: Query #3 financial SQL pattern
-HAVING EXISTS (
-    SELECT 1 FROM market_data_with_event_time m2
-    WHERE m2.symbol = market_data_with_event_time.symbol  -- Correlated reference
-    AND m2.event_time >= market_data_with_event_time.event_time - INTERVAL '1' MINUTE
-)
-```
-**Impact**:
-- **Financial Analytics**: Advanced pattern detection impossible
-- **Enterprise Adoption**: Common SQL patterns don't work
-- **Competitive Gap**: Behind Flink SQL and ksqlDB in subquery support
-
-**Implementation Strategy**:
-- **Phase 1** [1 week]: Basic EXISTS subquery support
-- **Phase 2** [1 week]: Correlated subquery resolution
-- **Phase 3** [1 week]: Streaming context optimization
-**Effort**: 3 weeks | **Priority**: **DO IMMEDIATELY**
-
-### **1.2 IN/NOT IN Subquery Support** 🔧 **HIGH PRIORITY**
-**Current Issue**: Code explicitly returns "not yet implemented"
-```sql
--- FAILS: Common SQL patterns
-WHERE symbol IN (SELECT symbol FROM top_performers)      -- ❌ Not supported
-WHERE trader_id NOT IN (SELECT id FROM restricted_list)  -- ❌ Not supported
-```
-**Impact**:
-- **Developer Experience**: Basic SQL patterns don't work
-- **Migration Barrier**: Existing SQL queries need rewriting
-- **Productivity**: Forces EXISTS workarounds
-
-**Implementation Strategy**:
-- **Phase 1** [3 days]: Simple IN subquery (non-correlated)
-- **Phase 2** [4 days]: NOT IN subquery with NULL handling
-- **Phase 3** [3 days]: Performance optimization for streaming
-**Effort**: 1.5 weeks | **Priority**: **AFTER COMPLEX SUBQUERIES**
-
-### **1.3 WINDOW Clauses in GROUP BY** 🔧 **MEDIUM PRIORITY**
-**Current Issue**: Limited support warning in financial SQL
-```sql
--- LIMITED: Query #2 pattern
-GROUP BY symbol, EXTRACT(HOUR FROM event_time)  -- Window function in GROUP BY
-WINDOW TUMBLING(1h)
-```
-**Impact**: Advanced temporal grouping patterns restricted
-**Effort**: 1 week | **Priority**: **AFTER IN/NOT IN**
+---
 
 ## 🎯 **PRIORITY 2: Advanced Streaming SQL Features** 📊 **COMPETITIVE ADVANTAGE**
 **Status**: 🟡 **ENHANCEMENT** - For enterprise feature parity and competitive positioning
@@ -503,6 +684,14 @@ WINDOW TUMBLING(1h)
 ### **2.1 Common Table Expressions (CTEs)** 🏗️ **ARCHITECTURAL FOUNDATION**
 **Current State**: Limited support, recursive CTEs flagged as experimental
 **Priority Rank**: #4 overall (after critical parser gaps)
+
+**🔍 Implementation Locations**:
+- **Parser**: Would add to `/src/velostream/sql/parser.rs` - `parse_with_clause()`
+- **AST**: Would extend `/src/velostream/sql/ast.rs` - add `WithClause` struct
+- **Execution**: New processor `/src/velostream/sql/execution/processors/cte.rs`
+- **Tests**: Would add `/tests/unit/sql/execution/core/cte_test.rs`
+- **Reference**: PostgreSQL CTE implementation patterns
+
 ```sql
 -- GOAL: Full CTE support for complex analytics
 WITH hourly_aggregates AS (
@@ -526,11 +715,11 @@ SELECT * FROM top_movers;
 - **Streaming Analytics**: Enables advanced pattern detection workflows
 
 **Technical Requirements**:
-- WITH clause parsing and AST representation
-- CTE materialization and caching strategy
+- WITH clause parsing and AST representation in `/src/velostream/sql/ast.rs`
+- CTE materialization and caching strategy in new `CTEProcessor`
 - Streaming-optimized CTE execution (memory management)
 - Recursive CTE support with cycle detection
-- Cross-CTE dependency resolution
+- Cross-CTE dependency resolution in execution engine
 
 **Implementation Strategy**:
 - **Phase 1** [2 weeks]: Basic WITH clause parsing, single CTE execution
@@ -681,7 +870,7 @@ ORDER BY spending_volatility DESC;
 - **Phase 4** [1 week]: Query optimization and view usage patterns
 **Total Effort**: 8 weeks | **Priority**: **HIGH STREAMING VALUE** | **LoE**: Senior developer + streaming systems architect
 
-## 🎯 **PRIORITY 3: Advanced Streaming Patterns** 🔮 **SPECIALIZED FEATURES**
+## 🔮 **FUTURE: Advanced Streaming Patterns** **SPECIALIZED FEATURES**
 **Status**: 🔵 **FUTURE** - Advanced/specialized streaming SQL capabilities
 **Effort**: 16-20 weeks | **Impact**: MEDIUM-HIGH (Specialized use cases, competitive differentiation)
 **Source**: Advanced streaming SQL patterns and Complex Event Processing requirements
@@ -861,7 +1050,7 @@ WATERMARK FOR event_time AS
 - **Phase 3** [0.5 week]: Runtime watermark adjustment and monitoring
 **Total Effort**: 2.5 weeks | **Priority**: **LOW (FINE-TUNING)** | **LoE**: Mid-level developer
 
-## 🎯 **PRIORITY 4: Developer Experience & Operations** 🛠️ **USABILITY**
+## 🛠️ **FUTURE: Developer Experience & Operations** **USABILITY**
 **Status**: 🟢 **ENHANCEMENT** - Developer productivity and operational excellence
 **Effort**: 8-12 weeks | **Impact**: MEDIUM-HIGH (Usability, debugging, operational excellence)
 **Source**: Developer experience pain points and operational requirements
@@ -987,29 +1176,41 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 - **Phase 3** [1 week]: Dashboard integration and historical analysis
 **Total Effort**: 4 weeks | **Priority**: **MEDIUM OPERATIONAL VALUE** | **LoE**: Mid-level developer + DevOps engineer
 
-## 📋 **COMPREHENSIVE IMPLEMENTATION ROADMAP**
+## 📋 **IMPLEMENTATION ROADMAP**
 
-### **🔥 Phase 1: Critical Parser Gaps** (5.5 weeks) - **IMMEDIATE PRIORITY**
-**Goal**: Eliminate enterprise adoption blockers and enable advanced analytics
-1. **[3 weeks]** Complex subquery support (EXISTS, correlated subqueries)
-2. **[1.5 weeks]** IN/NOT IN subquery support with proper NULL handling
-3. **[1 week]** WINDOW clauses in GROUP BY enhancement
+### **🔥 Priority 1: Critical Parser & Subquery Gaps** (5-7 weeks) - **IMMEDIATE**
+**Goal**: Implement real subquery functionality to unblock enterprise adoption
+1. **[5 weeks]** Complete subquery implementation (5-phase plan detailed in section 1.1)
+2. **[1 week]** WINDOW clauses in GROUP BY enhancement
+3. **[1 week]** Additional parser fixes as discovered
 
-### **📊 Phase 2: Advanced SQL Features** (32 weeks) - **ENTERPRISE READINESS**
-**Goal**: Feature parity with Flink SQL and ksqlDB, enterprise-grade capabilities
-1. **[6 weeks]** Common Table Expressions (CTEs) with recursive support
-2. **[6 weeks]** MERGE/UPSERT statements for streaming analytics
-3. **[6 weeks]** Advanced analytics functions (percentiles, correlations, regression)
-4. **[8 weeks]** Materialized Views with incremental maintenance
-5. **[6 weeks]** Enhanced error handling, performance analysis, debugging tools
+### **📊 Priority 2: Working Demos & Gap Detection** (1-2 weeks) - **VALIDATION**
+**Goal**: Validate system with real-world scenarios
+1. **[1 week]** Financial trading demo with Protobuf
+2. **[1 week]** File processing and end-to-end SQL demos
 
-### **🔮 Phase 3: Specialized Streaming** (18.5 weeks) - **COMPETITIVE DIFFERENTIATION**
-**Goal**: Advanced streaming patterns and specialized analytics capabilities
-1. **[10 weeks]** Complex Event Processing (CEP) with MATCH_RECOGNIZE
-2. **[6 weeks]** Temporal table joins and time-travel queries
-3. **[2.5 weeks]** Advanced watermark strategies and fine-grained control
+### **🏗️ Priority 3: Cluster Operations & Visibility** (2-3 weeks) - **FOUNDATION**
+**Goal**: Enable distributed processing capabilities
+1. **[1 week]** Enhanced SHOW commands with cluster-wide visibility
+2. **[2 weeks]** Node discovery, registration, and distributed metadata
 
-### **📈 Total Implementation Effort**: 56 weeks (14 months) for complete enterprise streaming SQL platform
+### **☸️ Priority 4: FR-061 Kubernetes Integration** (4-6 weeks) - **SCALING**
+**Goal**: Kubernetes-native distributed processing
+1. **[2 weeks]** Kubernetes configuration and metrics
+2. **[2 weeks]** Workload-specific HPA strategies
+3. **[2 weeks]** SQL hints and deployment automation
+
+### **📈 Priority 5: Performance Optimization** (3-4 weeks) - **OPTIMIZATION**
+**Goal**: 20-30% performance improvement
+1. **[2 weeks]** JOIN ordering and predicate pushdown
+2. **[2 weeks]** EXPLAIN PLAN and performance validation
+
+### **🏢 Priority 6: Enterprise Features** (3-4 weeks) - **PRODUCTION**
+**Goal**: Production deployment readiness
+1. **[2 weeks]** Configuration management and monitoring
+2. **[2 weeks]** Error handling and observability
+
+### **📈 Total Core Implementation**: ~20 weeks for production-ready platform
 
 ### **📋 Essential Working Demos**
 - [📈] **Financial Trading Demo** (PRIMARY - use Protobuf)
@@ -1054,10 +1255,16 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
-## 🎯 **PRIORITY 2: Cluster Operations & Visibility** 🔍 **FR-061 FOUNDATION**
+## 🎯 **PRIORITY 3: Cluster Operations & Visibility** 🔍 **FR-061 FOUNDATION**
 **Status**: 🔴 **MISSING** - Essential foundation for Kubernetes-native distributed processing
 **Effort**: 2-3 weeks | **Impact**: CRITICAL (Enables FR-061 distributed processing)
-**Source**: FR-061 Kubernetes-Native Distributed Processing prerequisites
+**Source**: `docs/feature/fr-061-distributed-processing.md`
+
+**🔍 Current Implementation Base**:
+- **ShowProcessor**: `/src/velostream/sql/execution/processors/show.rs` - Basic SHOW commands
+- **StreamJobServer**: `/src/bin/stream_job_server.rs` - Single-node job management
+- **Parser Support**: `/src/velostream/sql/parser.rs` - SHOW statement parsing
+- **Tests**: `/tests/unit/sql/execution/core/show_test.rs`
 
 ### **📋 Critical Missing Commands**
 - [ ] **LIST JOBS** - Show all running jobs across cluster nodes
@@ -1065,6 +1272,7 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
   - [ ] `SHOW JOBS ON NODE 'node-id'` - Jobs on specific node
   - [ ] `SHOW JOB STATUS 'job-name'` - Detailed job information
   - [ ] Include node deployment info (which node, resource usage)
+  - **Implementation**: Enhance `/src/velostream/sql/execution/processors/show.rs`
 
 - [ ] **LIST STREAMS** - Discover available data streams
   - [ ] `SHOW STREAMS` - List all registered Kafka topics/streams
@@ -1118,7 +1326,7 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
-## 🎯 **PRIORITY 2: FR-061 Kubernetes-Native Distributed Processing** ☸️ **MAIN OBJECTIVE**
+## 🎯 **PRIORITY 4: FR-061 Kubernetes-Native Distributed Processing** ☸️
 **Status**: 🟡 **READY AFTER PRIORITY 1** - Cluster ops foundation enables full K8s integration
 **Effort**: 4-6 weeks | **Impact**: CRITICAL (Production-ready distributed streaming SQL)
 **Source**: `docs/feature/fr-061-distributed-processing.md`
@@ -1150,10 +1358,17 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
-## 🎯 **PRIORITY 3: Advanced Performance Optimization** 📊 **POST FR-061**
+## 🎯 **PRIORITY 5: Advanced Performance Optimization** 📊
 **Status**: 🔵 **DEFERRED** - After distributed processing complete
 **Effort**: 3-4 weeks | **Impact**: HIGH (20-30% performance improvement)
 **Source**: `TODO_PERFORMANCE_OPTIMIZATION.md`
+
+**📚 Reference Documentation**:
+- Performance Guide: `/docs/ops/performance-guide.md`
+- Benchmarks: `/docs/performance-benchmark-results.md`
+- Analysis: `/docs/performance-analysis.md`
+- Monitoring: `/docs/ops/performance-monitoring.md`
+- Advanced Opts: `/docs/developer/advanced-performance-optimizations.md`
 
 ### **📋 Immediate Tasks (Phase 3)**
 - [ ] **P3.1: JOIN Ordering Optimization**
@@ -1161,6 +1376,7 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
   - [ ] Add selectivity estimation for WHERE clauses
   - [ ] Support multi-table JOIN optimization
   - [ ] Create cost model for JOIN ordering decisions
+  - **Implementation**: `/src/velostream/sql/execution/processors/join.rs`
 
 - [ ] **P3.2: Predicate Pushdown Implementation**
   - [ ] Push WHERE clauses closer to data sources
@@ -1187,7 +1403,7 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
-## 🎯 **PRIORITY 3: Enterprise Production Features** 🏢
+## 🎯 **PRIORITY 6: Enterprise Production Features** 🏢
 **Status**: 🔵 **PLANNED** - After cluster operations complete
 **Effort**: 3-4 weeks | **Impact**: MEDIUM-HIGH
 **Source**: `TODO_WIP.md`
@@ -1308,44 +1524,66 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
-# ⏰ **RECOMMENDED TIMELINE**
+# ⏰ **RECOMMENDED EXECUTION TIMELINE**
 
-## 🗓️ **Phase 1: Working Demos & Gap Detection** **CURRENT**
-**Duration**: 1-2 weeks (7-14 days)
-**Focus**: Validate system with real-world scenarios, expose integration gaps
+## 🗓️ **Phase 1: Critical Subquery Implementation** **IMMEDIATE START**
+**Duration**: 5-7 weeks
+**Focus**: Implement real subquery functionality to unblock enterprise use cases
 
-### **Days 1-7**: Financial Trading Demo (Protobuf Focus)
-- [ ] Fix Grafana startup and dependencies
-- [ ] Convert market data to Protobuf messages
-- [ ] Implement ScaledInteger showcase for financial precision
-- [ ] Add Protobuf schema evolution example
-- [ ] Document setup and troubleshooting
+### **Week 1**: State Store Foundation
+- [ ] Design StateStore trait interface
+- [ ] Implement MemoryStateStore
+- [ ] Integrate with ProcessorContext
+- [ ] Create test data fixtures
 
-### **Days 8-14**: File Demo & Gap Documentation
-- [ ] Fix file data source demo scripts
-- [ ] Create 5-minute getting started experience
-- [ ] Build end-to-end SQL demo
-- [ ] Document all gaps discovered
-- [ ] Performance benchmark integration
+### **Week 2**: Basic Subquery Execution
+- [ ] Replace mock scalar subquery with real execution
+- [ ] Replace mock EXISTS with real execution
+- [ ] Replace mock IN/NOT IN with real execution
+- [ ] Add comprehensive tests with real data
 
-## 🗓️ **Phase 2: Cluster Operations & Visibility**
-**Duration**: 2-3 weeks (14-21 days)
-**Focus**: FR-061 foundation - cluster management (informed by demo gaps)
+### **Week 3**: Correlated Subquery Support
+- [ ] Implement CorrelationContext
+- [ ] Enhanced column resolution
+- [ ] Test complex correlation patterns
 
-### **Days 1-7**: Command Implementation & REST APIs
-- [ ] Implement SHOW JOBS with cluster-wide visibility
-- [ ] Enhanced SHOW STREAMS/TABLES/TOPICS with metadata
-- [ ] REST API endpoints for cluster coordination
-- [ ] Node registration and heartbeat system
+### **Week 4**: Streaming Optimizations
+- [ ] Result caching layer
+- [ ] Incremental materialization
+- [ ] Performance benchmarking
 
-### **Days 8-21**: Distributed Metadata & Scheduling
-- [ ] Distributed job scheduling and placement
-- [ ] Node discovery and capacity management
-- [ ] Cross-node metadata synchronization (etcd/consul)
-- [ ] Failover and rebalancing logic
+### **Week 5**: Advanced Features & Testing
+- [ ] ANY/ALL subqueries
+- [ ] Nested subqueries
+- [ ] SQL compliance validation
+- [ ] Performance regression tests
 
-## 🗓️ **Phase 3: FR-061 Kubernetes Integration**
-**Duration**: 4-6 weeks (28-42 days)
+## 🗓️ **Phase 2: Working Demos & Validation**
+**Duration**: 1-2 weeks
+**Focus**: Validate subquery implementation with real scenarios
+
+- [ ] Financial trading demo with real subqueries
+- [ ] Verify EXISTS/IN queries work with actual data
+- [ ] Performance benchmarks
+- [ ] Document any remaining gaps
+
+## 🗓️ **Phase 3: Cluster Operations & Visibility**
+**Duration**: 2-3 weeks
+**Focus**: Enable distributed processing capabilities
+
+### **Week 1**: Enhanced SHOW Commands
+- [ ] SHOW JOBS with cluster-wide visibility
+- [ ] SHOW STREAMS/TABLES/TOPICS with metadata
+- [ ] REST API endpoints
+
+### **Weeks 2-3**: Distributed Infrastructure
+- [ ] Node discovery and registration
+- [ ] Distributed job scheduling
+- [ ] Cross-node metadata sync
+- [ ] Failover handling
+
+## 🗓️ **Phase 4: FR-061 Kubernetes Integration**
+**Duration**: 4-6 weeks
 **Focus**: Complete Kubernetes-native distributed processing
 
 ### **Days 1-14**: K8s Foundation & Workload Types
@@ -1366,39 +1604,37 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 - [ ] CLI tools (`velo-k8s-deploy`, `velo-k8s-monitor`)
 - [ ] CI/CD pipeline integration
 
-## 🗓️ **Phase 4: Advanced Performance Optimization**
-**Duration**: 3-4 weeks (21-28 days)
-**Focus**: Query optimization (post-distributed processing)
+## 🗓️ **Phase 5: Performance Optimization**
+**Duration**: 3-4 weeks
+**Focus**: Query optimization
 
-### **Days 1-14**: JOIN & Query Optimization
-- [ ] JOIN ordering algorithm implementation
-- [ ] Predicate pushdown implementation
+### **Weeks 1-2**: Core Optimizations
+- [ ] JOIN ordering algorithm
+- [ ] Predicate pushdown
 - [ ] Cost model development
 
-### **Days 15-28**: EXPLAIN PLAN & Validation
+### **Weeks 3-4**: Validation
 - [ ] EXPLAIN PLAN functionality
-- [ ] Performance validation (20-30% improvement target)
-- [ ] Comprehensive benchmarking
+- [ ] Performance benchmarks (20-30% target)
+- [ ] Regression testing
 
-## 🗓️ **Phase 5: Enterprise Production Features**
-**Duration**: 3-4 weeks (21-28 days)
-**Focus**: Production deployment requirements
+## 🗓️ **Phase 6: Enterprise Production Features**
+**Duration**: 3-4 weeks
+**Focus**: Production readiness
 
-### **Enterprise Readiness**
-- [ ] Advanced configuration management
-- [ ] Complete monitoring and observability stack
+- [ ] Configuration management
+- [ ] Monitoring and observability
 - [ ] Production deployment automation
-- [ ] Enterprise documentation and support guides
+- [ ] Documentation
 
-## 🗓️ **Phase 3: Optional Enhancements** (April+ 2025)
-**Duration**: Variable
-**Focus**: Edge cases and future features
+## 🗓️ **Future Enhancements**
+**Timeline**: As needed
+**Focus**: Advanced features and optimizations
 
-### **Lower Priority Items**
-- [ ] GROUP BY edge case testing (if needed)
-- [ ] System-level optimizations (after testing infrastructure)
-- [ ] Advanced SQL features (CTE, UDF, etc.)
-- [ ] Test coverage improvements (remaining edge cases)
+- [ ] Advanced SQL features (CTEs, MERGE statements)
+- [ ] Complex Event Processing (CEP)
+- [ ] Advanced streaming patterns
+- [ ] Developer experience improvements
 
 ---
 
