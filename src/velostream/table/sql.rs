@@ -153,6 +153,28 @@ pub trait SqlQueryable {
     /// let count = table.sql_scalar("COUNT(*)", "active = true")?;
     /// ```
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError>;
+
+    /// Extract column values using wildcard patterns in field paths
+    ///
+    /// This method supports wildcard queries like "portfolio.positions.****.shares > 100"
+    /// where **** matches any field name at that level.
+    ///
+    /// # Arguments
+    /// * `wildcard_expr` - Expression with wildcards (e.g., "portfolio.positions.****.shares > 100")
+    ///
+    /// # Returns
+    /// * `Ok(Vec<FieldValue>)` - List of values matching the wildcard pattern
+    /// * `Err(SqlError)` - Parse or execution error
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // Find all positions with shares > 100
+    /// let large_positions = table.sql_wildcard_values("portfolio.positions.****.shares > 100")?;
+    ///
+    /// // Get all user emails regardless of user ID
+    /// let all_emails = table.sql_wildcard_values("users.***.email")?;
+    /// ```
+    fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError>;
 }
 
 /// SQL Expression evaluator using the proper SQL AST
@@ -624,23 +646,47 @@ where
 /// Extract a field value from a FieldValue record
 ///
 /// Supports accessing fields in Struct-type FieldValues using dot notation.
+/// Now supports wildcard patterns using '*' or '****' for any field name.
 fn extract_field_value(record: &FieldValue, field_path: &str) -> Option<FieldValue> {
     match record {
         FieldValue::Struct(fields) => {
             // For simple field access (no dots), return the field directly
             if !field_path.contains('.') {
+                if field_path == "*" || field_path == "****" {
+                    // Return all fields as a struct
+                    return Some(FieldValue::Struct(fields.clone()));
+                }
                 return fields.get(field_path).cloned();
             }
 
-            // For nested access like "user.profile.name", split and traverse
+            // For nested access like "user.profile.name" or "portfolio.positions.****.shares", split and traverse
             let mut current = record;
-            for part in field_path.split('.') {
+            let parts: Vec<&str> = field_path.split('.').collect();
+
+            for (i, part) in parts.iter().enumerate() {
                 match current {
-                    FieldValue::Struct(fields) => {
-                        if let Some(next) = fields.get(part) {
-                            current = next;
-                        } else {
+                    FieldValue::Struct(current_fields) => {
+                        if *part == "*" || *part == "****" {
+                            // Wildcard - need to search through all fields
+                            for (_, field_value) in current_fields.iter() {
+                                // Recursively search in each field with remaining path
+                                if i + 1 < parts.len() {
+                                    let remaining_path = parts[i + 1..].join(".");
+                                    if let Some(result) = extract_field_value(field_value, &remaining_path) {
+                                        return Some(result);
+                                    }
+                                } else {
+                                    // This is the last part and it's a wildcard, return the field
+                                    return Some(field_value.clone());
+                                }
+                            }
                             return None;
+                        } else {
+                            if let Some(next) = current_fields.get(*part) {
+                                current = next;
+                            } else {
+                                return None;
+                            }
                         }
                     }
                     _ => return None,
@@ -729,5 +775,192 @@ impl<T: SqlDataSource> SqlQueryable for T {
         }
 
         Ok(FieldValue::Null)
+    }
+
+    fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
+        // Parse the wildcard expression to extract field path and condition
+        // Examples:
+        // "portfolio.positions.****.shares > 100"
+        // "users.****" (just extract all user values)
+
+        let all_records = self.get_all_records()?;
+        let mut matching_values = Vec::new();
+
+        if let Some((field_path, condition)) = wildcard_expr.split_once(" > ") {
+            // Handle comparisons like "portfolio.positions.****.shares > 100"
+            let threshold = condition.parse::<f64>()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid numeric threshold: {}", condition),
+                    position: Some(wildcard_expr.find(" > ").unwrap_or(0) + 3),
+                })?;
+
+            for (_key, record) in all_records {
+                collect_wildcard_matches(&record, field_path, &mut matching_values, Some(threshold));
+            }
+        } else if let Some((field_path, condition)) = wildcard_expr.split_once(" < ") {
+            // Handle less-than comparisons
+            let threshold = condition.parse::<f64>()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid numeric threshold: {}", condition),
+                    position: Some(wildcard_expr.find(" < ").unwrap_or(0) + 3),
+                })?;
+
+            for (_key, record) in all_records {
+                collect_wildcard_matches_less_than(&record, field_path, &mut matching_values, threshold);
+            }
+        } else {
+            // Simple wildcard extraction without conditions
+            for (_key, record) in all_records {
+                collect_wildcard_matches(&record, wildcard_expr, &mut matching_values, None);
+            }
+        }
+
+        Ok(matching_values)
+    }
+}
+
+/// Helper function to collect wildcard matches with optional threshold comparison
+fn collect_wildcard_matches(
+    record: &FieldValue,
+    field_path: &str,
+    results: &mut Vec<FieldValue>,
+    threshold: Option<f64>,
+) {
+    let parts: Vec<&str> = field_path.split('.').collect();
+    collect_wildcard_recursive(record, &parts, 0, results, threshold);
+}
+
+/// Helper function for less-than comparisons with wildcards
+fn collect_wildcard_matches_less_than(
+    record: &FieldValue,
+    field_path: &str,
+    results: &mut Vec<FieldValue>,
+    threshold: f64,
+) {
+    let parts: Vec<&str> = field_path.split('.').collect();
+    collect_wildcard_recursive_less_than(record, &parts, 0, results, threshold);
+}
+
+/// Recursive helper for wildcard pattern matching with greater-than comparison
+fn collect_wildcard_recursive(
+    current: &FieldValue,
+    parts: &[&str],
+    index: usize,
+    results: &mut Vec<FieldValue>,
+    threshold: Option<f64>,
+) {
+    if index >= parts.len() {
+        return;
+    }
+
+    match current {
+        FieldValue::Struct(fields) => {
+            let part = parts[index];
+
+            if part == "*" || part == "****" {
+                // Wildcard - search all fields at this level
+                for (_, field_value) in fields.iter() {
+                    if index + 1 < parts.len() {
+                        // More parts to process
+                        collect_wildcard_recursive(field_value, parts, index + 1, results, threshold);
+                    } else {
+                        // Last part is wildcard, collect values based on threshold
+                        if let Some(threshold_val) = threshold {
+                            if let Some(numeric_val) = extract_numeric_value(field_value) {
+                                if numeric_val > threshold_val {
+                                    results.push(field_value.clone());
+                                }
+                            }
+                        } else {
+                            results.push(field_value.clone());
+                        }
+                    }
+                }
+            } else if let Some(field_value) = fields.get(part) {
+                // Exact field match
+                if index + 1 < parts.len() {
+                    collect_wildcard_recursive(field_value, parts, index + 1, results, threshold);
+                } else {
+                    // Final field - apply threshold if needed
+                    if let Some(threshold_val) = threshold {
+                        if let Some(numeric_val) = extract_numeric_value(field_value) {
+                            if numeric_val > threshold_val {
+                                results.push(field_value.clone());
+                            }
+                        }
+                    } else {
+                        results.push(field_value.clone());
+                    }
+                }
+            }
+        }
+        _ => {
+            // Not a struct, cannot continue traversal
+        }
+    }
+}
+
+/// Recursive helper for wildcard pattern matching with less-than comparison
+fn collect_wildcard_recursive_less_than(
+    current: &FieldValue,
+    parts: &[&str],
+    index: usize,
+    results: &mut Vec<FieldValue>,
+    threshold: f64,
+) {
+    if index >= parts.len() {
+        return;
+    }
+
+    match current {
+        FieldValue::Struct(fields) => {
+            let part = parts[index];
+
+            if part == "*" || part == "****" {
+                // Wildcard - search all fields at this level
+                for (_, field_value) in fields.iter() {
+                    if index + 1 < parts.len() {
+                        // More parts to process
+                        collect_wildcard_recursive_less_than(field_value, parts, index + 1, results, threshold);
+                    } else {
+                        // Last part is wildcard, collect values less than threshold
+                        if let Some(numeric_val) = extract_numeric_value(field_value) {
+                            if numeric_val < threshold {
+                                results.push(field_value.clone());
+                            }
+                        }
+                    }
+                }
+            } else if let Some(field_value) = fields.get(part) {
+                // Exact field match
+                if index + 1 < parts.len() {
+                    collect_wildcard_recursive_less_than(field_value, parts, index + 1, results, threshold);
+                } else {
+                    // Final field - apply less-than threshold
+                    if let Some(numeric_val) = extract_numeric_value(field_value) {
+                        if numeric_val < threshold {
+                            results.push(field_value.clone());
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // Not a struct, cannot continue traversal
+        }
+    }
+}
+
+/// Extract numeric value from FieldValue for threshold comparisons
+fn extract_numeric_value(value: &FieldValue) -> Option<f64> {
+    match value {
+        FieldValue::Integer(i) => Some(*i as f64),
+        FieldValue::Float(f) => Some(*f),
+        FieldValue::ScaledInteger(val, scale) => {
+            // Convert ScaledInteger to f64 for comparison
+            let divisor = 10_i64.pow(*scale as u32) as f64;
+            Some(*val as f64 / divisor)
+        }
+        _ => None,
     }
 }
