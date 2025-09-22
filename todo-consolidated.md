@@ -102,8 +102,8 @@ HAVING EXISTS (
 
 **📋 PHASED IMPLEMENTATION PLAN**:
 
-### **Phase 1: Leverage Existing KTable for State Storage** (Week 1)
-**Goal**: Use existing KTable implementation for subquery data access
+### **Phase 1: SQL Subquery Foundation** (Weeks 1-3) ⚡ **CURRENT PRIORITY**
+**Goal**: Replace mock subquery implementations with real KTable-based execution
 
 **🔍 Existing Implementation Found**:
 - **KTable Implementation**: `/src/velostream/kafka/ktable.rs` - FULLY FUNCTIONAL!
@@ -113,172 +113,87 @@ HAVING EXISTS (
 - **Feature Specification**: `/docs/feature/fr-025-ktable-feature-request.md` - Complete documentation and SQL requirements
 
 **📚 Reference Documentation**:
+- **Primary Task Breakdown**: `/docs/feature/fr-025-ktable-feature-request.md` - Section: "🚧 TODO: SQL Subquery Integration"
+- **Detailed Implementation Plan**: `/docs/feature/fr-025-ktable-feature-request.md` - Section: "📋 CONSOLIDATED IMPLEMENTATION PLAN"
 - Architecture: `/docs/architecture/sql-table-ktable-architecture.md`
-- **KTable Design**: `/docs/feature/fr-025-ktable-feature-request.md` ⚡ **UPDATED with SQL subquery requirements**
 - Exactly-Once: `/docs/architecture/exactly-once-processor-design.md`
-- **SQL Subquery Requirements**: See "NEW REQUIREMENT: SQL Subquery Integration" section in `/docs/feature/fr-025-ktable-feature-request.md`
 
-**Tasks**:
-1. **Create SubqueryStateStore Wrapper** (1 day)
-   - Wrap existing `KTable<String, FieldValue, JsonSerializer, JsonSerializer>`
-   - Add SQL-specific query methods: `query()`, `scan()`, `lookup()`
-   - Support table-based lookups for subqueries
+**⚡ TASK DEPENDENCIES** (See `/docs/feature/fr-025-ktable-feature-request.md` for full implementation details):
 
-2. **Integrate KTable with ProcessorContext** (2 days)
-   - Add `state_tables: HashMap<String, KTable<...>>` to ProcessorContext
-   - Load reference tables from Kafka topics during processor startup
-   - Create helper methods for subquery table access
+> **Note**: This todo-consolidated.md drives the financial demo from top-down (business goals → implementation).
+> The fr-025 document contains bottom-up technical implementation details and phases.
+> Both work together: this file defines WHAT needs to be done, fr-025 defines HOW to implement it.
 
-3. **Create Test Data Setup** (2 days)
-   - Use existing KTable test infrastructure
-   - Create test topics with reference data (users, config, lookups)
-   - Add fixtures for subquery testing scenarios
+#### **Week 1: Foundation Tasks**
+- **Task 1**: SQL Query Interface (3-4 days) → Create `/src/velostream/kafka/ktable_sql.rs`
+- **Task 2**: FieldValue Integration (2-3 days) → Define `SqlKTable` type alias
+- **Task 3**: ProcessorContext Integration (2-3 days) → Add `state_tables` field
 
-**Deliverables**:
-- KTable-based state store for subqueries
-- Reference table loading infrastructure
-- Test fixtures using real Kafka topics
+#### **Week 2: Core Implementation**
+- **Task 4**: SubqueryExecutor Implementation (3-4 days) → Replace mocks in `/src/velostream/sql/execution/processors/select.rs`
+- **Task 5**: Test Infrastructure (2-3 days) → Real Kafka topic testing
 
-### **Phase 2: Basic Subquery Execution** (Week 2)
-**Goal**: Implement real execution for non-correlated subqueries using KTable
+#### **Week 3: Integration & Testing**
+- End-to-end integration testing
+- Performance optimization and benchmarking
+- Documentation and examples
 
-**Tasks**:
-1. **Implement Scalar Subquery Execution** (2 days)
-   ```rust
-   fn execute_scalar_subquery(...) -> Result<FieldValue, SqlError> {
-       // 1. Parse subquery table name from FROM clause
-       // 2. Get KTable from ProcessorContext state_tables
-       // 3. Apply WHERE filters using ktable.filter()
-       // 4. Return first value or error if multiple/empty
-       let table = context.state_tables.get(&table_name)?;
-       let filtered = table.filter(|k, v| where_condition(k, v));
-       // Validate single result and return value
-   }
-   ```
-   - Handle empty results (return NULL)
-   - Handle multiple rows (return error)
-   - Use KTable's built-in caching
+**🎯 Success Criteria**:
+- [ ] All 15+ existing subquery tests pass with real data (not mocks)
+- [ ] < 5ms latency for KTable lookups (in-memory HashMap performance)
+- [ ] < 50ms for filtered subqueries using KTable.filter()
+- [ ] Subqueries can access live reference data from Kafka topics
 
-2. **Implement EXISTS Subquery** (1.5 days)
-   ```rust
-   fn execute_exists_subquery(...) -> Result<bool, SqlError> {
-       // 1. Get KTable for subquery table
-       // 2. Apply WHERE filters using ktable.filter()
-       // 3. Return !filtered.is_empty()
-       let table = context.state_tables.get(&table_name)?;
-       let filtered = table.filter(|k, v| where_condition(k, v));
-       Ok(!filtered.is_empty())
-   }
-   ```
-   - Leverage KTable's efficient filtering
-   - Support NOT EXISTS variant
+### **Phase 2: Streaming SQL Excellence** (Weeks 4-8) 🚀 **POST-SUBQUERY**
+**Goal**: Advanced streaming SQL features leveraging completed subquery foundation
 
-3. **Implement IN Subquery** (1.5 days)
-   ```rust
-   fn execute_in_subquery(...) -> Result<bool, SqlError> {
-       // 1. Get KTable and apply filters
-       // 2. Use ktable.keys() or ktable.snapshot() for membership
-       // 3. Check if value exists in result set
-       let table = context.state_tables.get(&table_name)?;
-       let filtered = table.filter(|k, v| where_condition(k, v));
-       Ok(filtered.contains_key(&search_value))
-   }
-   ```
-   - Use KTable's efficient contains_key() method
-   - Support NOT IN variant with proper NULL handling
-   - Leverage KTable's in-memory performance
+**Dependencies**: ✅ Phase 1 (SQL Subquery Foundation) must be complete
+**Reference**: See `/docs/feature/fr-025-ktable-feature-request.md` - "Phase 2: Streaming SQL Excellence"
 
-**Deliverables**:
-- Working scalar, EXISTS, IN subqueries with real data
-- Comprehensive tests with actual data validation
-- Performance benchmarks
+**Key Features**:
+- Change stream semantics (Insert, Update, Delete, Tombstone)
+- Versioned state stores with time travel
+- Advanced stream-table joins for enrichment
+- Reference data lookups (users, config, limits)
 
-### **Phase 3: Correlated Subquery Support** (Week 3)
-**Goal**: Handle correlation between inner and outer queries
+### **Phase 3: Real-Time SQL Optimization** (Weeks 9-12) ⚡ **PERFORMANCE**
+**Goal**: Sub-millisecond SQL execution on streams
 
-**Tasks**:
-1. **Correlation Context Management** (2 days)
-   - Create `CorrelationContext` to track outer query values
-   - Pass context through subquery execution chain
-   - Handle nested correlation (subqueries within subqueries)
+**Dependencies**: ✅ Phase 2 (Streaming SQL Excellence) must be complete
+**Reference**: See `/docs/feature/fr-025-ktable-feature-request.md` - "Phase 3: Real-Time SQL Optimization"
 
-2. **Column Resolution Enhancement** (2 days)
-   ```rust
-   // Resolve references like: m2.symbol = outer.symbol
-   fn resolve_correlated_column(
-       column: &str,
-       correlation_context: &CorrelationContext,
-       inner_record: &StreamRecord
-   ) -> Result<FieldValue, SqlError>
-   ```
-   - Implement table alias resolution
-   - Support multi-level correlation
-   - Add validation for ambiguous references
+**Key Features**:
+- Query optimization with predicate pushdown
+- Advanced window functions for streaming data
+- Performance monitoring and memory optimization
 
-3. **Correlated Execution Logic** (1 day)
-   - Update all subquery executors to use correlation context
-   - Re-execute subquery for each outer row (with caching)
-   - Handle correlation in WHERE, SELECT, and HAVING clauses
+### **Phase 4: Federated Stream-Table Joins** (Weeks 13-20) 🔗 **GAME CHANGER**
+**Goal**: Enable stream joins with external databases (ClickHouse, DuckDB, PostgreSQL, Iceberg)
 
-**Deliverables**:
-- Fully working correlated subqueries
-- Tests for complex correlation patterns
-- Documentation of correlation semantics
+**Dependencies**: ✅ Phase 3 (Real-Time SQL Optimization) must be complete
+**Reference**: See `/docs/feature/fr-025-ktable-feature-request.md` - "Phase 4: Federated Stream-Table Joins"
 
-### **Phase 4: Streaming Optimizations** (Week 4)
-**Goal**: Optimize for streaming SQL performance
+**Key Features**:
+- External data source framework with time travel support
+- Federated KTable implementation
+- SQL federation engine with cross-system joins
+- Iceberg integration with snapshot-based queries
 
-**Tasks**:
-1. **Result Caching Layer** (2 days)
-   - LRU cache for subquery results
-   - Cache key generation from query + parameters
-   - TTL-based expiration for streaming data
+---
 
-2. **Incremental Materialization** (2 days)
-   - Maintain materialized views for IN subqueries
-   - Update incrementally as new data arrives
-   - Bloom filters for large NOT IN queries
+## **📅 UPDATED TIMELINE SUMMARY**
 
-3. **Performance Tuning** (1 day)
-   - Query plan optimization for subqueries
-   - Parallel execution where possible
-   - Memory management for large result sets
+**Total Implementation Timeline**: 24 weeks (reduced from initial estimates by leveraging existing KTable)
 
-**Deliverables**:
-- 10x performance improvement for repeated subqueries
-- Memory-bounded execution for large datasets
-- Production-ready performance metrics
+- **Phase 1** (Weeks 1-3): SQL Subquery Foundation - ⚡ **IMMEDIATE PRIORITY**
+- **Phase 2** (Weeks 4-8): Streaming SQL Excellence
+- **Phase 3** (Weeks 9-12): Real-Time SQL Optimization
+- **Phase 4** (Weeks 13-20): Federated Stream-Table Joins with Iceberg
 
-### **Phase 5: Advanced Features & Testing** (Week 5)
-**Goal**: Complete implementation with advanced features
-
-**Tasks**:
-1. **ANY/ALL Subqueries** (2 days)
-   - Implement comparison operators with ANY/ALL
-   - Short-circuit evaluation optimization
-
-2. **Nested Subqueries** (1 day)
-   - Subqueries within subqueries
-   - Recursive correlation handling
-
-3. **Comprehensive Testing** (2 days)
-   - Integration tests with Kafka data sources
-   - Performance regression tests
-   - Edge cases and error scenarios
-   - SQL compliance validation
-
-**Deliverables**:
-- Complete subquery support matching SQL standard
-- Full test coverage with real data
-- Performance benchmarks and documentation
-
-**🎯 Success Metrics**:
-- All 15+ existing tests pass with real KTable execution (not mocks)
-- Financial SQL queries work with actual Kafka topic data
-- < 5ms latency for KTable lookups (in-memory HashMap performance)
-- < 50ms for filtered subqueries using KTable.filter()
-- Memory usage managed by existing KTable implementation
-- Subqueries can access live reference data from Kafka topics
+**🎯 Key Dependencies**:
+- **Phase 1 completion** unlocks advanced SQL analytics
+- **KTable infrastructure** already production-ready (major time saver)
+- **Federation architecture** documented and ready for implementation
 
 **🧪 Testing Strategy**:
 1. **Unit Tests**: Each phase includes dedicated test suite
