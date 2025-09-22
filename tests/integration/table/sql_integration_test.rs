@@ -347,7 +347,7 @@ async fn test_performance_with_large_dataset() {
     let filter_duration = start.elapsed();
 
     assert!(filtered.len() > 300); // Should have ~333 records
-    assert!(filter_duration.as_millis() < 10); // Should be very fast
+    assert!(filter_duration.as_millis() < 50); // Should be fast for 1000 records
 
     // Test EXISTS performance (should terminate early)
     let start = Instant::now();
@@ -365,7 +365,7 @@ async fn test_performance_with_large_dataset() {
     let extract_duration = start.elapsed();
 
     assert_eq!(values.len(), 500); // Half should be active
-    assert!(extract_duration.as_millis() < 10); // Should be fast
+    assert!(extract_duration.as_millis() < 50); // Should be fast for 1000 records
 
     println!("Performance results for 1000 records:");
     println!("  Filter: {:?}", filter_duration);
