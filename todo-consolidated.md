@@ -102,74 +102,91 @@ HAVING EXISTS (
 
 **📋 PHASED IMPLEMENTATION PLAN**:
 
-### **Phase 1: State Store Foundation** (Week 1)
-**Goal**: Establish data access layer for subqueries to query actual data
+### **Phase 1: Leverage Existing KTable for State Storage** (Week 1)
+**Goal**: Use existing KTable implementation for subquery data access
+
+**🔍 Existing Implementation Found**:
+- **KTable Implementation**: `/src/velostream/kafka/ktable.rs` - FULLY FUNCTIONAL!
+- **Methods Available**: `get()`, `contains_key()`, `snapshot()`, `filter()`, `keys()`
+- **Integration Tests**: `/tests/integration/ktable_test.rs` - Working examples
+- **Examples**: `/examples/ktable_example.rs`, `/examples/simple_ktable_example.rs`
+- **Feature Specification**: `/docs/feature/fr-025-ktable-feature-request.md` - Complete documentation and SQL requirements
 
 **📚 Reference Documentation**:
 - Architecture: `/docs/architecture/sql-table-ktable-architecture.md`
-- KTable Design: `/docs/feature/fr-025-ktable-feature-request.md`
+- **KTable Design**: `/docs/feature/fr-025-ktable-feature-request.md` ⚡ **UPDATED with SQL subquery requirements**
 - Exactly-Once: `/docs/architecture/exactly-once-processor-design.md`
+- **SQL Subquery Requirements**: See "NEW REQUIREMENT: SQL Subquery Integration" section in `/docs/feature/fr-025-ktable-feature-request.md`
 
 **Tasks**:
-1. **Design State Store Interface** (2 days)
-   - Create `StateStore` trait in `/src/velostream/sql/execution/state/mod.rs`
-   - Define methods: `query()`, `insert()`, `update()`, `delete()`
-   - Support for both in-memory and persistent backends
+1. **Create SubqueryStateStore Wrapper** (1 day)
+   - Wrap existing `KTable<String, FieldValue, JsonSerializer, JsonSerializer>`
+   - Add SQL-specific query methods: `query()`, `scan()`, `lookup()`
+   - Support table-based lookups for subqueries
 
-2. **Implement In-Memory State Store** (2 days)
-   - `MemoryStateStore` for development/testing
-   - HashMap-based storage with table abstraction
-   - Support for basic query operations (filter, project)
+2. **Integrate KTable with ProcessorContext** (2 days)
+   - Add `state_tables: HashMap<String, KTable<...>>` to ProcessorContext
+   - Load reference tables from Kafka topics during processor startup
+   - Create helper methods for subquery table access
 
-3. **Integrate with ProcessorContext** (1 day)
-   - Add `state_store: Arc<dyn StateStore>` to ProcessorContext
-   - Update processor initialization to include state store
-   - Create test fixtures with sample data
+3. **Create Test Data Setup** (2 days)
+   - Use existing KTable test infrastructure
+   - Create test topics with reference data (users, config, lookups)
+   - Add fixtures for subquery testing scenarios
 
 **Deliverables**:
-- Working state store that subqueries can access
-- Test data fixtures for validation
-- Integration tests showing data retrieval
+- KTable-based state store for subqueries
+- Reference table loading infrastructure
+- Test fixtures using real Kafka topics
 
 ### **Phase 2: Basic Subquery Execution** (Week 2)
-**Goal**: Implement real execution for non-correlated subqueries (scalar, EXISTS, IN)
+**Goal**: Implement real execution for non-correlated subqueries using KTable
 
 **Tasks**:
 1. **Implement Scalar Subquery Execution** (2 days)
    ```rust
    fn execute_scalar_subquery(...) -> Result<FieldValue, SqlError> {
-       // 1. Create child execution context
-       // 2. Execute subquery against state store
-       // 3. Validate single row/column result
-       // 4. Return actual value
+       // 1. Parse subquery table name from FROM clause
+       // 2. Get KTable from ProcessorContext state_tables
+       // 3. Apply WHERE filters using ktable.filter()
+       // 4. Return first value or error if multiple/empty
+       let table = context.state_tables.get(&table_name)?;
+       let filtered = table.filter(|k, v| where_condition(k, v));
+       // Validate single result and return value
    }
    ```
    - Handle empty results (return NULL)
    - Handle multiple rows (return error)
-   - Add caching for repeated executions
+   - Use KTable's built-in caching
 
 2. **Implement EXISTS Subquery** (1.5 days)
    ```rust
    fn execute_exists_subquery(...) -> Result<bool, SqlError> {
-       // 1. Execute subquery with LIMIT 1 optimization
-       // 2. Return true if any rows, false otherwise
+       // 1. Get KTable for subquery table
+       // 2. Apply WHERE filters using ktable.filter()
+       // 3. Return !filtered.is_empty()
+       let table = context.state_tables.get(&table_name)?;
+       let filtered = table.filter(|k, v| where_condition(k, v));
+       Ok(!filtered.is_empty())
    }
    ```
-   - Early termination optimization
+   - Leverage KTable's efficient filtering
    - Support NOT EXISTS variant
 
 3. **Implement IN Subquery** (1.5 days)
    ```rust
    fn execute_in_subquery(...) -> Result<bool, SqlError> {
-       // 1. Execute subquery and materialize results
-       // 2. Build HashSet for O(1) lookup
-       // 3. Check membership
-       // 4. Handle NULL semantics correctly
+       // 1. Get KTable and apply filters
+       // 2. Use ktable.keys() or ktable.snapshot() for membership
+       // 3. Check if value exists in result set
+       let table = context.state_tables.get(&table_name)?;
+       let filtered = table.filter(|k, v| where_condition(k, v));
+       Ok(filtered.contains_key(&search_value))
    }
    ```
-   - Implement SQL-compliant NULL handling
-   - Support NOT IN variant
-   - Add result size limits for safety
+   - Use KTable's efficient contains_key() method
+   - Support NOT IN variant with proper NULL handling
+   - Leverage KTable's in-memory performance
 
 **Deliverables**:
 - Working scalar, EXISTS, IN subqueries with real data
@@ -256,11 +273,12 @@ HAVING EXISTS (
 - Performance benchmarks and documentation
 
 **🎯 Success Metrics**:
-- All 15+ existing tests pass with real execution (not mocks)
-- Financial SQL queries work with actual data correlation
-- < 10ms latency for cached subqueries
-- < 100ms for uncached correlated subqueries
-- Memory usage < 100MB for 10K row IN subqueries
+- All 15+ existing tests pass with real KTable execution (not mocks)
+- Financial SQL queries work with actual Kafka topic data
+- < 5ms latency for KTable lookups (in-memory HashMap performance)
+- < 50ms for filtered subqueries using KTable.filter()
+- Memory usage managed by existing KTable implementation
+- Subqueries can access live reference data from Kafka topics
 
 **🧪 Testing Strategy**:
 1. **Unit Tests**: Each phase includes dedicated test suite
@@ -276,7 +294,7 @@ HAVING EXISTS (
 4. **Memory Protection**: Hard limits on materialized result sizes
 5. **Timeout Protection**: Max execution time for subqueries
 
-**📅 Total Timeline**: 5 weeks for complete implementation
+**📅 Total Timeline**: 3-4 weeks for complete implementation (reduced from 5 weeks by leveraging existing KTable)
 **Team Required**: 1-2 senior developers
 **Dependencies**: None (can proceed immediately)
 
@@ -690,6 +708,7 @@ Based on comprehensive analysis of financial SQL and enterprise streaming SQL re
 - **AST**: Would extend `/src/velostream/sql/ast.rs` - add `WithClause` struct
 - **Execution**: New processor `/src/velostream/sql/execution/processors/cte.rs`
 - **Tests**: Would add `/tests/unit/sql/execution/core/cte_test.rs`
+- **State Management**: Leverage KTable infrastructure per `/docs/feature/fr-025-ktable-feature-request.md`
 - **Reference**: PostgreSQL CTE implementation patterns
 
 ```sql
