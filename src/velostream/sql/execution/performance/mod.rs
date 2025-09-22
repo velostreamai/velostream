@@ -1,7 +1,7 @@
 /*!
 # Performance Monitoring Module
 
-Provides comprehensive performance statistics and monitoring for the VeloStream SQL engine.
+Provides comprehensive performance statistics and monitoring for the Velostream SQL engine.
 This module tracks query execution metrics, memory usage, and throughput to enable
 performance optimization and production monitoring.
 

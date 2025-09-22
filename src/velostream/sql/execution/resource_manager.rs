@@ -61,7 +61,7 @@ pub struct ResourceMetrics {
     pub limit_violations: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResourceLimits {
     /// Maximum total memory usage (bytes)
     pub max_total_memory: Option<u64>,
@@ -101,20 +101,6 @@ pub struct MonitoringConfig {
 
     /// Whether to enable automatic cleanup
     pub auto_cleanup: bool,
-}
-
-impl Default for ResourceLimits {
-    fn default() -> Self {
-        Self {
-            max_total_memory: None,
-            max_operator_memory: None,
-            max_windows_per_key: None,
-            max_aggregation_groups: None,
-            max_concurrent_operations: None,
-            max_processing_time_per_record: None,
-            custom_limits: HashMap::new(),
-        }
-    }
 }
 
 impl Default for MonitoringConfig {

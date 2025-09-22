@@ -1,5 +1,5 @@
 /*!
-# Modern Error Types for VeloStream
+# Modern Error Types for Velostream
 
 Centralized error handling using Rust 2024 edition features.
 */

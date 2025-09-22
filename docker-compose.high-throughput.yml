@@ -1,10 +1,10 @@
-# VeloStream High Throughput Docker Compose Override  
+# Velostream High Throughput Docker Compose Override  
 # Use: docker-compose -f docker-compose.yml -f docker-compose.high-throughput.yml up
 
 version: '3.8'
 
 services:
-  # Override the main VeloStream service for high throughput
+  # Override the main Velostream service for high throughput
   velo-streams:
     environment:
       - RUST_LOG=info                           # Balanced logging

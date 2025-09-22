@@ -1,6 +1,6 @@
 //! Stream Job Server Tests
 //!
-//! Comprehensive test suite for VeloStream stream job functionality.
+//! Comprehensive test suite for Velostream stream job functionality.
 //! This module is organized into focused test categories for maintainability.
 
 // =============================================================================

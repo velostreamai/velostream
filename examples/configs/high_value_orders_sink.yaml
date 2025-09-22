@@ -10,10 +10,10 @@ delivery_profile: critical
 
 topic_config:
   partitions: 3
-  replication_factor: 2
-  retention_ms: 604800000  # 7 days retention
+  replication.factor: 2
+  retention.ms: 604800000  # 7 days retention
   
 metadata:
   description: "High-value order alerts"
-  data_classification: "business_critical"
+  data.classification: "business_critical"
   priority: "high"

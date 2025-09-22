@@ -10,9 +10,9 @@ delivery_profile: medium_priority
 
 topic_config:
   partitions: 4
-  retention_ms: 2592000000  # 30 days retention
+  retention.ms: 2592000000  # 30 days retention
   
 metadata:
   description: "Product performance analytics"
-  data_classification: "analytical_data"
+  data.classification: "analytical_data"
   priority: "medium"

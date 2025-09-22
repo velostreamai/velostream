@@ -53,7 +53,7 @@
       "type": ["null", "long"],
       "default": null,
       "logicalType": "timestamp-millis",
-      "doc": "When this record was processed by VeloStream (optional)"
+      "doc": "When this record was processed by Velostream (optional)"
     },
     {
       "name": "pipeline_version",

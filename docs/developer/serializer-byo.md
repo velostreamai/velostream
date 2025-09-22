@@ -1,10 +1,10 @@
 # Bring Your Own Serializer Guide
 
-This guide shows you how to integrate custom serialization formats with the VeloStream SQL engine.
+This guide shows you how to integrate custom serialization formats with the Velostream SQL engine.
 
 ## Overview
 
-VeloStream uses a trait-based serialization system that allows you to plug in any serialization format while maintaining full SQL engine compatibility. Your custom serializer integrates seamlessly with:
+Velostream uses a trait-based serialization system that allows you to plug in any serialization format while maintaining full SQL engine compatibility. Your custom serializer integrates seamlessly with:
 
 - ✅ **SQL Engine**: Full query processing capabilities
 - ✅ **Type Safety**: Strong typing between external format and SQL engine
@@ -75,7 +75,7 @@ impl SerializationFormat for MyCustomSerializer {
 
 ### 2. Handle Type Mapping
 
-You need to convert between VeloStream' `FieldValue` enum and your format:
+You need to convert between Velostream' `FieldValue` enum and your format:
 
 ```rust
 // FieldValue types you need to support:
@@ -431,4 +431,4 @@ impl MyCustomSerializer {
 }
 ```
 
-The VeloStream architecture makes it straightforward to plug in any serialization format while maintaining full SQL engine functionality and type safety.
+The Velostream architecture makes it straightforward to plug in any serialization format while maintaining full SQL engine functionality and type safety.

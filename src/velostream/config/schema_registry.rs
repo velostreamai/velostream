@@ -349,7 +349,7 @@ impl HierarchicalSchemaRegistry {
     /// Validate a global property
     fn validate_global_property(&self, key: &str, value: &str) -> ConfigValidationResult<()> {
         // Find appropriate global schema provider
-        for (_, provider) in &self.global_schemas {
+        for provider in self.global_schemas.values() {
             if let Err(validation_errors) = provider.validate_property(key, value) {
                 let errors = validation_errors
                     .into_iter()
@@ -437,29 +437,29 @@ impl HierarchicalSchemaRegistry {
     pub fn generate_complete_json_schema(&self) -> Value {
         let mut schema = serde_json::json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "VeloStream Configuration Schema",
-            "description": "Comprehensive schema for VeloStream configuration validation",
+            "title": "Velostream Configuration Schema",
+            "description": "Comprehensive schema for Velostream configuration validation",
             "type": "object",
             "properties": {},
             "definitions": {}
         });
 
         // Add global schemas
-        for (type_id, _) in &self.global_schemas {
+        for type_id in self.global_schemas.keys() {
             if let Ok(type_schema) = self.get_schema_for_type(type_id) {
                 schema["definitions"][type_id] = type_schema;
             }
         }
 
         // Add source schemas
-        for (type_id, _) in &self.source_schemas {
+        for type_id in self.source_schemas.keys() {
             if let Ok(type_schema) = self.get_schema_for_type(type_id) {
                 schema["definitions"][type_id] = type_schema;
             }
         }
 
         // Add sink schemas
-        for (type_id, _) in &self.sink_schemas {
+        for type_id in self.sink_schemas.keys() {
             if let Ok(type_schema) = self.get_schema_for_type(type_id) {
                 schema["definitions"][type_id] = type_schema;
             }
@@ -471,17 +471,17 @@ impl HierarchicalSchemaRegistry {
     /// Get JSON schema for a specific configuration type
     fn get_schema_for_type(&self, type_id: &str) -> Result<Value, String> {
         // Try global schemas first
-        if let Some(_) = self.global_schemas.get(type_id) {
+        if self.global_schemas.get(type_id).is_some() {
             return Ok(self.build_type_schema(type_id));
         }
 
         // Try source schemas
-        if let Some(_) = self.source_schemas.get(type_id) {
+        if self.source_schemas.get(type_id).is_some() {
             return Ok(self.build_type_schema(type_id));
         }
 
         // Try sink schemas
-        if let Some(_) = self.sink_schemas.get(type_id) {
+        if self.sink_schemas.get(type_id).is_some() {
             return Ok(self.build_type_schema(type_id));
         }
 
@@ -733,7 +733,7 @@ impl HierarchicalSchemaRegistry {
         // Check for properties that shouldn't be inherited
         let restricted_properties = ["extends", "version", "schema_version"];
 
-        for (property, _value) in &config_file.properties {
+        for property in config_file.properties.keys() {
             if restricted_properties.contains(&property.as_str())
                 && !config_file.extends_files.is_empty()
             {
@@ -881,12 +881,12 @@ impl HierarchicalSchemaRegistry {
 
         for (config_type, required_version) in config_schemas {
             // Check if we have a registered schema for this type
-            let current_version = if let Some(_) = self.global_schemas.get(config_type) {
+            let current_version = if self.global_schemas.get(config_type).is_some() {
                 // In a real implementation, get version from the provider
                 "2.0.0" // Current schema version
-            } else if let Some(_) = self.source_schemas.get(config_type) {
+            } else if self.source_schemas.get(config_type).is_some() {
                 "2.0.0"
-            } else if let Some(_) = self.sink_schemas.get(config_type) {
+            } else if self.sink_schemas.get(config_type).is_some() {
                 "2.0.0"
             } else {
                 errors.push(ConfigValidationError {
@@ -1169,7 +1169,7 @@ mod tests {
 
     #[test]
     fn test_property_validation() {
-        let provider = TestConfigProvider::default();
+        let provider = TestConfigProvider;
 
         // Valid property
         assert!(provider

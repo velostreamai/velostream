@@ -10,6 +10,7 @@ pub mod execution;
 // Legacy multi_job modules removed - functionality moved to src/velo/server/processors/
 pub mod parser;
 pub mod query_analyzer;
+pub mod validation;
 pub mod validator;
 
 // Re-export main API

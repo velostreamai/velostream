@@ -14,7 +14,7 @@
 -- Showcases event-time processing with watermarks for handling out-of-order market data
 -- Demonstrates late data detection and proper windowing based on trade execution time
 
-CREATE STREAM market_data_with_event_time AS
+CREATE STREAM market_data_ts AS
 SELECT 
     symbol,
     price,
@@ -34,7 +34,10 @@ WITH (
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
     
     'market_data_stream.type' = 'kafka_source',
-    'market_data_stream.config_file' = 'configs/market_data_source.yaml'
+    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+
+    'market_data_et.type' = 'kafka_sink',
+    'market_data_et.config_file' = 'configs/market_data_et_sink.yaml'
 );
 
 -- ====================================================================================
@@ -73,14 +76,14 @@ SELECT
     -- Detect significant movements
     CASE
         WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100) > 5.0 THEN 'SIGNIFICANT'
+                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 5.0 THEN 'SIGNIFICANT'
         WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100) > 2.0 THEN 'MODERATE'
+                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
     
     NOW() as detection_time
-FROM market_data_with_event_time
+FROM market_data_et
 -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 -- Phase 3: Complex HAVING clause with multiple conditions
@@ -101,6 +104,9 @@ WITH (
     
     'price_alerts_sink.type' = 'kafka_sink',
     'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml'
+
+    'market_data_et.type' = 'kafka_source',
+    'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
 );
 
 -- ====================================================================================
@@ -187,7 +193,7 @@ SELECT
     NOW() as detection_time
 FROM market_data_with_event_time
 -- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
-WINDOW SLIDING (event_time, INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
+WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
 -- Phase 3: Complex subquery in HAVING clause
 HAVING EXISTS (
     SELECT 1 FROM market_data_with_event_time m2 
@@ -327,8 +333,8 @@ FROM trading_positions_with_event_time p
 LEFT JOIN market_data_with_event_time m ON p.symbol = m.symbol
     AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND 
                          AND p.event_time + INTERVAL '30' SECOND
--- Phase 1B: Event-time windows with session semantics (trader-based sessions)
-WINDOW SESSION (p.event_time, INTERVAL '4' HOUR, p.trader_id)
+-- Phase 1B: Event-time windows with session semantics (4-hour session gap)
+WINDOW SESSION(4h)
 -- Phase 3: Complex HAVING with nested aggregations and subqueries
 HAVING (
     -- High-value positions

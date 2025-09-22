@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature request implements a complete end-to-end data processing pipeline that demonstrates VeloStream' capabilities for:
+This feature request implements a complete end-to-end data processing pipeline that demonstrates Velostream' capabilities for:
 1. Reading data from input files
 2. Processing with streaming SQL queries
 3. Writing intermediate results to Kafka topics
@@ -25,7 +25,7 @@ This feature request implements a complete end-to-end data processing pipeline t
 ## Architecture
 
 ```
-[Input Files] → [VeloStream SQL] → [Kafka Topics] → [VeloStream Consumer] → [Output Files]
+[Input Files] → [Velostream SQL] → [Kafka Topics] → [Velostream Consumer] → [Output Files]
 ```
 
 ## Implementation Plan & Progress Tracking
@@ -534,7 +534,7 @@ WITH (
 ```rust
 //! Complete File → Kafka → File Pipeline Demo
 //!
-//! This demo showcases VeloStream' end-to-end processing capabilities:
+//! This demo showcases Velostream' end-to-end processing capabilities:
 //! 1. Reading financial transaction data from CSV files
 //! 2. Processing with streaming SQL (aggregation + windowing)
 //! 3. Writing intermediate results to Kafka topics
@@ -565,7 +565,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
     
-    println!("🚀 VeloStream Complete Pipeline Demo");
+    println!("🚀 Velostream Complete Pipeline Demo");
     println!("==========================================");
     
     // Setup demo data
@@ -798,7 +798,7 @@ async fn display_results() -> Result<(), Box<dyn std::error::Error>> {
 
 **kafka.properties**:
 ```properties
-# Kafka Configuration for VeloStream Demo
+# Kafka Configuration for Velostream Demo
 bootstrap.servers=localhost:9092
 
 # Performance optimizations
@@ -901,4 +901,4 @@ services:
 - ✅ Docker-based demo environment
 - ✅ Performance benchmarks vs alternatives
 
-This feature request provides a comprehensive foundation for implementing a complete data processing pipeline that showcases VeloStream' capabilities while delivering real business value for users needing robust, high-performance streaming data solutions.
+This feature request provides a comprehensive foundation for implementing a complete data processing pipeline that showcases Velostream' capabilities while delivering real business value for users needing robust, high-performance streaming data solutions.

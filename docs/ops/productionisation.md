@@ -355,7 +355,7 @@ let config = ProducerConfig::new("broker:9092", "topic")
 
 ### Health Checks
 
-#### Using VeloStream CLI (Recommended)
+#### Using Velostream CLI (Recommended)
 For production environments, use the built-in CLI tool for comprehensive health monitoring:
 
 ```bash

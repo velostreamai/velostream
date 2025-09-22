@@ -1,6 +1,6 @@
-# 🛠️ VeloStream CLI Usage Guide
+# 🛠️ Velostream CLI Usage Guide
 
-The VeloStream CLI provides comprehensive monitoring and management for any VeloStream deployment, including stream processing, Kafka clusters, and SQL jobs.
+The Velostream CLI provides comprehensive monitoring and management for any Velostream deployment, including stream processing, Kafka clusters, and SQL jobs.
 
 ## 🚀 Quick Start
 
@@ -11,7 +11,7 @@ The VeloStream CLI provides comprehensive monitoring and management for any Velo
 # Quick health check of local components
 ./velo-cli health
 
-# Connect to remote VeloStream server
+# Connect to remote Velostream server
 ./velo-cli --remote --sql-host production.example.com --sql-port 8080 health
 ```
 
@@ -20,7 +20,7 @@ The VeloStream CLI provides comprehensive monitoring and management for any Velo
 ### **Connection Options**
 All commands support these global options:
 ```bash
---sql-host <HOST>          # VeloStream SQL server host (default: localhost)
+--sql-host <HOST>          # Velostream SQL server host (default: localhost)
 --sql-port <PORT>          # SQL server port (default: 8080)
 --kafka-brokers <BROKERS>  # Kafka broker addresses (default: localhost:9092)
 --remote                   # Remote mode - skip Docker/process checks
@@ -74,13 +74,13 @@ Quick overview of all component health status.
 # All containers
 ./velo-cli docker
 
-# Only VeloStream-related containers
+# Only Velostream-related containers
 ./velo-cli docker --velo-only
 ```
 
 ### **Process Monitoring**
 ```bash
-# VeloStream processes only
+# Velostream processes only
 ./velo-cli processes
 
 # All processes
@@ -211,7 +211,7 @@ Quick overview of all component health status.
 - **Kafka Cluster**: Connection status, topic count, and container info
 - **SQL Server**: Process status and PIDs
 - **SQL Jobs & Tasks**: Active job detection and Kafka topic monitoring
-- **VeloStream Processes**: Active/idle status
+- **Velostream Processes**: Active/idle status
 
 ### **Real-Time Monitoring**
 - Updates every N seconds (configurable with `--refresh`)

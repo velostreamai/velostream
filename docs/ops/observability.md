@@ -1,8 +1,8 @@
-# VeloStream Observability Guide
+# Velostream Observability Guide
 
 ## Overview
 
-VeloStream Phase 4 provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
+Velostream Phase 4 provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
 
 ## Architecture
 
@@ -63,7 +63,7 @@ docker-compose up -d
 Access:
 - **Grafana Dashboard**: http://localhost:3000 (admin/admin)
 - **Prometheus**: http://localhost:9090
-- **VeloStream Metrics**: http://localhost:9091/metrics
+- **Velostream Metrics**: http://localhost:9091/metrics
 
 ## Metrics Reference
 
@@ -253,7 +253,7 @@ metrics_provider.update_system_metrics(
 
 1. **Metrics Not Appearing**
    - Verify Prometheus is scraping correct endpoint
-   - Check VeloStream is exposing metrics on configured port
+   - Check Velostream is exposing metrics on configured port
    - Ensure firewall allows access to metrics endpoint
 
 2. **High Memory Usage**
@@ -326,4 +326,4 @@ For observability-related issues:
 3. Review logs in `profiling.output_directory`
 4. Use debug-level logging for detailed trace information
 
-The observability system is designed to be lightweight and minimally invasive while providing comprehensive insights into VeloStream performance and behavior.
+The observability system is designed to be lightweight and minimally invasive while providing comprehensive insights into Velostream performance and behavior.

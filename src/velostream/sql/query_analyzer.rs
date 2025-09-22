@@ -160,6 +160,9 @@ impl QueryAnalyzer {
                 // Recursively analyze the nested SELECT with context
                 let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
+
+                // ENHANCEMENT: Detect sinks defined in WITH clause
+                self.detect_sinks_from_config(&mut analysis)?;
             }
             StreamingQuery::CreateStreamInto {
                 as_select,
@@ -333,24 +336,105 @@ impl QueryAnalyzer {
         if let Some(config_file_path) = config.get(&config_file_key) {
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
-                    // Convert YAML config to properties map
+                    // Convert YAML config to properties map with proper nested flattening
                     if let Some(mapping) = yaml_config.config.as_mapping() {
                         for (key, value) in mapping {
-                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
-                            {
-                                properties.insert(key_str.to_string(), value_str.to_string());
-                            } else if let Some(key_str) = key.as_str() {
-                                // Handle non-string values (convert to string)
-                                let value_str = match value {
-                                    serde_yaml::Value::Number(n) => n.to_string(),
-                                    serde_yaml::Value::Bool(b) => b.to_string(),
-                                    serde_yaml::Value::Null => "null".to_string(),
-                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
-                                    serde_yaml::Value::String(s) => s.clone(),
-                                };
-                                properties.insert(key_str.to_string(), value_str);
+                            if let Some(key_str) = key.as_str() {
+                                match key_str {
+                                    "datasource" => {
+                                        // Handle nested datasource configuration with proper prefix
+                                        if let Some(datasource_map) = value.as_mapping() {
+                                            for (nested_key, nested_value) in datasource_map {
+                                                if let Some(nested_k) = nested_key.as_str() {
+                                                    if nested_k == "consumer_config" {
+                                                        // Flatten consumer_config with datasource prefix
+                                                        if let Some(consumer_map) =
+                                                            nested_value.as_mapping()
+                                                        {
+                                                            for (consumer_key, consumer_value) in
+                                                                consumer_map
+                                                            {
+                                                                if let (Some(ck), Some(cv)) = (
+                                                                    consumer_key.as_str(),
+                                                                    consumer_value.as_str(),
+                                                                ) {
+                                                                    // Create the full flattened path that validation expects
+                                                                    properties.insert(
+                                                                        format!(
+                                                                            "datasource.consumer_config.{}",
+                                                                            ck
+                                                                        ),
+                                                                        cv.to_string(),
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+                                                    } else if let Some(nv) = nested_value.as_str() {
+                                                        // Add datasource prefix for direct properties
+                                                        properties.insert(
+                                                            format!("datasource.{}", nested_k),
+                                                            nv.to_string(),
+                                                        );
+                                                    } else {
+                                                        // Handle non-string nested values with datasource prefix
+                                                        let value_str = match nested_value {
+                                                            serde_yaml::Value::Number(n) => {
+                                                                n.to_string()
+                                                            }
+                                                            serde_yaml::Value::Bool(b) => {
+                                                                b.to_string()
+                                                            }
+                                                            serde_yaml::Value::Null => {
+                                                                "null".to_string()
+                                                            }
+                                                            serde_yaml::Value::Sequence(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Mapping(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Tagged(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::String(s) => {
+                                                                s.clone()
+                                                            }
+                                                        };
+                                                        properties.insert(
+                                                            format!("datasource.{}", nested_k),
+                                                            value_str,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // Handle top-level keys
+                                        if let Some(value_str) = value.as_str() {
+                                            properties
+                                                .insert(key_str.to_string(), value_str.to_string());
+                                        } else {
+                                            // Handle non-string values (convert to string)
+                                            let value_str = match value {
+                                                serde_yaml::Value::Number(n) => n.to_string(),
+                                                serde_yaml::Value::Bool(b) => b.to_string(),
+                                                serde_yaml::Value::Null => "null".to_string(),
+                                                serde_yaml::Value::Sequence(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Mapping(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Tagged(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::String(s) => s.clone(),
+                                            };
+                                            properties.insert(key_str.to_string(), value_str);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -483,24 +567,105 @@ impl QueryAnalyzer {
         if let Some(config_file_path) = config.get(&config_file_key) {
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
-                    // Convert YAML config to properties map
+                    // Convert YAML config to properties map with proper nested flattening
                     if let Some(mapping) = yaml_config.config.as_mapping() {
                         for (key, value) in mapping {
-                            if let (Some(key_str), Some(value_str)) = (key.as_str(), value.as_str())
-                            {
-                                properties.insert(key_str.to_string(), value_str.to_string());
-                            } else if let Some(key_str) = key.as_str() {
-                                // Handle non-string values (convert to string)
-                                let value_str = match value {
-                                    serde_yaml::Value::Number(n) => n.to_string(),
-                                    serde_yaml::Value::Bool(b) => b.to_string(),
-                                    serde_yaml::Value::Null => "null".to_string(),
-                                    serde_yaml::Value::Sequence(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Mapping(_) => format!("{:?}", value),
-                                    serde_yaml::Value::Tagged(_) => format!("{:?}", value),
-                                    serde_yaml::Value::String(s) => s.clone(),
-                                };
-                                properties.insert(key_str.to_string(), value_str);
+                            if let Some(key_str) = key.as_str() {
+                                match key_str {
+                                    "datasink" => {
+                                        // Handle nested datasink configuration with proper prefix
+                                        if let Some(datasink_map) = value.as_mapping() {
+                                            for (nested_key, nested_value) in datasink_map {
+                                                if let Some(nested_k) = nested_key.as_str() {
+                                                    if nested_k == "producer_config" {
+                                                        // Flatten producer_config with datasink prefix
+                                                        if let Some(producer_map) =
+                                                            nested_value.as_mapping()
+                                                        {
+                                                            for (producer_key, producer_value) in
+                                                                producer_map
+                                                            {
+                                                                if let (Some(pk), Some(pv)) = (
+                                                                    producer_key.as_str(),
+                                                                    producer_value.as_str(),
+                                                                ) {
+                                                                    // Create the full flattened path that validation expects
+                                                                    properties.insert(
+                                                                        format!(
+                                                                            "datasink.producer_config.{}",
+                                                                            pk
+                                                                        ),
+                                                                        pv.to_string(),
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+                                                    } else if let Some(nv) = nested_value.as_str() {
+                                                        // Add datasink prefix for direct properties
+                                                        properties.insert(
+                                                            format!("datasink.{}", nested_k),
+                                                            nv.to_string(),
+                                                        );
+                                                    } else {
+                                                        // Handle non-string nested values with datasink prefix
+                                                        let value_str = match nested_value {
+                                                            serde_yaml::Value::Number(n) => {
+                                                                n.to_string()
+                                                            }
+                                                            serde_yaml::Value::Bool(b) => {
+                                                                b.to_string()
+                                                            }
+                                                            serde_yaml::Value::Null => {
+                                                                "null".to_string()
+                                                            }
+                                                            serde_yaml::Value::Sequence(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Mapping(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::Tagged(_) => {
+                                                                format!("{:?}", nested_value)
+                                                            }
+                                                            serde_yaml::Value::String(s) => {
+                                                                s.clone()
+                                                            }
+                                                        };
+                                                        properties.insert(
+                                                            format!("datasink.{}", nested_k),
+                                                            value_str,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // Handle top-level keys
+                                        if let Some(value_str) = value.as_str() {
+                                            properties
+                                                .insert(key_str.to_string(), value_str.to_string());
+                                        } else {
+                                            // Handle non-string values (convert to string)
+                                            let value_str = match value {
+                                                serde_yaml::Value::Number(n) => n.to_string(),
+                                                serde_yaml::Value::Bool(b) => b.to_string(),
+                                                serde_yaml::Value::Null => "null".to_string(),
+                                                serde_yaml::Value::Sequence(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Mapping(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::Tagged(_) => {
+                                                    format!("{:?}", value)
+                                                }
+                                                serde_yaml::Value::String(s) => s.clone(),
+                                            };
+                                            properties.insert(key_str.to_string(), value_str);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -922,5 +1087,135 @@ impl QueryAnalyzer {
                 })
             }
         }
+    }
+
+    /// Detect sink definitions from WITH clause configuration
+    /// Looks for patterns like '{name}.type' = '{type}_sink'
+    fn detect_sinks_from_config(&self, analysis: &mut QueryAnalysis) -> Result<(), SqlError> {
+        let config = &analysis.configuration.clone();
+
+        // Scan for sink type definitions
+        for (key, value) in config {
+            if key.ends_with(".type") && value.ends_with("_sink") {
+                // Extract sink name from key (remove .type suffix)
+                let sink_name = key.strip_suffix(".type").unwrap();
+
+                // Extract sink type
+                let sink_type_str = value.as_str();
+                let sink_type = match sink_type_str {
+                    "kafka_sink" => DataSinkType::Kafka,
+                    "file_sink" => DataSinkType::File,
+                    "s3_sink" => DataSinkType::S3,
+                    "database_sink" => DataSinkType::Database,
+                    "iceberg_sink" => DataSinkType::Iceberg,
+                    other => {
+                        log::warn!("Unknown sink type: {}", other);
+                        DataSinkType::Generic(other.to_string())
+                    }
+                };
+
+                // Extract sink-specific properties
+                let sink_prefix = format!("{}.", sink_name);
+                let mut properties: HashMap<String, String> = config
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        if k.starts_with(&sink_prefix) {
+                            // Remove the sink name prefix
+                            let key_without_prefix = k.strip_prefix(&sink_prefix).unwrap();
+                            Some((key_without_prefix.to_string(), v.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Check if there's a config_file to load
+                if let Some(config_file) = properties.get("config_file") {
+                    // Load and merge YAML configuration
+                    match super::config::yaml_loader::load_yaml_config(config_file) {
+                        Ok(yaml_config) => {
+                            // Convert YAML to debug string format (same as source logic)
+                            // This maintains compatibility with existing serialization detection
+                            if let Some(schema) = yaml_config.config.get("schema") {
+                                properties.insert("schema".to_string(), format!("{:?}", schema));
+                            }
+                            if let Some(topic) = yaml_config.config.get("topic") {
+                                properties.insert("topic".to_string(), format!("{:?}", topic));
+                            }
+                            // Flatten nested YAML structure for sink configs
+                            if let Some(mapping) = yaml_config.config.as_mapping() {
+                                for (key, value) in mapping {
+                                    if let Some(k) = key.as_str() {
+                                        match k {
+                                            "datasink" => {
+                                                // Handle nested datasink configuration
+                                                if let Some(datasink_map) = value.as_mapping() {
+                                                    for (nested_key, nested_value) in datasink_map {
+                                                        if let Some(nested_k) = nested_key.as_str()
+                                                        {
+                                                            if nested_k == "producer_config" {
+                                                                // Flatten producer_config
+                                                                if let Some(producer_map) =
+                                                                    nested_value.as_mapping()
+                                                                {
+                                                                    for (prod_key, prod_value) in
+                                                                        producer_map
+                                                                    {
+                                                                        if let (
+                                                                            Some(pk),
+                                                                            Some(pv),
+                                                                        ) = (
+                                                                            prod_key.as_str(),
+                                                                            prod_value.as_str(),
+                                                                        ) {
+                                                                            properties.insert(format!("datasink.producer_config.{}", pk), pv.to_string());
+                                                                        }
+                                                                    }
+                                                                }
+                                                            } else if let Some(nv) =
+                                                                nested_value.as_str()
+                                                            {
+                                                                properties
+                                                                    .entry(nested_k.to_string())
+                                                                    .or_insert(nv.to_string());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                // Handle direct string values
+                                                if let Some(v) = value.as_str() {
+                                                    properties
+                                                        .entry(k.to_string())
+                                                        .or_insert(v.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to load sink config file '{}': {}", config_file, e);
+                        }
+                    }
+                }
+
+                // Create sink requirement
+                let sink_req = DataSinkRequirement {
+                    name: sink_name.to_string(),
+                    sink_type,
+                    properties,
+                };
+
+                // Add to analysis if not already present
+                if !analysis.required_sinks.iter().any(|s| s.name == sink_name) {
+                    analysis.required_sinks.push(sink_req);
+                }
+            }
+        }
+
+        Ok(())
     }
 }

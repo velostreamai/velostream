@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::{interval, sleep};
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
+use velostream::velostream::kafka::ktable::KTable;
 use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
 use velostream::velostream::kafka::serialization::JsonSerializer;
-use velostream::{Headers, KTable, KafkaConsumer, KafkaProducer};
+use velostream::{Headers, KafkaConsumer, KafkaProducer};
 
 /// User profile stored in the KTable
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

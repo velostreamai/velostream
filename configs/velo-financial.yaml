@@ -1,4 +1,4 @@
-# VeloStream Financial Precision Configuration
+# Velostream Financial Precision Configuration
 # Optimized for exact decimal arithmetic and financial compliance
 
 kafka:
@@ -10,21 +10,21 @@ kafka:
   # Reliability-focused settings for financial data
   acks: "all"                  # Full acknowledgments for data integrity
   retries: 3                   # Retry failed sends
-  batch_size: 16384            # 16KB batches (balanced)
-  linger_ms: 10                # Small batching window
+  batch.size: 16384            # 16KB batches (balanced)
+  linger.ms: 10                # Small batching window
   buffer_memory: 67108864      # 64MB buffer
-  compression_type: "gzip"     # Good compression for storage
+  compression.type: "gzip"     # Good compression for storage
   enable_idempotence: true     # Exactly-once semantics
   max_in_flight_requests_per_connection: 1  # Strict ordering
   
   # Reliable consumer settings
-  fetch_min_bytes: 1024        # 1KB minimum fetch
-  fetch_max_wait_ms: 100       # 100ms wait for batching
-  max_poll_records: 500        # Moderate batch sizes
-  session_timeout_ms: 30000    # Stable timeouts
-  heartbeat_interval_ms: 10000
-  auto_offset_reset: "earliest"  # Process all financial data
-  enable_auto_commit: false    # Manual commit for control
+  fetch.min.bytes: 1024        # 1KB minimum fetch
+  fetch.max.wait.ms: 100       # 100ms wait for batching
+  max.poll.records: 500        # Moderate batch sizes
+  session.timeout.ms: 30000    # Stable timeouts
+  heartbeat.interval.ms: 10000
+  auto.offset.reset: "earliest"  # Process all financial data
+  enable.auto.commit: false    # Manual commit for control
 
 server:
   port: 8080
@@ -66,8 +66,8 @@ jobs:
   job_audit_enabled: true     # Audit all job operations
 
 performance:
-  buffer_size: 1000            # Balanced buffer size
-  batch_size: 100              # Conservative batch size
+  buffer.size: 1000            # Balanced buffer size
+  batch.size: 100              # Conservative batch size
   flush_interval_ms: 50        # Regular flushes for reliability
   enable_compression: true     # Compress financial data
   enable_checksums: true      # Validate data integrity

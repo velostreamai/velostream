@@ -1,7 +1,7 @@
-//! Performance Test Suite for VeloStream
+//! Performance Test Suite for Velostream
 //!
 //! This module contains comprehensive performance benchmarks organized by test hierarchy:
-//! - `unit/`: Component-specific benchmarks for individual VeloStream components
+//! - `unit/`: Component-specific benchmarks for individual Velostream components
 //! - `integration/`: End-to-end benchmarks testing multiple components together
 //! - `load/`: High-throughput and stress testing for extreme conditions
 //!

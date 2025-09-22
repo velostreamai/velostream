@@ -2,7 +2,7 @@
 
 ## Overview
 
-VeloStream will support six core data sources as first-class citizens:
+Velostream will support six core data sources as first-class citizens:
 
 1. **PostgreSQL** - Relational database with CDC capabilities
 2. **S3** - Object storage for data lake architectures  

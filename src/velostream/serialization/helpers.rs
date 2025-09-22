@@ -1,6 +1,6 @@
 //! Helper functions for serialization conversions
 
-use super::{AvroCodec, FieldValue, ProtobufCodec, SerializationError};
+use super::{FieldValue, ProtobufCodec, SerializationError};
 use std::collections::HashMap;
 
 // JSON conversion helpers

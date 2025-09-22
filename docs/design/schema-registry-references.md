@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implementing comprehensive Schema Registry integration for VeloStream with full support for schema references, dependency resolution, and enterprise-scale schema evolution patterns.
+Implementing comprehensive Schema Registry integration for Velostream with full support for schema references, dependency resolution, and enterprise-scale schema evolution patterns.
 
 ## Architecture Design
 

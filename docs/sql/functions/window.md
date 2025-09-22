@@ -1,6 +1,6 @@
 # Window Functions
 
-Complete reference for window functions in VeloStream. These functions perform calculations across rows related to the current row using OVER clauses, essential for ranking, running totals, and comparative analysis.
+Complete reference for window functions in Velostream. These functions perform calculations across rows related to the current row using OVER clauses, essential for ranking, running totals, and comparative analysis.
 
 ## Ranking Functions
 
@@ -42,6 +42,74 @@ SELECT
     sales_amount,
     RANK() OVER (PARTITION BY category ORDER BY sales_amount DESC) as category_rank
 FROM product_sales;
+```
+
+## TOP-N Analysis with RANK Functions
+
+### Basic TOP-N Patterns
+
+```sql
+-- Top 3 customers by spending (using RANK)
+SELECT *
+FROM (
+    SELECT
+        customer_id,
+        customer_name,
+        total_spent,
+        RANK() OVER (ORDER BY total_spent DESC) as spending_rank
+    FROM customer_totals
+) ranked
+WHERE spending_rank <= 3;
+
+-- Top 5 products per category (using ROW_NUMBER for exact count)
+SELECT *
+FROM (
+    SELECT
+        product_id,
+        category,
+        sales_amount,
+        ROW_NUMBER() OVER (PARTITION BY category ORDER BY sales_amount DESC) as category_rank
+    FROM product_sales
+) ranked
+WHERE category_rank <= 5;
+
+-- Top 10% of performers (using PERCENT_RANK)
+SELECT
+    employee_id,
+    performance_score,
+    PERCENT_RANK() OVER (ORDER BY performance_score DESC) as percentile_rank
+FROM employee_reviews
+WHERE PERCENT_RANK() OVER (ORDER BY performance_score DESC) <= 0.1;  -- Top 10%
+```
+
+### Advanced TOP-N with Conditions
+
+```sql
+-- Top 3 most recent high-value orders per customer
+SELECT *
+FROM (
+    SELECT
+        customer_id,
+        order_date,
+        order_amount,
+        ROW_NUMBER() OVER (
+            PARTITION BY customer_id
+            ORDER BY order_date DESC
+        ) as recency_rank
+    FROM orders
+    WHERE order_amount > 1000  -- High-value orders only
+) ranked
+WHERE recency_rank <= 3;
+
+-- Top performers by quarter with ties handling
+SELECT
+    quarter,
+    employee_id,
+    sales_total,
+    RANK() OVER (PARTITION BY quarter ORDER BY sales_total DESC) as quarterly_rank,
+    DENSE_RANK() OVER (PARTITION BY quarter ORDER BY sales_total DESC) as dense_rank
+FROM quarterly_sales
+WHERE RANK() OVER (PARTITION BY quarter ORDER BY sales_total DESC) <= 5;
 ```
 
 ### DENSE_RANK() - Ranking without Gaps
@@ -263,8 +331,12 @@ FROM orders;
 
 ### RANGE BETWEEN - Value-Based Boundaries
 
+** Supports both numeric and time-based RANGE frames:**
+- **Numeric ranges**: `RANGE BETWEEN 100 PRECEDING AND CURRENT ROW`
+- **Time-based INTERVAL ranges**: `RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW`
+
 ```sql
--- Time-based ranges
+-- Time-based ranges with traditional syntax
 SELECT
     order_date,
     amount,
@@ -272,6 +344,57 @@ SELECT
         ORDER BY order_date
         RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) as orders_up_to_date,
+
+-- NEW: Time-based INTERVAL ranges for precise temporal windows
+SELECT
+    trade_timestamp,
+    price,
+    symbol,
+    -- Moving average over last hour of trades
+    AVG(price) OVER (
+        PARTITION BY symbol
+        ORDER BY trade_timestamp
+        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+    ) as hourly_moving_avg,
+    -- Count of trades in last 5 minutes
+    COUNT(*) OVER (
+        PARTITION BY symbol
+        ORDER BY trade_timestamp
+        RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+    ) as trades_last_5min,
+    -- Standard deviation over last day
+    STDDEV(price) OVER (
+        PARTITION BY symbol
+        ORDER BY trade_timestamp
+        RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
+    ) as daily_volatility
+FROM financial_trades;
+
+-- Advanced: Table aliases in window PARTITION BY (NEW FEATURE)
+SELECT
+    p.trader_id,
+    m.symbol,
+    m.event_time,
+    m.price,
+    -- Use table aliases in PARTITION BY for multi-table windows
+    LAG(m.price, 1) OVER (
+        PARTITION BY p.trader_id, m.symbol
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
+    ) as prev_price,
+    -- Rolling volume over last 15 minutes
+    SUM(m.volume) OVER (
+        PARTITION BY p.trader_id
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '15' MINUTE PRECEDING AND CURRENT ROW
+    ) as rolling_volume_15min
+FROM market_data m
+JOIN positions p ON m.symbol = p.symbol;
+
+-- Numeric ranges (traditional)
+SELECT
+    order_date,
+    amount,
     SUM(amount) OVER (
         ORDER BY order_date
         RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING

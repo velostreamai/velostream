@@ -490,6 +490,7 @@ pub enum WindowSpec {
     /// Session window with inactivity gap
     Session {
         gap: Duration,
+        time_column: Option<String>,
         partition_by: Vec<String>,
     },
 }
@@ -545,6 +546,16 @@ pub enum FrameBound {
     CurrentRow,
     Following(u64),
     UnboundedFollowing,
+    /// Interval-based frame bounds: INTERVAL '1' DAY PRECEDING
+    IntervalPreceding {
+        value: i64,
+        unit: TimeUnit,
+    },
+    /// Interval-based frame bounds: INTERVAL '1' DAY FOLLOWING
+    IntervalFollowing {
+        value: i64,
+        unit: TimeUnit,
+    },
 }
 
 /// SQL expressions for WHERE clauses and computations

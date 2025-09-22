@@ -2,11 +2,14 @@ use clap::{Parser, Subcommand};
 use log::{error, info};
 use std::fs;
 use std::time::Duration;
-use velostream::velostream::{server::StreamJobServer, sql::app_parser::SqlApplicationParser};
+use velostream::velostream::{
+    server::stream_job_server::StreamJobServer,
+    sql::{app_parser::SqlApplicationParser, validator::SqlValidator},
+};
 
 #[derive(Parser)]
 #[command(name = "velo-sql-multi")]
-#[command(about = "VeloStream StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
+#[command(about = "Velostream StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
 #[command(version = "1.0.0")]
 struct Cli {
     #[command(subcommand)]
@@ -65,7 +68,7 @@ enum Commands {
     },
 }
 
-// VeloStream StreamJobServer - Execute multiple streaming SQL jobs concurrently
+// Velostream StreamJobServer - Execute multiple streaming SQL jobs concurrently
 
 async fn start_stream_job_server(
     brokers: String,
@@ -75,7 +78,7 @@ async fn start_stream_job_server(
     enable_metrics: bool,
     metrics_port: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting VeloStream StreamJobServer on port {}", port);
+    info!("Starting Velostream StreamJobServer on port {}", port);
     info!("Max concurrent jobs: {}", max_jobs);
 
     let server = StreamJobServer::new_with_monitoring(
@@ -330,6 +333,100 @@ async fn deploy_sql_application_from_file(
         e
     })?;
     println!("Successfully read {} bytes from file", content.len());
+
+    // Validate SQL before deployment using SqlValidator
+    println!("Validating SQL application...");
+    let validator = SqlValidator::new();
+    let validation_result = validator.validate_application(std::path::Path::new(&file_path));
+
+    if !validation_result.is_valid {
+        let mut error_msg = String::from("❌ SQL validation failed!\n");
+
+        if let Some(app_name) = &validation_result.application_name {
+            error_msg.push_str(&format!("📦 Application: {}\n", app_name));
+        }
+
+        error_msg.push_str(&format!(
+            "📊 Queries: {} total, {} valid, {} failed\n",
+            validation_result.total_queries,
+            validation_result.valid_queries,
+            validation_result.total_queries - validation_result.valid_queries
+        ));
+
+        if !validation_result.global_errors.is_empty() {
+            error_msg.push_str("\n🚨 Global Errors:\n");
+            for error in &validation_result.global_errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+        }
+
+        // Show query-specific errors
+        for (idx, query_result) in validation_result.query_results.iter().enumerate() {
+            if !query_result.is_valid {
+                error_msg.push_str(&format!(
+                    "\n❌ Query #{} (Line {}):\n",
+                    idx + 1,
+                    query_result.start_line
+                ));
+
+                if !query_result.parsing_errors.is_empty() {
+                    error_msg.push_str("  📝 Parsing Errors:\n");
+                    for error in &query_result.parsing_errors {
+                        error_msg.push_str(&format!("    • {}\n", error.message));
+                    }
+                }
+
+                if !query_result.configuration_errors.is_empty() {
+                    error_msg.push_str("  ⚙️ Configuration Errors:\n");
+                    for error in &query_result.configuration_errors {
+                        error_msg.push_str(&format!("    • {}\n", error));
+                    }
+                }
+
+                if !query_result.missing_source_configs.is_empty() {
+                    error_msg.push_str("  📥 Missing Source Configs:\n");
+                    for config in &query_result.missing_source_configs {
+                        error_msg.push_str(&format!(
+                            "    • {}: {}\n",
+                            config.name,
+                            config.missing_keys.join(", ")
+                        ));
+                    }
+                }
+
+                if !query_result.missing_sink_configs.is_empty() {
+                    error_msg.push_str("  📤 Missing Sink Configs:\n");
+                    for config in &query_result.missing_sink_configs {
+                        error_msg.push_str(&format!(
+                            "    • {}: {}\n",
+                            config.name,
+                            config.missing_keys.join(", ")
+                        ));
+                    }
+                }
+            }
+        }
+
+        if !validation_result.recommendations.is_empty() {
+            error_msg.push_str("\n💡 Recommendations:\n");
+            for rec in &validation_result.recommendations {
+                error_msg.push_str(&format!("  • {}\n", rec));
+            }
+        }
+
+        println!("{}", error_msg);
+        eprintln!("{}", error_msg);
+        return Err("SQL validation failed. Please fix the errors above before deployment.".into());
+    }
+
+    println!("✅ SQL validation passed!");
+    if let Some(app_name) = &validation_result.application_name {
+        println!("📦 Application: {}", app_name);
+    }
+    println!(
+        "📊 {} queries validated successfully",
+        validation_result.total_queries
+    );
 
     // Parse the SQL application
     println!("Parsing SQL application...");

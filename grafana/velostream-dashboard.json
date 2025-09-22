@@ -12,7 +12,7 @@
       }
     ]
   },
-  "description": "VeloStream SQL Engine monitoring dashboard with comprehensive metrics for SQL queries, streaming operations, and system resources",
+  "description": "Velostream SQL Engine monitoring dashboard with comprehensive metrics for SQL queries, streaming operations, and system resources",
   "editable": true,
   "gnetId": null,
   "graphTooltip": 0,
@@ -876,7 +876,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "VeloStream SQL Engine Monitoring",
+  "title": "Velostream SQL Engine Monitoring",
   "uid": "velo-streams-main",
   "version": 1
 }

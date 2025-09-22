@@ -271,7 +271,7 @@ async fn test_create_table_into_syntax() -> Result<(), Box<dyn std::error::Error
         GROUP BY customer_id
         WITH (
             "compaction" = "true",
-            "retention_ms" = "86400000"
+            "retention.ms" = "86400000"
         )
     "#;
 
@@ -289,7 +289,7 @@ async fn test_create_table_into_syntax() -> Result<(), Box<dyn std::error::Error
             assert_eq!(name, "legacy_table");
             assert_eq!(properties.get("compaction"), Some(&"true".to_string()));
             assert_eq!(
-                properties.get("retention_ms"),
+                properties.get("retention.ms"),
                 Some(&"86400000".to_string())
             );
         }
@@ -313,7 +313,7 @@ async fn test_backward_compatibility() -> Result<(), Box<dyn std::error::Error>>
         SELECT id, name FROM orders 
         WITH (
             "topic" = "processed_orders",
-            "replication_factor" = "3"
+            "replication.factor" = "3"
         )
     "#;
 
@@ -334,7 +334,7 @@ async fn test_backward_compatibility() -> Result<(), Box<dyn std::error::Error>>
                 properties.get("topic"),
                 Some(&"processed_orders".to_string())
             );
-            assert_eq!(properties.get("replication_factor"), Some(&"3".to_string()));
+            assert_eq!(properties.get("replication.factor"), Some(&"3".to_string()));
         }
         other => {
             panic!("Expected CreateStream, got: {:?}", other);

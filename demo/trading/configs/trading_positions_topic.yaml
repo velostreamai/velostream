@@ -8,23 +8,23 @@ topic:
   name: "trading_positions"
   
 # Consumer group for risk monitoring
-consumer_group: "risk_monitoring_group"
+consumer.group: "risk_monitoring_group"
 
 # Performance profile
 performance_profile: balanced
 
 # Topic-specific schema
 schema:
-  key_field: trader_id
+  key.field: trader_id
   schema_file: "schemas/trading_positions.avsc"
   
 # Topic properties
 topic_config:
   partitions: 8  # Moderate parallelism
-  retention_ms: 604800000  # 7 days retention for positions
+  retention.ms: 604800000  # 7 days retention for positions
   
 # Business context
 metadata:
   description: "Real-time trading positions for risk analysis"
-  data_classification: "sensitive_financial"
-  update_frequency: "seconds"
+  data.classification: "sensitive_financial"
+  update.frequency: "seconds"

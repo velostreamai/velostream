@@ -7,56 +7,56 @@ datasink:
   
   # Standard producer configuration
   producer_config:
-    bootstrap_servers: "broker:9092"
+    bootstrap.servers: "broker:9092"
     retries: 3
-    batch_size: 16384
+    batch.size: 16384
     buffer_memory: 33554432
     max_in_flight_requests_per_connection: 5
     
   # Common schema settings
   schema:
-    key_format: string
-    value_format: avro
-    schema_registry_url: "http://schema-registry:8081"
+    key.format: string
+    value.format: avro
+    schema.registry.url: "http://schema-registry:8081"
     
   # Default topic properties
   topic_config:
-    replication_factor: 3
-    cleanup_policy: "delete"
+    replication.factor: 3
+    cleanup.policy: "delete"
     segment_ms: 3600000  # 1 hour segments
     
   # Default headers for all messages
   headers:
-    source_system: "velo_streams"
+    source_system: "velo_stream"
     compliance: "FR-047"
     
 # Delivery profiles for different alert types
 delivery_profiles:
   critical:
     acks: "all"
-    linger_ms: 0
-    compression_type: "lz4"
+    linger.ms: 0
+    compression.type: "lz4"
     max_in_flight_requests_per_connection: 1
     delivery_guarantee: "exactly_once"
     timeout_ms: 3000
     
   high_priority:
     acks: "1"
-    linger_ms: 1
-    compression_type: "lz4"
+    linger.ms: 1
+    compression.type: "lz4"
     delivery_guarantee: "at_least_once"
     timeout_ms: 5000
     
   medium_priority:
     acks: "1"
-    linger_ms: 5
-    compression_type: "snappy"
+    linger.ms: 5
+    compression.type: "snappy"
     delivery_guarantee: "at_least_once"
     timeout_ms: 8000
     
   balanced:
     acks: "1"
-    linger_ms: 10
-    compression_type: "gzip"
+    linger.ms: 10
+    compression.type: "gzip"
     delivery_guarantee: "at_least_once"
     timeout_ms: 10000

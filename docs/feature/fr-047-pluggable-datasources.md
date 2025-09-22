@@ -2,11 +2,11 @@
 
 ## 🎯 Summary
 
-Enable VeloStream SQL engine to work with multiple data sources beyond Kafka, including files (JSON/Parquet/CSV), cloud storage (S3/GCS/Azure), table formats (Iceberg/Delta Lake), and database CDC streams.
+Enable Velostream SQL engine to work with multiple data sources beyond Kafka, including files (JSON/Parquet/CSV), cloud storage (S3/GCS/Azure), table formats (Iceberg/Delta Lake), and database CDC streams.
 
 ## Problem Statement
 
-Currently, VeloStream is tightly coupled to Kafka as its only data source. Modern data architectures require:
+Currently, Velostream is tightly coupled to Kafka as its only data source. Modern data architectures require:
 - Processing data from data lakes (S3, GCS, Azure Blob)
 - Working with table formats (Apache Iceberg, Delta Lake, Hudi)
 - File-based batch processing (JSON, Parquet, CSV)
@@ -206,7 +206,7 @@ data_sources:
 
 ### Configuration Inheritance with `extends`
 
-VeloStream supports DRY configuration management through the `extends` keyword, enabling configuration inheritance and reducing duplication.
+Velostream supports DRY configuration management through the `extends` keyword, enabling configuration inheritance and reducing duplication.
 
 #### Base Configuration Files
 
@@ -225,7 +225,7 @@ datasource:
     key_format: string
     value_format: avro
     schema_registry_url: "http://schema-registry:8081"
-  stream_config:
+  stream.config:
     replication_factor: 3
     cleanup_policy: "delete"
 
@@ -289,7 +289,7 @@ topic:
   name: "market_data"
 performance_profile: ultra_low_latency
 schema:
-  key_field: symbol
+  key.field: symbol
   schema_file: "schemas/market_data.avsc"
 topic_config:
   partitions: 12
@@ -307,7 +307,7 @@ topic:
   name: "risk_alerts"
 delivery_profile: critical
 schema:
-  key_field: trader_id
+  key.field: trader_id
   schema_file: "schemas/risk_alerts.avsc"
 topic_config:
   partitions: 8
@@ -427,4 +427,4 @@ SELECT * FROM 'kafka://localhost:9092/orders' WHERE amount > 100;
 
 ---
 
-This feature would position VeloStream as a universal SQL streaming engine, enabling it to process data from any source to any destination. Looking forward to community feedback and contributions!
+This feature would position Velostream as a universal SQL streaming engine, enabling it to process data from any source to any destination. Looking forward to community feedback and contributions!

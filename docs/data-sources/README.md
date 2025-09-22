@@ -1,6 +1,6 @@
 # Data Sources Documentation
 
-This directory contains all documentation related to the pluggable data sources architecture for VeloStream.
+This directory contains all documentation related to the pluggable data sources architecture for Velostream.
 
 ## 📚 Documentation Structure
 
@@ -59,7 +59,7 @@ This directory contains all documentation related to the pluggable data sources 
 
 ## 🏗️ Architecture Overview
 
-The pluggable data sources architecture enables VeloStream to:
+The pluggable data sources architecture enables Velostream to:
 - **Core Data Sources**: PostgreSQL, S3, File, Iceberg, ClickHouse, and Kafka
 - **Heterogeneous data flow**: Read from one source, write to another
 - **Single Binary, Scale Out**: K8s native autoscaling with horizontal pod scaling
@@ -68,7 +68,7 @@ The pluggable data sources architecture enables VeloStream to:
 
 ### Single Binary, Scale Out Model
 
-VeloStream is designed as a **single binary** that can **scale out horizontally** using Kubernetes native autoscaling:
+Velostream is designed as a **single binary** that can **scale out horizontally** using Kubernetes native autoscaling:
 
 - **📦 Single Binary**: One executable handles all data source types (Kafka, ClickHouse, PostgreSQL, S3, etc.)
 - **⚡ K8s Native Autoscaling**: Automatic horizontal pod scaling based on CPU, memory, or custom metrics

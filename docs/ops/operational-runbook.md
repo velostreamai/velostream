@@ -1,8 +1,8 @@
-# VeloStream Operational Runbook
+# Velostream Operational Runbook
 
 ## Overview
 
-This runbook provides operational procedures for managing VeloStream in production, covering monitoring, troubleshooting, maintenance, and emergency response procedures for both legacy and enhanced streaming modes.
+This runbook provides operational procedures for managing Velostream in production, covering monitoring, troubleshooting, maintenance, and emergency response procedures for both legacy and enhanced streaming modes.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ This runbook provides operational procedures for managing VeloStream in producti
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Data Sources  │───▶│ VeloStream   │───▶│   Data Sinks    │
+│   Data Sources  │───▶│ Velostream   │───▶│   Data Sinks    │
 │                 │    │  Engine         │    │                 │
 │ • Kafka Topics  │    │                 │    │ • Kafka Topics  │
 │ • REST APIs     │    │ ┌─────────────┐ │    │ • Databases     │
@@ -107,7 +107,7 @@ velo_streams_query_results_produced_total
   labels:
     severity: critical
   annotations:
-    summary: "VeloStream circuit breaker is open"
+    summary: "Velostream circuit breaker is open"
     description: "Circuit breaker {{ $labels.name }} has been open for {{ $value }} seconds"
     runbook: "https://docs.company.com/velostream/runbook#circuit-breaker-open"
 
@@ -118,7 +118,7 @@ velo_streams_query_results_produced_total
   labels:
     severity: critical
   annotations:
-    summary: "VeloStream memory usage critical"
+    summary: "Velostream memory usage critical"
     description: "Memory utilization is {{ $value }}% (>95%)"
     runbook: "https://docs.company.com/velostream/runbook#memory-exhausted"
 
@@ -129,7 +129,7 @@ velo_streams_query_results_produced_total
   labels:
     severity: critical
   annotations:
-    summary: "VeloStream processing has stopped"
+    summary: "Velostream processing has stopped"
     description: "No records processed in the last 5 minutes"
     runbook: "https://docs.company.com/velostream/runbook#processing-stopped"
 ```
@@ -144,7 +144,7 @@ velo_streams_query_results_produced_total
   labels:
     severity: warning
   annotations:
-    summary: "High error rate in VeloStream"
+    summary: "High error rate in Velostream"
     description: "Error rate is {{ $value }} errors/second (>10/sec)"
 
 # High Latency
@@ -227,7 +227,7 @@ async fn readiness_check() -> Result<impl warp::Reply, warp::Rejection> {
 #!/bin/bash
 # health_check.sh - Manual health verification script
 
-echo "=== VeloStream Health Check ==="
+echo "=== Velostream Health Check ==="
 
 # 1. Check service is running
 echo "1. Checking service status..."
@@ -531,7 +531,7 @@ kafka:
 #!/bin/bash
 # performance_monitor.sh - Continuous performance monitoring
 
-echo "Starting VeloStream performance monitoring..."
+echo "Starting Velostream performance monitoring..."
 
 while true; do
     echo "=== $(date) ==="
@@ -563,7 +563,7 @@ done
 #!/bin/bash
 # emergency_stop.sh - Emergency service shutdown
 
-echo "EMERGENCY STOP - VeloStream"
+echo "EMERGENCY STOP - Velostream"
 echo "Timestamp: $(date)"
 
 # 1. Stop accepting new requests
@@ -586,7 +586,7 @@ echo "Emergency stop complete"
 #!/bin/bash
 # emergency_recovery.sh - Emergency service recovery
 
-echo "EMERGENCY RECOVERY - VeloStream"
+echo "EMERGENCY RECOVERY - Velostream"
 echo "Timestamp: $(date)"
 
 # 1. Verify system resources
@@ -713,7 +713,7 @@ echo "Failover complete"
 #!/bin/bash
 # weekly_maintenance.sh - Weekly maintenance tasks
 
-echo "=== Weekly VeloStream Maintenance ==="
+echo "=== Weekly Velostream Maintenance ==="
 echo "Date: $(date)"
 
 # 1. Log rotation
@@ -744,7 +744,7 @@ echo "Weekly maintenance complete"
 #!/bin/bash
 # monthly_maintenance.sh - Monthly maintenance tasks
 
-echo "=== Monthly VeloStream Maintenance ==="
+echo "=== Monthly Velostream Maintenance ==="
 
 # 1. Configuration backup
 echo "1. Backing up configuration..."
@@ -832,7 +832,7 @@ echo "✅ Configuration deployed successfully"
 #### Scale Out Procedure
 ```bash
 #!/bin/bash
-# scale_out.sh - Add new VeloStream instances
+# scale_out.sh - Add new Velostream instances
 
 NEW_INSTANCES=$1
 if [ -z "$NEW_INSTANCES" ]; then
@@ -867,7 +867,7 @@ echo "Scale out complete"
 #### Scale In Procedure
 ```bash
 #!/bin/bash
-# scale_in.sh - Remove VeloStream instances
+# scale_in.sh - Remove Velostream instances
 
 INSTANCES_TO_REMOVE=$1
 if [ -z "$INSTANCES_TO_REMOVE" ]; then
@@ -959,12 +959,12 @@ echo "Resource limits adjusted"
 #### Configuration Backup
 ```bash
 #!/bin/bash
-# backup_config.sh - Backup VeloStream configuration
+# backup_config.sh - Backup Velostream configuration
 
 BACKUP_DIR="/backup/velostream/$(date +%Y/%m/%d)"
 mkdir -p "$BACKUP_DIR"
 
-echo "Backing up VeloStream configuration to $BACKUP_DIR"
+echo "Backing up Velostream configuration to $BACKUP_DIR"
 
 # 1. Application configuration
 echo "1. Backing up application configuration..."
@@ -998,7 +998,7 @@ echo "Backup complete: $BACKUP_DIR"
 #### State Recovery
 ```bash
 #!/bin/bash
-# restore_state.sh - Restore VeloStream from backup
+# restore_state.sh - Restore Velostream from backup
 
 BACKUP_DIR=$1
 if [ -z "$BACKUP_DIR" ]; then
@@ -1006,7 +1006,7 @@ if [ -z "$BACKUP_DIR" ]; then
     exit 1
 fi
 
-echo "Restoring VeloStream from backup: $BACKUP_DIR"
+echo "Restoring Velostream from backup: $BACKUP_DIR"
 
 # 1. Stop service
 echo "1. Stopping service..."
@@ -1038,4 +1038,4 @@ done
 echo "State restoration complete"
 ```
 
-This operational runbook provides comprehensive procedures for managing VeloStream in production environments, covering all aspects from routine monitoring to emergency recovery procedures.
+This operational runbook provides comprehensive procedures for managing Velostream in production environments, covering all aspects from routine monitoring to emergency recovery procedures.

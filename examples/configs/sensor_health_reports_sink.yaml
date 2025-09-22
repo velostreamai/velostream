@@ -10,9 +10,9 @@ delivery_profile: medium_priority
 
 topic_config:
   partitions: 4
-  retention_ms: 7776000000  # 90 days retention for health trending
+  retention.ms: 7776000000  # 90 days retention for health trending
   
 metadata:
   description: "Sensor health monitoring reports"
-  data_classification: "operational_data"
+  data.classification: "operational_data"
   priority: "medium"

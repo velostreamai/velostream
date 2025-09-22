@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains comprehensive documentation for VeloStream.
+This directory contains comprehensive documentation for Velostream.
 
 ## 📚 Available Documentation
 
@@ -41,7 +41,7 @@ This directory contains comprehensive documentation for VeloStream.
 
 ## 🚀 Getting Started
 
-New to VeloStream? Start with:
+New to Velostream? Start with:
 1. [Main README](../README.md) - Project overview and installation
 2. [Quick Reference](examples/QUICK_REFERENCE.md) - Common patterns
 3. [Builder Pattern Guide](developer/BUILDER_PATTERN_GUIDE.md) - Core API patterns
@@ -50,7 +50,7 @@ New to VeloStream? Start with:
 
 ## 🔥 New Features: SQL Streaming
 
-VeloStream now includes a comprehensive SQL interface for stream processing:
+Velostream now includes a comprehensive SQL interface for stream processing:
 
 ### Key Capabilities
 - **Enterprise Job Management**: Complete lifecycle with versioning, deployment strategies (Blue-Green, Canary, Rolling)

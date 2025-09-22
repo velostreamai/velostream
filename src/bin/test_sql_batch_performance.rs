@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::time::Instant;
-use tokio;
 use velostream::velostream::{
     datasource::BatchStrategy, sql::config::with_clause_parser::WithClauseParser,
     sql::execution::types::FieldValue,
@@ -124,7 +123,7 @@ async fn benchmark_fixed_size_batch() -> Result<u64, Box<dyn std::error::Error +
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => {
             println!("  • Batch size: {} records", size);
-            simulate_batch_processing(size as usize).await
+            simulate_batch_processing(size).await
         }
         _ => Err("Expected FixedSize strategy".into()),
     }
@@ -234,7 +233,7 @@ async fn benchmark_low_latency_batch() -> Result<u64, Box<dyn std::error::Error 
                 "  • Max batch size: {}, Wait time: {:?}, Eager: {}",
                 max_batch_size, max_wait_time, eager_processing
             );
-            simulate_batch_processing(max_batch_size as usize).await
+            simulate_batch_processing(max_batch_size).await
         }
         _ => Err("Expected LowLatency strategy".into()),
     }

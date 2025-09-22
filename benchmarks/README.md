@@ -1,6 +1,6 @@
-# VeloStream Benchmarks
+# Velostream Benchmarks
 
-This directory contains production-ready benchmarks for VeloStream performance evaluation.
+This directory contains production-ready benchmarks for Velostream performance evaluation.
 
 ## Structure
 

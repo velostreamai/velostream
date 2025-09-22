@@ -6,18 +6,18 @@ extends: common_kafka_source.yaml
 topic:
   name: "user_events"
   
-consumer_group: "ecommerce_analytics_group"
+consumer.group: "ecommerce_analytics_group"
 performance_profile: balanced
 
 datasource:
   schema:
-    key_field: user_id
+    key.field: user_id
     
 topic_config:
   partitions: 6
-  retention_ms: 1209600000  # 14 days retention
+  retention.ms: 1209600000  # 14 days retention
   
 metadata:
   description: "User interaction events stream"
-  data_classification: "behavioral_data"
-  update_frequency: "real_time"
+  data.classification: "behavioral_data"
+  update.frequency: "real_time"

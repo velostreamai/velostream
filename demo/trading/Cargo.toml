@@ -9,7 +9,7 @@ name = "trading_data_generator"
 path = "src/trading_data_generator.rs"
 
 [dependencies]
-# Reference the main VeloStream library
+# Reference the main Velostream library
 velostream = { path = "../.." }
 
 # Required dependencies for trading data generator

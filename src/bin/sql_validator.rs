@@ -1,6 +1,6 @@
 //! SQL Query and Application Validator
 //!
-//! Comprehensive validation tool for VeloStream SQL queries and applications.
+//! Comprehensive validation tool for Velostream SQL queries and applications.
 //! Checks for:
 //! - SQL parsing correctness
 //! - Missing source/sink configurations  
@@ -16,6 +16,7 @@ use std::path::Path;
 use velostream::velostream::sql::{
     ast::StreamingQuery,
     config::with_clause_parser::WithClauseParser,
+    execution::processors::{BatchProcessingValidator, BatchValidationTarget},
     query_analyzer::{
         DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,
     },
@@ -45,10 +46,42 @@ pub struct QueryValidationResult {
     pub warnings: Vec<String>,
     pub sources_found: Vec<String>,
     pub sinks_found: Vec<String>,
+    pub source_configs: HashMap<String, HashMap<String, String>>, // source_name -> flattened config
+    pub sink_configs: HashMap<String, HashMap<String, String>>,   // sink_name -> flattened config
     pub missing_source_configs: Vec<String>,
     pub missing_sink_configs: Vec<String>,
     pub syntax_issues: Vec<String>,
     pub performance_warnings: Vec<String>,
+}
+
+impl BatchValidationTarget for QueryValidationResult {
+    fn query_text(&self) -> &str {
+        &self.query_text
+    }
+
+    fn sources_found(&self) -> &[String] {
+        &self.sources_found
+    }
+
+    fn sinks_found(&self) -> &[String] {
+        &self.sinks_found
+    }
+
+    fn source_configs(&self) -> &HashMap<String, HashMap<String, String>> {
+        &self.source_configs
+    }
+
+    fn sink_configs(&self) -> &HashMap<String, HashMap<String, String>> {
+        &self.sink_configs
+    }
+
+    fn add_warning(&mut self, message: String) {
+        self.warnings.push(message);
+    }
+
+    fn add_performance_warning(&mut self, message: String) {
+        self.performance_warnings.push(message);
+    }
 }
 
 /// Validation result for an entire SQL application
@@ -150,6 +183,8 @@ impl SqlValidator {
             warnings: Vec::new(),
             sources_found: Vec::new(),
             sinks_found: Vec::new(),
+            source_configs: HashMap::new(),
+            sink_configs: HashMap::new(),
             missing_source_configs: Vec::new(),
             missing_sink_configs: Vec::new(),
             syntax_issues: Vec::new(),
@@ -339,6 +374,11 @@ impl SqlValidator {
         result: &mut QueryValidationResult,
     ) {
         for source in sources {
+            // Store the flattened configuration for later use
+            result
+                .source_configs
+                .insert(source.name.clone(), source.properties.clone());
+
             match source.source_type {
                 DataSourceType::Kafka => {
                     self.validate_kafka_source_config(&source.properties, &source.name, result);
@@ -368,6 +408,11 @@ impl SqlValidator {
         result: &mut QueryValidationResult,
     ) {
         for sink in sinks {
+            // Store the flattened configuration for later use
+            result
+                .sink_configs
+                .insert(sink.name.clone(), sink.properties.clone());
+
             match sink.sink_type {
                 DataSinkType::Kafka => {
                     self.validate_kafka_sink_config(&sink.properties, &sink.name, result);
@@ -394,64 +439,52 @@ impl SqlValidator {
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
-        let recommended_keys = vec!["value.format", "group.id", "failure_strategy"];
+        // Delegate to KafkaDataSource validation method
+        use velostream::velostream::datasource::kafka::data_source::KafkaDataSource;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_source_configs.push(format!(
-                    "Kafka source '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (missing_required, missing_recommended, warnings) =
+            KafkaDataSource::validate_source_config(properties, name);
+
+        // Add missing required configs to result
+        for missing in missing_required {
+            result.missing_source_configs.push(missing);
+            result.is_valid = false;
         }
 
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                result.warnings.push(format!(
-                    "Kafka source '{}' missing recommended config: {}",
-                    name, key
-                ));
-            }
+        // Add missing recommended configs as warnings
+        for missing in missing_recommended {
+            result.warnings.push(missing);
         }
 
-        // Check for batch configuration
-        if self.has_batch_config(properties) {
-            result.warnings.push(format!(
-                "Kafka source '{}' has batch configuration - ensure this is intended",
-                name
-            ));
+        // Add additional warnings
+        for warning in warnings {
+            result.warnings.push(warning);
         }
     }
 
-    /// Validate Kafka sink configuration
+    /// Validate Kafka sink configuration (delegated to KafkaDataSink)
     fn validate_kafka_sink_config(
         &self,
         properties: &HashMap<String, String>,
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
-        let recommended_keys = vec!["value.format", "failure_strategy"];
+        use velostream::velostream::datasource::kafka::data_sink::KafkaDataSink;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!(
-                    "Kafka sink '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (errors, warnings, recommendations) =
+            KafkaDataSink::validate_sink_config(properties, name);
+
+        for error in errors {
+            result.missing_sink_configs.push(error);
+            result.is_valid = false;
         }
 
-        for key in &recommended_keys {
-            if !properties.contains_key(*key) {
-                result.warnings.push(format!(
-                    "Kafka sink '{}' missing recommended config: {}",
-                    name, key
-                ));
-            }
+        for warning in warnings {
+            result.warnings.push(warning);
+        }
+
+        for recommendation in recommendations {
+            result.performance_warnings.push(recommendation);
         }
     }
 
@@ -486,36 +519,29 @@ impl SqlValidator {
         }
     }
 
-    /// Validate File sink configuration  
+    /// Validate File sink configuration (delegated to FileDataSink)
     fn validate_file_sink_config(
         &self,
         properties: &HashMap<String, String>,
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["path", "format"];
+        use velostream::velostream::datasource::file::data_sink::FileDataSink;
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                result.missing_sink_configs.push(format!(
-                    "File sink '{}' missing required config: {}",
-                    name, key
-                ));
-                result.is_valid = false;
-            }
+        let (errors, warnings, recommendations) =
+            FileDataSink::validate_sink_config(properties, name);
+
+        for error in errors {
+            result.missing_sink_configs.push(error);
+            result.is_valid = false;
         }
 
-        // Check if output directory exists
-        if let Some(path) = properties.get("path") {
-            if let Some(parent) = Path::new(path).parent() {
-                if !parent.exists() {
-                    result.warnings.push(format!(
-                        "File sink '{}' output directory does not exist: {}",
-                        name,
-                        parent.display()
-                    ));
-                }
-            }
+        for warning in warnings {
+            result.warnings.push(warning);
+        }
+
+        for recommendation in recommendations {
+            result.performance_warnings.push(recommendation);
         }
     }
 
@@ -649,6 +675,11 @@ impl SqlValidator {
 
         // Generate recommendations
         self.generate_recommendations(&result.query_results, &mut result.recommendations);
+
+        // Validate batch processing and cross-cutting concerns
+        let batch_validator = BatchProcessingValidator::new();
+        batch_validator
+            .validate_batch_processing(&mut result.query_results, &mut result.recommendations);
 
         // Final validation
         if result.valid_queries != result.total_queries {
@@ -800,7 +831,7 @@ impl SqlValidator {
 
         if has_syntax_issues {
             recommendations
-                .push("Update SQL syntax to use VeloStream-compatible constructs".to_string());
+                .push("Update SQL syntax to use Velostream-compatible constructs".to_string());
         }
 
         if query_results.len() > 5 {
@@ -926,7 +957,10 @@ fn print_validation_result(result: &ApplicationValidationResult) {
 
     // Query-level results
     for (index, query_result) in result.query_results.iter().enumerate() {
-        if !query_result.is_valid || !query_result.warnings.is_empty() {
+        // Show all queries - always show for comprehensive reporting
+        let should_show = true; // Always show all queries for comprehensive validation reporting
+
+        if should_show {
             println!(
                 "\n📝 Query #{} ({}): {}",
                 index + 1,

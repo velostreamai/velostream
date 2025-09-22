@@ -9,11 +9,12 @@ use futures::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
-use velostream::{KafkaAdminClient, KafkaConsumer, ProducerBuilder};
+use velostream::{KafkaConsumer, ProducerBuilder};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 10_000;

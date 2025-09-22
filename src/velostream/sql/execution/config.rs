@@ -390,7 +390,7 @@ pub enum WatermarkStrategy {
 }
 
 /// Resource limits configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResourceLimits {
     /// Maximum total memory usage (bytes)
     pub max_total_memory: Option<usize>,
@@ -409,19 +409,6 @@ pub struct ResourceLimits {
 
     /// Maximum processing time per record (milliseconds)
     pub max_processing_time_per_record: Option<u64>,
-}
-
-impl Default for ResourceLimits {
-    fn default() -> Self {
-        Self {
-            max_total_memory: None,
-            max_operator_memory: None,
-            max_windows_per_key: None,
-            max_aggregation_groups: None,
-            max_concurrent_operations: None,
-            max_processing_time_per_record: None,
-        }
-    }
 }
 
 impl ResourceLimits {

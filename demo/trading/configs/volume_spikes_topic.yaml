@@ -12,13 +12,13 @@ delivery_profile: medium_priority
 
 # Topic-specific schema
 schema:
-  key_field: symbol
+  key.field: symbol
   schema_file: "schemas/volume_spikes.avsc"
   
 # Topic properties
 topic_config:
   partitions: 4
-  retention_ms: 259200000  # 3 days retention
+  retention.ms: 259200000  # 3 days retention
   
 # Alert-specific headers
 headers:

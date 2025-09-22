@@ -1,6 +1,6 @@
 # YAML Configuration Guide with Inheritance
 
-VeloStream supports powerful YAML configuration management with file inheritance through the `extends:` keyword. This enables DRY (Don't Repeat Yourself) configuration patterns for complex multi-environment deployments.
+Velostream supports powerful YAML configuration management with file inheritance through the `extends:` keyword. This enables DRY (Don't Repeat Yourself) configuration patterns for complex multi-environment deployments.
 
 ## Features
 
@@ -161,7 +161,7 @@ options:
 
 ## Inline Configuration Parameters
 
-VeloStream supports direct parameter specification in SQL WITH clauses using prefixed naming:
+Velostream supports direct parameter specification in SQL WITH clauses using prefixed naming:
 
 ### Parameter Naming Convention
 
@@ -446,4 +446,4 @@ FROM 'kafka://broker:9092/orders' WITH ("source.group_id" = "processor")
 - `sink.*` - Sink datasource configuration  
 - No prefix - Job processing configuration (`batch_size`, `failure_strategy`, etc.)
 
-This guide provides the foundation for powerful, maintainable configuration management in VeloStream using modern configuration patterns including YAML inheritance and inline parameter specification.
+This guide provides the foundation for powerful, maintainable configuration management in Velostream using modern configuration patterns including YAML inheritance and inline parameter specification.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-VeloStream provides comprehensive health monitoring for all pluggable data sources, including circuit breakers, health checks, metrics collection, and automatic recovery mechanisms.
+Velostream provides comprehensive health monitoring for all pluggable data sources, including circuit breakers, health checks, metrics collection, and automatic recovery mechanisms.
 
 ## Architecture
 
@@ -359,7 +359,7 @@ groups:
 ```json
 {
   "dashboard": {
-    "title": "VeloStream Health Monitor",
+    "title": "Velostream Health Monitor",
     "panels": [
       {
         "title": "Data Source Health",

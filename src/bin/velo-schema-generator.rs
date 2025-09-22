@@ -1,5 +1,5 @@
 #!/usr/bin/env cargo
-//! VeloStream Configuration Schema Generator
+//! Velostream Configuration Schema Generator
 //!
 //! Generates comprehensive JSON Schema files for IDE integration and validation.
 //! This tool exports schemas from all registered ConfigSchemaProvider implementations.
@@ -11,7 +11,7 @@ use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔧 VeloStream Schema Generator");
+    println!("🔧 Velostream Schema Generator");
     println!("Generating JSON Schema files for IDE integration...\n");
 
     // Create registry and register all schema providers
@@ -65,8 +65,8 @@ fn generate_comprehensive_json_schema(
     let mut schema = json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$id": "https://velostream.io/config.schema.json",
-        "title": "VeloStream Configuration Schema",
-        "description": "Comprehensive configuration schema for VeloStream multi-source/multi-sink processing",
+        "title": "Velostream Configuration Schema",
+        "description": "Comprehensive configuration schema for Velostream multi-source/multi-sink processing",
         "type": "object",
         "additionalProperties": false,
         "properties": {}
@@ -241,10 +241,9 @@ fn generate_ide_configurations(_schema: &Value) -> Result<(), Box<dyn std::error
     println!("📝 Generated: .vscode/velo-schema-settings.json");
 
     // Generate example configuration with schema reference
-    let example_config = format!(
-        r#"# yaml-language-server: $schema=./velostream-config.schema.json
+    let example_config = r#"# yaml-language-server: $schema=./velostream-config.schema.json
 
-# VeloStream Configuration Example
+# Velostream Configuration Example
 # This file demonstrates the configuration schema with IDE support
 
 global:
@@ -281,7 +280,7 @@ batch:
     max_size: 1000
     timeout_ms: 5000
 "#
-    );
+    .to_string();
 
     fs::write("velo-config.example.yaml", example_config)?;
     println!("📄 Generated: velo-config.example.yaml");

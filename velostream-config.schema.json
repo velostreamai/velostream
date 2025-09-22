@@ -2,7 +2,7 @@
   "$id": "https://velostream.io/config.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
-  "description": "Comprehensive configuration schema for VeloStream multi-source/multi-sink processing",
+  "description": "Comprehensive configuration schema for Velostream multi-source/multi-sink processing",
   "properties": {
     "batch": {
       "additionalProperties": false,
@@ -118,7 +118,7 @@
       "properties": {
         "file_sink": {
           "additionalProperties": true,
-          "description": "Configuration schema for file-based data sinks in VeloStream",
+          "description": "Configuration schema for file-based data sinks in Velostream",
           "properties": {
             "append_if_exists": {
               "default": false,
@@ -211,7 +211,7 @@
         },
         "kafka_sink": {
           "additionalProperties": true,
-          "description": "Configuration schema for Kafka data sinks in VeloStream",
+          "description": "Configuration schema for Kafka data sinks in Velostream",
           "properties": {
             "acks": {
               "default": "all",
@@ -342,7 +342,7 @@
       "properties": {
         "file_source": {
           "additionalProperties": true,
-          "description": "Configuration schema for file-based data sources in VeloStream",
+          "description": "Configuration schema for file-based data sources in Velostream",
           "properties": {
             "buffer_size": {
               "default": 8192,
@@ -442,7 +442,7 @@
         },
         "kafka_source": {
           "additionalProperties": true,
-          "description": "Configuration schema for Kafka data sources in VeloStream",
+          "description": "Configuration schema for Kafka data sources in Velostream",
           "properties": {
             "auto.offset.reset": {
               "default": "latest",
@@ -567,6 +567,6 @@
       "type": "object"
     }
   },
-  "title": "VeloStream Configuration Schema",
+  "title": "Velostream Configuration Schema",
   "type": "object"
 }

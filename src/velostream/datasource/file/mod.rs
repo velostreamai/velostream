@@ -1,6 +1,6 @@
 //! File Data Source Implementation
 //!
-//! This module provides file-based data sources for VeloStream, enabling:
+//! This module provides file-based data sources for Velostream, enabling:
 //!
 //! - **CSV File Reading**: Parse CSV files with schema inference
 //! - **JSON File Reading**: Parse JSONL (newline-delimited JSON) files  
@@ -13,6 +13,7 @@
 //! ### CSV File Source
 //! ```rust,no_run
 //! use velostream::velostream::datasource::file::*;
+//! use velostream::velostream::datasource::file::config::{FileSourceConfig, FileFormat};
 //! use velostream::velostream::datasource::traits::DataSource;
 //!
 //! #[tokio::main]
@@ -39,6 +40,7 @@
 //! ### Real-time File Watching
 //! ```rust,no_run
 //! use velostream::velostream::datasource::file::*;
+//! use velostream::velostream::datasource::file::config::{FileSourceConfig, FileFormat};
 //! use velostream::velostream::datasource::traits::DataSource;
 //!
 //! #[tokio::main]
@@ -72,6 +74,5 @@ pub mod reader;
 pub mod watcher;
 
 // Re-export key types for convenient access
-pub use config::{FileFormat, FileSourceConfig};
 pub use data_sink::FileDataSink;
 pub use data_source::FileDataSource;

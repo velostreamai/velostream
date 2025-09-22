@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide demonstrates how to use the new pluggable data sources through VeloStream' SQL layer, including CREATE STREAM statements, heterogeneous joins, and cross-source data pipelines.
+This guide demonstrates how to use the new pluggable data sources through Velostream' SQL layer, including CREATE STREAM statements, heterogeneous joins, and cross-source data pipelines.
 
 ## Table of Contents
 
@@ -273,7 +273,7 @@ WITH (
 ### Automatic Schema Discovery
 
 ```sql
--- Let VeloStream discover the schema
+-- Let Velostream discover the schema
 CREATE STREAM auto_discovered AS
 SELECT * FROM 'kafka://localhost:9092/topic'
 WITH (

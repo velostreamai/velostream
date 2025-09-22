@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 use velostream::velostream::server::stream_job_server::JobStatus;
-use velostream::velostream::server::StreamJobServer;
+use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::sql::app_parser::SqlApplicationParser;
 
 // Test helper functions

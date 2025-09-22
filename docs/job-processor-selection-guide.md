@@ -2,7 +2,7 @@
 
 **Choosing between SimpleJobProcessor and TransactionalJobProcessor for your streaming applications**
 
-This guide helps you select the appropriate job processor for your VeloStream applications based on data consistency requirements, performance characteristics, and operational complexity.
+This guide helps you select the appropriate job processor for your Velostream applications based on data consistency requirements, performance characteristics, and operational complexity.
 
 ---
 
@@ -145,7 +145,7 @@ let stats = processor.process_multi_job(
 
 ## ⚙️ **How Configuration Actually Works**
 
-VeloStream automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause properties. Here's how the system determines which processor to use:
+Velostream automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause properties. Here's how the system determines which processor to use:
 
 ### **Processor Selection Logic**
 ```rust
@@ -457,7 +457,7 @@ WITH (
 ## ⚡ **Performance Considerations**
 
 ### **Throughput Comparison**
-Based on VeloStream benchmarks:
+Based on Velostream benchmarks:
 
 | **Metric** | **SimpleJobProcessor** | **TransactionalJobProcessor** |
 |------------|----------------------|------------------------------|

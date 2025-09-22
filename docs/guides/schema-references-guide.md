@@ -2,7 +2,7 @@
 
 ## Overview
 
-VeloStream provides comprehensive support for Schema Registry schema references, enabling complex schema compositions, dependency management, and evolution strategies. This feature allows schemas to reference other schemas, creating reusable schema components and maintaining consistency across related data structures.
+Velostream provides comprehensive support for Schema Registry schema references, enabling complex schema compositions, dependency management, and evolution strategies. This feature allows schemas to reference other schemas, creating reusable schema components and maintaining consistency across related data structures.
 
 ## What Are Schema References?
 
@@ -586,4 +586,4 @@ async fn debug_schema_references(
 }
 ```
 
-This comprehensive guide covers all aspects of schema references in VeloStream, from basic usage to advanced enterprise patterns. The reference resolution system provides powerful capabilities for managing complex schema hierarchies while maintaining performance and reliability.
+This comprehensive guide covers all aspects of schema references in Velostream, from basic usage to advanced enterprise patterns. The reference resolution system provides powerful capabilities for managing complex schema hierarchies while maintaining performance and reliability.

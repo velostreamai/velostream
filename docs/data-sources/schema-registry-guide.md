@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Schema Registry provides centralized schema management for all pluggable data sources in VeloStream, enabling schema discovery, evolution, versioning, and compatibility checking.
+The Schema Registry provides centralized schema management for all pluggable data sources in Velostream, enabling schema discovery, evolution, versioning, and compatibility checking.
 
 ## Architecture
 
@@ -187,7 +187,7 @@ impl SchemaEvolution {
 CREATE STREAM orders AS
 SELECT * FROM 'kafka://localhost:9092/raw-orders';
 
--- VeloStream automatically:
+-- Velostream automatically:
 -- 1. Uses KafkaSchemaProvider to discover schema
 -- 2. Caches the schema for performance
 -- 3. Creates stream with discovered fields
@@ -215,7 +215,7 @@ CREATE STREAM orders (
 -- Evolve schema with new field (forward compatible)
 ALTER STREAM orders ADD COLUMN discount DECIMAL(5,2) DEFAULT 0.0;
 
--- VeloStream automatically:
+-- Velostream automatically:
 -- 1. Checks compatibility mode
 -- 2. Updates schema in registry
 -- 3. Handles missing values for existing data

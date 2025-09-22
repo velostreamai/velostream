@@ -2,11 +2,11 @@
 
 ## Overview
 
-Add support for comment-based configuration syntax in VeloStream SQL files to enable inline configuration directly within SQL scripts, making them more self-contained and easier to deploy.
+Add support for comment-based configuration syntax in Velostream SQL files to enable inline configuration directly within SQL scripts, making them more self-contained and easier to deploy.
 
 ## Current State
 
-VeloStream currently supports configuration through:
+Velostream currently supports configuration through:
 - WITH clause configuration within SQL statements
 - External YAML configuration files
 - Configuration inheritance via extends pattern

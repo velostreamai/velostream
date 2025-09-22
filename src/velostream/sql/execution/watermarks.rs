@@ -3,7 +3,7 @@
 
 Watermarks are critical for streaming systems to handle out-of-order events and determine
 when it's safe to emit results for time-based windows. This module provides a flexible,
-optional watermark system that integrates with existing VeloStream architecture.
+optional watermark system that integrates with existing Velostream architecture.
 
 ## Key Concepts
 
@@ -13,7 +13,7 @@ and emit results.
 
 **Event-Time vs Processing-Time**:
 - Event-time: When the event actually occurred (from `event_time` field)
-- Processing-time: When VeloStream processed the record (from `timestamp` field)
+- Processing-time: When Velostream processed the record (from `timestamp` field)
 
 ## Design Philosophy
 
@@ -250,7 +250,7 @@ impl WatermarkManager {
 
         // Extract event time from record, fallback to processing time
         let event_time = record.event_time.unwrap_or_else(|| {
-            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
         });
 
         let new_watermark = self.generate_watermark_for_source(source_id, record, event_time);
@@ -288,7 +288,7 @@ impl WatermarkManager {
 
         if let Some(global_watermark) = self.get_global_watermark() {
             let event_time = record.event_time.unwrap_or_else(|| {
-                DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+                DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
             });
 
             event_time < global_watermark
@@ -305,7 +305,7 @@ impl WatermarkManager {
 
         let global_watermark = self.get_global_watermark()?;
         let event_time = record.event_time.unwrap_or_else(|| {
-            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(|| Utc::now())
+            DateTime::from_timestamp_millis(record.timestamp).unwrap_or_else(Utc::now)
         });
 
         if event_time < global_watermark {

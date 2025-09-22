@@ -1,4 +1,4 @@
-# VeloStream High Throughput Configuration
+# Velostream High Throughput Configuration
 # Optimized for >100k messages/second processing
 
 kafka:
@@ -10,20 +10,20 @@ kafka:
   # High throughput producer settings
   acks: "1"                    # Balance between speed and reliability
   retries: 3                   # Some retries for reliability
-  batch_size: 65536            # 64KB batches for efficiency
-  linger_ms: 5                 # 5ms batching window
+  batch.size: 65536            # 64KB batches for efficiency
+  linger.ms: 5                 # 5ms batching window
   buffer_memory: 134217728     # 128MB buffer for large volumes
-  compression_type: "lz4"      # Fast compression to save bandwidth
+  compression.type: "lz4"      # Fast compression to save bandwidth
   max_in_flight_requests_per_connection: 5  # Pipeline requests
   
   # High throughput consumer settings
-  fetch_min_bytes: 50000       # Wait for larger batches (50KB)
-  fetch_max_wait_ms: 500       # 500ms maximum wait for batching
-  max_poll_records: 5000       # Large batches for efficiency
+  fetch.min.bytes: 50000       # Wait for larger batches (50KB)
+  fetch.max.wait.ms: 500       # 500ms maximum wait for batching
+  max.poll.records: 5000       # Large batches for efficiency
   max_partition_fetch_bytes: 1048576  # 1MB per partition
-  session_timeout_ms: 30000    # Longer timeouts for stability
-  heartbeat_interval_ms: 10000
-  auto_offset_reset: "earliest"
+  session.timeout.ms: 30000    # Longer timeouts for stability
+  heartbeat.interval.ms: 10000
+  auto.offset.reset: "earliest"
 
 server:
   port: 8080
@@ -55,8 +55,8 @@ jobs:
   job_storage_path: "/app/data/jobs"
 
 performance:
-  buffer_size: 10000           # Large buffers for batching
-  batch_size: 1000             # Large batches
+  buffer.size: 10000           # Large buffers for batching
+  batch.size: 1000             # Large batches
   flush_interval_ms: 100       # Batch writes every 100ms
   enable_compression: true     # Compress to save bandwidth
   

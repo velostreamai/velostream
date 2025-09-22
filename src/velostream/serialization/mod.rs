@@ -1,4 +1,4 @@
-//! Pluggable serialization interface for VeloStream
+//! Pluggable serialization interface for Velostream
 //!
 //! This module provides a comprehensive trait-based approach to serialization that allows
 //! the system to work with multiple data formats (JSON, Avro, Protobuf, etc.) instead
@@ -80,15 +80,12 @@ mod error;
 mod traits;
 // Format implementations
 mod json;
-pub use json::JsonFormat;
 
 mod avro;
-pub use avro::AvroFormat;
 
 pub mod avro_codec;
 
 mod protobuf;
-pub use protobuf::ProtobufFormat;
 
 pub mod protobuf_codec;
 
@@ -98,7 +95,10 @@ pub mod json_codec;
 pub mod helpers;
 
 // Re-export public API
+pub use avro::AvroFormat;
 pub use error::SerializationError;
+pub use json::JsonFormat;
+pub use protobuf::ProtobufFormat;
 pub use traits::SerializationFormat;
 
 // Re-export format implementations for examples and tests only

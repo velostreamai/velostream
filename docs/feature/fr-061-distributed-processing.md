@@ -390,7 +390,7 @@ pub struct WorkloadMetrics {
 **Cluster Overview Panel**:
 ```json
 {
-  "title": "VeloStream Cluster Overview",
+  "title": "Velostream Cluster Overview",
   "panels": [
     {
       "title": "Active Pods by Workload",
@@ -508,7 +508,7 @@ pub struct MultiCloudConfig {
 
 ### In-SQL Scaling Hints
 
-VeloStream supports **declarative scaling hints** directly within SQL files, allowing developers to specify performance requirements and scaling behavior alongside their queries.
+Velostream supports **declarative scaling hints** directly within SQL files, allowing developers to specify performance requirements and scaling behavior alongside their queries.
 
 #### Basic Scaling Hints
 
@@ -922,7 +922,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Install VeloStream CLI
+    - name: Install Velostream CLI
       run: cargo install velo-k8s-deploy
       
     - name: Validate SQL hints
@@ -1420,7 +1420,7 @@ velo-k8s-deploy optimize-resources --based-on-metrics --duration 7d
 
 ## Conclusion
 
-FR-059 transforms VeloStream from a powerful single-instance engine into a cloud-native distributed processing platform that:
+FR-059 transforms Velostream from a powerful single-instance engine into a cloud-native distributed processing platform that:
 
 - **Leverages Kafka's Natural Partitioning**: Zero custom coordination code needed
 - **Uses Kubernetes Orchestration**: Industry-standard scaling and deployment patterns
@@ -1428,7 +1428,7 @@ FR-059 transforms VeloStream from a powerful single-instance engine into a cloud
 - **Provides Cost-Effective Scaling**: Metrics-driven decisions with spot instance support
 - **Maintains Operational Simplicity**: Familiar K8s tools and patterns
 
-The implementation builds directly on FR-058's observability infrastructure, using existing metrics to drive intelligent scaling decisions while maintaining the robust SQL processing capabilities that make VeloStream production-ready.
+The implementation builds directly on FR-058's observability infrastructure, using existing metrics to drive intelligent scaling decisions while maintaining the robust SQL processing capabilities that make Velostream production-ready.
 
 **Dependencies**: FR-058 (Completed)
 **Status**: PLANNED - Ready for implementation

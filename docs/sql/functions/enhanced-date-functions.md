@@ -1,6 +1,6 @@
-# Enhanced Date Functions in VeloStream
+# Enhanced Date Functions in Velostream
 
-VeloStream now supports comprehensive date and time manipulation with enhanced `EXTRACT` and `DATEDIFF` functions.
+Velostream now supports comprehensive date and time manipulation with enhanced `EXTRACT` and `DATEDIFF` functions.
 
 ## EXTRACT Function Enhancements
 

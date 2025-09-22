@@ -1,4 +1,4 @@
-# VeloStream SQL Server Docker Image with All Serialization Formats
+# Velostream SQL Server Docker Image with All Serialization Formats
 # Supports JSON, Avro, and Protobuf serialization
 FROM rust:1.85-bookworm as builder
 
@@ -95,7 +95,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD ["velo-sql-multi", "--host", "0.0.0.0", "--port", "8080"]
 
 # Build metadata
-LABEL org.opencontainers.image.title="VeloStream"
+LABEL org.opencontainers.image.title="Velostream"
 LABEL org.opencontainers.image.description="High-performance streaming SQL engine with JSON, Avro, and Protobuf support"
 LABEL org.opencontainers.image.version="1.0.0"
 LABEL org.opencontainers.image.features="json,avro,protobuf,financial-precision"

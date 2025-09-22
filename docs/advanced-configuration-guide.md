@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers the configuration of all Phase 1B-4 features in VeloStream: Watermarks & Time Semantics (1B), Resource Management & Circuit Breakers (2), Advanced Query Features (3), and Observability (4).
+This guide covers the configuration of all Phase 1B-4 features in Velostream: Watermarks & Time Semantics (1B), Resource Management & Circuit Breakers (2), Advanced Query Features (3), and Observability (4).
 
 ## Complete Configuration Structure
 

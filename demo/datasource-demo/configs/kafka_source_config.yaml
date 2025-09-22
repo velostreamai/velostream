@@ -6,24 +6,24 @@ datasource:
   name: "demo_transactions_consumer"
   config:
     # Kafka connection settings
-    bootstrap_servers: "localhost:9092"
+    bootstrap.servers: "localhost:9092"
     topic: "demo-transactions"
     group_id: "velostream-demo-consumer"
     
     # Consumer configuration
     consumer:
       # Delivery guarantees
-      enable_auto_commit: false
-      auto_offset_reset: "earliest"
+      enable.auto.commit: false
+      auto.offset.reset: "earliest"
       
       # Performance settings
-      fetch_min_bytes: 1024      # 1KB minimum fetch
-      fetch_max_wait_ms: 500     # 500ms max wait
-      max_poll_records: 500      # Batch up to 500 records
+      fetch.min.bytes: 1024      # 1KB minimum fetch
+      fetch.max.wait.ms: 500     # 500ms max wait
+      max.poll.records: 500      # Batch up to 500 records
       
       # Session management
-      session_timeout_ms: 30000  # 30 seconds
-      heartbeat_interval_ms: 3000 # 3 seconds
+      session.timeout.ms: 30000  # 30 seconds
+      heartbeat.interval.ms: 3000 # 3 seconds
       
     # Security configuration (if needed)
     security:
@@ -43,7 +43,7 @@ datasource:
 # Serialization configuration
 serialization:
   format: "avro"
-  key_format: "string"  # Transaction ID as key
+  key.format: "string"  # Transaction ID as key
   
   # Schema configuration (multiple options supported)
   value_serializer: "avro"
@@ -70,7 +70,7 @@ processing:
   parallelism: 4
   
   # Batch processing
-  batch_size: 100
+  batch.size: 100
   batch_timeout_ms: 1000
   
   # Error handling

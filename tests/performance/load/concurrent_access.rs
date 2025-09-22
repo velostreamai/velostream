@@ -1,6 +1,6 @@
 //! Concurrent Access Load Testing
 //!
-//! Benchmarks for testing VeloStream performance under concurrent access patterns,
+//! Benchmarks for testing Velostream performance under concurrent access patterns,
 //! multi-threading scenarios, and parallel processing workloads.
 
 use super::super::common::{

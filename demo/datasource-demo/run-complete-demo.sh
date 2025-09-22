@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# VeloStream DataSource Demo - Complete Pipeline Runner
+# Velostream DataSource Demo - Complete Pipeline Runner
 # Demonstrates file -> processing -> kafka -> analytics -> file pipeline
 
 set -e  # Exit on any error
@@ -35,7 +35,7 @@ cleanup_on_exit() {
 # Set up signal handlers
 trap cleanup_on_exit INT TERM
 
-echo -e "${BLUE}🚀 VeloStream DataSource Complete Demo${NC}"
+echo -e "${BLUE}🚀 Velostream DataSource Complete Demo${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 # Function to print status
@@ -116,8 +116,8 @@ echo "============================="
 mkdir -p "$DATA_DIR" "$OUTPUT_DIR"
 print_status "Created demo directories"
 
-# Build VeloStream binaries
-echo -e "\n${BLUE}🔨 Building VeloStream${NC}"
+# Build Velostream binaries
+echo -e "\n${BLUE}🔨 Building Velostream${NC}"
 echo "=========================="
 
 cd "$DEMO_DIR/../.."
@@ -132,7 +132,7 @@ if [[ "$SKIP_KAFKA" != "true" ]]; then
     RUSTFLAGS="-A dead_code" cargo build --bin complete_pipeline_demo --quiet
 fi
 
-print_status "VeloStream built successfully"
+print_status "Velostream built successfully"
 
 # Generate demo data if needed
 echo -e "\n${BLUE}📊 Preparing Demo Data${NC}"
@@ -405,7 +405,7 @@ fi
 echo -e "\n${GREEN}🎉 Demo completed successfully!${NC}"
 echo ""
 echo "Key takeaways:"
-echo "• VeloStream provides exact precision for financial calculations"  
+echo "• Velostream provides exact precision for financial calculations"  
 echo "• Supports both Rust API and SQL interfaces for flexibility"
 echo "• Production-ready with file watching, rotation, compression, and error handling"
 echo "• Seamlessly integrates with Kafka for real-time streaming architectures"

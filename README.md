@@ -1,4 +1,4 @@
-# VeloStream
+# Velostream
 
 ![Rust CI](https://github.com/bluemonk3y/velostream/workflows/Rust%20CI/badge.svg)
 [![Crates.io](https://img.shields.io/crates/v/velostream.svg)](https://crates.io/crates/velostream)
@@ -15,7 +15,8 @@ A Rust-idiomatic and robust client library for Apache Kafka, designed for high-p
 * **Flexible Serialization:** Pluggable serialization system with JSON (always available), Avro (schema-based with evolution), and Protocol Buffers (high-performance) support
 * **Stream Processing:** Both polling and streaming consumption patterns with implicit deserialization
 * **SQL Streaming Engine:** Comprehensive SQL support with complete data lifecycle management (INSERT, UPDATE, DELETE), JOIN operations, subqueries, windowing, statistical functions, schema introspection, and real-time analytics
-* **Window Functions:** Complete support for LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE
+* **Advanced SQL Parser:** Enterprise-grade SQL compatibility with table aliases in window functions (`PARTITION BY table.column`), INTERVAL-based window frames (`RANGE BETWEEN INTERVAL '1' HOUR PRECEDING`), and dual EXTRACT syntax support
+* **Window Functions:** Complete support for LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE with enhanced frame specifications
 * **Statistical Functions:** Advanced analytics with STDDEV, VARIANCE, MEDIAN functions
 * **JOIN Operations:** Full support for INNER, LEFT, RIGHT, FULL OUTER JOINs with temporal windowing
 * **Management CLI:** Built-in CLI tool for monitoring, health checks, and production management
@@ -301,15 +302,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             o.amount,
             c.customer_name,
             c.tier,
-            -- Window functions for analytics
+            -- Window functions with table aliases (NEW: Enhanced parser support)
             ROW_NUMBER() OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as order_sequence,
             LAG(o.amount, 1) OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as prev_order_amount,
             FIRST_VALUE(o.amount) OVER (PARTITION BY o.customer_id ORDER BY o.created_at) as first_order_amount,
-            PERCENT_RANK() OVER (ORDER BY o.amount) as amount_percentile,
-            -- Statistical functions
+            -- Time-based rolling windows with INTERVAL syntax (NEW)
+            AVG(o.amount) OVER (
+                PARTITION BY c.tier
+                ORDER BY o.created_at
+                RANGE BETWEEN INTERVAL '7' DAY PRECEDING AND CURRENT ROW
+            ) as weekly_avg_amount,
+            -- Statistical functions with enhanced window frames
             STDDEV(o.amount) OVER (PARTITION BY c.tier) as tier_amount_stddev,
             MEDIAN(o.amount) OVER (PARTITION BY c.tier) as tier_median_amount,
-            -- Other functions
+            -- Date/time functions with SQL standard syntax (NEW)
+            EXTRACT(HOUR FROM o.created_at) as order_hour,
+            EXTRACT(EPOCH FROM (NOW() - o.created_at)) as seconds_since_order,
             DATEDIFF('hours', o.created_at, NOW()) as hours_old,
             POSITION('@', c.email) as email_at_pos,
             LISTAGG(p.product_name, ', ') as products
@@ -330,12 +338,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 🛠️ VeloStream CLI
+## 🛠️ Velostream CLI
 
-VeloStream includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
+Velostream includes a powerful CLI tool for monitoring and managing deployments in both local development and production environments.
 
 ### Features
-- **Health Monitoring**: Real-time health checks of all VeloStream components
+- **Health Monitoring**: Real-time health checks of all Velostream components
 - **Job Management**: Monitor SQL jobs, data generators, and streaming tasks
 - **Kafka Monitoring**: Topic inspection, consumer group monitoring, and cluster health
 - **Remote Support**: Connect to production servers via HTTP APIs
@@ -351,6 +359,10 @@ VeloStream includes a powerful CLI tool for monitoring and managing deployments 
 ./velo-cli status --verbose
 ./velo-cli jobs --sql --topics
 
+# SQL validation
+./velo-cli validate sql/my_query.sql --verbose
+./velo-cli validate sql/ --strict --format json
+
 # Remote production monitoring
 ./velo-cli --remote --sql-host prod-server.com health
 ./velo-cli --remote --sql-host prod-server.com --sql-port 8080 status --refresh 10
@@ -359,6 +371,7 @@ VeloStream includes a powerful CLI tool for monitoring and managing deployments 
 ### Available Commands
 - `health` - Quick health check of all components
 - `status` - Comprehensive system status with optional real-time monitoring
+- `validate` - SQL validation for files or directories
 - `jobs` - Detailed job and task information (SQL, generators, topics)
 - `kafka` - Kafka cluster and topic monitoring
 - `sql` - SQL server information and job details

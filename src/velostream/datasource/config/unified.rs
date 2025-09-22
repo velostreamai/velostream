@@ -1,5 +1,5 @@
 use super::{BatchConfig, BatchStrategy};
-/// Unified configuration management system for VeloStream
+/// Unified configuration management system for Velostream
 ///
 /// This module provides a consistent, simplified approach to applying batch configuration
 /// optimizations while respecting explicit user settings across all datasource types.
@@ -45,6 +45,43 @@ impl PropertySuggestor for HashMap<String, String> {
     fn is_user_set(&self, key: &str) -> bool {
         self.contains_key(key)
     }
+}
+
+/// Utility functions for property access with fallback support
+pub fn get_with_fallback<'a>(
+    config: &'a HashMap<String, String>,
+    dot_notation: &str,
+    underscore_notation: &str,
+) -> Option<&'a String> {
+    config
+        .get(dot_notation)
+        .or_else(|| config.get(underscore_notation))
+}
+
+/// Check if property is user-set with fallback support
+pub fn is_user_set_with_fallback(
+    config: &HashMap<String, String>,
+    dot_notation: &str,
+    underscore_notation: &str,
+) -> bool {
+    config.contains_key(dot_notation) || config.contains_key(underscore_notation)
+}
+
+/// Get Kafka property with dot notation preference and underscore fallback
+pub fn get_kafka_property<'a>(
+    config: &'a HashMap<String, String>,
+    property_name: &str,
+) -> Option<&'a String> {
+    let dot_notation = property_name;
+    let underscore_notation = &property_name.replace('.', "_");
+    get_with_fallback(config, dot_notation, underscore_notation)
+}
+
+/// Check if Kafka property is user-set with both notations
+pub fn is_kafka_property_user_set(config: &HashMap<String, String>, property_name: &str) -> bool {
+    let dot_notation = property_name;
+    let underscore_notation = &property_name.replace('.', "_");
+    is_user_set_with_fallback(config, dot_notation, underscore_notation)
 }
 
 /// Wrapper for struct-based configurations to enable suggestion pattern
@@ -177,6 +214,11 @@ impl BatchConfigApplicator {
         config.suggest("batch.size", batch_size.to_string());
         config.suggest("linger.ms", "10");
         config.suggest("compression.type", "snappy");
+
+        // Additional performance properties
+        config.suggest("auto.commit.interval.ms", "5000");
+        config.suggest("heartbeat.interval.ms", "3000");
+        config.suggest("fetch.min.bytes", "50000");
     }
 
     fn apply_time_window_kafka(config: &mut HashMap<String, String>, duration: Duration) {
@@ -184,6 +226,11 @@ impl BatchConfigApplicator {
         config.suggest("linger.ms", linger_ms.to_string());
         config.suggest("batch.size", "65536"); // 64KB batches
         config.suggest("compression.type", "lz4");
+
+        // Additional time-based properties
+        config.suggest("auto.commit.interval.ms", "10000");
+        config.suggest("heartbeat.interval.ms", "6000");
+        config.suggest("fetch.min.bytes", "10000");
     }
 
     fn apply_adaptive_size_kafka(config: &mut HashMap<String, String>, target_latency: Duration) {
@@ -212,6 +259,11 @@ impl BatchConfigApplicator {
         config.suggest("acks", "1"); // Fast acknowledgment (leader only)
         config.suggest("retries", "0"); // No retries for speed
         config.suggest("max.in.flight.requests.per.connection", "5"); // Parallel requests
+
+        // Ultra-low latency properties
+        config.suggest("auto.commit.interval.ms", "100");
+        config.suggest("heartbeat.interval.ms", "1000");
+        config.suggest("fetch.min.bytes", "1");
     }
 }
 
@@ -238,10 +290,9 @@ impl ConfigLogger {
         info!("Applied Producer Settings:");
         info!(
             "  - batch.size: {} {}",
-            config
-                .get("batch.size")
+            get_kafka_property(config, "batch.size")
                 .unwrap_or(&defaults::KAFKA_BATCH_SIZE.to_string()),
-            if config.is_user_set("batch.size") {
+            if is_kafka_property_user_set(config, "batch.size") {
                 "(user)"
             } else {
                 "(suggested)"
@@ -249,10 +300,9 @@ impl ConfigLogger {
         );
         info!(
             "  - linger.ms: {} {}",
-            config
-                .get("linger.ms")
+            get_kafka_property(config, "linger.ms")
                 .unwrap_or(&defaults::KAFKA_LINGER_MS.to_string()),
-            if config.is_user_set("linger.ms") {
+            if is_kafka_property_user_set(config, "linger.ms") {
                 "(user)"
             } else {
                 "(suggested)"
@@ -260,10 +310,9 @@ impl ConfigLogger {
         );
         info!(
             "  - compression.type: {} {}",
-            config
-                .get("compression.type")
+            get_kafka_property(config, "compression.type")
                 .unwrap_or(&defaults::KAFKA_COMPRESSION_TYPE.to_string()),
-            if config.is_user_set("compression.type") {
+            if is_kafka_property_user_set(config, "compression.type") {
                 "(user)"
             } else {
                 "(suggested)"

@@ -1,6 +1,6 @@
-# VeloStream Serialization Guide
+# Velostream Serialization Guide
 
-VeloStream provides a pluggable serialization system that supports multiple data formats for Kafka message serialization and SQL execution engine data processing, with **industry-leading financial precision arithmetic**.
+Velostream provides a pluggable serialization system that supports multiple data formats for Kafka message serialization and SQL execution engine data processing, with **industry-leading financial precision arithmetic**.
 
 ## Overview
 
@@ -14,7 +14,7 @@ The serialization system is built around the `SerializationFormat` trait, which 
 
 ## 💰 Financial Precision Features
 
-VeloStream includes specialized financial data types that provide:
+Velostream includes specialized financial data types that provide:
 - ✅ **Perfect precision** - no floating-point rounding errors
 - ✅ **42x performance improvement** over traditional f64 arithmetic  
 - ✅ **Cross-system compatibility** - serializes as decimal strings for JSON/Avro
@@ -25,7 +25,7 @@ VeloStream includes specialized financial data types that provide:
 // Traditional f64 (INCORRECT for finance)
 let price_f64 = 10.01_f64 + 10.02_f64;  // Result: 20.029999999999998
 
-// VeloStream ScaledInteger (CORRECT)
+// Velostream ScaledInteger (CORRECT)
 let price1 = FieldValue::from_financial_f64(10.01, 2);
 let price2 = FieldValue::from_financial_f64(10.02, 2);  
 let sum = price1.add(&price2)?;  // Result: exactly 20.03
@@ -78,11 +78,11 @@ let deserialized = format.deserialize_record(&serialized)?;
 
 ## 🆕 JSON_PAYLOAD Processing
 
-**New Feature**: VeloStream automatically preserves the original JSON payload for debugging, auditing, and reprocessing purposes.
+**New Feature**: Velostream automatically preserves the original JSON payload for debugging, auditing, and reprocessing purposes.
 
 ### What is JSON_PAYLOAD?
 
-When consuming JSON messages from Kafka, VeloStream automatically adds a special field called `JSON_PAYLOAD` that contains the exact original JSON string received from the message broker. This provides:
+When consuming JSON messages from Kafka, Velostream automatically adds a special field called `JSON_PAYLOAD` that contains the exact original JSON string received from the message broker. This provides:
 
 - **Complete audit trail** - know exactly what was received
 - **Debugging capabilities** - compare original vs parsed data
@@ -196,7 +196,7 @@ FROM trades_stream;
 
 ### Unified Architecture Integration
 
-JSON_PAYLOAD is part of VeloStream' **Unified Codec Architecture**, which means:
+JSON_PAYLOAD is part of Velostream' **Unified Codec Architecture**, which means:
 - Works consistently across JSON, Avro, and Protobuf formats
 - Available regardless of which codec is selected at runtime
 - Maintains same field name and behavior across all serialization formats
@@ -419,7 +419,7 @@ Represents data in serialization format:
 
 ## 🔄 Industry Compatibility
 
-VeloStream financial data is compatible with major streaming platforms:
+Velostream financial data is compatible with major streaming platforms:
 
 | Platform | Format | Compatibility | Notes |
 |----------|--------|---------------|-------|
@@ -462,7 +462,7 @@ let custom_avro = SerializationFormatFactory::create_avro_format(schema_json)?;
 | Protobuf | Very Fast | Very High | Manual/Versioned | No | ✅ Decimal messages |
 
 ### Financial Arithmetic Performance
-**VeloStream ScaledInteger vs Traditional f64:**
+**Velostream ScaledInteger vs Traditional f64:**
 - **42x faster** than f64 arithmetic
 - **Perfect precision** - no rounding errors
 - **Memory efficient** - single i64 + scale byte
@@ -479,7 +479,7 @@ For a typical financial record with 8 fields:
 // Traditional approach (WRONG)
 let result_f64 = 10.01_f64 + 10.02_f64;  // 20.029999999999998 ❌
 
-// VeloStream approach (CORRECT)  
+// Velostream approach (CORRECT)  
 let price1 = FieldValue::from_financial_f64(10.01, 2);
 let price2 = FieldValue::from_financial_f64(10.02, 2);
 let result = price1.add(&price2)?;  // Exactly 20.03 ✅

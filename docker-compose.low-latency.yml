@@ -1,10 +1,10 @@
-# VeloStream Low Latency Docker Compose Override
+# Velostream Low Latency Docker Compose Override
 # Use: docker-compose -f docker-compose.yml -f docker-compose.low-latency.yml up
 
 version: '3.8'
 
 services:
-  # Override the main VeloStream service for low latency
+  # Override the main Velostream service for low latency
   velo-streams:
     environment:
       - RUST_LOG=warn                           # Minimal logging

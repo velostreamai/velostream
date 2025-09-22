@@ -1,6 +1,6 @@
 # Essential SQL Functions
 
-The 10 most commonly used functions in VeloStream with practical examples you can use immediately.
+The 10 most commonly used functions in Velostream with practical examples you can use immediately.
 
 ## 1. COUNT - Count Records
 
@@ -207,6 +207,71 @@ SELECT
     RIGHT(product_code, 4) as item_code
 FROM products;
 ```
+
+## ✨ Advanced Feature: Subqueries
+
+**VeloStream supports comprehensive subquery functionality for advanced analytics!**
+
+### EXISTS Subqueries - Check for Related Data
+```sql
+-- Find customers who have recent orders
+SELECT customer_id, customer_name
+FROM customers c
+WHERE EXISTS (
+    SELECT 1 FROM orders o
+    WHERE o.customer_id = c.customer_id
+    AND o.order_date >= NOW() - INTERVAL '30' DAY
+);
+```
+
+### IN Subqueries - Filter by Lists
+```sql
+-- Find orders from high-value customers
+SELECT order_id, amount, customer_id
+FROM orders
+WHERE customer_id IN (
+    SELECT customer_id FROM customers
+    WHERE customer_tier = 'PREMIUM'
+);
+```
+
+### Scalar Subqueries - Single Value Lookups
+```sql
+-- Compare each order to average
+SELECT
+    order_id,
+    amount,
+    (SELECT AVG(amount) FROM orders) as avg_amount,
+    amount - (SELECT AVG(amount) FROM orders) as amount_diff
+FROM orders;
+```
+
+### Real-World Financial Example
+```sql
+-- Risk analysis with correlated subqueries
+SELECT
+    trader_id,
+    position_size,
+    current_pnl,
+    CASE
+        WHEN EXISTS (
+            SELECT 1 FROM trading_positions p2
+            WHERE p2.trader_id = positions.trader_id
+            AND p2.event_time >= positions.event_time - INTERVAL '1' HOUR
+            AND ABS(p2.current_pnl) > 50000
+        ) THEN 'HIGH_VOLATILITY_TRADER'
+        ELSE 'NORMAL'
+    END as risk_classification
+FROM trading_positions positions;
+```
+
+**Supported Subquery Types:**
+- ✅ **EXISTS** - Check existence of related records
+- ✅ **NOT EXISTS** - Check absence of related records
+- ✅ **IN** - Filter by subquery results
+- ✅ **NOT IN** - Exclude by subquery results
+- ✅ **Scalar** - Single value subqueries in SELECT
+- ✅ **Correlated** - Reference outer query columns
 
 ## Quick Reference Table
 

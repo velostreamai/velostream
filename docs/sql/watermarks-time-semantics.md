@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 1B introduces comprehensive time semantics to VeloStream, enabling proper handling of out-of-order and late-arriving data through watermark-based processing. This guide explains how to configure and use event-time processing, watermarks, and late data strategies.
+Phase 1B introduces comprehensive time semantics to Velostream, enabling proper handling of out-of-order and late-arriving data through watermark-based processing. This guide explains how to configure and use event-time processing, watermarks, and late data strategies.
 
 ## Key Concepts
 

@@ -2,12 +2,11 @@
 
 use std::collections::HashMap;
 use velostream::velostream::config::schema_registry::{
-    is_schema_version_compatible, validate_config_file_inheritance, ConfigFileInheritance,
-    ConfigValidationError, EnvironmentVariablePattern,
+    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
+    ConfigFileInheritance, ConfigValidationError, EnvironmentVariablePattern,
 };
 use velostream::velostream::config::{
-    validate_environment_variables, ConfigSchemaProvider, GlobalSchemaContext,
-    HierarchicalSchemaRegistry, PropertyDefault,
+    ConfigSchemaProvider, GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
 };
 use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
@@ -467,7 +466,7 @@ fn test_schema_registry_complete_json_schema_generation() {
         complete_schema["$schema"],
         "https://json-schema.org/draft/2020-12/schema"
     );
-    assert_eq!(complete_schema["title"], "VeloStream Configuration Schema");
+    assert_eq!(complete_schema["title"], "Velostream Configuration Schema");
     assert!(complete_schema["definitions"].is_object());
     assert!(complete_schema["definitions"]["batch_config"].is_object());
     assert!(complete_schema["definitions"]["kafka_source"].is_object());

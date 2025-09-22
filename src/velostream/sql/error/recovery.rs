@@ -1,6 +1,6 @@
 //! Error Recovery Framework
 //!
-//! This module provides comprehensive error recovery mechanisms for the VeloStream
+//! This module provides comprehensive error recovery mechanisms for the Velostream
 //! processing engine, including circuit breakers, retry policies, dead letter queues,
 //! and automatic recovery strategies.
 //!

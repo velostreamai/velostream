@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# VeloStream SQL Kubernetes Deployment Script
+# Velostream SQL Kubernetes Deployment Script
 set -e
 
-echo "🚀 VeloStream SQL Kubernetes Deployment"
+echo "🚀 Velostream SQL Kubernetes Deployment"
 echo "========================================="
 
 # Configuration
@@ -199,4 +199,4 @@ echo "  • Docker Deployment:       docs/DOCKER_DEPLOYMENT_GUIDE.md"
 echo "  • SQL Reference:           docs/SQL_REFERENCE_GUIDE.md"
 echo ""
 
-echo "🎊 VeloStream SQL is now running on Kubernetes!"
+echo "🎊 Velostream SQL is now running on Kubernetes!"

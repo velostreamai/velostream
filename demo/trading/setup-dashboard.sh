@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Setup script for VeloStream Trading Dashboard
+# Setup script for Velostream Trading Dashboard
 
 set -e
 
@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🏦 VeloStream Trading Dashboard Setup${NC}"
+echo -e "${BLUE}🏦 Velostream Trading Dashboard Setup${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # Check Python version

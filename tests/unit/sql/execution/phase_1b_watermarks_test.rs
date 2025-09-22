@@ -271,7 +271,7 @@ async fn test_window_processor_watermark_aware_processing() {
     context.enable_watermarks(manager);
 
     // Create a tumbling window query
-    let window_spec = WindowSpec::Tumbling {
+    let window = WindowSpec::Tumbling {
         size: Duration::from_secs(10),
         time_column: None, // Use event_time field
     };
@@ -285,7 +285,7 @@ async fn test_window_processor_watermark_aware_processing() {
         having: None,
         order_by: None,
         limit: None,
-        window: Some(window_spec),
+        window: Some(window),
         emit_mode: None,
         properties: None,
     };
@@ -343,7 +343,7 @@ async fn test_backward_compatibility() {
     assert!(legacy_record.event_time.is_none());
 
     // Process with enhanced method (should fall back to legacy processing)
-    let window_spec = WindowSpec::Tumbling {
+    let window = WindowSpec::Tumbling {
         size: Duration::from_secs(10),
         time_column: None,
     };
@@ -357,7 +357,7 @@ async fn test_backward_compatibility() {
         having: None,
         order_by: None,
         limit: None,
-        window: Some(window_spec),
+        window: Some(window),
         emit_mode: None,
         properties: None,
     };
@@ -455,7 +455,7 @@ async fn test_window_emission_timing_with_watermarks() {
     context.enable_watermarks(manager);
 
     // Create window spec - 5 second tumbling window
-    let window_spec = WindowSpec::Tumbling {
+    let window = WindowSpec::Tumbling {
         size: Duration::from_secs(5),
         time_column: None,
     };
@@ -467,7 +467,7 @@ async fn test_window_emission_timing_with_watermarks() {
 
     // Initially, window should not be ready (no watermark)
     assert!(!WindowProcessor::is_window_ready_for_emission(
-        &window_spec,
+        &window,
         window_start,
         &context
     ));
@@ -479,7 +479,7 @@ async fn test_window_emission_timing_with_watermarks() {
 
     // Now window should be ready (watermark passed window end)
     assert!(WindowProcessor::is_window_ready_for_emission(
-        &window_spec,
+        &window,
         window_start,
         &context
     ));

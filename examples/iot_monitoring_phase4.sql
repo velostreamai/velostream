@@ -1,6 +1,6 @@
 -- SQL Application: IoT Sensor Monitoring Platform (Phase 1B-4 Features)  
 -- Version: 3.0.0
--- Description: Advanced IoT monitoring showcasing VeloStream Phase 1B-4 capabilities
+-- Description: Advanced IoT monitoring showcasing Velostream Phase 1B-4 capabilities
 -- Author: IoT Platform Team
 -- Features: Event-time processing, Circuit breakers, Advanced analytics, Observability
 -- Dependencies: Configuration files in configs/ directory using extends pattern  

@@ -1,0 +1,6 @@
+Performance Report: performance_report_test_operation_20250921_063631.txt
+Generated: 20250921_063631
+Operation: test_operation
+CPU Usage: 91.78%
+Memory Usage: 1488031448 bytes
+Status: WARNING: High CPU

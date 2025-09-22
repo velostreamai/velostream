@@ -7,18 +7,18 @@ datasource:
   
   # Standard consumer configuration for trading system
   consumer_config:
-    bootstrap_servers: "broker:9092"
-    auto_offset_reset: "latest"
-    enable_auto_commit: true
-    auto_commit_interval_ms: 100
-    session_timeout_ms: 6000
-    heartbeat_interval_ms: 2000
+    bootstrap.servers: "broker:9092"
+    auto.offset.reset: "latest"
+    enable.auto.commit: true
+    auto.commit.interval.ms: 100
+    session.timeout.ms: 6000
+    heartbeat.interval.ms: 2000
     
   # Common schema settings
   schema:
-    key_format: string
-    value_format: avro
-    schema_registry_url: "http://schema-registry:8081"
+    key.format: string
+    value.format: avro
+    schema.registry.url: "http://schema-registry:8081"
     
     # Schema configuration for value serialization
     value.serializer: "avro"
@@ -45,40 +45,40 @@ datasource:
     # avro.schema.file: "./schemas/trading_common.avsc"
     #
     # For Protobuf (if switching formats):
-    # value_format: protobuf 
+    # value.format: protobuf 
     # protobuf.schema.file: "./schemas/trading_common.proto"
     
   # Default performance settings
   performance:
-    compression_type: "lz4"
+    compression.type: "lz4"
     
   # Default stream properties
-  stream_config:
-    replication_factor: 3
-    cleanup_policy: "delete"
+  stream.config:
+    replication.factor: 3
+    cleanup.policy: "delete"
     
 # Performance profiles that can be referenced
 performance_profiles:
   ultra_low_latency:
-    fetch_max_wait_ms: 10
-    max_poll_records: 1000
-    fetch_min_bytes: 1024
-    buffer_size: 65536
-    batch_size: 1000
-    linger_ms: 1
+    fetch.max.wait.ms: 10
+    max.poll.records: 1000
+    fetch.min.bytes: 1024
+    buffer.size: 65536
+    batch.size: 1000
+    linger.ms: 1
     
   high_throughput:
-    fetch_max_wait_ms: 50
-    max_poll_records: 2000
-    fetch_min_bytes: 2048
-    buffer_size: 131072
-    batch_size: 2000
-    linger_ms: 5
+    fetch.max.wait.ms: 50
+    max.poll.records: 2000
+    fetch.min.bytes: 2048
+    buffer.size: 131072
+    batch.size: 2000
+    linger.ms: 5
     
   balanced:
-    fetch_max_wait_ms: 20
-    max_poll_records: 1000
-    fetch_min_bytes: 1024
-    buffer_size: 65536
-    batch_size: 1000
-    linger_ms: 2
+    fetch.max.wait.ms: 20
+    max.poll.records: 1000
+    fetch.min.bytes: 1024
+    buffer.size: 65536
+    batch.size: 1000
+    linger.ms: 2

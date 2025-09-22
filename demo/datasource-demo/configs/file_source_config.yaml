@@ -24,7 +24,7 @@ datasource:
       poll_interval_ms: 1000  # Check every second for changes
       
     # Buffer configuration for performance
-    buffer_size: 8192  # 8KB read buffer
+    buffer.size: 8192  # 8KB read buffer
     
     # Schema inference settings
     schema:
@@ -40,7 +40,7 @@ datasource:
     # Performance tuning
     performance:
       read_ahead: true
-      batch_size: 100
+      batch.size: 100
       
 # Serialization format for downstream processing      
 serialization:

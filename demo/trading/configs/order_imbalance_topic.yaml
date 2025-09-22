@@ -12,13 +12,13 @@ delivery_profile: medium_priority
 
 # Topic-specific schema
 schema:
-  key_field: symbol
+  key.field: symbol
   schema_file: "schemas/order_imbalance_alerts.avsc"
   
 # Topic properties
 topic_config:
   partitions: 4
-  retention_ms: 172800000  # 2 days retention
+  retention.ms: 172800000  # 2 days retention
   
 # Alert-specific headers
 headers:

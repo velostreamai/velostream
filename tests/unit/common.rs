@@ -9,7 +9,7 @@ pub use velostream::velostream::kafka::producer_config::{
     AckMode, CompressionType, ProducerConfig,
 };
 pub use velostream::velostream::kafka::{
-    Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message, ProducerBuilder,
+    Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message,
 };
 // Import from correct modules
 pub use velostream::velostream::kafka::serialization::Serializer;

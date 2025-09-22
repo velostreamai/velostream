@@ -1,4 +1,4 @@
-# VeloStream Performance Comparison & Test Execution Report
+# Velostream Performance Comparison & Test Execution Report
 
 **Date:** September 2, 2025  
 **Version:** Post-Optimization Complete  
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-VeloStream has achieved dramatic performance improvements through comprehensive optimization phases, culminating in **163M+ records/sec throughput** for financial calculations and **9.0x performance improvements** in the core execution engine. This report documents the complete performance test suite, execution locations, and comparative analysis of optimization results.
+Velostream has achieved dramatic performance improvements through comprehensive optimization phases, culminating in **163M+ records/sec throughput** for financial calculations and **9.0x performance improvements** in the core execution engine. This report documents the complete performance test suite, execution locations, and comparative analysis of optimization results.
 
 ## Performance Test Suite Documentation
 
@@ -407,14 +407,14 @@ fn select_join_strategy(left_size: usize, right_size: usize) -> JoinStrategy {
 
 ## Conclusion
 
-Phase 2 of the VeloStream performance optimization has successfully delivered:
+Phase 2 of the Velostream performance optimization has successfully delivered:
 
 1. **Significant Performance Gains**: 10x+ improvement for large dataset JOINs
 2. **Production-Ready Monitoring**: Comprehensive real-time performance tracking
 3. **Intelligent Optimization**: Automatic strategy selection based on data characteristics
 4. **Seamless Integration**: No breaking changes to existing functionality
 
-The hash join implementation provides a solid foundation for future performance optimizations while maintaining the reliability and simplicity of the VeloStream SQL engine.
+The hash join implementation provides a solid foundation for future performance optimizations while maintaining the reliability and simplicity of the Velostream SQL engine.
 
 **Next Steps**: Phase 3 will focus on parallel execution, advanced join algorithms, and further memory optimizations to achieve even higher performance targets.
 

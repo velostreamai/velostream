@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: VeloStream Multi-Job SQL Server API
+  title: Velostream Multi-Job SQL Server API
   description: |
-    Performance monitoring and job management API for VeloStream Multi-Job SQL Server.
+    Performance monitoring and job management API for Velostream Multi-Job SQL Server.
     
     The Multi-Job SQL Server enables concurrent execution of multiple SQL applications
     against Kafka streams, with comprehensive performance monitoring and job lifecycle
@@ -29,7 +29,7 @@ info:
     
   version: 1.0.0
   contact:
-    name: VeloStream
+    name: Velostream
     url: https://github.com/anthropics/velostream
   license:
     name: Apache 2.0
@@ -176,7 +176,7 @@ paths:
                 type: string
                 example: |
                   =====================================
-                  VeloStream Multi-Job Performance Report
+                  Velostream Multi-Job Performance Report
                   =====================================
                   Generated: 2025-01-24 10:30:00 UTC
                   Status: Healthy

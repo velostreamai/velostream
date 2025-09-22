@@ -860,7 +860,7 @@ impl ConfigSchemaProvider for BatchConfig {
         serde_json::json!({
             "type": "object",
             "title": "Batch Configuration Schema",
-            "description": "Configuration schema for batch processing in VeloStream",
+            "description": "Configuration schema for batch processing in Velostream",
             "properties": {
                 "batch.size": {
                     "type": "integer",

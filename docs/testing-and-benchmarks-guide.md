@@ -1,8 +1,8 @@
 # Testing and Benchmarks Guide
 
-**Complete guide to running tests and benchmarks in VeloStream**
+**Complete guide to running tests and benchmarks in Velostream**
 
-This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in VeloStream, organized by purpose and execution time.
+This guide provides comprehensive instructions for executing the complete test suite and performance benchmarks in Velostream, organized by purpose and execution time.
 
 ---
 
@@ -111,16 +111,22 @@ cargo run --bin test_streamrecord_performance --no-default-features
 cargo run --bin test_final_performance --no-default-features
 ```
 
-### Configuration Validation
+### SQL Validation Testing
 ```bash
+# SQL validation with integrated validator
+cargo run --bin velo-cli validate examples/sql/ --verbose --no-default-features
+
+# Validation with JSON output for CI/CD
+cargo run --bin velo-cli validate examples/sql/ --format json --no-default-features
+
+# Test pre-deployment validation
+cargo run --bin velo-sql-multi deploy-app --file examples/sql/simple.sql --no-monitor --no-default-features
+
 # Kafka configuration testing
 cargo run --bin test_kafka_configuration --no-default-features
 
 # Schema registry validation
 cargo run --bin test_schema_registry --no-default-features
-
-# Configuration validator tool
-cargo run --bin velo-config-validator --no-default-features
 ```
 
 ---

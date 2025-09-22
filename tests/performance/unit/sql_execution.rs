@@ -1,4 +1,4 @@
-//! Unified SQL Performance Benchmarks for VeloStream
+//! Unified SQL Performance Benchmarks for Velostream
 //!
 //! This module consolidates the previously duplicated benchmark functions from:
 //! - velo_sql_multi_benchmarks.rs (basic benchmarks)

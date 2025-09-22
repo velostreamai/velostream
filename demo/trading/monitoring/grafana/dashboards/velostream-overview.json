@@ -100,7 +100,7 @@
           "refId": "A"
         }
       ],
-      "title": "VeloStream Components Status",
+      "title": "Velostream Components Status",
       "type": "stat"
     },
     {
@@ -308,7 +308,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Memory usage of VeloStream components",
+      "description": "Memory usage of Velostream components",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -398,7 +398,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "CPU usage of VeloStream components",
+      "description": "CPU usage of Velostream components",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -501,7 +501,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "VeloStream Overview",
+  "title": "Velostream Overview",
   "uid": "velostream-overview",
   "version": 1,
   "weekStart": ""

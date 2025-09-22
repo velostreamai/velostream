@@ -491,12 +491,10 @@ impl ConfigSchemaProvider for FileDataSource {
                 }
 
                 // Validate glob patterns have proper syntax
-                if value.contains('*') || value.contains('?') {
-                    if value.ends_with('/') {
-                        return Err(vec![
-                            "glob pattern cannot end with '/' - specify file pattern".to_string(),
-                        ]);
-                    }
+                if (value.contains('*') || value.contains('?')) && value.ends_with('/') {
+                    return Err(vec![
+                        "glob pattern cannot end with '/' - specify file pattern".to_string(),
+                    ]);
                 }
             }
             "format" => {
@@ -616,7 +614,7 @@ impl ConfigSchemaProvider for FileDataSource {
         serde_json::json!({
             "type": "object",
             "title": "File Data Source Configuration Schema",
-            "description": "Configuration schema for file-based data sources in VeloStream",
+            "description": "Configuration schema for file-based data sources in Velostream",
             "properties": {
                 "path": {
                     "type": "string",

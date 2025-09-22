@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build VeloStream CLI Tool
+# Build Velostream CLI Tool
 # Makes the velo-cli available for use in the trading demo
 
 set -e
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🔨 Building VeloStream CLI Tool${NC}"
+echo -e "${BLUE}🔨 Building Velostream CLI Tool${NC}"
 echo -e "${BLUE}=================================${NC}"
 echo ""
 
@@ -48,7 +48,7 @@ ln -s ../../target/release/velo-cli ./velo-cli
 # Make sure it's executable
 chmod +x ../../target/release/velo-cli
 
-echo -e "${GREEN}🎉 VeloStream CLI ready!${NC}"
+echo -e "${GREEN}🎉 Velostream CLI ready!${NC}"
 echo ""
 echo -e "${BLUE}Usage:${NC}"
 echo "• Quick health check: ${YELLOW}./velo-cli health${NC}"

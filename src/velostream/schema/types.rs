@@ -1,7 +1,7 @@
 //! Core Schema Types
 //!
 //! This module contains the fundamental schema types used throughout the
-//! VeloStream schema system.
+//! Velostream schema system.
 
 use crate::velostream::sql::ast::DataType;
 use std::collections::HashMap;

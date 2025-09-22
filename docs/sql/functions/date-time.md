@@ -1,6 +1,6 @@
 # Date/Time Functions
 
-Complete reference for date and time manipulation functions in VeloStream. Use these functions to process timestamps, extract date components, and perform temporal calculations.
+Complete reference for date and time manipulation functions in Velostream. Use these functions to process timestamps, extract date components, and perform temporal calculations.
 
 ## Current Time Functions
 
@@ -62,28 +62,54 @@ ORDER BY month;
 
 ### EXTRACT - Extract Date Parts
 
+**VeloStream supports both EXTRACT syntaxes:**
+- **Function call style**: `EXTRACT('YEAR', timestamp)` (backward compatible)
+- **SQL standard style**: `EXTRACT(YEAR FROM timestamp)` (recommended)
+
 ```sql
--- Extract various date components
+-- Extract various date components (both syntaxes supported)
 SELECT
     order_id,
     _timestamp,
-    EXTRACT('YEAR', _timestamp) as order_year,
-    EXTRACT('MONTH', _timestamp) as order_month,
-    EXTRACT('DAY', _timestamp) as order_day,
-    EXTRACT('HOUR', _timestamp) as order_hour,
-    EXTRACT('DOW', _timestamp) as day_of_week,  -- 0=Sunday, 1=Monday, etc.
-    EXTRACT('DOY', _timestamp) as day_of_year,  -- 1-366
-    EXTRACT('WEEK', _timestamp) as week_of_year -- 1-53
+    -- Function call style (legacy)
+    EXTRACT('YEAR', _timestamp) as order_year_legacy,
+    EXTRACT('MONTH', _timestamp) as order_month_legacy,
+    -- SQL standard style (recommended)
+    EXTRACT(YEAR FROM _timestamp) as order_year,
+    EXTRACT(MONTH FROM _timestamp) as order_month,
+    EXTRACT(DAY FROM _timestamp) as order_day,
+    EXTRACT(HOUR FROM _timestamp) as order_hour,
+    EXTRACT(DOW FROM _timestamp) as day_of_week,  -- 0=Sunday, 1=Monday, etc.
+    EXTRACT(DOY FROM _timestamp) as day_of_year,  -- 1-366
+    EXTRACT(WEEK FROM _timestamp) as week_of_year -- 1-53
 FROM orders;
 
--- Business hour analysis
+-- Business hour analysis (using SQL standard syntax)
 SELECT
-    EXTRACT('HOUR', _timestamp) as hour,
+    EXTRACT(HOUR FROM _timestamp) as hour,
     COUNT(*) as order_count
 FROM orders
-GROUP BY EXTRACT('HOUR', _timestamp)
+GROUP BY EXTRACT(HOUR FROM _timestamp)
 ORDER BY hour;
+
+-- Advanced: Extract from date arithmetic expressions
+SELECT
+    trade_id,
+    event_time,
+    -- Extract seconds between two timestamps
+    EXTRACT(EPOCH FROM (event_time - order_time)) as time_diff_seconds
+FROM financial_trades;
 ```
+
+**Supported EXTRACT parts:**
+- `YEAR`, `MONTH`, `DAY` - Date components
+- `HOUR`, `MINUTE`, `SECOND` - Time components
+- `DOW` - Day of week (0=Sunday, 6=Saturday)
+- `DOY` - Day of year (1-366)
+- `WEEK` - ISO week number (1-53)
+- `QUARTER` - Quarter (1-4)
+- `EPOCH` - Unix timestamp (seconds since 1970-01-01)
+- `MILLISECOND`, `MICROSECOND`, `NANOSECOND` - Sub-second precision
 
 ### Convenience Functions - YEAR, MONTH, DAY
 
@@ -378,7 +404,7 @@ WHERE birth_date IS NOT NULL;
 | `NOW()` | Current timestamp | `NOW()` |
 | `CURRENT_TIMESTAMP` | Current timestamp (alias) | `CURRENT_TIMESTAMP` |
 | `DATE_FORMAT(date, format)` | Format date as string | `DATE_FORMAT(_timestamp, '%Y-%m-%d')` |
-| `EXTRACT(part, date)` | Extract date component | `EXTRACT('YEAR', order_date)` |
+| `EXTRACT(part, date)` | Extract date component | `EXTRACT('YEAR', order_date)` or `EXTRACT(YEAR FROM order_date)` |
 | `YEAR(date)` | Extract year | `YEAR(order_date)` |
 | `MONTH(date)` | Extract month | `MONTH(order_date)` |
 | `DAY(date)` | Extract day | `DAY(order_date)` |
@@ -390,6 +416,8 @@ WHERE birth_date IS NOT NULL;
 **Date difference units:** `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `years`
 
 **Interval units:** `SECOND`, `MINUTE`, `HOUR`, `DAY`, `WEEK`, `MONTH`, `YEAR`
+
+**EXTRACT parts:** `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `SECOND`, `DOW`, `DOY`, `WEEK`, `QUARTER`, `EPOCH`, `MILLISECOND`, `MICROSECOND`, `NANOSECOND`
 
 ## Next Steps
 

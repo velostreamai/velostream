@@ -131,7 +131,7 @@
 
 ## Executive Summary
 
-Implement a comprehensive self-registering configuration schema system to prevent configuration drift and provide automated validation for VeloStream' complex multi-source/multi-sink configuration architecture. Each config-consuming class will own and maintain its validation schema, ensuring consistency and preventing deployment failures due to configuration errors.
+Implement a comprehensive self-registering configuration schema system to prevent configuration drift and provide automated validation for Velostream' complex multi-source/multi-sink configuration architecture. Each config-consuming class will own and maintain its validation schema, ensuring consistency and preventing deployment failures due to configuration errors.
 
 **Current Status: Phase 1 ✅ COMPLETE | Phase 2 ✅ COMPLETE**
 - **Phase 1**: Core infrastructure implemented, all tests passing
@@ -174,9 +174,9 @@ Implement a comprehensive self-registering configuration schema system to preven
 - **Developer Experience**: No IDE autocompletion or validation for complex configurations
 - **Maintenance Overhead**: Manual schema maintenance across multiple documentation sources
 
-## Integration with Existing VeloStream Architecture
+## Integration with Existing Velostream Architecture
 
-This feature enhances and validates the sophisticated configuration system already documented and implemented in VeloStream. The self-registering schema system provides validation for existing functionality without changing current behavior.
+This feature enhances and validates the sophisticated configuration system already documented and implemented in Velostream. The self-registering schema system provides validation for existing functionality without changing current behavior.
 
 ### Supporting Documentation Evidence
 
@@ -593,11 +593,11 @@ The schema validation system operates at multiple points in the development and 
 ##### **Development Time Validation**
 ```rust
 // IDE Integration via Language Server Protocol
-pub struct VeloStreamSQLLanguageServer {
+pub struct VelostreamSQLLanguageServer {
     schema_registry: HierarchicalSchemaRegistry,
 }
 
-impl LanguageServer for VeloStreamSQLLanguageServer {
+impl LanguageServer for VelostreamSQLLanguageServer {
     fn did_change(&mut self, params: DidChangeTextDocumentParams) {
         // Real-time validation as user types SQL
         if let Ok(sql_config) = self.parse_sql_config(&params.content_changes) {
@@ -615,35 +615,32 @@ impl LanguageServer for VeloStreamSQLLanguageServer {
 
 ##### **CLI Tool Validation**
 ```bash
-# Standalone configuration validation
-velo-config validate ./enhanced_sql_demo.sql
-velo-config validate --config-dir ./configs/
-velo-config validate --schema-version 2.0.0
+# Unified SQL validation (includes configuration schema validation)
+velo-cli validate ./enhanced_sql_demo.sql
+velo-cli validate --config-dir ./configs/
+velo-cli validate --format json
 
-# Integration with existing velo-sql-multi CLI
-velo-sql-multi deploy-app --file ./demo.sql --validate-only
-velo-sql-multi deploy-app --file ./demo.sql --dry-run
+# Integration with velo-sql-multi CLI (includes pre-deployment validation)
+velo-sql-multi deploy-app --file ./demo.sql --no-monitor
+# Note: Pre-deployment validation is now automatic - no separate --validate-only flag needed
 ```
 
 ##### **CI/CD Pipeline Integration**
 ```yaml
 # GitHub Actions / GitLab CI integration
-- name: Validate VeloStream Configuration
+- name: Validate Velostream Configuration
   run: |
-    # Validate all SQL files in repository
-    find . -name "*.sql" -exec velo-config validate {} \;
-    
-    # Validate config file inheritance chains
-    velo-config validate-configs --config-dir ./configs/
-    
-    # Schema compatibility check
-    velo-config schema-check --target-version 2.0.0
-    
-    # Generate validation report
-    velo-config validate --output-format json --output-file validation-report.json
+    # Validate all SQL files in repository (includes config schema validation)
+    find . -name "*.sql" -exec velo-cli validate {} \;
+
+    # Validate with JSON output for CI reporting
+    velo-cli validate --format json sql/ > validation-report.json
+
+    # Strict validation mode (fail on warnings)
+    velo-cli validate --strict sql/
 
 # Docker-based validation
-docker run velo-streams/config-validator:latest validate /workspace/configs/
+docker run velo-streams/velo-cli:latest validate /workspace/sql/
 ```
 
 ##### **REST API Validation**
@@ -934,14 +931,13 @@ impl StreamJobServer {
 
 ##### **CLI Integration with SQL Validator**
 ```bash
-# Enhanced velo-sql-multi with integrated validation
-velo-sql-multi validate --file ./demo.sql                    # SQL + Config validation
-velo-sql-multi validate --file ./demo.sql --config-only      # Config validation only
-velo-sql-multi validate --file ./demo.sql --sql-only         # SQL validation only
+# Unified validation through velo-cli (replaces old sql-validator and velo-config-validator)
+velo-cli validate ./demo.sql                                 # Combined SQL + Config validation
+velo-cli validate ./demo.sql --verbose                       # Detailed validation output
+velo-cli validate ./demo.sql --format json                   # JSON output for CI/CD
 
-# Standalone config validator with SQL integration  
-velo-config validate-sql ./demo.sql                          # Validate SQL WITH clauses
-velo-config validate-sql --check-syntax ./demo.sql           # Combined SQL + config check
+# Pre-deployment validation through velo-sql-multi (automatic)
+velo-sql-multi deploy-app --file ./demo.sql                  # Validates before deployment
 ```
 
 ##### **Runtime Validation Points**
@@ -1761,8 +1757,8 @@ Total Development Time:             13 weeks       96 dev-hours
 
 ## References
 
-### Supporting VeloStream Documentation
-This feature request validates and enhances functionality documented in existing VeloStream guides:
+### Supporting Velostream Documentation
+This feature request validates and enhances functionality documented in existing Velostream guides:
 
 #### **Core Configuration Architecture**
 - **[MULTI_SOURCE_SINK_GUIDE.md](../data-sources/MULTI_SOURCE_SINK_GUIDE.md)** - Primary source of truth for configuration patterns

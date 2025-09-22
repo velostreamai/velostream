@@ -40,6 +40,5 @@ pub use headers::Headers;
 pub use message::Message;
 
 // Re-export admin client for examples and tests
-pub use admin_client::KafkaAdminClient;
 
 // Conditional exports for feature-gated serializers

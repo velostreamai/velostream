@@ -1,6 +1,6 @@
-# VeloStream SQL - Your First Query in 2 Minutes
+# Velostream SQL - Your First Query in 2 Minutes
 
-Get productive with VeloStream SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
+Get productive with Velostream SQL in under 2 minutes. This guide provides working examples you can copy and run immediately.
 
 ## ⚡ Quick Start (30 seconds)
 
@@ -94,13 +94,76 @@ WHERE o.status = 'completed';
 
 ### Time Windows
 ```sql
--- 1-hour tumbling windows
+-- Simple TUMBLING windows
 SELECT customer_id, SUM(amount) as hourly_total
 FROM orders
-WINDOW TUMBLING (INTERVAL '1' HOUR)
+WINDOW TUMBLING(1h)  -- Simple duration syntax
+GROUP BY customer_id;
+
+-- NEW: Complex TUMBLING windows with explicit time columns
+SELECT customer_id, SUM(amount) as hourly_total
+FROM orders
+WINDOW TUMBLING (event_time, INTERVAL '1' HOUR)  -- Complex syntax
 GROUP BY customer_id;
 ```
 [→ Complete windowing guide](by-task/window-analysis.md)
+
+### Advanced Analytics (NEW)
+```sql
+-- Enterprise-grade SQL with table aliases and INTERVAL frames
+SELECT
+    p.trader_id,
+    m.symbol,
+    m.price,
+    -- Table aliases in window functions
+    LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price,
+    -- Time-based rolling windows
+    AVG(m.price) OVER (
+        PARTITION BY m.symbol
+        ORDER BY m.event_time
+        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+    ) as hourly_avg,
+    -- SQL standard EXTRACT syntax
+    EXTRACT(HOUR FROM m.event_time) as trade_hour,
+    EXTRACT(EPOCH FROM (m.event_time - p.created_at)) as position_age_seconds
+FROM market_data m
+JOIN positions p ON m.symbol = p.symbol;
+```
+
+### ✨ Subqueries (FULLY SUPPORTED)
+```sql
+-- Complex subquery analytics for risk management
+SELECT
+    trader_id,
+    position_size,
+    current_pnl,
+    -- EXISTS subquery for risk classification
+    CASE
+        WHEN EXISTS (
+            SELECT 1 FROM trading_positions p2
+            WHERE p2.trader_id = positions.trader_id
+            AND p2.event_time >= positions.event_time - INTERVAL '1' HOUR
+            AND ABS(p2.current_pnl) > 50000
+        ) THEN 'HIGH_VOLATILITY_TRADER'
+        ELSE 'NORMAL'
+    END as risk_status,
+    -- IN subquery for filtering
+    symbol IN (SELECT symbol FROM high_volume_stocks) as is_high_volume,
+    -- Scalar subquery for comparison
+    (SELECT AVG(current_pnl) FROM trading_positions) as avg_pnl
+FROM trading_positions positions
+WHERE trader_id IN (
+    SELECT trader_id FROM active_traders WHERE status = 'ACTIVE'
+);
+```
+
+**Supported Subquery Features:**
+- ✅ **EXISTS / NOT EXISTS** - Correlated existence checks
+- ✅ **IN / NOT IN** - Set membership testing
+- ✅ **Scalar subqueries** - Single value returns
+- ✅ **Correlated subqueries** - Reference outer query
+- ✅ **Complex nesting** - Multiple levels supported
+[→ Advanced SQL features](functions/enhanced-sql-features.md)
 
 ## 🎯 Task-Oriented Guides
 

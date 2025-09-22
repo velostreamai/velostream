@@ -1,6 +1,6 @@
 # Math Functions
 
-Complete reference for mathematical functions in VeloStream. Use these functions for numeric calculations, rounding, and mathematical operations in your streaming queries.
+Complete reference for mathematical functions in Velostream. Use these functions for numeric calculations, rounding, and mathematical operations in your streaming queries.
 
 ## Basic Arithmetic Functions
 

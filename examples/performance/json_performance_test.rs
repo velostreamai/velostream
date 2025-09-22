@@ -31,12 +31,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
+use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{
-    Headers, JsonSerializer, KafkaAdminClient, KafkaConsumer, Message, ProducerBuilder,
-}; // Add this import for stream extension traits
+use velostream::{Headers, JsonSerializer, KafkaConsumer, Message, ProducerBuilder}; // Add this import for stream extension traits
 
 // Performance test configuration
 const MESSAGE_COUNT: u64 = 10_000;

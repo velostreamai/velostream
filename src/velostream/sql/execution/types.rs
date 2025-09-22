@@ -826,7 +826,7 @@ impl FieldValue {
 /// This structure represents a single record from a streaming data source like Kafka.
 /// It contains the actual field data plus metadata about the record's position and
 /// timing within the stream.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StreamRecord {
     /// The actual field data for this record
     pub fields: HashMap<String, FieldValue>,
@@ -842,19 +842,6 @@ pub struct StreamRecord {
     /// When None, processing-time (timestamp field) is used
     /// When Some, this timestamp is used for event-time windowing and watermarks
     pub event_time: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl Default for StreamRecord {
-    fn default() -> Self {
-        Self {
-            fields: HashMap::new(),
-            timestamp: 0,
-            offset: 0,
-            partition: 0,
-            headers: HashMap::new(),
-            event_time: None, // Default to processing-time
-        }
-    }
 }
 
 impl StreamRecord {}

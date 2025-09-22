@@ -1,4 +1,4 @@
-# VeloStream SQL Configuration
+# Velostream SQL Configuration
 
 # Kafka Settings
 kafka:
@@ -46,15 +46,15 @@ kafka:
   # Producer settings for data sinks (writing TO Kafka)
   producer:
     # Kafka broker configuration
-    bootstrap_servers: "localhost:9092"
+    bootstrap.servers: "localhost:9092"
     
     # Producer performance settings
     acks: "all"  # Wait for all replicas to acknowledge
     retries: 3
-    batch_size: 16384
-    linger_ms: 5
+    batch.size: 16384
+    linger.ms: 5
     buffer_memory: 33554432
-    compression_type: "lz4"
+    compression.type: "lz4"
     
     # Serialization format for outbound messages
     value.serializer: "json"  # json, avro, protobuf
@@ -125,7 +125,7 @@ jobs:
 
 # Performance Tuning
 performance:
-  buffer_size: 1000
-  batch_size: 100
+  buffer.size: 1000
+  batch.size: 100
   flush_interval_ms: 1000
   enable_compression: true

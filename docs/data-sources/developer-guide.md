@@ -1,6 +1,6 @@
 # Developer Guide: Implementing New Data Sources
 
-This guide shows how to implement new data source adapters using the VeloStream pluggable architecture.
+This guide shows how to implement new data source adapters using the Velostream pluggable architecture.
 
 ## 📋 Overview
 
@@ -601,7 +601,7 @@ let csv_reader = csv::Reader::from_reader(buf_reader);
 2. **Follow the implementation checklist** above
 3. **Write comprehensive tests** for your implementation
 4. **Register with the DataSourceRegistry**
-5. **Submit a pull request** to add your data source to VeloStream
+5. **Submit a pull request** to add your data source to Velostream
 
 The pluggable architecture makes it easy to add new data sources while maintaining compatibility with the existing ecosystem.
 

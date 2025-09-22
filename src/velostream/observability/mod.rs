@@ -1,6 +1,6 @@
 // === PHASE 4: OBSERVABILITY MODULE ===
 //
-// This module provides comprehensive observability features for VeloStream:
+// This module provides comprehensive observability features for Velostream:
 // - OpenTelemetry distributed tracing
 // - Prometheus metrics collection and export
 // - Performance profiling integration
@@ -17,7 +17,7 @@ use crate::velostream::sql::execution::config::StreamingConfig;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Central observability manager for VeloStream Phase 4
+/// Central observability manager for Velostream Phase 4
 #[derive(Debug)]
 pub struct ObservabilityManager {
     config: StreamingConfig,
