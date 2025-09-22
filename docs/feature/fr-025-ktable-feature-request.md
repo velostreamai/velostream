@@ -1426,11 +1426,14 @@ AVG(value.portfolio.positions.****.shares)
 - Single-level wildcards (`*`)
 - Wildcard comparison operations (`portfolio.positions.*.shares > 100`)
 
-**🚧 Future Extensions:**
+**✅ Recently Implemented:**
 - Deep recursive wildcards (`**`)
-- Array access patterns (`[*]`, `[index]`, `[start:end]`)
+- Array access patterns (`[*]`, `[index]`)
+- Aggregate functions (`COUNT`, `MAX`, `AVG`, `MIN`, `SUM`)
+
+**🚧 Future Extensions:**
+- Array slice patterns (`[start:end]`)
 - Predicate filtering (`[?(@.condition)]`)
-- Aggregate functions (`COUNT`, `MAX`, `AVG`)
 
 ### Production Examples
 
@@ -1441,11 +1444,24 @@ let large_positions = table.sql_wildcard_values(
     "portfolio.positions.*.shares > 100"
 )?;
 
+// Deep recursive search for any nested price data
+let all_prices = table.sql_wildcard_values("**.price")?;
+
 // Direct field access for specific symbols
 let aapl_price = table.get_field_by_path(
     &"portfolio-001",
     "positions.AAPL.avg_price"
 );
+
+// Array access for order history
+let recent_orders = table.sql_wildcard_values("orders[*].amount")?;
+let first_order = table.sql_wildcard_values("orders[0].amount")?;
+
+// Aggregate functions for portfolio analysis
+let total_shares = table.sql_wildcard_aggregate("SUM(positions.*.shares)")?;
+let avg_price = table.sql_wildcard_aggregate("AVG(positions.*.price)")?;
+let position_count = table.sql_wildcard_aggregate("COUNT(positions.*)")?;
+let max_holding = table.sql_wildcard_aggregate("MAX(positions.*.market_value)")?;
 
 // Complex nested structure navigation
 let trader_risk_score = table.get_field_by_path(

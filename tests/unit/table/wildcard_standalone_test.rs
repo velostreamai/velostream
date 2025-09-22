@@ -120,3 +120,107 @@ fn test_wildcard_edge_cases() {
         println!("Test case '{}': {:?}", test_case, result.is_ok());
     }
 }
+
+#[test]
+fn test_deep_recursive_wildcards() {
+    let mut records = HashMap::new();
+
+    // Create deeply nested structure
+    let mut level1 = HashMap::new();
+    let mut level2 = HashMap::new();
+    let mut level3 = HashMap::new();
+
+    level3.insert("deep_value".to_string(), FieldValue::Integer(42));
+    level2.insert("level3".to_string(), FieldValue::Struct(level3));
+    level1.insert("level2".to_string(), FieldValue::Struct(level2));
+    records.insert("root".to_string(), FieldValue::Struct(level1));
+
+    let source = TestWildcardSource { records };
+
+    // Test deep recursive wildcard (**)
+    let result = source.sql_wildcard_values("**.deep_value");
+    assert!(result.is_ok());
+    let values = result.unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0], FieldValue::Integer(42));
+}
+
+#[test]
+fn test_array_access_patterns() {
+    let mut records = HashMap::new();
+
+    // Create structure with arrays
+    let mut doc = HashMap::new();
+    let orders = vec![
+        {
+            let mut order = HashMap::new();
+            order.insert("id".to_string(), FieldValue::Integer(1));
+            order.insert("amount".to_string(), FieldValue::Float(100.50));
+            FieldValue::Struct(order)
+        },
+        {
+            let mut order = HashMap::new();
+            order.insert("id".to_string(), FieldValue::Integer(2));
+            order.insert("amount".to_string(), FieldValue::Float(250.75));
+            FieldValue::Struct(order)
+        },
+        {
+            let mut order = HashMap::new();
+            order.insert("id".to_string(), FieldValue::Integer(3));
+            order.insert("amount".to_string(), FieldValue::Float(75.25));
+            FieldValue::Struct(order)
+        },
+    ];
+    doc.insert("orders".to_string(), FieldValue::Array(orders));
+    records.insert("customer".to_string(), FieldValue::Struct(doc));
+
+    let source = TestWildcardSource { records };
+
+    // Test array wildcard access
+    let result = source.sql_wildcard_values("orders[*].amount");
+    assert!(result.is_ok());
+    let values = result.unwrap();
+    assert_eq!(values.len(), 3);
+    assert!(values.contains(&FieldValue::Float(100.50)));
+    assert!(values.contains(&FieldValue::Float(250.75)));
+    assert!(values.contains(&FieldValue::Float(75.25)));
+
+    // Test specific array index
+    let result = source.sql_wildcard_values("orders[1].amount");
+    assert!(result.is_ok());
+    let values = result.unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0], FieldValue::Float(250.75));
+}
+
+#[test]
+fn test_aggregate_functions() {
+    let source = TestWildcardSource::new();
+
+    // Test COUNT
+    let count = source.sql_wildcard_aggregate("COUNT(positions.*.shares)");
+    assert!(count.is_ok());
+    assert_eq!(count.unwrap(), FieldValue::Integer(3));
+
+    // Test MAX
+    let max = source.sql_wildcard_aggregate("MAX(positions.*.shares)");
+    assert!(max.is_ok());
+    assert_eq!(max.unwrap(), FieldValue::Float(150.0));
+
+    // Test MIN
+    let min = source.sql_wildcard_aggregate("MIN(positions.*.shares)");
+    assert!(min.is_ok());
+    assert_eq!(min.unwrap(), FieldValue::Float(25.0));
+
+    // Test AVG
+    let avg = source.sql_wildcard_aggregate("AVG(positions.*.shares)");
+    assert!(avg.is_ok());
+    if let FieldValue::Float(avg_val) = avg.unwrap() {
+        assert!((avg_val - 83.333).abs() < 0.01); // (150 + 75 + 25) / 3 ≈ 83.333
+    }
+
+    // Test SUM
+    let sum = source.sql_wildcard_aggregate("SUM(positions.*.shares)");
+    assert!(sum.is_ok());
+    assert_eq!(sum.unwrap(), FieldValue::Float(250.0)); // 150 + 75 + 25
+}

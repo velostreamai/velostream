@@ -175,6 +175,24 @@ pub trait SqlQueryable {
     /// let all_emails = table.sql_wildcard_values("users.***.email")?;
     /// ```
     fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError>;
+
+    /// Execute aggregate functions on wildcard results
+    ///
+    /// # Examples
+    /// ```
+    /// // Count matching values
+    /// let count = table.sql_wildcard_aggregate("COUNT(portfolio.positions.*.shares)")?;
+    ///
+    /// // Maximum value
+    /// let max = table.sql_wildcard_aggregate("MAX(portfolio.positions.*.market_value)")?;
+    ///
+    /// // Average value
+    /// let avg = table.sql_wildcard_aggregate("AVG(users.*.balance)")?;
+    ///
+    /// // Sum of values
+    /// let sum = table.sql_wildcard_aggregate("SUM(orders[*].amount)")?;
+    /// ```
+    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError>;
 }
 
 /// SQL Expression evaluator using the proper SQL AST
@@ -825,6 +843,111 @@ impl<T: SqlDataSource> SqlQueryable for T {
 
         Ok(matching_values)
     }
+
+    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError> {
+        // Parse the aggregate function and field path
+        // Examples: "COUNT(path)", "MAX(path)", "AVG(path)", "SUM(path)", "MIN(path)"
+        let expr = aggregate_expr.trim();
+
+        // Extract function name and field path using regex-like parsing
+        let (func_name, field_path) = if let Some(start) = expr.find('(') {
+            if let Some(end) = expr.rfind(')') {
+                let func = expr[..start].to_uppercase();
+                let path = expr[start + 1..end].trim().to_string();
+                (func, path)
+            } else {
+                return Err(SqlError::ParseError {
+                    message: "Invalid aggregate expression: missing closing parenthesis".to_string(),
+                    position: Some(expr.len()),
+                });
+            }
+        } else {
+            return Err(SqlError::ParseError {
+                message: "Invalid aggregate expression: expected function(path) format".to_string(),
+                position: Some(0),
+            });
+        };
+
+        // Get all matching values
+        let values = self.sql_wildcard_values(&field_path)?;
+
+        // Apply the aggregate function
+        match func_name.as_str() {
+            "COUNT" => {
+                Ok(FieldValue::Integer(values.len() as i64))
+            }
+            "MAX" => {
+                let mut max_val: Option<f64> = None;
+                for value in &values {
+                    if let Some(num) = extract_numeric_value(value) {
+                        max_val = Some(max_val.map_or(num, |m| m.max(num)));
+                    }
+                }
+                max_val
+                    .map(FieldValue::Float)
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: "No numeric values found for MAX".to_string(),
+                        query: Some(aggregate_expr.to_string()),
+                    })
+            }
+            "MIN" => {
+                let mut min_val: Option<f64> = None;
+                for value in &values {
+                    if let Some(num) = extract_numeric_value(value) {
+                        min_val = Some(min_val.map_or(num, |m| m.min(num)));
+                    }
+                }
+                min_val
+                    .map(FieldValue::Float)
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: "No numeric values found for MIN".to_string(),
+                        query: Some(aggregate_expr.to_string()),
+                    })
+            }
+            "AVG" => {
+                let mut sum = 0.0;
+                let mut count = 0;
+                for value in &values {
+                    if let Some(num) = extract_numeric_value(value) {
+                        sum += num;
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    Ok(FieldValue::Float(sum / count as f64))
+                } else {
+                    Err(SqlError::ExecutionError {
+                        message: "No numeric values found for AVG".to_string(),
+                        query: Some(aggregate_expr.to_string()),
+                    })
+                }
+            }
+            "SUM" => {
+                let mut sum = 0.0;
+                let mut has_values = false;
+                for value in &values {
+                    if let Some(num) = extract_numeric_value(value) {
+                        sum += num;
+                        has_values = true;
+                    }
+                }
+                if has_values {
+                    Ok(FieldValue::Float(sum))
+                } else {
+                    Err(SqlError::ExecutionError {
+                        message: "No numeric values found for SUM".to_string(),
+                        query: Some(aggregate_expr.to_string()),
+                    })
+                }
+            }
+            _ => {
+                Err(SqlError::ParseError {
+                    message: format!("Unknown aggregate function: {}", func_name),
+                    position: Some(0),
+                })
+            }
+        }
+    }
 }
 
 /// Helper function to collect wildcard matches with optional threshold comparison
@@ -834,8 +957,132 @@ fn collect_wildcard_matches(
     results: &mut Vec<FieldValue>,
     threshold: Option<f64>,
 ) {
-    let parts: Vec<&str> = field_path.split('.').collect();
-    collect_wildcard_recursive(record, &parts, 0, results, threshold);
+    // Parse the path, handling array notation
+    let parts = parse_path_with_arrays(field_path);
+    collect_wildcard_recursive_with_arrays(record, &parts, 0, results, threshold);
+}
+
+/// Parse a path that may contain array notation
+fn parse_path_with_arrays(path: &str) -> Vec<PathPart> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_brackets = false;
+
+    for ch in path.chars() {
+        match ch {
+            '[' => {
+                if !current.is_empty() {
+                    parts.push(PathPart::Field(current.clone()));
+                    current.clear();
+                }
+                in_brackets = true;
+            }
+            ']' => {
+                if in_brackets {
+                    let bracket_content = current.trim();
+                    if bracket_content == "*" {
+                        parts.push(PathPart::ArrayWildcard);
+                    } else if let Ok(index) = bracket_content.parse::<usize>() {
+                        parts.push(PathPart::ArrayIndex(index));
+                    } else if bracket_content.starts_with("?(@") {
+                        // Predicate filter - for future implementation
+                        parts.push(PathPart::Predicate(bracket_content.to_string()));
+                    }
+                    current.clear();
+                    in_brackets = false;
+                }
+            }
+            '.' if !in_brackets => {
+                if !current.is_empty() {
+                    parts.push(PathPart::Field(current.clone()));
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        parts.push(PathPart::Field(current));
+    }
+
+    parts
+}
+
+#[derive(Debug, Clone)]
+enum PathPart {
+    Field(String),
+    ArrayWildcard,
+    ArrayIndex(usize),
+    Predicate(String),
+}
+
+/// Recursive helper for wildcard pattern matching with array support
+fn collect_wildcard_recursive_with_arrays(
+    current: &FieldValue,
+    parts: &[PathPart],
+    index: usize,
+    results: &mut Vec<FieldValue>,
+    threshold: Option<f64>,
+) {
+    if index >= parts.len() {
+        // Reached the end of the path - check if we should collect this value
+        if let Some(threshold_val) = threshold {
+            if let Some(numeric_val) = extract_numeric_value(current) {
+                if numeric_val > threshold_val {
+                    results.push(current.clone());
+                }
+            }
+        } else {
+            results.push(current.clone());
+        }
+        return;
+    }
+
+    match (&parts[index], current) {
+        (PathPart::Field(field_name), FieldValue::Struct(fields)) => {
+            if field_name == "*" {
+                // Single-level wildcard
+                for (_, value) in fields {
+                    collect_wildcard_recursive_with_arrays(value, parts, index + 1, results, threshold);
+                }
+            } else if field_name == "**" {
+                // Deep recursive wildcard
+                for (_, value) in fields {
+                    // Try continuing from next part
+                    if index + 1 < parts.len() {
+                        collect_wildcard_recursive_with_arrays(value, parts, index + 1, results, threshold);
+                    }
+                    // Also recurse deeper with same pattern
+                    collect_wildcard_recursive_with_arrays(value, parts, index, results, threshold);
+                }
+            } else if let Some(value) = fields.get(field_name) {
+                // Exact field match
+                collect_wildcard_recursive_with_arrays(value, parts, index + 1, results, threshold);
+            }
+        }
+        (PathPart::ArrayWildcard, FieldValue::Array(arr)) => {
+            // Process all array elements
+            for element in arr {
+                collect_wildcard_recursive_with_arrays(element, parts, index + 1, results, threshold);
+            }
+        }
+        (PathPart::ArrayIndex(idx), FieldValue::Array(arr)) => {
+            // Access specific array index
+            if let Some(element) = arr.get(*idx) {
+                collect_wildcard_recursive_with_arrays(element, parts, index + 1, results, threshold);
+            }
+        }
+        (PathPart::Predicate(_predicate), _) => {
+            // TODO: Implement predicate filtering
+            // For now, skip predicate filters
+        }
+        _ => {
+            // Type mismatch or unsupported pattern - skip
+        }
+    }
 }
 
 /// Helper function for less-than comparisons with wildcards
@@ -845,6 +1092,7 @@ fn collect_wildcard_matches_less_than(
     results: &mut Vec<FieldValue>,
     threshold: f64,
 ) {
+    // For now, use the old implementation - can be updated to use parse_path_with_arrays
     let parts: Vec<&str> = field_path.split('.').collect();
     collect_wildcard_recursive_less_than(record, &parts, 0, results, threshold);
 }
@@ -866,7 +1114,7 @@ fn collect_wildcard_recursive(
             let part = parts[index];
 
             if part == "*" {
-                // Wildcard - search all fields at this level
+                // Single-level wildcard - search all fields at this level
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {
                         // More parts to process
@@ -883,6 +1131,17 @@ fn collect_wildcard_recursive(
                             results.push(field_value.clone());
                         }
                     }
+                }
+            } else if part == "**" {
+                // Deep recursive wildcard - search at any depth
+                // First, try to continue from this level
+                for (_, field_value) in fields.iter() {
+                    if index + 1 < parts.len() {
+                        // Try matching the rest of the pattern from this field
+                        collect_wildcard_recursive(field_value, parts, index + 1, results, threshold);
+                    }
+                    // Also recurse deeper, keeping the ** pattern
+                    collect_wildcard_recursive(field_value, parts, index, results, threshold);
                 }
             } else if let Some(field_value) = fields.get(part) {
                 // Exact field match
