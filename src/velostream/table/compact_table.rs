@@ -53,7 +53,7 @@ pub enum CompactValue {
     Bool(bool),                    // 1 byte
     Null,                          // 0 bytes
     ScaledInt(i64, u8),           // 9 bytes (packed)
-    Nested(Box<CompactRecord>),    // Pointer to nested record
+    Nested(Box<HashMap<String, FieldValue>>),    // Store nested structure directly for simplicity
 }
 
 /// String interning pool - shared across all records
@@ -180,10 +180,8 @@ impl CompactRecord {
                         CompactValue::ScaledInt(*value, *scale)
                     }
                     FieldValue::Struct(nested) => {
-                        let nested_record = CompactRecord::from_field_value_record(
-                            nested, schema, string_pool
-                        );
-                        CompactValue::Nested(Box::new(nested_record))
+                        // Store nested structures directly for simplicity
+                        CompactValue::Nested(Box::new(nested.clone()))
                     }
                     _ => CompactValue::Null, // Fallback for unsupported types
                 };
@@ -222,9 +220,8 @@ impl CompactRecord {
                     CompactValue::ScaledInt(value, scale) => {
                         FieldValue::ScaledInteger(*value, *scale)
                     }
-                    CompactValue::Nested(nested_record) => {
-                        let nested = nested_record.to_field_value_record(schema, string_pool);
-                        FieldValue::Struct(nested)
+                    CompactValue::Nested(nested_map) => {
+                        FieldValue::Struct((**nested_map).clone())
                     }
                 };
 
@@ -326,25 +323,27 @@ where
                 return self.compact_value_to_field_value(record.get_by_index(index)?);
             }
         } else {
-            // Nested field access - only convert the path we need
+            // Nested field access - convert nested structure and navigate
             let parts: Vec<&str> = field_path.split('.').collect();
-            let mut current_record = record;
 
-            for (i, part) in parts.iter().enumerate() {
-                if let Some(index) = schema.get_field_index(part) {
-                    if i == parts.len() - 1 {
-                        // Final field - convert to FieldValue
-                        return self.compact_value_to_field_value(current_record.get_by_index(index)?);
-                    } else {
-                        // Intermediate nested field
-                        match current_record.get_by_index(index)? {
-                            CompactValue::Nested(nested) => {
-                                current_record = nested;
-                            }
-                            _ => return None,
+            // First, get the top-level field that contains the nested structure
+            if let Some(index) = schema.get_field_index(parts[0]) {
+                // Get the top-level field value
+                let top_value = self.compact_value_to_field_value(record.get_by_index(index)?)?;
+
+                // Navigate through the nested structure
+                let mut current_value = &top_value;
+
+                for i in 1..parts.len() {
+                    match current_value {
+                        FieldValue::Struct(map) => {
+                            current_value = map.get(parts[i])?;
                         }
+                        _ => return None,
                     }
                 }
+
+                return Some(current_value.clone());
             }
         }
         None
@@ -363,10 +362,8 @@ where
             CompactValue::ScaledInt(value, scale) => {
                 Some(FieldValue::ScaledInteger(*value, *scale))
             }
-            CompactValue::Nested(nested) => {
-                let schema_guard = self.schema.read().unwrap();
-                let converted = nested.to_field_value_record(&schema_guard, &self.string_pool);
-                Some(FieldValue::Struct(converted))
+            CompactValue::Nested(nested_map) => {
+                Some(FieldValue::Struct((**nested_map).clone()))
             }
         }
     }

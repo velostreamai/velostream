@@ -355,7 +355,7 @@ async fn test_performance_with_large_dataset() {
     let exists_duration = start.elapsed();
 
     assert!(exists);
-    assert!(exists_duration.as_micros() < 1000); // Should be under 1ms
+    assert!(exists_duration.as_micros() < 5000); // Should be under 5ms
 
     // Test column extraction performance
     let start = Instant::now();

@@ -780,8 +780,16 @@ impl<T: SqlDataSource> SqlQueryable for T {
     fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
         // Parse the wildcard expression to extract field path and condition
         // Examples:
-        // "portfolio.positions.****.shares > 100"
-        // "users.****" (just extract all user values)
+        // "portfolio.positions.*.shares > 100"
+        // "users.*" (just extract all user values)
+
+        // Validate input
+        if wildcard_expr.is_empty() {
+            return Err(SqlError::ParseError {
+                message: "Empty wildcard expression".to_string(),
+                position: Some(0),
+            });
+        }
 
         let all_records = self.get_all_records()?;
         let mut matching_values = Vec::new();
