@@ -1,8 +1,8 @@
 /*!
-# KTable SQL Integration Tests
+# Table SQL Integration Tests
 
-End-to-end integration tests for KTable SQL functionality with real Kafka topics.
-These tests verify the complete flow from Kafka messages through KTable to SQL queries.
+End-to-end integration tests for Table SQL functionality with real Kafka topics.
+These tests verify the complete flow from Kafka messages through Table to SQL queries.
 */
 
 use serde::{Deserialize, Serialize};
@@ -12,11 +12,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use velostream::velostream::kafka::ktable_sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
 use velostream::velostream::kafka::serialization::JsonSerializer;
-use velostream::velostream::kafka::KTable;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::table::sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
+use velostream::velostream::table::Table;
 
 const TEST_KAFKA_BROKERS: &str = "localhost:9092";
 
@@ -39,17 +39,17 @@ struct ConfigEntry {
 }
 
 #[tokio::test]
-async fn test_ktable_sql_with_real_kafka() {
+async fn test_table_sql_with_real_kafka() {
     // Skip if Kafka is not available
     if std::env::var("SKIP_KAFKA_TESTS").is_ok() {
         println!("Skipping Kafka integration test");
         return;
     }
 
-    let config = ConsumerConfig::new(TEST_KAFKA_BROKERS, "ktable-sql-test-group")
+    let config = ConsumerConfig::new(TEST_KAFKA_BROKERS, "table-sql-test-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    match KTable::<String, serde_json::Value, _, _>::new(
+    match Table::<String, serde_json::Value, _, _>::new(
         config,
         "test-user-profiles".to_string(),
         JsonSerializer,
@@ -57,24 +57,24 @@ async fn test_ktable_sql_with_real_kafka() {
     )
     .await
     {
-        Ok(ktable) => {
-            // Create data source from KTable
-            let datasource = KafkaDataSource::from_ktable(ktable.clone());
+        Ok(table) => {
+            // Create data source from Table
+            let datasource = KafkaDataSource::from_table(table.clone());
 
-            // Start KTable consumption in background
-            let ktable_clone = ktable.clone();
+            // Start Table consumption in background
+            let table_clone = table.clone();
             let consume_handle = tokio::spawn(async move {
-                let _ = ktable_clone.start().await;
+                let _ = table_clone.start().await;
             });
 
             // Give it time to consume any existing messages
             sleep(Duration::from_millis(500)).await;
 
             // Test SQL operations
-            test_sql_operations_on_ktable(&datasource).await;
+            test_sql_operations_on_table(&datasource).await;
 
-            // Stop KTable
-            ktable.stop();
+            // Stop Table
+            table.stop();
             let _ = consume_handle.await;
         }
         Err(e) => {
@@ -87,10 +87,10 @@ async fn test_ktable_sql_with_real_kafka() {
     }
 }
 
-async fn test_sql_operations_on_ktable(datasource: &KafkaDataSource) {
+async fn test_sql_operations_on_table(datasource: &KafkaDataSource) {
     // Test basic queries even if no data is present
     let all_records = datasource.get_all_records().unwrap();
-    println!("KTable has {} records", all_records.len());
+    println!("Table has {} records", all_records.len());
 
     // Test EXISTS query
     let exists = datasource.sql_exists("true").unwrap();
@@ -117,8 +117,8 @@ async fn test_sql_operations_on_ktable(datasource: &KafkaDataSource) {
 }
 
 #[tokio::test]
-async fn test_ktable_sql_with_mock_data() {
-    // This test doesn't require Kafka, uses a mock KTable-like structure
+async fn test_table_sql_with_mock_data() {
+    // This test doesn't require Kafka, uses a mock Table-like structure
     use std::sync::{Arc, RwLock};
 
     // Create a mock table with test data
@@ -155,7 +155,7 @@ async fn test_ktable_sql_with_mock_data() {
     );
 
     // Create a mock data source
-    let mock_source = MockKTableDataSource {
+    let mock_source = MockTableDataSource {
         data: Arc::new(RwLock::new(table_data)),
     };
 
@@ -164,11 +164,11 @@ async fn test_ktable_sql_with_mock_data() {
 }
 
 // Mock implementation for testing without Kafka
-struct MockKTableDataSource {
+struct MockTableDataSource {
     data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
 
-impl SqlDataSource for MockKTableDataSource {
+impl SqlDataSource for MockTableDataSource {
     fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
         let data = self.data.read().unwrap();
         let mut records = HashMap::new();
@@ -278,7 +278,7 @@ async fn test_subquery_patterns() {
     assert!(no_blocked);
 }
 
-fn create_test_reference_data() -> MockKTableDataSource {
+fn create_test_reference_data() -> MockTableDataSource {
     let mut data = HashMap::new();
 
     // User reference data
@@ -312,7 +312,7 @@ fn create_test_reference_data() -> MockKTableDataSource {
         }),
     );
 
-    MockKTableDataSource {
+    MockTableDataSource {
         data: Arc::new(RwLock::new(data)),
     }
 }
@@ -336,7 +336,7 @@ async fn test_performance_with_large_dataset() {
         );
     }
 
-    let mock_source = MockKTableDataSource {
+    let mock_source = MockTableDataSource {
         data: Arc::new(RwLock::new(data)),
     };
 

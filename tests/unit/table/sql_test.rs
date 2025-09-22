@@ -1,7 +1,7 @@
 /*!
-# KTable SQL Query Interface Unit Tests
+# Table SQL Query Interface Unit Tests
 
-Comprehensive unit tests for the KTable SQL query interface implementation.
+Comprehensive unit tests for the Table SQL query interface implementation.
 Tests cover:
 - ExpressionEvaluator functionality with SQL AST integration
 - SqlQueryable trait methods (sql_filter, sql_exists, sql_column_values, sql_scalar)
@@ -13,9 +13,9 @@ Tests cover:
 
 use serde_json::json;
 use std::collections::HashMap;
-use velostream::velostream::kafka::ktable_sql::{ExpressionEvaluator, SqlDataSource, SqlQueryable};
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::table::sql::{ExpressionEvaluator, SqlDataSource, SqlQueryable};
 
 #[test]
 fn test_expression_evaluator_comparison_operators() {

@@ -7,5 +7,6 @@ pub mod schema;
 pub mod serialization;
 pub mod server;
 pub mod sql;
+pub mod table;
 
 // Re-export server types for examples and tests

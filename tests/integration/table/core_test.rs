@@ -5,6 +5,7 @@ use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use velostream::velostream::kafka::serialization::JsonSerializer;
 use velostream::velostream::kafka::*;
+use velostream::velostream::table::Table;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {
@@ -25,12 +26,12 @@ struct Order {
 const KAFKA_BROKERS: &str = "localhost:9092";
 
 #[tokio::test]
-async fn test_ktable_basic_creation() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-basic-group")
+async fn test_table_basic_creation() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-basic-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let result = KTable::<String, UserProfile, _, _>::new(
+    let result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles".to_string(),
         JsonSerializer,
@@ -39,16 +40,16 @@ async fn test_ktable_basic_creation() {
     .await;
 
     match result {
-        Ok(ktable) => {
-            assert_eq!(ktable.topic(), "user-profiles");
-            assert_eq!(ktable.group_id(), "ktable-basic-group");
-            assert!(!ktable.is_running());
-            assert!(ktable.is_empty());
-            assert_eq!(ktable.len(), 0);
+        Ok(table) => {
+            assert_eq!(table.topic(), "user-profiles");
+            assert_eq!(table.group_id(), "table-basic-group");
+            assert!(!table.is_running());
+            assert!(table.is_empty());
+            assert_eq!(table.len(), 0);
         }
         Err(e) => {
             println!(
-                "⚠️  Kafka not available for KTable basic creation test: {:?}",
+                "⚠️  Kafka not available for Table basic creation test: {:?}",
                 e
             );
             println!(
@@ -60,8 +61,8 @@ async fn test_ktable_basic_creation() {
 }
 
 #[tokio::test]
-async fn test_ktable_from_consumer() {
-    let consumer_config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-consumer-group")
+async fn test_table_from_consumer() {
+    let consumer_config = ConsumerConfig::new(KAFKA_BROKERS, "table-consumer-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
@@ -73,16 +74,16 @@ async fn test_ktable_from_consumer() {
 
     match consumer_result {
         Ok(consumer) => {
-            let ktable = KTable::from_consumer(consumer, "user-profiles".to_string());
+            let table = Table::from_consumer(consumer, "user-profiles".to_string());
 
-            assert_eq!(ktable.topic(), "user-profiles");
-            assert_eq!(ktable.group_id(), "ktable-consumer-group");
-            assert!(!ktable.is_running());
-            assert!(ktable.is_empty());
+            assert_eq!(table.topic(), "user-profiles");
+            assert_eq!(table.group_id(), "table-consumer-group");
+            assert!(!table.is_running());
+            assert!(table.is_empty());
         }
         Err(e) => {
             println!(
-                "⚠️  Kafka not available for KTable from consumer test: {:?}",
+                "⚠️  Kafka not available for Table from consumer test: {:?}",
                 e
             );
             println!(
@@ -94,11 +95,11 @@ async fn test_ktable_from_consumer() {
 }
 
 #[tokio::test]
-async fn test_ktable_lifecycle_management() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-lifecycle-group")
+async fn test_table_lifecycle_management() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-lifecycle-group")
         .auto_offset_reset(OffsetReset::Latest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-lifecycle".to_string(),
         JsonSerializer,
@@ -106,34 +107,34 @@ async fn test_ktable_lifecycle_management() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
+    match table_result {
+        Ok(table) => {
             // Test initial state
-            assert!(!ktable.is_running());
+            assert!(!table.is_running());
 
             // Clone for concurrent operations
-            let ktable_clone = ktable.clone();
+            let table_clone = table.clone();
 
             // Start the table in background
-            let start_handle = tokio::spawn(async move { ktable_clone.start().await });
+            let start_handle = tokio::spawn(async move { table_clone.start().await });
 
             // Give it a moment to start
             sleep(Duration::from_millis(100)).await;
 
             // Should be running now
-            assert!(ktable.is_running());
+            assert!(table.is_running());
 
             // Stop the table
-            ktable.stop();
+            table.stop();
 
             // Should stop running
-            assert!(!ktable.is_running());
+            assert!(!table.is_running());
 
             // Wait for background task to complete
             let _ = start_handle.await;
         }
         Err(e) => {
-            println!("⚠️  Kafka not available for KTable lifecycle test: {:?}", e);
+            println!("⚠️  Kafka not available for Table lifecycle test: {:?}", e);
             println!(
                 "   This test requires a running Kafka instance at {}",
                 KAFKA_BROKERS
@@ -143,11 +144,11 @@ async fn test_ktable_lifecycle_management() {
 }
 
 #[tokio::test]
-async fn test_ktable_stats_and_metadata() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-stats-group")
+async fn test_table_stats_and_metadata() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-stats-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-stats".to_string(),
         JsonSerializer,
@@ -155,27 +156,27 @@ async fn test_ktable_stats_and_metadata() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
-            let stats = ktable.stats();
+    match table_result {
+        Ok(table) => {
+            let stats = table.stats();
 
             assert_eq!(stats.key_count, 0);
             assert_eq!(stats.topic, "user-profiles-stats");
-            assert_eq!(stats.group_id, "ktable-stats-group");
+            assert_eq!(stats.group_id, "table-stats-group");
             assert!(stats.last_updated.is_none());
 
             // Test keys collection
-            let keys = ktable.keys();
+            let keys = table.keys();
             assert!(keys.is_empty());
 
             // Test contains_key
-            assert!(!ktable.contains_key(&"user-123".to_string()));
+            assert!(!table.contains_key(&"user-123".to_string()));
 
             // Test get non-existent key
-            assert!(ktable.get(&"user-123".to_string()).is_none());
+            assert!(table.get(&"user-123".to_string()).is_none());
         }
         Err(e) => {
-            println!("⚠️  Kafka not available for KTable stats test: {:?}", e);
+            println!("⚠️  Kafka not available for Table stats test: {:?}", e);
             println!(
                 "   This test requires a running Kafka instance at {}",
                 KAFKA_BROKERS
@@ -185,11 +186,11 @@ async fn test_ktable_stats_and_metadata() {
 }
 
 #[tokio::test]
-async fn test_ktable_transformations() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-transform-group")
+async fn test_table_transformations() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-transform-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-transform".to_string(),
         JsonSerializer,
@@ -197,25 +198,25 @@ async fn test_ktable_transformations() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
+    match table_result {
+        Ok(table) => {
             // Test map_values transformation
             let name_map: HashMap<String, String> =
-                ktable.map_values(|profile| profile.name.clone());
+                table.map_values(|profile| profile.name.clone());
             assert!(name_map.is_empty());
 
             // Test filter transformation
             let adults: HashMap<String, UserProfile> =
-                ktable.filter(|_key, profile| profile.age >= 18);
+                table.filter(|_key, profile| profile.age >= 18);
             assert!(adults.is_empty());
 
             // Test snapshot
-            let snapshot = ktable.snapshot();
+            let snapshot = table.snapshot();
             assert!(snapshot.is_empty());
         }
         Err(e) => {
             println!(
-                "⚠️  Kafka not available for KTable transformations test: {:?}",
+                "⚠️  Kafka not available for Table transformations test: {:?}",
                 e
             );
             println!(
@@ -227,11 +228,11 @@ async fn test_ktable_transformations() {
 }
 
 #[tokio::test]
-async fn test_ktable_wait_for_keys() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-wait-group")
+async fn test_table_wait_for_keys() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-wait-group")
         .auto_offset_reset(OffsetReset::Latest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-wait".to_string(),
         JsonSerializer,
@@ -239,18 +240,18 @@ async fn test_ktable_wait_for_keys() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
+    match table_result {
+        Ok(table) => {
             // Test waiting for keys (should timeout quickly since table is empty)
-            let has_keys = ktable.wait_for_keys(1, Duration::from_millis(100)).await;
+            let has_keys = table.wait_for_keys(1, Duration::from_millis(100)).await;
             assert!(!has_keys);
 
             // Test waiting for 0 keys (should return immediately)
-            let has_zero_keys = ktable.wait_for_keys(0, Duration::from_millis(10)).await;
+            let has_zero_keys = table.wait_for_keys(0, Duration::from_millis(10)).await;
             assert!(has_zero_keys);
         }
         Err(e) => {
-            println!("⚠️  Kafka not available for KTable wait test: {:?}", e);
+            println!("⚠️  Kafka not available for Table wait test: {:?}", e);
             println!(
                 "   This test requires a running Kafka instance at {}",
                 KAFKA_BROKERS
@@ -260,11 +261,11 @@ async fn test_ktable_wait_for_keys() {
 }
 
 #[tokio::test]
-async fn test_ktable_clone_behavior() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-clone-group")
+async fn test_table_clone_behavior() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-clone-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-clone".to_string(),
         JsonSerializer,
@@ -272,21 +273,21 @@ async fn test_ktable_clone_behavior() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
+    match table_result {
+        Ok(table) => {
             // Test cloning
-            let ktable_clone = ktable.clone();
+            let table_clone = table.clone();
 
-            assert_eq!(ktable.topic(), ktable_clone.topic());
-            assert_eq!(ktable.group_id(), ktable_clone.group_id());
-            assert_eq!(ktable.len(), ktable_clone.len());
-            assert_eq!(ktable.is_running(), ktable_clone.is_running());
+            assert_eq!(table.topic(), table_clone.topic());
+            assert_eq!(table.group_id(), table_clone.group_id());
+            assert_eq!(table.len(), table_clone.len());
+            assert_eq!(table.is_running(), table_clone.is_running());
 
             // Both should share the same state
-            assert_eq!(ktable.snapshot(), ktable_clone.snapshot());
+            assert_eq!(table.snapshot(), table_clone.snapshot());
         }
         Err(e) => {
-            println!("⚠️  Kafka not available for KTable clone test: {:?}", e);
+            println!("⚠️  Kafka not available for Table clone test: {:?}", e);
             println!(
                 "   This test requires a running Kafka instance at {}",
                 KAFKA_BROKERS
@@ -296,11 +297,11 @@ async fn test_ktable_clone_behavior() {
 }
 
 #[tokio::test]
-async fn test_ktable_with_producer_simulation() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-producer-sim-group")
+async fn test_table_with_producer_simulation() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-producer-sim-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-sim".to_string(),
         JsonSerializer,
@@ -308,43 +309,43 @@ async fn test_ktable_with_producer_simulation() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
-            println!("✅ KTable created successfully for producer simulation");
-            println!("   Topic: {}", ktable.topic());
-            println!("   Group: {}", ktable.group_id());
-            println!("   Initial key count: {}", ktable.len());
+    match table_result {
+        Ok(table) => {
+            println!("✅ Table created successfully for producer simulation");
+            println!("   Topic: {}", table.topic());
+            println!("   Group: {}", table.group_id());
+            println!("   Initial key count: {}", table.len());
 
             // In a real scenario, you would:
-            // 1. Start the KTable consumption in background
+            // 1. Start the Table consumption in background
             // 2. Produce messages to the topic
-            // 3. Wait for the KTable to process them
-            // 4. Query the KTable state
+            // 3. Wait for the Table to process them
+            // 4. Query the Table state
 
-            // For this test, we just verify the KTable is ready
-            assert_eq!(ktable.len(), 0);
-            assert!(!ktable.is_running());
+            // For this test, we just verify the Table is ready
+            assert_eq!(table.len(), 0);
+            assert!(!table.is_running());
 
             // Test that we can start and stop
-            let ktable_clone = ktable.clone();
+            let table_clone = table.clone();
             let start_handle = tokio::spawn(async move {
                 // Run for a short time
                 tokio::select! {
-                    _ = ktable_clone.start() => {},
+                    _ = table_clone.start() => {},
                     _ = sleep(Duration::from_millis(200)) => {}
                 }
             });
 
             sleep(Duration::from_millis(50)).await;
-            assert!(ktable.is_running());
+            assert!(table.is_running());
 
-            ktable.stop();
+            table.stop();
             let _ = start_handle.await;
-            assert!(!ktable.is_running());
+            assert!(!table.is_running());
         }
         Err(e) => {
             println!(
-                "⚠️  Kafka not available for KTable producer simulation test: {:?}",
+                "⚠️  Kafka not available for Table producer simulation test: {:?}",
                 e
             );
             println!(
@@ -356,15 +357,15 @@ async fn test_ktable_with_producer_simulation() {
 }
 
 #[tokio::test]
-async fn test_ktable_multiple_types() {
+async fn test_table_multiple_types() {
     // Test with different key/value types
-    let user_config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-users-group")
+    let user_config = ConsumerConfig::new(KAFKA_BROKERS, "table-users-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let order_config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-orders-group")
+    let order_config = ConsumerConfig::new(KAFKA_BROKERS, "table-orders-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let user_table_result = KTable::<String, UserProfile, _, _>::new(
+    let user_table_result = Table::<String, UserProfile, _, _>::new(
         user_config,
         "users".to_string(),
         JsonSerializer,
@@ -372,7 +373,7 @@ async fn test_ktable_multiple_types() {
     )
     .await;
 
-    let order_table_result = KTable::<String, Order, _, _>::new(
+    let order_table_result = Table::<String, Order, _, _>::new(
         order_config,
         "orders".to_string(),
         JsonSerializer,
@@ -386,8 +387,8 @@ async fn test_ktable_multiple_types() {
             assert_eq!(user_table.topic(), "users");
             assert_eq!(order_table.topic(), "orders");
 
-            assert_eq!(user_table.group_id(), "ktable-users-group");
-            assert_eq!(order_table.group_id(), "ktable-orders-group");
+            assert_eq!(user_table.group_id(), "table-users-group");
+            assert_eq!(order_table.group_id(), "table-orders-group");
 
             // Both should be empty initially
             assert!(user_table.is_empty());
@@ -403,7 +404,7 @@ async fn test_ktable_multiple_types() {
         }
         (Err(e), _) | (_, Err(e)) => {
             println!(
-                "⚠️  Kafka not available for KTable multiple types test: {:?}",
+                "⚠️  Kafka not available for Table multiple types test: {:?}",
                 e
             );
             println!(
@@ -415,12 +416,12 @@ async fn test_ktable_multiple_types() {
 }
 
 #[tokio::test]
-async fn test_ktable_error_handling() {
+async fn test_table_error_handling() {
     // Test with invalid broker to check error handling
-    let config = ConsumerConfig::new("invalid-broker:9092", "ktable-error-group")
+    let config = ConsumerConfig::new("invalid-broker:9092", "table-error-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-error".to_string(),
         JsonSerializer,
@@ -429,7 +430,7 @@ async fn test_ktable_error_handling() {
     .await;
 
     // Should return an error for invalid broker
-    match ktable_result {
+    match table_result {
         Ok(_) => {
             println!("⚠️  Unexpected success with invalid broker - may be using mock/test broker");
         }
@@ -441,15 +442,15 @@ async fn test_ktable_error_handling() {
 }
 
 #[tokio::test]
-async fn test_ktable_configuration_options() {
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "ktable-config-group")
+async fn test_table_configuration_options() {
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "table-config-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(5))
         .session_timeout(Duration::from_secs(30))
         .fetch_min_bytes(1024);
 
-    let ktable_result = KTable::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, UserProfile, _, _>::new(
         config,
         "user-profiles-config".to_string(),
         JsonSerializer,
@@ -457,22 +458,22 @@ async fn test_ktable_configuration_options() {
     )
     .await;
 
-    match ktable_result {
-        Ok(ktable) => {
-            println!("✅ KTable created with custom configuration");
+    match table_result {
+        Ok(table) => {
+            println!("✅ Table created with custom configuration");
 
             // Verify the table was created with our configuration
-            assert_eq!(ktable.topic(), "user-profiles-config");
-            assert_eq!(ktable.group_id(), "ktable-config-group");
+            assert_eq!(table.topic(), "user-profiles-config");
+            assert_eq!(table.group_id(), "table-config-group");
 
             // Test that stats reflect the configuration
-            let stats = ktable.stats();
+            let stats = table.stats();
             assert_eq!(stats.topic, "user-profiles-config");
-            assert_eq!(stats.group_id, "ktable-config-group");
+            assert_eq!(stats.group_id, "table-config-group");
         }
         Err(e) => {
             println!(
-                "⚠️  Kafka not available for KTable configuration test: {:?}",
+                "⚠️  Kafka not available for Table configuration test: {:?}",
                 e
             );
             println!(

@@ -5,8 +5,6 @@ pub mod configurable_producer;
 mod kafka_consumer;
 mod kafka_producer;
 mod kafka_producer_def_context;
-pub mod ktable;
-pub mod ktable_sql;
 pub mod serialization;
 pub mod serialization_format;
 mod utils;
@@ -28,8 +26,6 @@ pub mod performance_presets;
 // Re-export main API
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
-pub use ktable::KTable;
-pub use ktable_sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
 
 // Re-export Phase 2 Enhanced APIs
 pub use serialization::JsonSerializer;

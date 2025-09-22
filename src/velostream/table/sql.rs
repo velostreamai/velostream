@@ -1,27 +1,27 @@
 /*!
-# KTable SQL Query Interface - AST Integrated Version
+# Table SQL Query Interface - AST Integrated Version
 
-This module provides SQL query capabilities for KTable with full SQL AST integration,
+This module provides SQL query capabilities for Table with full SQL AST integration,
 enabling proper SQL compliance and comprehensive operator support. It bridges the gap
-between KTable state management and the SQL execution engine using the existing SQL AST.
+between Table state management and the SQL execution engine using the existing SQL AST.
 
 ## Key Features
 
 - **Full SQL AST Integration**: Uses existing StreamingSqlParser and Expr AST nodes
 - **Complete Operator Support**: All comparison operators (=, !=, <, <=, >, >=, AND, OR)
 - **SQL Standard Compliance**: Proper expression evaluation with SQL semantics
-- **Subquery support**: EXISTS, IN, scalar subqueries using KTable as data source
+- **Subquery support**: EXISTS, IN, scalar subqueries using Table as data source
 - **FieldValue integration**: Full SQL type system compatibility
-- **Performance optimized**: Leverages KTable's in-memory HashMap for sub-millisecond lookups
+- **Performance optimized**: Leverages Table's in-memory HashMap for sub-millisecond lookups
 
 ## Examples
 
 ```rust
-use velostream::velostream::kafka::{KTable, JsonSerializer};
-use velostream::velostream::kafka::ktable_sql::{SqlQueryable, SqlKTable};
+use velostream::velostream::kafka::{Table, JsonSerializer};
+use velostream::velostream::kafka::ktable_sql::{SqlQueryable, SqlTable};
 
-// Create a SQL-compatible KTable
-let user_table: SqlKTable = KTable::new(
+// Create a SQL-compatible Table
+let user_table: SqlTable = Table::new(
     config,
     "users".to_string(),
     JsonSerializer,
@@ -36,18 +36,18 @@ let premium_ids = user_table.sql_column_values("id", "tier = 'premium'")?;
 ```
 */
 
-use crate::velostream::kafka::ktable::KTable;
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue, UnaryOperator};
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::sql::parser::StreamingSqlParser;
+use crate::velostream::table::table::Table;
 use serde_json;
 use std::collections::HashMap;
 
 /// Data source interface for SQL subquery execution
 ///
 /// This trait abstracts the data access layer for subquery operations,
-/// allowing different implementations (KTable, external databases, etc.)
+/// allowing different implementations (Table, external databases, etc.)
 /// to provide data for SQL subqueries.
 pub trait SqlDataSource {
     /// Get all records as a HashMap for filtering operations
@@ -157,7 +157,7 @@ pub trait SqlQueryable {
 /// SQL Expression evaluator using the proper SQL AST
 ///
 /// This evaluator uses the existing SQL AST infrastructure to evaluate expressions
-/// against KTable records, providing full SQL compliance and operator support.
+/// against Table records, providing full SQL compliance and operator support.
 /// It integrates with the StreamingSqlParser for proper SQL parsing.
 pub struct ExpressionEvaluator {
     parser: StreamingSqlParser,
@@ -544,13 +544,13 @@ impl ExpressionEvaluator {
     }
 }
 
-/// Kafka-based data source implementation using KTable
+/// Kafka-based data source implementation using Table
 ///
-/// This implementation bridges KTable state with the SQL subquery engine,
+/// This implementation bridges Table state with the SQL subquery engine,
 /// providing real-time access to Kafka topic data for subquery operations.
 pub struct KafkaDataSource {
     // Use serde_json::Value for now since FieldValue doesn't have Serialize/Deserialize
-    ktable: KTable<
+    table: Table<
         String,
         serde_json::Value,
         crate::velostream::kafka::serialization::JsonSerializer,
@@ -559,16 +559,16 @@ pub struct KafkaDataSource {
 }
 
 impl KafkaDataSource {
-    /// Create a new Kafka data source from an existing KTable
-    pub fn from_ktable(
-        ktable: KTable<
+    /// Create a new Kafka data source from an existing Table
+    pub fn from_table(
+        table: Table<
             String,
             serde_json::Value,
             crate::velostream::kafka::serialization::JsonSerializer,
             crate::velostream::kafka::serialization::JsonSerializer,
         >,
     ) -> Self {
-        Self { ktable }
+        Self { table }
     }
 
     /// Convert serde_json::Value to FieldValue for SQL compatibility
@@ -604,7 +604,7 @@ impl KafkaDataSource {
 
 impl SqlDataSource for KafkaDataSource {
     fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        let records = self.ktable.snapshot(); // Use snapshot() instead of get_all_records()
+        let records = self.table.snapshot(); // Use snapshot() instead of get_all_records()
         let mut field_value_records = HashMap::new();
 
         for (key, json_value) in records {
@@ -617,7 +617,7 @@ impl SqlDataSource for KafkaDataSource {
 
     fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
         let key_string = key.to_string(); // Convert &str to String
-        if let Some(json_value) = self.ktable.get(&key_string) {
+        if let Some(json_value) = self.table.get(&key_string) {
             let field_value = Self::json_to_field_value(&json_value);
             Ok(Some(field_value))
         } else {
@@ -626,11 +626,11 @@ impl SqlDataSource for KafkaDataSource {
     }
 
     fn is_empty(&self) -> bool {
-        self.ktable.is_empty()
+        self.table.is_empty()
     }
 
     fn record_count(&self) -> usize {
-        self.ktable.len() // Use len() instead of size()
+        self.table.len() // Use len() instead of size()
     }
 }
 
@@ -669,7 +669,7 @@ fn extract_field_value(record: &FieldValue, field_path: &str) -> Option<FieldVal
 ///
 /// This provides a generic implementation that works with any data source
 /// implementing the SqlDataSource trait, making it extensible for different
-/// backends (KTable, external databases, etc.).
+/// backends (Table, external databases, etc.).
 impl<T: SqlDataSource> SqlQueryable for T {
     fn sql_filter(&self, where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
         let evaluator = ExpressionEvaluator::new();

@@ -10,8 +10,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 use tokio::time::sleep;
 
-/// A KTable represents a materialized view of a Kafka topic where each record
-/// represents the latest state for a given key. KTables are ideal for:
+/// A Table represents a materialized view of a Kafka topic where each record
+/// represents the latest state for a given key. Tables are ideal for:
 ///
 /// - User profiles, configuration data, reference data
 /// - Event sourcing with state snapshots
@@ -21,13 +21,13 @@ use tokio::time::sleep;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use velostream::velostream::kafka::{KTable, JsonSerializer};
+/// use velostream::velostream::kafka::{Table, JsonSerializer};
 /// use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create a KTable from a compacted topic
-///     let user_table = KTable::new(
+///     // Create a Table from a compacted topic
+///     let user_table = Table::new(
 ///         ConsumerConfig::new("localhost:9092", "user-table-group")
 ///             .auto_offset_reset(OffsetReset::Earliest),
 ///         "users".to_string(),
@@ -40,8 +40,8 @@ use tokio::time::sleep;
 ///     tokio::spawn(async move {
 ///         let _ = user_table_clone.start().await;
 ///     });
-///     
-///     // Query current state  
+///
+///     // Query current state
 ///     let user: Option<serde_json::Value> = user_table.get(&"user-123".to_string());
 ///
 ///     // Get full snapshot
@@ -50,7 +50,7 @@ use tokio::time::sleep;
 ///     Ok(())
 /// }
 /// ```
-pub struct KTable<K, V, KS, VS>
+pub struct Table<K, V, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
@@ -65,16 +65,16 @@ where
     last_updated: Arc<RwLock<Option<SystemTime>>>,
 }
 
-/// Statistics about the KTable state
+/// Statistics about the Table state
 #[derive(Debug, Clone)]
-pub struct KTableStats {
+pub struct TableStats {
     pub key_count: usize,
     pub last_updated: Option<SystemTime>,
     pub topic: String,
     pub group_id: String,
 }
 
-/// Change event representing a state update in the KTable
+/// Change event representing a state update in the Table
 #[derive(Debug, Clone)]
 pub struct ChangeEvent<K, V> {
     pub key: K,
@@ -83,14 +83,14 @@ pub struct ChangeEvent<K, V> {
     pub timestamp: SystemTime,
 }
 
-impl<K, V, KS, VS> KTable<K, V, KS, VS>
+impl<K, V, KS, VS> Table<K, V, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
     KS: Serializer<K> + Send + Sync + 'static,
     VS: Serializer<V> + Send + Sync + 'static,
 {
-    /// Creates a new KTable from a Kafka topic
+    /// Creates a new Table from a Kafka topic
     ///
     /// The consumer will be configured to start from the earliest offset
     /// to rebuild the complete state from the topic.
@@ -113,7 +113,7 @@ where
 
         consumer.subscribe(&[&topic])?;
 
-        Ok(KTable {
+        Ok(Table {
             consumer: Arc::new(consumer),
             state: Arc::new(RwLock::new(HashMap::new())),
             topic: topic.clone(),
@@ -123,11 +123,11 @@ where
         })
     }
 
-    /// Creates a KTable with an existing consumer
+    /// Creates a Table with an existing consumer
     pub fn from_consumer(consumer: KafkaConsumer<K, V, KS, VS>, topic: String) -> Self {
         let group_id = consumer.group_id().to_string();
 
-        KTable {
+        Table {
             consumer: Arc::new(consumer),
             state: Arc::new(RwLock::new(HashMap::new())),
             topic,
@@ -152,7 +152,7 @@ where
                     self.process_message(message).await;
                 }
                 Some(Err(e)) => {
-                    println!("KTable error processing message: {:?}", e);
+                    println!("Table error processing message: {:?}", e);
                     // Continue processing despite errors
                 }
                 None => {
@@ -231,8 +231,8 @@ where
     }
 
     /// Gets statistics about the table
-    pub fn stats(&self) -> KTableStats {
-        KTableStats {
+    pub fn stats(&self) -> TableStats {
+        TableStats {
             key_count: self.len(),
             last_updated: *self.last_updated.read().unwrap(),
             topic: self.topic.clone(),
@@ -269,7 +269,7 @@ where
     /// Creates a derived table by applying a function to each value
     ///
     /// Returns a HashMap snapshot with transformed values.
-    /// For real-time transformations, consider using a separate KTable.
+    /// For real-time transformations, consider using a separate Table.
     pub fn map_values<V2, F>(&self, mapper: F) -> HashMap<K, V2>
     where
         V2: Clone,
@@ -284,7 +284,7 @@ where
     /// Creates a filtered snapshot of the table
     ///
     /// Returns a HashMap with only entries that pass the predicate.
-    /// For real-time filtering, consider using a separate KTable.
+    /// For real-time filtering, consider using a separate Table.
     pub fn filter<F>(&self, predicate: F) -> HashMap<K, V>
     where
         F: Fn(&K, &V) -> bool,
@@ -296,8 +296,8 @@ where
     }
 }
 
-// We need to implement Clone for KTable to enable transformations
-impl<K, V, KS, VS> Clone for KTable<K, V, KS, VS>
+// We need to implement Clone for Table to enable transformations
+impl<K, V, KS, VS> Clone for Table<K, V, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
@@ -305,7 +305,7 @@ where
     VS: Serializer<V> + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {
-        KTable {
+        Table {
             consumer: self.consumer.clone(),
             state: self.state.clone(),
             topic: self.topic.clone(),

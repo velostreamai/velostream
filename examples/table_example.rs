@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::{interval, sleep};
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::ktable::KTable;
 use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
 use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::table::Table;
 use velostream::{Headers, KafkaConsumer, KafkaProducer};
 
-/// User profile stored in the KTable
+/// User profile stored in the Table
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {
     user_id: String,
@@ -48,10 +48,10 @@ const USER_PROFILES_TOPIC: &str = "user-profiles";
 const ORDERS_TOPIC: &str = "orders";
 const ENRICHED_ORDERS_TOPIC: &str = "enriched-orders";
 
-/// Demonstrates KTable usage for stream-table joins
+/// Demonstrates Table usage for stream-table joins
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 KTable Example: Stream-Table Join for Order Enrichment");
+    println!("🚀 Table Example: Stream-Table Join for Order Enrichment");
     println!("{}", "=".repeat(60));
 
     // Check if we should populate sample data
@@ -64,20 +64,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_secs(2)).await;
     }
 
-    // 1. Create User Profile KTable
-    println!("🏗️  Creating User Profile KTable...");
+    // 1. Create User Profile Table
+    println!("🏗️  Creating User Profile Table...");
     let user_table = create_user_profile_table().await?;
 
-    // 2. Start KTable consumption in background
-    println!("▶️  Starting KTable background consumption...");
+    // 2. Start Table consumption in background
+    println!("▶️  Starting Table background consumption...");
     let table_clone = user_table.clone();
     let table_handle = tokio::spawn(async move {
         if let Err(e) = table_clone.start().await {
-            eprintln!("❌ KTable error: {:?}", e);
+            eprintln!("❌ Table error: {:?}", e);
         }
     });
 
-    // 3. Wait for KTable to populate
+    // 3. Wait for Table to populate
     println!("⏳ Waiting for user profiles to load...");
     let loaded = user_table.wait_for_keys(1, Duration::from_secs(10)).await;
     if loaded {
@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_user_profiles(&user_table).await;
     } else {
         println!("⚠️  No user profiles found. Run with --populate to add sample data.");
-        println!("   Example: cargo run --example ktable_example -- --populate");
+        println!("   Example: cargo run --example table_example -- --populate");
     }
 
     // 4. Create order stream processor
@@ -124,20 +124,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     processor_handle.abort();
     table_handle.abort();
 
-    println!("✅ KTable example completed!");
+    println!("✅ Table example completed!");
     Ok(())
 }
 
-/// Creates and configures the User Profile KTable
+/// Creates and configures the User Profile Table
 async fn create_user_profile_table(
-) -> Result<KTable<String, UserProfile, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
+) -> Result<Table<String, UserProfile, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
 {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "user-profile-table-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(5));
 
-    let user_table = KTable::new(
+    let user_table = Table::new(
         config,
         USER_PROFILES_TOPIC.to_string(),
         JsonSerializer,
@@ -148,9 +148,9 @@ async fn create_user_profile_table(
     Ok(user_table)
 }
 
-/// Displays current user profiles in the KTable
+/// Displays current user profiles in the Table
 async fn display_user_profiles(
-    user_table: &KTable<String, UserProfile, JsonSerializer, JsonSerializer>,
+    user_table: &Table<String, UserProfile, JsonSerializer, JsonSerializer>,
 ) {
     let stats = user_table.stats();
     println!("\n👥 Current User Profiles ({} users):", stats.key_count);
@@ -169,7 +169,7 @@ async fn display_user_profiles(
 
 /// Processes order stream and enriches with user profile data
 async fn process_order_stream(
-    user_table: KTable<String, UserProfile, JsonSerializer, JsonSerializer>,
+    user_table: Table<String, UserProfile, JsonSerializer, JsonSerializer>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create order consumer
     let order_config = ConsumerConfig::new(KAFKA_BROKERS, "order-processor-group")
@@ -205,7 +205,7 @@ async fn process_order_stream(
                     order.order_id, order.user_id
                 );
 
-                // Lookup user profile from KTable
+                // Lookup user profile from Table
                 match user_table.get(&order.user_id) {
                     Some(user_profile) => {
                         // Enrich order with user profile
@@ -308,7 +308,7 @@ async fn populate_sample_data() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
-    // Send user profiles to KTable topic
+    // Send user profiles to Table topic
     for user in users {
         match producer
             .send(Some(&user.user_id), &user, Headers::new(), None)
