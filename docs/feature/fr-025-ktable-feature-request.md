@@ -550,15 +550,17 @@ pub struct KafkaDataSource {
 - [x] **SqlQueryable trait**: Implemented with data source pattern for extensibility
 - [x] **SqlDataSource trait**: Abstraction layer for multiple backends (KTable, external DBs)
 - [x] **KafkaDataSource**: Bridges KTable with SQL engine using JSON conversion
-- [x] **WHERE clause parser**: Basic field comparisons with SQL literal support
+- [x] **ExpressionEvaluator**: Full SQL AST integration with StreamingSqlParser
+- [x] **Complete SQL support**: All comparison/logical operators with proper precedence
+- [x] **Type coercion**: Integer ↔ Float conversion for numeric comparisons
 - [x] **FieldValue extraction**: Type-safe field access with nested support
-- [x] **Unit tests**: 6 comprehensive tests covering all functionality
+- [x] **Comprehensive testing**: 12 unit tests + 4 integration tests
 
 **📁 Implementation Files**:
-- **Core Implementation**: `/src/velostream/kafka/ktable_sql.rs` (536 lines)
+- **Core Implementation**: `/src/velostream/kafka/ktable_sql.rs` (710 lines, production-ready)
 - **Module Integration**: `/src/velostream/kafka/mod.rs` (exports added)
-- **Unit Tests**: `/tests/unit/sql/execution/ktable_subquery_test.rs` (400+ lines)
-- **Integration Tests**: `/tests/integration/ktable_sql_integration_test.rs` (300+ lines)
+- **Unit Tests**: `/tests/unit/kafka/ktable_sql_test.rs` (438 lines, Rust best practices)
+- **Integration Tests**: `/tests/integration/ktable_sql_integration_test.rs` (362 lines)
 
 **🎯 Performance Results**:
 - **<5ms**: KTable lookups using in-memory HashMap
@@ -811,12 +813,19 @@ fn execute_exists_subquery(...) -> Result<bool, SqlError> {
 ### **📁 FILE LOCATIONS**
 
 #### **✅ Completed Files (Task 1)**:
-- ✅ `/src/velostream/kafka/ktable_sql.rs` - **536 lines** - SQL query interface with data source pattern
+- ✅ `/src/velostream/kafka/ktable_sql.rs` - **710 lines** - SQL query interface with full AST integration (no embedded tests)
 - ✅ `/src/velostream/kafka/mod.rs` - **Updated** - Exports SqlQueryable, SqlDataSource, KafkaDataSource
-- ✅ `/tests/unit/sql/execution/ktable_subquery_test.rs` - **400+ lines** - Comprehensive unit tests
-- ✅ `/tests/integration/ktable_sql_integration_test.rs` - **300+ lines** - Integration tests with mock/real Kafka
-- ✅ `/tests/unit/sql/execution/mod.rs` - **Updated** - Module registration
+- ✅ `/tests/unit/kafka/ktable_sql_test.rs` - **438 lines** - Comprehensive unit tests (12 test functions)
+- ✅ `/tests/integration/ktable_sql_integration_test.rs` - **362 lines** - Integration tests with mock/real Kafka
+- ✅ `/tests/unit/kafka/mod.rs` - **Updated** - Unit test module registration
 - ✅ `/tests/integration/mod.rs` - **Updated** - Integration test registration
+
+#### **✅ Test Reorganization (Rust Best Practices)**:
+- ✅ **Removed**: Embedded `#[cfg(test)]` module from implementation files
+- ✅ **Moved**: Unit tests to proper `/tests/unit/kafka/ktable_sql_test.rs` location
+- ✅ **Cleaned**: Removed duplicate test file `/tests/unit/sql/execution/ktable_subquery_test.rs`
+- ✅ **Verified**: All 12 unit tests + 4 integration tests passing
+- ✅ **Formatted**: Code follows Rust formatting standards
 
 #### **🔄 Files to Modify (Task 2-5)**:
 - `/src/velostream/sql/execution/processors/select.rs` - Replace mock SubqueryExecutor

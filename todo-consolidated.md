@@ -51,7 +51,24 @@
 | **ExpressionEvaluator** | `/src/velostream/kafka/ktable_sql.rs:229-596` | ✅ Complete with AST integration |
 | **SqlQueryable Trait** | `/src/velostream/kafka/ktable_sql.rs:68-222` | ✅ Production-ready interface |
 | **KafkaDataSource** | `/src/velostream/kafka/ktable_sql.rs:598-674` | ✅ KTable integration complete |
-| **Unit Tests** | `/src/velostream/kafka/ktable_sql.rs:709-523` | ✅ All operators tested and passing |
+| **Unit Tests** | `/tests/unit/kafka/ktable_sql_test.rs` (438 lines) | ✅ 12 tests following Rust best practices |
+
+## 🔧 **Test Reorganization (Rust Best Practices)**
+**Status**: ✅ **COMPLETED** - September 22, 2025
+
+### **✅ Changes Made**:
+- ✅ **Removed** embedded `#[cfg(test)]` module from implementation files
+- ✅ **Moved** 12 unit tests to dedicated `/tests/unit/kafka/ktable_sql_test.rs` file
+- ✅ **Cleaned** duplicate test file `/tests/unit/sql/execution/ktable_subquery_test.rs`
+- ✅ **Updated** module registrations in `/tests/unit/kafka/mod.rs`
+- ✅ **Verified** all 12 unit tests + 4 integration tests still pass
+- ✅ **Formatted** code following `cargo fmt` standards
+
+### **🎯 Rust Best Practices Achieved**:
+- **Separation of Concerns**: Tests separated from implementation code
+- **Clean Implementation**: `/src/velostream/kafka/ktable_sql.rs` now 710 lines of pure production code
+- **Proper Test Structure**: Tests organized in `/tests/unit/` and `/tests/integration/` directories
+- **Module Registration**: Proper `pub mod` declarations for test discovery
 
 **🎯 Financial Services Subquery Examples Working**:
 ```rust
