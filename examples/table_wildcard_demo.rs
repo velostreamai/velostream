@@ -8,13 +8,13 @@ This example demonstrates:
 */
 
 use std::collections::HashMap;
+use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+use velostream::velostream::kafka::serialization::StringSerializer;
+use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::compact_table::CompactTable;
 use velostream::velostream::table::sql::TableDataSource;
 use velostream::velostream::table::Table;
-use velostream::velostream::kafka::consumer_config::ConsumerConfig;
-use velostream::velostream::kafka::serialization::StringSerializer;
-use velostream::velostream::serialization::JsonFormat;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "portfolio-topic".to_string(),
         StringSerializer,
         JsonFormat,
-    ).await;
+    )
+    .await;
 
     match table_result {
         Ok(table) => {
@@ -55,7 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             positions.insert("TSLA".to_string(), FieldValue::Struct(tsla_position));
 
             portfolio_record.insert("positions".to_string(), FieldValue::Struct(positions));
-            portfolio_record.insert("total_value".to_string(), FieldValue::ScaledInteger(4500000, 2));
+            portfolio_record.insert(
+                "total_value".to_string(),
+                FieldValue::ScaledInteger(4500000, 2),
+            );
 
             // This would normally come from Kafka, but we'll simulate it
             println!("   Portfolio data structure created");
@@ -68,7 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   • portfolio.positions.*.shares > 100");
             println!("   • portfolio.positions.*  (get all positions)");
             println!("   • users.*.profile.email  (nested user data)");
-
         }
         Err(_) => {
             println!("⚠️  Kafka not available - skipping SQL wildcard demo");
@@ -82,7 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n💾 Part 2: CompactTable Memory Efficiency");
     println!("------------------------------------------");
 
-    let compact_table = CompactTable::new("financial-data".to_string(), "trading-group".to_string());
+    let compact_table =
+        CompactTable::new("financial-data".to_string(), "trading-group".to_string());
     println!("✅ CompactTable created for memory efficiency demo");
 
     // Simulate high-volume financial data
@@ -95,11 +99,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Financial data with repeated strings (perfect for interning)
         record.insert("trade_id".to_string(), FieldValue::Integer(i));
         record.insert("symbol".to_string(), FieldValue::String("AAPL".to_string())); // Repeated
-        record.insert("exchange".to_string(), FieldValue::String("NASDAQ".to_string())); // Repeated
-        record.insert("status".to_string(), FieldValue::String("executed".to_string())); // Repeated
-        record.insert("price".to_string(), FieldValue::ScaledInteger(15000 + (i % 100), 2));
+        record.insert(
+            "exchange".to_string(),
+            FieldValue::String("NASDAQ".to_string()),
+        ); // Repeated
+        record.insert(
+            "status".to_string(),
+            FieldValue::String("executed".to_string()),
+        ); // Repeated
+        record.insert(
+            "price".to_string(),
+            FieldValue::ScaledInteger(15000 + (i % 100), 2),
+        );
         record.insert("quantity".to_string(), FieldValue::Integer(100 + (i % 500)));
-        record.insert("trader_id".to_string(), FieldValue::String(format!("trader_{}", i % 100))); // Repeated
+        record.insert(
+            "trader_id".to_string(),
+            FieldValue::String(format!("trader_{}", i % 100)),
+        ); // Repeated
 
         compact_table.insert(format!("trade_{}", i), record);
     }
@@ -114,16 +130,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Schema overhead: {} bytes", stats.schema_overhead);
     println!("   Record data: {} bytes", stats.record_overhead);
     println!("   String pool: {} bytes", stats.string_pool_size);
-    println!("   Total memory: {} bytes ({:.2} KB)",
-             stats.total_estimated_bytes,
-             stats.total_estimated_bytes as f64 / 1024.0);
+    println!(
+        "   Total memory: {} bytes ({:.2} KB)",
+        stats.total_estimated_bytes,
+        stats.total_estimated_bytes as f64 / 1024.0
+    );
 
     // Compare with naive approach
     let naive_estimate = stats.record_count * 300; // Rough estimate for HashMap<String, FieldValue>
     let memory_savings = 100 - (stats.total_estimated_bytes * 100 / naive_estimate);
-    println!("   Estimated naive storage: {} bytes ({:.2} KB)",
-             naive_estimate,
-             naive_estimate as f64 / 1024.0);
+    println!(
+        "   Estimated naive storage: {} bytes ({:.2} KB)",
+        naive_estimate,
+        naive_estimate as f64 / 1024.0
+    );
     println!("   💰 Memory savings: ~{}%", memory_savings);
 
     // === Part 3: Field Access Performance ===
@@ -144,15 +164,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let access_duration = start_time.elapsed();
-    println!("✅ Direct field access for 1,000 records in {:?}", access_duration);
-    println!("   Average access time: {:?} per record", access_duration / 1000);
+    println!(
+        "✅ Direct field access for 1,000 records in {:?}",
+        access_duration
+    );
+    println!(
+        "   Average access time: {:?} per record",
+        access_duration / 1000
+    );
     println!("   Price sum: ${:.2}", price_sum as f64 / 100.0);
 
     // === Part 4: Portfolio Wildcard Simulation ===
     println!("\n🎯 Part 4: Portfolio Wildcard Pattern Demo");
     println!("-------------------------------------------");
 
-    let portfolio_table = CompactTable::new("portfolios".to_string(), "portfolio-group".to_string());
+    let portfolio_table =
+        CompactTable::new("portfolios".to_string(), "portfolio-group".to_string());
 
     // Create complex portfolio with nested positions
     let mut portfolio = HashMap::new();
@@ -166,12 +193,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         position.insert("shares".to_string(), FieldValue::Integer(shares));
         position.insert("avg_price".to_string(), FieldValue::ScaledInteger(price, 2));
-        position.insert("market_value".to_string(), FieldValue::ScaledInteger(shares * price, 2));
+        position.insert(
+            "market_value".to_string(),
+            FieldValue::ScaledInteger(shares * price, 2),
+        );
 
         positions.insert(symbol.to_string(), FieldValue::Struct(position));
     }
 
-    portfolio.insert("user_id".to_string(), FieldValue::String("trader-001".to_string()));
+    portfolio.insert(
+        "user_id".to_string(),
+        FieldValue::String("trader-001".to_string()),
+    );
     portfolio.insert("positions".to_string(), FieldValue::Struct(positions));
 
     portfolio_table.insert("portfolio-001".to_string(), portfolio);
@@ -180,11 +213,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📈 Portfolio position analysis:");
 
     // Direct access to specific positions
-    if let Some(aapl_shares) = portfolio_table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.shares") {
+    if let Some(aapl_shares) =
+        portfolio_table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.shares")
+    {
         println!("   AAPL shares: {:?}", aapl_shares);
     }
 
-    if let Some(msft_price) = portfolio_table.get_field_by_path(&"portfolio-001".to_string(), "positions.MSFT.avg_price") {
+    if let Some(msft_price) =
+        portfolio_table.get_field_by_path(&"portfolio-001".to_string(), "positions.MSFT.avg_price")
+    {
         println!("   MSFT average price: {:?}", msft_price);
     }
 
@@ -193,10 +230,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   🔍 Wildcard pattern 'positions.*.shares > 100' would find:");
     for symbol in &["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"] {
         let field_path = format!("positions.{}.shares", symbol);
-        if let Some(shares) = portfolio_table.get_field_by_path(&"portfolio-001".to_string(), &field_path) {
+        if let Some(shares) =
+            portfolio_table.get_field_by_path(&"portfolio-001".to_string(), &field_path)
+        {
             if let FieldValue::Integer(share_count) = shares {
                 if share_count > 100 {
-                    println!("      {}: {} shares (matches criteria)", symbol, share_count);
+                    println!(
+                        "      {}: {} shares (matches criteria)",
+                        symbol, share_count
+                    );
                 } else {
                     println!("      {}: {} shares", symbol, share_count);
                 }

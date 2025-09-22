@@ -5,11 +5,11 @@ Comprehensive integration tests for KTable SQL functionality with actual FieldVa
 Tests the complete pipeline from JSON → FieldValue → SQL operations.
 */
 
-use std::collections::HashMap;
 use serde_json::{json, Value as JsonValue};
+use std::collections::HashMap;
+use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::sql::{SqlDataSource, SqlQueryable};
-use velostream::velostream::sql::error::SqlError;
 
 /// Integration test data source with realistic financial data
 struct FinancialDataSource {
@@ -170,9 +170,8 @@ impl FinancialDataSource {
                 FieldValue::String(s.clone())
             }
             JsonValue::Array(arr) => {
-                let field_values: Vec<FieldValue> = arr.iter()
-                    .map(|v| Self::json_to_field_value(v))
-                    .collect();
+                let field_values: Vec<FieldValue> =
+                    arr.iter().map(|v| Self::json_to_field_value(v)).collect();
                 FieldValue::Array(field_values)
             }
             JsonValue::Object(obj) => {
@@ -209,7 +208,7 @@ impl FinancialDataSource {
             match part.as_str() {
                 part if part.starts_with('[') && part.ends_with(']') => {
                     // Array index access
-                    let index_str = &part[1..part.len()-1];
+                    let index_str = &part[1..part.len() - 1];
                     if let Ok(index) = index_str.parse::<usize>() {
                         if let FieldValue::Array(arr) = current {
                             current = arr.get(index)?;
@@ -350,22 +349,37 @@ fn test_sql_operations_with_fieldvalue_data() {
     // Test basic record retrieval
     let portfolio_record = source.get_record("portfolio-001").unwrap().unwrap();
     if let FieldValue::Struct(portfolio_map) = portfolio_record {
-        assert_eq!(portfolio_map.get("user_id").unwrap(), &FieldValue::String("user_001".to_string()));
-        assert_eq!(portfolio_map.get("account_balance").unwrap(), &FieldValue::Float(125000.50));
-        assert_eq!(portfolio_map.get("active").unwrap(), &FieldValue::Boolean(true));
+        assert_eq!(
+            portfolio_map.get("user_id").unwrap(),
+            &FieldValue::String("user_001".to_string())
+        );
+        assert_eq!(
+            portfolio_map.get("account_balance").unwrap(),
+            &FieldValue::Float(125000.50)
+        );
+        assert_eq!(
+            portfolio_map.get("active").unwrap(),
+            &FieldValue::Boolean(true)
+        );
     } else {
         panic!("Expected portfolio record to be a struct");
     }
 
     // Test nested field access using our helper method
-    let aapl_shares = source.get_field_by_path("portfolio-001", "positions.AAPL.shares").unwrap();
+    let aapl_shares = source
+        .get_field_by_path("portfolio-001", "positions.AAPL.shares")
+        .unwrap();
     assert_eq!(aapl_shares, FieldValue::Integer(150));
 
-    let risk_var = source.get_field_by_path("portfolio-001", "risk_metrics.value_at_risk").unwrap();
+    let risk_var = source
+        .get_field_by_path("portfolio-001", "risk_metrics.value_at_risk")
+        .unwrap();
     assert_eq!(risk_var, FieldValue::Float(12500.75));
 
     // Test market data access
-    let current_price = source.get_field_by_path("market-AAPL", "current_price").unwrap();
+    let current_price = source
+        .get_field_by_path("market-AAPL", "current_price")
+        .unwrap();
     assert_eq!(current_price, FieldValue::Float(187.45));
 }
 
@@ -410,16 +424,22 @@ fn test_sql_column_values_with_fieldvalue_data() {
     let source = FinancialDataSource::new();
 
     // Test column extraction
-    let user_ids = source.sql_column_values("user_id", "active = true").unwrap();
+    let user_ids = source
+        .sql_column_values("user_id", "active = true")
+        .unwrap();
     assert_eq!(user_ids.len(), 1);
     assert_eq!(user_ids[0], FieldValue::String("user_001".to_string()));
 
-    let tiers = source.sql_column_values("tier", "account_balance > 0.0").unwrap();
+    let tiers = source
+        .sql_column_values("tier", "account_balance > 0.0")
+        .unwrap();
     assert_eq!(tiers.len(), 1);
     assert_eq!(tiers[0], FieldValue::String("premium".to_string()));
 
     // Test column extraction with no matches
-    let empty_results = source.sql_column_values("user_id", "tier = 'basic'").unwrap();
+    let empty_results = source
+        .sql_column_values("user_id", "tier = 'basic'")
+        .unwrap();
     assert_eq!(empty_results.len(), 0);
 }
 
@@ -428,10 +448,14 @@ fn test_sql_scalar_with_fieldvalue_data() {
     let source = FinancialDataSource::new();
 
     // Test basic field extraction using sql_scalar with WHERE clause
-    let user_id = source.sql_scalar("user_id", "user_id = 'user_001'").unwrap();
+    let user_id = source
+        .sql_scalar("user_id", "user_id = 'user_001'")
+        .unwrap();
     assert_eq!(user_id, FieldValue::String("user_001".to_string()));
 
-    let balance = source.sql_scalar("account_balance", "user_id = 'user_001'").unwrap();
+    let balance = source
+        .sql_scalar("account_balance", "user_id = 'user_001'")
+        .unwrap();
     assert_eq!(balance, FieldValue::Float(125000.50));
 
     // Test boolean field
@@ -447,15 +471,19 @@ fn test_wildcard_queries_with_fieldvalue_data() {
     let position_shares = source.sql_wildcard_values("positions.*.shares").unwrap();
     assert_eq!(position_shares.len(), 3); // AAPL, MSFT, TSLA
     assert!(position_shares.contains(&FieldValue::Integer(150))); // AAPL
-    assert!(position_shares.contains(&FieldValue::Integer(75)));  // MSFT
-    assert!(position_shares.contains(&FieldValue::Integer(25)));  // TSLA
+    assert!(position_shares.contains(&FieldValue::Integer(75))); // MSFT
+    assert!(position_shares.contains(&FieldValue::Integer(25))); // TSLA
 
     // Test wildcard with conditions
-    let large_positions = source.sql_wildcard_values("positions.*.shares > 50").unwrap();
+    let large_positions = source
+        .sql_wildcard_values("positions.*.shares > 50")
+        .unwrap();
     assert_eq!(large_positions.len(), 2); // AAPL and MSFT
 
     // Test array wildcard access
-    let transaction_types = source.sql_wildcard_values("transaction_history[*].type").unwrap();
+    let transaction_types = source
+        .sql_wildcard_values("transaction_history[*].type")
+        .unwrap();
     assert_eq!(transaction_types.len(), 3);
     assert!(transaction_types.contains(&FieldValue::String("BUY".to_string())));
     assert!(transaction_types.contains(&FieldValue::String("SELL".to_string())));
@@ -470,19 +498,27 @@ fn test_aggregate_functions_with_fieldvalue_data() {
     assert_eq!(position_count, FieldValue::Integer(3));
 
     // Test SUM aggregate
-    let total_shares = source.sql_wildcard_aggregate("SUM(positions.*.shares)").unwrap();
+    let total_shares = source
+        .sql_wildcard_aggregate("SUM(positions.*.shares)")
+        .unwrap();
     assert_eq!(total_shares, FieldValue::Float(250.0)); // 150 + 75 + 25
 
     // Test MAX aggregate
-    let max_shares = source.sql_wildcard_aggregate("MAX(positions.*.shares)").unwrap();
+    let max_shares = source
+        .sql_wildcard_aggregate("MAX(positions.*.shares)")
+        .unwrap();
     assert_eq!(max_shares, FieldValue::Float(150.0)); // AAPL
 
     // Test MIN aggregate
-    let min_shares = source.sql_wildcard_aggregate("MIN(positions.*.shares)").unwrap();
+    let min_shares = source
+        .sql_wildcard_aggregate("MIN(positions.*.shares)")
+        .unwrap();
     assert_eq!(min_shares, FieldValue::Float(25.0)); // TSLA
 
     // Test AVG aggregate
-    let avg_shares = source.sql_wildcard_aggregate("AVG(positions.*.shares)").unwrap();
+    let avg_shares = source
+        .sql_wildcard_aggregate("AVG(positions.*.shares)")
+        .unwrap();
     if let FieldValue::Float(avg_val) = avg_shares {
         assert!((avg_val - 83.333).abs() < 0.01); // (150 + 75 + 25) / 3
     } else {
@@ -495,20 +531,33 @@ fn test_complex_nested_access_with_fieldvalue_data() {
     let source = FinancialDataSource::new();
 
     // Test deep nested field access
-    let aapl_sector = source.get_field_by_path("portfolio-001", "positions.AAPL.sector").unwrap();
+    let aapl_sector = source
+        .get_field_by_path("portfolio-001", "positions.AAPL.sector")
+        .unwrap();
     assert_eq!(aapl_sector, FieldValue::String("Technology".to_string()));
 
-    let bollinger_upper = source.get_field_by_path("market-AAPL", "technical_indicators.bollinger_upper").unwrap();
+    let bollinger_upper = source
+        .get_field_by_path("market-AAPL", "technical_indicators.bollinger_upper")
+        .unwrap();
     assert_eq!(bollinger_upper, FieldValue::Float(192.50));
 
-    let max_position = source.get_field_by_path("risk-config-001", "risk_limits.max_position_size").unwrap();
+    let max_position = source
+        .get_field_by_path("risk-config-001", "risk_limits.max_position_size")
+        .unwrap();
     assert_eq!(max_position, FieldValue::Float(100000.00));
 
     // Test array index access
-    let first_alert_type = source.get_field_by_path("risk-config-001", "alerts[0].type").unwrap();
-    assert_eq!(first_alert_type, FieldValue::String("POSITION_LIMIT".to_string()));
+    let first_alert_type = source
+        .get_field_by_path("risk-config-001", "alerts[0].type")
+        .unwrap();
+    assert_eq!(
+        first_alert_type,
+        FieldValue::String("POSITION_LIMIT".to_string())
+    );
 
-    let second_alert_threshold = source.get_field_by_path("risk-config-001", "alerts[1].threshold").unwrap();
+    let second_alert_threshold = source
+        .get_field_by_path("risk-config-001", "alerts[1].threshold")
+        .unwrap();
     assert_eq!(second_alert_threshold, FieldValue::Float(0.35));
 }
 
@@ -517,21 +566,31 @@ fn test_timestamp_handling_with_fieldvalue_data() {
     let source = FinancialDataSource::new();
 
     // Test timestamp field conversion
-    let created_at = source.get_field_by_path("portfolio-001", "created_at").unwrap();
+    let created_at = source
+        .get_field_by_path("portfolio-001", "created_at")
+        .unwrap();
     match created_at {
         FieldValue::Timestamp(_) => {
             // Success - timestamp was properly parsed
         }
-        _ => panic!("created_at should be parsed as Timestamp, got: {:?}", created_at),
+        _ => panic!(
+            "created_at should be parsed as Timestamp, got: {:?}",
+            created_at
+        ),
     }
 
     // Test timestamp in transaction history
-    let txn_timestamp = source.get_field_by_path("portfolio-001", "transaction_history[0].timestamp").unwrap();
+    let txn_timestamp = source
+        .get_field_by_path("portfolio-001", "transaction_history[0].timestamp")
+        .unwrap();
     match txn_timestamp {
         FieldValue::Timestamp(_) => {
             // Success - timestamp was properly parsed
         }
-        _ => panic!("Transaction timestamp should be parsed as Timestamp, got: {:?}", txn_timestamp),
+        _ => panic!(
+            "Transaction timestamp should be parsed as Timestamp, got: {:?}",
+            txn_timestamp
+        ),
     }
 }
 
@@ -567,10 +626,22 @@ fn test_performance_with_complex_fieldvalue_data() {
     let aggregate_duration = start.elapsed();
 
     // Performance assertions (should be fast even with complex nested data)
-    assert!(filter_duration.as_millis() < 100, "SQL filter should be fast");
-    assert!(exists_duration.as_millis() < 50, "SQL exists should be fast");
-    assert!(wildcard_duration.as_millis() < 100, "Wildcard queries should be fast");
-    assert!(aggregate_duration.as_millis() < 100, "Aggregate functions should be fast");
+    assert!(
+        filter_duration.as_millis() < 100,
+        "SQL filter should be fast"
+    );
+    assert!(
+        exists_duration.as_millis() < 50,
+        "SQL exists should be fast"
+    );
+    assert!(
+        wildcard_duration.as_millis() < 100,
+        "Wildcard queries should be fast"
+    );
+    assert!(
+        aggregate_duration.as_millis() < 100,
+        "Aggregate functions should be fast"
+    );
 
     println!("Performance results for complex FieldValue SQL operations:");
     println!("  SQL filter: {:?}", filter_duration);

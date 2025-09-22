@@ -47,11 +47,16 @@ impl TestWildcardSource {
 }
 
 impl SqlDataSource for TestWildcardSource {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, velostream::velostream::sql::error::SqlError> {
+    fn get_all_records(
+        &self,
+    ) -> Result<HashMap<String, FieldValue>, velostream::velostream::sql::error::SqlError> {
         Ok(self.records.clone())
     }
 
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, velostream::velostream::sql::error::SqlError> {
+    fn get_record(
+        &self,
+        key: &str,
+    ) -> Result<Option<FieldValue>, velostream::velostream::sql::error::SqlError> {
         Ok(self.records.get(key).cloned())
     }
 
@@ -76,7 +81,10 @@ fn test_basic_wildcard_functionality() {
     match result {
         Ok(values) => {
             println!("Found {} matching values", values.len());
-            assert!(!values.is_empty(), "Should find at least one position with > 100 shares");
+            assert!(
+                !values.is_empty(),
+                "Should find at least one position with > 100 shares"
+            );
         }
         Err(e) => {
             println!("Error in wildcard query: {:?}", e);
@@ -110,9 +118,9 @@ fn test_wildcard_edge_cases() {
 
     // Test various edge cases
     let test_cases = vec![
-        "positions.*",           // Just wildcard at end
-        "*.positions.shares",    // Wildcard at start
-        "nonexistent.*.field",   // Invalid path
+        "positions.*",         // Just wildcard at end
+        "*.positions.shares",  // Wildcard at start
+        "nonexistent.*.field", // Invalid path
     ];
 
     for test_case in test_cases {

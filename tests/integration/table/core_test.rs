@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::{BytesSerializer, JsonSerializer, StringSerializer};
+use velostream::velostream::kafka::serialization::{
+    BytesSerializer, JsonSerializer, StringSerializer,
+};
 use velostream::velostream::kafka::*;
+use velostream::velostream::serialization::{FieldValue, JsonFormat};
 use velostream::velostream::table::Table;
-use velostream::velostream::serialization::{JsonFormat, FieldValue};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {
@@ -202,14 +204,13 @@ async fn test_table_transformations() {
     match table_result {
         Ok(table) => {
             // Test map_values transformation
-            let name_map: HashMap<String, String> =
-                table.map_values(|profile| {
-                    if let Some(FieldValue::String(name)) = profile.get("name") {
-                        name.clone()
-                    } else {
-                        "unknown".to_string()
-                    }
-                });
+            let name_map: HashMap<String, String> = table.map_values(|profile| {
+                if let Some(FieldValue::String(name)) = profile.get("name") {
+                    name.clone()
+                } else {
+                    "unknown".to_string()
+                }
+            });
             assert!(name_map.is_empty());
 
             // Test filter transformation
@@ -408,14 +409,13 @@ async fn test_table_multiple_types() {
             assert!(order_table.is_empty());
 
             // Test type-specific transformations
-            let user_emails: HashMap<String, String> =
-                user_table.map_values(|user| {
-                    if let Some(FieldValue::String(email)) = user.get("email") {
-                        email.clone()
-                    } else {
-                        "unknown".to_string()
-                    }
-                });
+            let user_emails: HashMap<String, String> = user_table.map_values(|user| {
+                if let Some(FieldValue::String(email)) = user.get("email") {
+                    email.clone()
+                } else {
+                    "unknown".to_string()
+                }
+            });
             let order_amounts: HashMap<String, f64> = order_table.map_values(|order| {
                 if let Some(FieldValue::Float(amount)) = order.get("amount") {
                     *amount

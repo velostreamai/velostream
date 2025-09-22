@@ -2,7 +2,7 @@ use crate::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, 
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
-use crate::velostream::serialization::{SerializationFormat, FieldValue};
+use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -62,7 +62,9 @@ where
     KS: Serializer<K> + Send + Sync + 'static,
     VS: SerializationFormat + Send + Sync + 'static,
 {
-    consumer: Arc<KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>>,
+    consumer: Arc<
+        KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>,
+    >,
     value_format: Arc<VS>,
     state: Arc<RwLock<HashMap<K, HashMap<String, FieldValue>>>>,
     topic: String,
@@ -136,7 +138,12 @@ where
 
     /// Creates a Table with an existing consumer and SerializationFormat
     pub fn from_consumer(
-        consumer: KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>,
+        consumer: KafkaConsumer<
+            K,
+            Vec<u8>,
+            KS,
+            crate::velostream::kafka::serialization::BytesSerializer,
+        >,
         topic: String,
         value_format: VS,
     ) -> Self {

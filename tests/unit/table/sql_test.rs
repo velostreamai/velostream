@@ -48,7 +48,10 @@ impl MockWildcardDataSource {
         positions.insert("TSLA".to_string(), FieldValue::Struct(tsla_position));
 
         let mut portfolio = HashMap::new();
-        portfolio.insert("user_id".to_string(), FieldValue::String("trader-123".to_string()));
+        portfolio.insert(
+            "user_id".to_string(),
+            FieldValue::String("trader-123".to_string()),
+        );
         portfolio.insert("positions".to_string(), FieldValue::Struct(positions));
 
         records.insert("portfolio-001".to_string(), FieldValue::Struct(portfolio));
@@ -591,8 +594,8 @@ fn test_wildcard_queries_no_comparison() {
     // Should find all three positions
     assert_eq!(shares.len(), 3);
     assert!(shares.contains(&FieldValue::Integer(150))); // AAPL
-    assert!(shares.contains(&FieldValue::Integer(75)));  // MSFT
-    assert!(shares.contains(&FieldValue::Integer(25)));  // TSLA
+    assert!(shares.contains(&FieldValue::Integer(75))); // MSFT
+    assert!(shares.contains(&FieldValue::Integer(25))); // TSLA
 }
 
 #[test]

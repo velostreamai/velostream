@@ -16,34 +16,51 @@ fn test_compact_table_wildcard_queries() {
     let mut aapl_position = HashMap::new();
     aapl_position.insert("shares".to_string(), FieldValue::Integer(150));
     aapl_position.insert("avg_price".to_string(), FieldValue::ScaledInteger(15025, 2)); // $150.25
-    aapl_position.insert("market_value".to_string(), FieldValue::ScaledInteger(2253750, 2)); // $22,537.50
+    aapl_position.insert(
+        "market_value".to_string(),
+        FieldValue::ScaledInteger(2253750, 2),
+    ); // $22,537.50
     positions.insert("AAPL".to_string(), FieldValue::Struct(aapl_position));
 
     // MSFT position
     let mut msft_position = HashMap::new();
     msft_position.insert("shares".to_string(), FieldValue::Integer(75));
     msft_position.insert("avg_price".to_string(), FieldValue::ScaledInteger(33025, 2)); // $330.25
-    msft_position.insert("market_value".to_string(), FieldValue::ScaledInteger(2476875, 2)); // $24,768.75
+    msft_position.insert(
+        "market_value".to_string(),
+        FieldValue::ScaledInteger(2476875, 2),
+    ); // $24,768.75
     positions.insert("MSFT".to_string(), FieldValue::Struct(msft_position));
 
     // Small position (less than 100 shares)
     let mut tsla_position = HashMap::new();
     tsla_position.insert("shares".to_string(), FieldValue::Integer(25));
     tsla_position.insert("avg_price".to_string(), FieldValue::ScaledInteger(45050, 2)); // $450.50
-    tsla_position.insert("market_value".to_string(), FieldValue::ScaledInteger(1126250, 2)); // $11,262.50
+    tsla_position.insert(
+        "market_value".to_string(),
+        FieldValue::ScaledInteger(1126250, 2),
+    ); // $11,262.50
     positions.insert("TSLA".to_string(), FieldValue::Struct(tsla_position));
 
-    portfolio_record.insert("user_id".to_string(), FieldValue::String("trader-123".to_string()));
+    portfolio_record.insert(
+        "user_id".to_string(),
+        FieldValue::String("trader-123".to_string()),
+    );
     portfolio_record.insert("positions".to_string(), FieldValue::Struct(positions));
-    portfolio_record.insert("total_value".to_string(), FieldValue::ScaledInteger(4856875, 2)); // $48,568.75
+    portfolio_record.insert(
+        "total_value".to_string(),
+        FieldValue::ScaledInteger(4856875, 2),
+    ); // $48,568.75
 
     table.insert("portfolio-001".to_string(), portfolio_record);
 
     // Test direct field access with path
-    let aapl_shares = table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.shares");
+    let aapl_shares =
+        table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.shares");
     assert_eq!(aapl_shares, Some(FieldValue::Integer(150)));
 
-    let aapl_price = table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.avg_price");
+    let aapl_price =
+        table.get_field_by_path(&"portfolio-001".to_string(), "positions.AAPL.avg_price");
     assert_eq!(aapl_price, Some(FieldValue::ScaledInteger(15025, 2)));
 
     // Test memory efficiency
@@ -76,18 +93,34 @@ fn test_compact_table_schema_inference() {
 
     // Verify retrieval works correctly
     let retrieved1 = table.get(&"user1".to_string()).unwrap();
-    assert_eq!(retrieved1.get("name"), Some(&FieldValue::String("Alice".to_string())));
-    assert_eq!(retrieved1.get("balance"), Some(&FieldValue::ScaledInteger(100000, 2)));
+    assert_eq!(
+        retrieved1.get("name"),
+        Some(&FieldValue::String("Alice".to_string()))
+    );
+    assert_eq!(
+        retrieved1.get("balance"),
+        Some(&FieldValue::ScaledInteger(100000, 2))
+    );
 
     let retrieved2 = table.get(&"user2".to_string()).unwrap();
-    assert_eq!(retrieved2.get("name"), Some(&FieldValue::String("Bob".to_string())));
-    assert_eq!(retrieved2.get("balance"), Some(&FieldValue::ScaledInteger(250050, 2)));
+    assert_eq!(
+        retrieved2.get("name"),
+        Some(&FieldValue::String("Bob".to_string()))
+    );
+    assert_eq!(
+        retrieved2.get("balance"),
+        Some(&FieldValue::ScaledInteger(250050, 2))
+    );
 
     // Test direct field access
-    let alice_balance = table.get_field_by_path(&"user1".to_string(), "balance").unwrap();
+    let alice_balance = table
+        .get_field_by_path(&"user1".to_string(), "balance")
+        .unwrap();
     assert_eq!(alice_balance, FieldValue::ScaledInteger(100000, 2));
 
-    let bob_name = table.get_field_by_path(&"user2".to_string(), "name").unwrap();
+    let bob_name = table
+        .get_field_by_path(&"user2".to_string(), "name")
+        .unwrap();
     assert_eq!(bob_name, FieldValue::String("Bob".to_string()));
 }
 
@@ -115,10 +148,18 @@ fn test_compact_table_vs_regular_memory() {
     let compact_stats = compact_table.memory_stats();
     let regular_estimated_size = regular_storage.len() * 200; // Rough estimate per record
 
-    println!("CompactTable memory: {} bytes", compact_stats.total_estimated_bytes);
-    println!("Regular HashMap estimated: {} bytes", regular_estimated_size);
-    println!("Memory reduction: {}%",
-             100 - (compact_stats.total_estimated_bytes * 100 / regular_estimated_size));
+    println!(
+        "CompactTable memory: {} bytes",
+        compact_stats.total_estimated_bytes
+    );
+    println!(
+        "Regular HashMap estimated: {} bytes",
+        regular_estimated_size
+    );
+    println!(
+        "Memory reduction: {}%",
+        100 - (compact_stats.total_estimated_bytes * 100 / regular_estimated_size)
+    );
 
     // CompactTable should use significantly less memory due to:
     // 1. String interning ("AAPL" stored once, referenced by index)
@@ -135,9 +176,18 @@ fn test_compact_table_string_interning() {
     for i in 0..100 {
         let mut record = HashMap::new();
         record.insert("id".to_string(), FieldValue::Integer(i));
-        record.insert("status".to_string(), FieldValue::String("active".to_string())); // Repeated
-        record.insert("category".to_string(), FieldValue::String("premium".to_string())); // Repeated
-        record.insert("region".to_string(), FieldValue::String("US-WEST".to_string())); // Repeated
+        record.insert(
+            "status".to_string(),
+            FieldValue::String("active".to_string()),
+        ); // Repeated
+        record.insert(
+            "category".to_string(),
+            FieldValue::String("premium".to_string()),
+        ); // Repeated
+        record.insert(
+            "region".to_string(),
+            FieldValue::String("US-WEST".to_string()),
+        ); // Repeated
 
         table.insert(format!("record_{}", i), record);
     }
@@ -146,7 +196,10 @@ fn test_compact_table_string_interning() {
 
     // String pool should be small despite 400 string insertions (100 records × 4 strings each)
     // because we only have 3 unique strings: "active", "premium", "US-WEST"
-    println!("String pool size: {} bytes for 400 string insertions", stats.string_pool_size);
+    println!(
+        "String pool size: {} bytes for 400 string insertions",
+        stats.string_pool_size
+    );
 
     // Should be much smaller than if each string was stored separately
     assert!(stats.string_pool_size < 500); // Just the unique strings + overhead

@@ -4,8 +4,8 @@
 //! HAVING clause processing, and header mutations.
 
 use super::{
-    HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor, ProcessorContext,
-    ProcessorResult,
+    query_parsing, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
+    ProcessorContext, ProcessorResult,
 };
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
@@ -1341,16 +1341,23 @@ impl SubqueryExecutor for SelectProcessor {
         &self,
         query: &StreamingQuery,
         _current_record: &StreamRecord,
-        _context: &ProcessorContext,
+        context: &ProcessorContext,
     ) -> Result<FieldValue, SqlError> {
-        // Scalar subquery implementation: returns a constant value for testing scenarios
-        // This implementation works correctly for current test cases and streaming contexts
-        // Production systems would execute the full subquery and return the actual result
+        // Real scalar subquery execution using KTable/Table integration
+        // This implementation executes actual subqueries against Table state
 
         match query {
             StreamingQuery::Select { .. } => {
-                // Returns constant value 1 for scalar subqueries in test scenarios
-                Ok(FieldValue::Integer(1))
+                // Extract query components
+                let table_name = query_parsing::extract_table_name(query)?;
+                let where_clause = query_parsing::extract_where_clause(query)?;
+                let select_expr = query_parsing::extract_select_expression(query)?;
+
+                // Get the reference table from context
+                let table = context.get_table(&table_name)?;
+
+                // Execute scalar query using Table SQL interface
+                table.sql_scalar(&select_expr, &where_clause)
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-SCALAR-001] Scalar subquery must be a SELECT statement".to_string(),
@@ -1363,16 +1370,22 @@ impl SubqueryExecutor for SelectProcessor {
         &self,
         query: &StreamingQuery,
         _current_record: &StreamRecord,
-        _context: &ProcessorContext,
+        context: &ProcessorContext,
     ) -> Result<bool, SqlError> {
-        // EXISTS subquery implementation: returns true for test scenarios
-        // This implementation works correctly for current test cases and streaming contexts
-        // Production systems would execute the full subquery and check if any rows exist
+        // Real EXISTS subquery execution using KTable/Table integration
+        // This implementation executes actual subqueries against Table state
 
         match query {
             StreamingQuery::Select { .. } => {
-                // Returns true indicating the subquery would return rows
-                Ok(true)
+                // Extract query components
+                let table_name = query_parsing::extract_table_name(query)?;
+                let where_clause = query_parsing::extract_where_clause(query)?;
+
+                // Get the reference table from context
+                let table = context.get_table(&table_name)?;
+
+                // Execute EXISTS query using Table SQL interface
+                table.sql_exists(&where_clause)
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-EXISTS-001] EXISTS subquery must be a SELECT statement".to_string(),
@@ -1386,24 +1399,26 @@ impl SubqueryExecutor for SelectProcessor {
         value: &FieldValue,
         query: &StreamingQuery,
         _current_record: &StreamRecord,
-        _context: &ProcessorContext,
+        context: &ProcessorContext,
     ) -> Result<bool, SqlError> {
-        // IN subquery implementation: evaluates based on value type for test scenarios
-        // This implementation works correctly for current test cases and streaming contexts
-        // Production systems would execute the full subquery and check if value exists in results
+        // Real IN subquery execution using KTable/Table integration
+        // This implementation executes actual subqueries against Table state
 
         match query {
             StreamingQuery::Select { .. } => {
-                // Value-based evaluation logic:
-                // - Returns true for positive integers
-                // - Returns true for non-empty strings
-                // - Returns the boolean value itself for booleans
-                match value {
-                    FieldValue::Integer(i) => Ok(*i > 0),
-                    FieldValue::String(s) => Ok(!s.is_empty()),
-                    FieldValue::Boolean(b) => Ok(*b),
-                    _ => Ok(false),
-                }
+                // Extract query components
+                let table_name = query_parsing::extract_table_name(query)?;
+                let where_clause = query_parsing::extract_where_clause(query)?;
+                let column = query_parsing::extract_select_column(query)?;
+
+                // Get the reference table from context
+                let table = context.get_table(&table_name)?;
+
+                // Execute IN query using Table SQL interface
+                let values = table.sql_column_values(&column, &where_clause)?;
+
+                // Check if the value exists in the result set
+                Ok(values.contains(value))
             }
             _ => Err(SqlError::ExecutionError {
                 message: "[SUBQ-IN-001] IN subquery must be a SELECT statement".to_string(),

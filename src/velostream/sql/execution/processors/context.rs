@@ -7,6 +7,7 @@ use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::SqlError;
+use crate::velostream::table::sql::SqlQueryable;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -71,6 +72,11 @@ pub struct ProcessorContext {
     /// Optional watermark manager for event-time processing
     /// Only activated when event-time processing is explicitly enabled
     pub watermark_manager: Option<Arc<WatermarkManager>>,
+
+    // === KTable/Table STATE MANAGEMENT ===
+    /// State tables for SQL subquery execution
+    /// Maps table name to SQL-queryable Table data source for subquery operations
+    pub state_tables: HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>,
 }
 
 /// Window processing context
@@ -105,6 +111,7 @@ impl ProcessorContext {
             metadata: HashMap::new(),
             performance_monitor: None,
             watermark_manager: None, // Disabled by default for backward compatibility
+            state_tables: HashMap::new(),
         }
     }
 
@@ -644,5 +651,145 @@ impl ProcessorContext {
         self.watermark_manager
             .as_ref()
             .and_then(|wm| wm.calculate_lateness(record))
+    }
+
+    // === KTable/Table STATE MANAGEMENT METHODS ===
+
+    /// Get a reference table by name for subquery execution
+    ///
+    /// Returns a reference to the SQL-queryable table for use in subquery operations.
+    /// This is used by the SubqueryExecutor to access Table state during query execution.
+    ///
+    /// # Arguments
+    /// * `table_name` - Name of the reference table
+    ///
+    /// # Returns
+    /// * `Ok(Arc<dyn SqlQueryable + Send + Sync>)` - Reference to the queryable table
+    /// * `Err(SqlError)` - Table not found or access error
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+    /// # fn example(context: &ProcessorContext) -> Result<(), velostream::velostream::sql::error::SqlError> {
+    /// let user_table = context.get_table("users")?;
+    /// let active_users = user_table.sql_filter("active = true")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn get_table(
+        &self,
+        table_name: &str,
+    ) -> Result<Arc<dyn SqlQueryable + Send + Sync>, SqlError> {
+        self.state_tables
+            .get(table_name)
+            .cloned()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: format!(
+                    "Reference table '{}' not found in processor context",
+                    table_name
+                ),
+                query: None,
+            })
+    }
+
+    /// Load a reference table into the processor context
+    ///
+    /// Registers a Table as a reference data source that can be used for subquery
+    /// operations. The table will be available via get_table() for SQL subqueries.
+    ///
+    /// # Arguments
+    /// * `table_name` - Name to register the table under
+    /// * `table` - Table instance to register as a data source
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    /// # use velostream::velostream::kafka::serialization::StringSerializer;
+    /// # use velostream::velostream::serialization::JsonFormat;
+    /// # use velostream::velostream::table::Table;
+    /// # use velostream::velostream::table::sql::TableDataSource;
+    /// # use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+    /// # async fn example(mut context: ProcessorContext, config: ConsumerConfig) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create a Table for user reference data
+    /// let user_table = Table::new(config, "users".to_string(), StringSerializer, JsonFormat).await?;
+    /// let user_datasource = Arc::new(TableDataSource::from_table(user_table));
+    ///
+    /// // Register it in the processor context
+    /// context.load_reference_table("users", user_datasource);
+    ///
+    /// // Now it's available for subqueries
+    /// let table = context.get_table("users")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn load_reference_table(
+        &mut self,
+        table_name: &str,
+        table: Arc<dyn SqlQueryable + Send + Sync>,
+    ) {
+        self.state_tables.insert(table_name.to_string(), table);
+    }
+
+    /// Check if a reference table exists in the context
+    ///
+    /// # Arguments
+    /// * `table_name` - Name of the table to check
+    ///
+    /// # Returns
+    /// * `true` - Table exists and is available for queries
+    /// * `false` - Table not found
+    pub fn has_table(&self, table_name: &str) -> bool {
+        self.state_tables.contains_key(table_name)
+    }
+
+    /// Get all available reference table names
+    ///
+    /// Returns a list of all table names that have been loaded into the
+    /// processor context and are available for subquery operations.
+    ///
+    /// # Returns
+    /// * `Vec<String>` - List of available table names
+    pub fn list_tables(&self) -> Vec<String> {
+        self.state_tables.keys().cloned().collect()
+    }
+
+    /// Remove a reference table from the context
+    ///
+    /// Unregisters a table, making it unavailable for future subquery operations.
+    /// This is useful for cleanup or dynamic table management.
+    ///
+    /// # Arguments
+    /// * `table_name` - Name of the table to remove
+    ///
+    /// # Returns
+    /// * `Some(Arc<dyn SqlQueryable + Send + Sync>)` - The removed table
+    /// * `None` - Table was not found
+    pub fn remove_table(
+        &mut self,
+        table_name: &str,
+    ) -> Option<Arc<dyn SqlQueryable + Send + Sync>> {
+        self.state_tables.remove(table_name)
+    }
+
+    /// Load multiple reference tables from a configuration
+    ///
+    /// Convenience method for loading multiple tables at once, typically used
+    /// during processor initialization to set up all required reference data.
+    ///
+    /// # Arguments
+    /// * `tables` - HashMap mapping table names to SQL-queryable data sources
+    pub fn load_reference_tables(
+        &mut self,
+        tables: HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>,
+    ) {
+        self.state_tables.extend(tables);
+    }
+
+    /// Clear all reference tables from the context
+    ///
+    /// Removes all loaded tables, typically used during cleanup or context reset.
+    pub fn clear_tables(&mut self) {
+        self.state_tables.clear();
     }
 }

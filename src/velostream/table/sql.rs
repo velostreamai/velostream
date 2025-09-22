@@ -16,33 +16,45 @@ between Table state management and the SQL execution engine using the existing S
 
 ## Examples
 
-```rust
-use velostream::velostream::kafka::{Table, JsonSerializer};
-use velostream::velostream::kafka::ktable_sql::{SqlQueryable, SqlTable};
+```rust,no_run
+use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+use velostream::velostream::kafka::serialization::StringSerializer;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::table::Table;
+use velostream::velostream::table::sql::{SqlQueryable, TableDataSource};
 
-// Create a SQL-compatible Table
-let user_table: SqlTable = Table::new(
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let config = ConsumerConfig::new("localhost:9092", "test-group");
+
+// Create a Table
+let table = Table::new(
     config,
     "users".to_string(),
-    JsonSerializer,
-    JsonSerializer,
+    StringSerializer,
+    JsonFormat,
 ).await?;
 
+// Create SQL data source
+let data_source = TableDataSource::from_table(table);
+
 // Execute SQL-like queries with full operator support
-let active_users = user_table.sql_filter("active = true AND age >= 18")?;
-let premium_users = user_table.sql_filter("tier = 'premium' OR score > 90.0")?;
-let has_admins = user_table.sql_exists("role = 'admin' AND status != 'disabled'")?;
-let premium_ids = user_table.sql_column_values("id", "tier = 'premium'")?;
+let active_users = data_source.sql_filter("active = true AND age >= 18")?;
+let premium_users = data_source.sql_filter("tier = 'premium' OR score > 90.0")?;
+let has_admins = data_source.sql_exists("role = 'admin' AND status != 'disabled'")?;
+let premium_ids = data_source.sql_column_values("id", "tier = 'premium'")?;
+# Ok(())
+# }
 ```
 */
 
+use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::serialization::SerializationFormat;
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue, UnaryOperator};
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::table::table::Table;
-use crate::velostream::kafka::serialization::Serializer;
-use crate::velostream::serialization::SerializationFormat;
 use std::collections::HashMap;
 
 /// Data source interface for SQL subquery execution
@@ -84,9 +96,13 @@ pub trait SqlQueryable {
     ///
     /// # Examples
     /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(source: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// let active_users = source.sql_filter("status = 'active'")?;
     /// let high_value = source.sql_filter("amount > 1000.0")?;
     /// let complex = source.sql_filter("tier = 'premium' AND score >= 80.0")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_filter(&self, where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError>;
 
@@ -105,8 +121,12 @@ pub trait SqlQueryable {
     ///
     /// # Examples
     /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(table: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// let has_admin = table.sql_exists("role = 'admin'")?;
     /// let config_enabled = table.sql_exists("enabled = true")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError>;
 
@@ -125,8 +145,12 @@ pub trait SqlQueryable {
     ///
     /// # Examples
     /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(table: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// let premium_ids = table.sql_column_values("user_id", "tier = 'premium'")?;
     /// let valid_symbols = table.sql_column_values("symbol", "active = true")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_column_values(
         &self,
@@ -149,8 +173,12 @@ pub trait SqlQueryable {
     ///
     /// # Examples
     /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(table: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// let max_limit = table.sql_scalar("max_daily_limit", "symbol = 'AAPL'")?;
     /// let count = table.sql_scalar("COUNT(*)", "active = true")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError>;
 
@@ -168,18 +196,24 @@ pub trait SqlQueryable {
     ///
     /// # Examples
     /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(table: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// // Find all positions with shares > 100
-    /// let large_positions = table.sql_wildcard_values("portfolio.positions.****.shares > 100")?;
+    /// let large_positions = table.sql_wildcard_values("portfolio.positions.*.shares > 100")?;
     ///
     /// // Get all user emails regardless of user ID
-    /// let all_emails = table.sql_wildcard_values("users.***.email")?;
+    /// let all_emails = table.sql_wildcard_values("users.*.email")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError>;
 
     /// Execute aggregate functions on wildcard results
     ///
     /// # Examples
-    /// ```
+    /// ```rust,no_run
+    /// # use velostream::velostream::table::sql::SqlQueryable;
+    /// # fn example(table: &dyn SqlQueryable) -> Result<(), velostream::velostream::sql::error::SqlError> {
     /// // Count matching values
     /// let count = table.sql_wildcard_aggregate("COUNT(portfolio.positions.*.shares)")?;
     ///
@@ -191,6 +225,8 @@ pub trait SqlQueryable {
     ///
     /// // Sum of values
     /// let sum = table.sql_wildcard_aggregate("SUM(orders[*].amount)")?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError>;
 }
@@ -690,7 +726,9 @@ fn extract_field_value(record: &FieldValue, field_path: &str) -> Option<FieldVal
                                 // Recursively search in each field with remaining path
                                 if i + 1 < parts.len() {
                                     let remaining_path = parts[i + 1..].join(".");
-                                    if let Some(result) = extract_field_value(field_value, &remaining_path) {
+                                    if let Some(result) =
+                                        extract_field_value(field_value, &remaining_path)
+                                    {
                                         return Some(result);
                                     }
                                 } else {
@@ -814,25 +852,33 @@ impl<T: SqlDataSource> SqlQueryable for T {
 
         if let Some((field_path, condition)) = wildcard_expr.split_once(" > ") {
             // Handle comparisons like "portfolio.positions.****.shares > 100"
-            let threshold = condition.parse::<f64>()
-                .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid numeric threshold: {}", condition),
-                    position: Some(wildcard_expr.find(" > ").unwrap_or(0) + 3),
-                })?;
+            let threshold = condition.parse::<f64>().map_err(|_| SqlError::ParseError {
+                message: format!("Invalid numeric threshold: {}", condition),
+                position: Some(wildcard_expr.find(" > ").unwrap_or(0) + 3),
+            })?;
 
             for (_key, record) in all_records {
-                collect_wildcard_matches(&record, field_path, &mut matching_values, Some(threshold));
+                collect_wildcard_matches(
+                    &record,
+                    field_path,
+                    &mut matching_values,
+                    Some(threshold),
+                );
             }
         } else if let Some((field_path, condition)) = wildcard_expr.split_once(" < ") {
             // Handle less-than comparisons
-            let threshold = condition.parse::<f64>()
-                .map_err(|_| SqlError::ParseError {
-                    message: format!("Invalid numeric threshold: {}", condition),
-                    position: Some(wildcard_expr.find(" < ").unwrap_or(0) + 3),
-                })?;
+            let threshold = condition.parse::<f64>().map_err(|_| SqlError::ParseError {
+                message: format!("Invalid numeric threshold: {}", condition),
+                position: Some(wildcard_expr.find(" < ").unwrap_or(0) + 3),
+            })?;
 
             for (_key, record) in all_records {
-                collect_wildcard_matches_less_than(&record, field_path, &mut matching_values, threshold);
+                collect_wildcard_matches_less_than(
+                    &record,
+                    field_path,
+                    &mut matching_values,
+                    threshold,
+                );
             }
         } else {
             // Simple wildcard extraction without conditions
@@ -857,7 +903,8 @@ impl<T: SqlDataSource> SqlQueryable for T {
                 (func, path)
             } else {
                 return Err(SqlError::ParseError {
-                    message: "Invalid aggregate expression: missing closing parenthesis".to_string(),
+                    message: "Invalid aggregate expression: missing closing parenthesis"
+                        .to_string(),
                     position: Some(expr.len()),
                 });
             }
@@ -873,9 +920,7 @@ impl<T: SqlDataSource> SqlQueryable for T {
 
         // Apply the aggregate function
         match func_name.as_str() {
-            "COUNT" => {
-                Ok(FieldValue::Integer(values.len() as i64))
-            }
+            "COUNT" => Ok(FieldValue::Integer(values.len() as i64)),
             "MAX" => {
                 let mut max_val: Option<f64> = None;
                 for value in &values {
@@ -940,12 +985,10 @@ impl<T: SqlDataSource> SqlQueryable for T {
                     })
                 }
             }
-            _ => {
-                Err(SqlError::ParseError {
-                    message: format!("Unknown aggregate function: {}", func_name),
-                    position: Some(0),
-                })
-            }
+            _ => Err(SqlError::ParseError {
+                message: format!("Unknown aggregate function: {}", func_name),
+                position: Some(0),
+            }),
         }
     }
 }
@@ -1046,14 +1089,26 @@ fn collect_wildcard_recursive_with_arrays(
             if field_name == "*" {
                 // Single-level wildcard
                 for (_, value) in fields {
-                    collect_wildcard_recursive_with_arrays(value, parts, index + 1, results, threshold);
+                    collect_wildcard_recursive_with_arrays(
+                        value,
+                        parts,
+                        index + 1,
+                        results,
+                        threshold,
+                    );
                 }
             } else if field_name == "**" {
                 // Deep recursive wildcard
                 for (_, value) in fields {
                     // Try continuing from next part
                     if index + 1 < parts.len() {
-                        collect_wildcard_recursive_with_arrays(value, parts, index + 1, results, threshold);
+                        collect_wildcard_recursive_with_arrays(
+                            value,
+                            parts,
+                            index + 1,
+                            results,
+                            threshold,
+                        );
                     }
                     // Also recurse deeper with same pattern
                     collect_wildcard_recursive_with_arrays(value, parts, index, results, threshold);
@@ -1066,13 +1121,25 @@ fn collect_wildcard_recursive_with_arrays(
         (PathPart::ArrayWildcard, FieldValue::Array(arr)) => {
             // Process all array elements
             for element in arr {
-                collect_wildcard_recursive_with_arrays(element, parts, index + 1, results, threshold);
+                collect_wildcard_recursive_with_arrays(
+                    element,
+                    parts,
+                    index + 1,
+                    results,
+                    threshold,
+                );
             }
         }
         (PathPart::ArrayIndex(idx), FieldValue::Array(arr)) => {
             // Access specific array index
             if let Some(element) = arr.get(*idx) {
-                collect_wildcard_recursive_with_arrays(element, parts, index + 1, results, threshold);
+                collect_wildcard_recursive_with_arrays(
+                    element,
+                    parts,
+                    index + 1,
+                    results,
+                    threshold,
+                );
             }
         }
         (PathPart::Predicate(_predicate), _) => {
@@ -1118,7 +1185,13 @@ fn collect_wildcard_recursive(
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {
                         // More parts to process
-                        collect_wildcard_recursive(field_value, parts, index + 1, results, threshold);
+                        collect_wildcard_recursive(
+                            field_value,
+                            parts,
+                            index + 1,
+                            results,
+                            threshold,
+                        );
                     } else {
                         // Last part is wildcard, collect values based on threshold
                         if let Some(threshold_val) = threshold {
@@ -1138,7 +1211,13 @@ fn collect_wildcard_recursive(
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {
                         // Try matching the rest of the pattern from this field
-                        collect_wildcard_recursive(field_value, parts, index + 1, results, threshold);
+                        collect_wildcard_recursive(
+                            field_value,
+                            parts,
+                            index + 1,
+                            results,
+                            threshold,
+                        );
                     }
                     // Also recurse deeper, keeping the ** pattern
                     collect_wildcard_recursive(field_value, parts, index, results, threshold);
@@ -1188,7 +1267,13 @@ fn collect_wildcard_recursive_less_than(
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {
                         // More parts to process
-                        collect_wildcard_recursive_less_than(field_value, parts, index + 1, results, threshold);
+                        collect_wildcard_recursive_less_than(
+                            field_value,
+                            parts,
+                            index + 1,
+                            results,
+                            threshold,
+                        );
                     } else {
                         // Last part is wildcard, collect values less than threshold
                         if let Some(numeric_val) = extract_numeric_value(field_value) {
@@ -1201,7 +1286,13 @@ fn collect_wildcard_recursive_less_than(
             } else if let Some(field_value) = fields.get(part) {
                 // Exact field match
                 if index + 1 < parts.len() {
-                    collect_wildcard_recursive_less_than(field_value, parts, index + 1, results, threshold);
+                    collect_wildcard_recursive_less_than(
+                        field_value,
+                        parts,
+                        index + 1,
+                        results,
+                        threshold,
+                    );
                 } else {
                     // Final field - apply less-than threshold
                     if let Some(numeric_val) = extract_numeric_value(field_value) {

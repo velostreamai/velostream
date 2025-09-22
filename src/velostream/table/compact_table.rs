@@ -47,13 +47,13 @@ pub struct CompactRecord {
 /// Compact value storage - no field names, minimal overhead
 #[derive(Debug, Clone)]
 pub enum CompactValue {
-    Int64(i64),                    // 8 bytes
-    Float64(f64),                  // 8 bytes
-    InternedString(u32),           // 4 bytes (index into string pool)
-    Bool(bool),                    // 1 byte
-    Null,                          // 0 bytes
-    ScaledInt(i64, u8),           // 9 bytes (packed)
-    Nested(Box<HashMap<String, FieldValue>>),    // Store nested structure directly for simplicity
+    Int64(i64),                               // 8 bytes
+    Float64(f64),                             // 8 bytes
+    InternedString(u32),                      // 4 bytes (index into string pool)
+    Bool(bool),                               // 1 byte
+    Null,                                     // 0 bytes
+    ScaledInt(i64, u8),                       // 9 bytes (packed)
+    Nested(Box<HashMap<String, FieldValue>>), // Store nested structure directly for simplicity
 }
 
 /// String interning pool - shared across all records
@@ -131,7 +131,9 @@ impl CompactSchema {
                 FieldValue::String(_) => CompactFieldType::InternedString,
                 FieldValue::Boolean(_) => CompactFieldType::Bool,
                 FieldValue::Null => CompactFieldType::Null,
-                FieldValue::ScaledInteger(_, scale) => CompactFieldType::ScaledInt { scale: *scale },
+                FieldValue::ScaledInteger(_, scale) => {
+                    CompactFieldType::ScaledInt { scale: *scale }
+                }
                 FieldValue::Struct(_) => CompactFieldType::Nested,
                 _ => CompactFieldType::Nested, // Default for complex types
             };
@@ -220,9 +222,7 @@ impl CompactRecord {
                     CompactValue::ScaledInt(value, scale) => {
                         FieldValue::ScaledInteger(*value, *scale)
                     }
-                    CompactValue::Nested(nested_map) => {
-                        FieldValue::Struct((**nested_map).clone())
-                    }
+                    CompactValue::Nested(nested_map) => FieldValue::Struct((**nested_map).clone()),
                 };
 
                 record.insert(field_name.clone(), field_value);
@@ -277,11 +277,8 @@ where
 
         // Convert to compact representation
         let schema_guard = self.schema.read().unwrap();
-        let compact_record = CompactRecord::from_field_value_record(
-            &record,
-            &schema_guard,
-            &self.string_pool
-        );
+        let compact_record =
+            CompactRecord::from_field_value_record(&record, &schema_guard, &self.string_pool);
         drop(schema_guard);
 
         let mut state = self.state.write().unwrap();
@@ -316,7 +313,12 @@ where
     }
 
     /// Extract field from compact record without full conversion
-    fn extract_field_from_compact(&self, record: &CompactRecord, field_path: &str, schema: &CompactSchema) -> Option<FieldValue> {
+    fn extract_field_from_compact(
+        &self,
+        record: &CompactRecord,
+        field_path: &str,
+        schema: &CompactSchema,
+    ) -> Option<FieldValue> {
         if !field_path.contains('.') {
             // Simple field access
             if let Some(index) = schema.get_field_index(field_path) {
@@ -362,9 +364,7 @@ where
             CompactValue::ScaledInt(value, scale) => {
                 Some(FieldValue::ScaledInteger(*value, *scale))
             }
-            CompactValue::Nested(nested_map) => {
-                Some(FieldValue::Struct((**nested_map).clone()))
-            }
+            CompactValue::Nested(nested_map) => Some(FieldValue::Struct((**nested_map).clone())),
         }
     }
 
@@ -419,11 +419,19 @@ mod tests {
 
         // Verify retrieval
         let retrieved = table.get(&"key1".to_string()).unwrap();
-        assert_eq!(retrieved.get("symbol"), Some(&FieldValue::String("AAPL".to_string())));
-        assert_eq!(retrieved.get("price"), Some(&FieldValue::ScaledInteger(15025, 2)));
+        assert_eq!(
+            retrieved.get("symbol"),
+            Some(&FieldValue::String("AAPL".to_string()))
+        );
+        assert_eq!(
+            retrieved.get("price"),
+            Some(&FieldValue::ScaledInteger(15025, 2))
+        );
 
         // Test direct field access (no full conversion)
-        let price = table.get_field_by_path(&"key1".to_string(), "price").unwrap();
+        let price = table
+            .get_field_by_path(&"key1".to_string(), "price")
+            .unwrap();
         assert_eq!(price, FieldValue::ScaledInteger(15025, 2));
     }
 

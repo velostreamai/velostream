@@ -207,6 +207,7 @@ pub mod job;
 pub mod join;
 pub mod join_context;
 pub mod limit;
+pub mod query_parsing;
 pub mod select;
 pub mod show;
 pub mod update;
