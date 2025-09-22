@@ -153,6 +153,8 @@ Financial calculation patterns (price × quantity):
 
 ## Development Commands
 
+
+
 ### Testing
 ```bash
 # Run all tests
@@ -451,19 +453,170 @@ RUST_BACKTRACE=1 cargo test test_name --no-default-features -- --nocapture
 cargo test financial_precision_benchmark::performance_benchmarks -- --nocapture
 
 # Check for missing pattern matches
-cargo check 
-# CRITICAL: Fix formatting issues (GitHub Actions requirement)
-cargo fmt --all
-
-# MANDATORY: Complete pre-commit verification sequence
-cargo fmt --all -- --check && cargo check && cargo test --no-default-features && cargo build --examples --no-default-features && cargo build --bins --no-default-features
-# Run this comprehensive check before every commit to ensure:
-# 1. Code formatting is correct
-# 2. All code compiles successfully  
-# 3. All tests pass (both unit and integration)
-# 4. All examples compile
-# 5. All binaries compile
+cargo check
 ```
+
+## Pre-Commit Checks
+
+### 🚀 Quick Pre-Commit Runner
+
+When asked to run pre-commit checks, execute this comprehensive verification sequence:
+
+```bash
+echo "🧹 Running Velostream pre-commit checks..."
+echo "⚡ Stage 1: Fast Feedback Checks"
+
+echo "1️⃣ Checking code formatting..."
+cargo fmt --all -- --check || {
+    echo "❌ Formatting check failed. Run 'cargo fmt --all' to fix."
+    exit 1
+}
+echo "✅ Code formatting passed"
+
+echo "2️⃣ Checking compilation..."
+cargo check --all-targets --no-default-features || {
+    echo "❌ Compilation failed."
+    exit 1
+}
+echo "✅ Compilation passed"
+
+echo "3️⃣ Running clippy linting..."
+cargo clippy --all-targets --no-default-features || {
+    echo "❌ Clippy linting failed."
+    exit 1
+}
+echo "✅ Clippy linting passed"
+
+echo "4️⃣ Running unit tests..."
+cargo test --lib --no-default-features --quiet || {
+    echo "❌ Unit tests failed."
+    exit 1
+}
+echo "✅ Unit tests passed"
+
+echo "🔄 Stage 2: Comprehensive Validation"
+
+echo "5️⃣ Testing example compilation..."
+cargo build --examples --no-default-features || {
+    echo "❌ Example compilation failed."
+    exit 1
+}
+echo "✅ Examples compiled successfully"
+
+echo "6️⃣ Testing binary compilation..."
+cargo build --bins --no-default-features || {
+    echo "❌ Binary compilation failed."
+    exit 1
+}
+echo "✅ Binaries compiled successfully"
+
+echo "7️⃣ Running comprehensive test suite..."
+cargo test --tests --no-default-features --quiet -- --skip integration:: --skip performance:: || {
+    echo "❌ Comprehensive tests failed."
+    exit 1
+}
+echo "✅ Comprehensive tests passed"
+
+echo "8️⃣ Running documentation tests..."
+cargo test --doc --no-default-features --quiet || {
+    echo "❌ Documentation tests failed."
+    exit 1
+}
+echo "✅ Documentation tests passed"
+
+echo ""
+echo "🎉 ALL PRE-COMMIT CHECKS PASSED!"
+echo "✅ Code is ready for commit and push"
+echo "📊 Summary:"
+echo "   • Code formatting: ✅"
+echo "   • Compilation: ✅"
+echo "   • Clippy linting: ✅"
+echo "   • Unit tests: ✅"
+echo "   • Examples: ✅"
+echo "   • Binaries: ✅"
+echo "   • Comprehensive tests: ✅"
+echo "   • Documentation tests: ✅"
+```
+
+### 🔧 Individual Check Commands
+
+#### Code Formatting (CRITICAL - GitHub Actions requirement)
+```bash
+# Check formatting
+cargo fmt --all -- --check
+
+# Fix formatting if needed
+cargo fmt --all
+```
+
+#### Compilation and Linting
+```bash
+# Check compilation
+cargo check --all-targets --no-default-features
+
+# Run clippy (with strict warnings)
+cargo clippy --all-targets --no-default-features -- -D warnings
+```
+
+#### Testing
+```bash
+# Unit tests only
+cargo test --lib --no-default-features
+
+# Comprehensive tests (excludes performance/integration)
+cargo test --tests --no-default-features -- --skip integration:: --skip performance::
+
+# Documentation tests
+cargo test --doc --no-default-features
+```
+
+#### Build Verification
+```bash
+# Examples
+cargo build --examples --no-default-features
+
+# Binaries
+cargo build --bins --no-default-features
+```
+
+### 📋 Pre-Commit Checklist
+
+Before every commit, ensure:
+- [ ] **Code formatting** passes (`cargo fmt --all -- --check`)
+- [ ] **Compilation** succeeds (`cargo check --all-targets --no-default-features`)
+- [ ] **Clippy linting** passes (`cargo clippy --all-targets --no-default-features`)
+- [ ] **Unit tests** pass (`cargo test --lib --no-default-features`)
+- [ ] **Examples compile** (`cargo build --examples --no-default-features`)
+- [ ] **Binaries compile** (`cargo build --bins --no-default-features`)
+- [ ] **Comprehensive tests** pass (excluding performance/integration)
+- [ ] **Documentation tests** pass (`cargo test --doc --no-default-features`)
+
+### 🎯 One-Line Complete Check
+
+For quick verification, run this single command:
+```bash
+cargo fmt --all -- --check && cargo check && cargo test --no-default-features && cargo build --examples --no-default-features && cargo build --bins --no-default-features
+```
+
+### 🚨 Critical Rules
+
+1. **NEVER commit when code doesn't compile**
+2. **ALWAYS run formatting check** - GitHub Actions will fail without it
+3. **Run comprehensive checks** before pushing to prevent CI failures
+4. **Fix all clippy warnings** for code quality
+5. **Ensure all tests pass** before marking work complete
+
+### 🔄 CI/CD Pipeline Match
+
+These checks mirror the GitHub Actions pipeline:
+- **Stage 1**: Fast feedback (formatting, compilation, clippy, unit tests)
+- **Stage 2**: Comprehensive validation (full test suite, examples, binaries)
+
+Running these locally ensures CI/CD success and maintains code quality standards.
+
+### Useful Debug Commands
+```bash
+# Debug specific test with full output
 
 ## Architecture Principles
 

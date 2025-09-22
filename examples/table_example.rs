@@ -4,7 +4,9 @@ use std::time::Duration;
 use tokio::time::{interval, sleep};
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
-use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::Table;
 use velostream::{Headers, KafkaConsumer, KafkaProducer};
 
@@ -130,8 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Creates and configures the User Profile Table
 async fn create_user_profile_table(
-) -> Result<Table<String, UserProfile, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
-{
+) -> Result<Table<String, StringSerializer, JsonFormat>, Box<dyn std::error::Error>> {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "user-profile-table-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)
@@ -140,8 +141,8 @@ async fn create_user_profile_table(
     let user_table = Table::new(
         config,
         USER_PROFILES_TOPIC.to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await?;
 
@@ -149,19 +150,26 @@ async fn create_user_profile_table(
 }
 
 /// Displays current user profiles in the Table
-async fn display_user_profiles(
-    user_table: &Table<String, UserProfile, JsonSerializer, JsonSerializer>,
-) {
+async fn display_user_profiles(user_table: &Table<String, StringSerializer, JsonFormat>) {
     let stats = user_table.stats();
     println!("\n👥 Current User Profiles ({} users):", stats.key_count);
     println!("{}", "-".repeat(50));
 
     for user_id in user_table.keys() {
         if let Some(profile) = user_table.get(&user_id) {
-            println!(
-                "📋 {}: {} ({}) - {} tier",
-                user_id, profile.name, profile.email, profile.subscription_tier
-            );
+            let name = profile
+                .get("name")
+                .map(|v| format!("{:?}", v))
+                .unwrap_or("Unknown".to_string());
+            let email = profile
+                .get("email")
+                .map(|v| format!("{:?}", v))
+                .unwrap_or("Unknown".to_string());
+            let tier = profile
+                .get("subscription_tier")
+                .map(|v| format!("{:?}", v))
+                .unwrap_or("Unknown".to_string());
+            println!("📋 {}: {} ({}) - {} tier", user_id, name, email, tier);
         }
     }
     println!();
@@ -169,7 +177,7 @@ async fn display_user_profiles(
 
 /// Processes order stream and enriches with user profile data
 async fn process_order_stream(
-    user_table: Table<String, UserProfile, JsonSerializer, JsonSerializer>,
+    user_table: Table<String, StringSerializer, JsonFormat>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create order consumer
     let order_config = ConsumerConfig::new(KAFKA_BROKERS, "order-processor-group")
@@ -208,6 +216,38 @@ async fn process_order_stream(
                 // Lookup user profile from Table
                 match user_table.get(&order.user_id) {
                     Some(user_profile) => {
+                        // Extract user profile fields
+                        let user_name = user_profile
+                            .get("name")
+                            .and_then(|v| {
+                                if let FieldValue::String(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or("Unknown".to_string());
+                        let user_email = user_profile
+                            .get("email")
+                            .and_then(|v| {
+                                if let FieldValue::String(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or("Unknown".to_string());
+                        let subscription_tier = user_profile
+                            .get("subscription_tier")
+                            .and_then(|v| {
+                                if let FieldValue::String(s) = v {
+                                    Some(s.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or("basic".to_string());
+
                         // Enrich order with user profile
                         let enriched_order = EnrichedOrder {
                             order_id: order.order_id.clone(),
@@ -215,11 +255,11 @@ async fn process_order_stream(
                             product: order.product.clone(),
                             amount: order.amount,
                             timestamp: order.timestamp,
-                            user_name: user_profile.name.clone(),
-                            user_email: user_profile.email.clone(),
-                            subscription_tier: user_profile.subscription_tier.clone(),
-                            discount_eligible: user_profile.subscription_tier == "premium"
-                                || user_profile.subscription_tier == "enterprise",
+                            user_name,
+                            user_email,
+                            subscription_tier: subscription_tier.clone(),
+                            discount_eligible: subscription_tier == "premium"
+                                || subscription_tier == "enterprise",
                         };
 
                         println!(

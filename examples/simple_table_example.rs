@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::Table;
 
 /// Simple user data structure
@@ -31,11 +33,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Create Table
     println!("🏗️  Creating Table for users...");
-    let user_table = match Table::<String, User, _, _>::new(
+    let user_table = match Table::<String, StringSerializer, JsonFormat>::new(
         config,
         USERS_TOPIC.to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await
     {
@@ -97,7 +99,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if user_table.contains_key(&user_id.to_string()) {
         println!("✅ User '{}' exists in table", user_id);
         if let Some(user) = user_table.get(&user_id.to_string()) {
-            println!("   Details: {} <{}>", user.name, user.email);
+            let name = user
+                .get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            let email = user
+                .get("email")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            println!("   Details: {} <{}>", name, email);
         }
     } else {
         println!("❌ User '{}' not found in table", user_id);
@@ -120,11 +142,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n🔄 Demonstrating transformations:");
 
         // Map values to extract just names
-        let names = user_table.map_values(|user| user.name.clone());
+        let names = user_table.map_values(|user| {
+            user.get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("Unknown".to_string())
+        });
         println!("   User names: {:?}", names.values().collect::<Vec<_>>());
 
         // Filter users (example: names starting with 'J')
-        let j_users = user_table.filter(|_key, user| user.name.starts_with('J'));
+        let j_users = user_table.filter(|_key, user| {
+            user.get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s.starts_with('J'))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(false)
+        });
         println!("   Users with names starting with 'J': {}", j_users.len());
 
         // Get snapshot of all data
@@ -171,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Display all users in the Table
-fn display_users(user_table: &Table<String, User, JsonSerializer, JsonSerializer>) {
+fn display_users(user_table: &Table<String, StringSerializer, JsonFormat>) {
     println!("\n👥 Users in Table:");
     println!("{}", "-".repeat(40));
 
@@ -182,7 +224,27 @@ fn display_users(user_table: &Table<String, User, JsonSerializer, JsonSerializer
 
     for user_id in user_table.keys() {
         if let Some(user) = user_table.get(&user_id) {
-            println!("   {}: {} <{}>", user_id, user.name, user.email);
+            let name = user
+                .get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            let email = user
+                .get("email")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            println!("   {}: {} <{}>", user_id, name, email);
         }
     }
     println!();

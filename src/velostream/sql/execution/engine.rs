@@ -159,6 +159,10 @@ pub struct StreamExecutionEngine {
         Option<Arc<crate::velostream::sql::execution::performance::PerformanceMonitor>>,
     // Configuration for enhanced features
     config: StreamingConfig,
+    // Test-only state tables for subquery testing
+    #[cfg(test)]
+    test_state_tables:
+        HashMap<String, Arc<dyn crate::velostream::table::sql::SqlQueryable + Send + Sync>>,
 }
 
 // =============================================================================
@@ -195,6 +199,8 @@ impl StreamExecutionEngine {
             group_states: HashMap::new(),
             performance_monitor: None,
             config,
+            #[cfg(test)]
+            test_state_tables: HashMap::new(),
         }
     }
 
@@ -235,6 +241,10 @@ impl StreamExecutionEngine {
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
+        println!(
+            "DEBUG: create_processor_context called for query_id: {}",
+            query_id
+        );
         let mut context = ProcessorContext::new(query_id);
 
         // Set engine state
@@ -245,6 +255,23 @@ impl StreamExecutionEngine {
 
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
+
+        // Add test state tables when running tests
+        #[cfg(test)]
+        {
+            println!(
+                "DEBUG: Copying {} test state tables to context",
+                self.test_state_tables.len()
+            );
+            for table_name in self.test_state_tables.keys() {
+                println!("DEBUG: - {}", table_name);
+            }
+            context.state_tables = self.test_state_tables.clone();
+            println!(
+                "DEBUG: Context now has {} state tables",
+                context.state_tables.len()
+            );
+        }
 
         context
     }
@@ -1385,5 +1412,22 @@ impl StreamExecutionEngine {
             })?;
 
         Ok(())
+    }
+
+    /// Add a test state table for subquery testing (test-only)
+    pub fn add_test_state_table(
+        &mut self,
+        name: &str,
+        table: Arc<dyn crate::velostream::table::sql::SqlQueryable + Send + Sync>,
+    ) {
+        #[cfg(test)]
+        {
+            self.test_state_tables.insert(name.to_string(), table);
+        }
+        #[cfg(not(test))]
+        {
+            // Do nothing in non-test builds
+            let _ = (name, table);
+        }
     }
 }

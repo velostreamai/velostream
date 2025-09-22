@@ -497,8 +497,8 @@ mod tests {
         );
         assert_eq!(literal_to_string(&LiteralValue::Integer(42)).unwrap(), "42");
         assert_eq!(
-            literal_to_string(&LiteralValue::Float(3.14)).unwrap(),
-            "3.14"
+            literal_to_string(&LiteralValue::Float(3.14159)).unwrap(),
+            "3.14159"
         );
         assert_eq!(
             literal_to_string(&LiteralValue::Boolean(true)).unwrap(),
