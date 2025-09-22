@@ -29,7 +29,7 @@ pub mod performance_presets;
 pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
 pub use ktable::KTable;
-pub use ktable_sql::{SqlQueryable, SqlDataSource, KafkaDataSource};
+pub use ktable_sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
 
 // Re-export Phase 2 Enhanced APIs
 pub use serialization::JsonSerializer;

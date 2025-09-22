@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use velostream::velostream::kafka::ktable_sql::{KafkaDataSource, SqlQueryable, SqlDataSource};
+use velostream::velostream::kafka::ktable_sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
 use velostream::velostream::kafka::serialization::JsonSerializer;
 use velostream::velostream::kafka::KTable;
 use velostream::velostream::sql::error::SqlError;
@@ -79,7 +79,10 @@ async fn test_ktable_sql_with_real_kafka() {
         }
         Err(e) => {
             println!("⚠️ Kafka not available for integration test: {:?}", e);
-            println!("   Ensure Kafka is running at {} to run this test", TEST_KAFKA_BROKERS);
+            println!(
+                "   Ensure Kafka is running at {} to run this test",
+                TEST_KAFKA_BROKERS
+            );
         }
     }
 }
@@ -206,7 +209,9 @@ async fn test_config_queries(datasource: &impl SqlQueryable) {
     assert_eq!(keys[0], FieldValue::String("max_connections".to_string()));
 
     // Test scalar query
-    let value = datasource.sql_scalar("value", "key = 'timeout_seconds'").unwrap();
+    let value = datasource
+        .sql_scalar("value", "key = 'timeout_seconds'")
+        .unwrap();
     assert_eq!(value, FieldValue::String("30".to_string()));
 }
 
@@ -251,12 +256,16 @@ async fn test_subquery_patterns() {
 
     // Pattern 2: IN subquery for membership testing
     // SQL: WHERE user_id IN (SELECT id FROM users WHERE active = true)
-    let active_ids = mock_source.sql_column_values("id", "active = true").unwrap();
+    let active_ids = mock_source
+        .sql_column_values("id", "active = true")
+        .unwrap();
     assert!(!active_ids.is_empty());
 
     // Pattern 3: Scalar subquery for configuration
     // SQL: WHERE amount > (SELECT max_limit FROM config WHERE type = 'transaction')
-    let limit = mock_source.sql_scalar("max_limit", "type = 'transaction'").unwrap();
+    let limit = mock_source
+        .sql_scalar("max_limit", "type = 'transaction'")
+        .unwrap();
     match limit {
         FieldValue::Integer(val) => assert!(val > 0),
         FieldValue::Float(val) => assert!(val > 0.0),
@@ -349,7 +358,9 @@ async fn test_performance_with_large_dataset() {
 
     // Test column extraction performance
     let start = Instant::now();
-    let values = mock_source.sql_column_values("id", "active = true").unwrap();
+    let values = mock_source
+        .sql_column_values("id", "active = true")
+        .unwrap();
     let extract_duration = start.elapsed();
 
     assert_eq!(values.len(), 500); // Half should be active

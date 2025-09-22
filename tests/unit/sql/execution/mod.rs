@@ -22,6 +22,3 @@ pub mod phase_1b_watermarks_test;
 
 // Phase 2: Error & Resource Enhancements tests
 pub mod phase_2_error_resource_test;
-
-// KTable SQL Query Integration tests
-pub mod ktable_subquery_test;

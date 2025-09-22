@@ -37,12 +37,12 @@ let premium_ids = user_table.sql_column_values("id", "tier = 'premium'")?;
 */
 
 use crate::velostream::kafka::ktable::KTable;
-use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue, UnaryOperator};
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
+use crate::velostream::sql::ast::{Expr, BinaryOperator, UnaryOperator, LiteralValue};
 use crate::velostream::sql::parser::StreamingSqlParser;
-use serde_json;
 use std::collections::HashMap;
+use serde_json;
 
 /// Data source interface for SQL subquery execution
 ///
@@ -127,11 +127,7 @@ pub trait SqlQueryable {
     /// let premium_ids = table.sql_column_values("user_id", "tier = 'premium'")?;
     /// let valid_symbols = table.sql_column_values("symbol", "active = true")?;
     /// ```
-    fn sql_column_values(
-        &self,
-        column: &str,
-        where_clause: &str,
-    ) -> Result<Vec<FieldValue>, SqlError>;
+    fn sql_column_values(&self, column: &str, where_clause: &str) -> Result<Vec<FieldValue>, SqlError>;
 
     /// Execute a scalar subquery and return a single value
     ///
@@ -179,10 +175,7 @@ impl ExpressionEvaluator {
     /// # Returns
     /// * `Ok(Box<dyn Fn(&String, &FieldValue) -> bool>)` - Predicate function
     /// * `Err(SqlError)` - Parse error for invalid syntax
-    pub fn parse_where_clause(
-        &self,
-        clause: &str,
-    ) -> Result<Box<dyn Fn(&String, &FieldValue) -> bool + Send + Sync>, SqlError> {
+    pub fn parse_where_clause(&self, clause: &str) -> Result<Box<dyn Fn(&String, &FieldValue) -> bool + Send + Sync>, SqlError> {
         if clause.is_empty() || clause == "true" {
             return Ok(Box::new(|_key, _value| true));
         }
@@ -238,12 +231,10 @@ impl ExpressionEvaluator {
                     "<=" => BinaryOperator::LessThanOrEqual,
                     ">" => BinaryOperator::GreaterThan,
                     ">=" => BinaryOperator::GreaterThanOrEqual,
-                    _ => {
-                        return Err(SqlError::ParseError {
-                            message: format!("Unsupported operator: {}", op_str),
-                            position: Some(pos),
-                        })
-                    }
+                    _ => return Err(SqlError::ParseError {
+                        message: format!("Unsupported operator: {}", op_str),
+                        position: Some(pos),
+                    }),
                 };
 
                 let field_expr = Expr::Column(field_name.to_string());
@@ -268,7 +259,7 @@ impl ExpressionEvaluator {
 
         // Handle parentheses
         if clause.starts_with('(') && clause.ends_with(')') {
-            return self.parse_expression(&clause[1..clause.len() - 1]);
+            return self.parse_expression(&clause[1..clause.len()-1]);
         }
 
         // Handle simple column references or literals
@@ -310,10 +301,9 @@ impl ExpressionEvaluator {
 
     /// Check if a string is a valid SQL identifier
     fn is_identifier(s: &str) -> bool {
-        !s.is_empty()
-            && s.chars().next().unwrap().is_ascii_alphabetic()
-            && s.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        !s.is_empty() &&
+        s.chars().next().unwrap().is_ascii_alphabetic() &&
+        s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
     }
 
     /// Parse a literal value string into the proper AST LiteralValue
@@ -321,10 +311,9 @@ impl ExpressionEvaluator {
         let value_str = value_str.trim();
 
         // String literals (quoted)
-        if (value_str.starts_with('\'') && value_str.ends_with('\''))
-            || (value_str.starts_with('"') && value_str.ends_with('"'))
-        {
-            let unquoted = &value_str[1..value_str.len() - 1];
+        if (value_str.starts_with('\'') && value_str.ends_with('\'')) ||
+           (value_str.starts_with('"') && value_str.ends_with('"')) {
+            let unquoted = &value_str[1..value_str.len()-1];
             return Ok(LiteralValue::String(unquoted.to_string()));
         }
 
@@ -346,11 +335,7 @@ impl ExpressionEvaluator {
         }
 
         // If it looks like a decimal number, store as decimal string
-        if value_str.contains('.')
-            && value_str
-                .chars()
-                .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
-        {
+        if value_str.contains('.') && value_str.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
             return Ok(LiteralValue::Decimal(value_str.to_string()));
         }
 
@@ -363,28 +348,31 @@ impl ExpressionEvaluator {
     /// Evaluate an expression against a record
     fn evaluate_expression(expr: &Expr, record: &FieldValue) -> Result<bool, SqlError> {
         match expr {
-            Expr::BinaryOp { left, op, right } => Self::evaluate_binary_op(left, op, right, record),
-            Expr::UnaryOp { op, expr } => Self::evaluate_unary_op(op, expr, record),
+            Expr::BinaryOp { left, op, right } => {
+                Self::evaluate_binary_op(left, op, right, record)
+            }
+            Expr::UnaryOp { op, expr } => {
+                Self::evaluate_unary_op(op, expr, record)
+            }
             Expr::Column(column_name) => {
                 // For simple column references, check if the column exists and is truthy
                 let field_value = extract_field_value(record, column_name);
                 Ok(field_value.map_or(false, |v| Self::is_truthy(&v)))
             }
-            Expr::Literal(literal) => Ok(Self::is_truthy(&Self::literal_to_field_value(literal))),
-            _ => Err(SqlError::ExecutionError {
-                message: "Unsupported expression type in WHERE clause".to_string(),
-                query: Some("".to_string()),
-            }),
+            Expr::Literal(literal) => {
+                Ok(Self::is_truthy(&Self::literal_to_field_value(literal)))
+            }
+            _ => {
+                Err(SqlError::ExecutionError {
+                    message: "Unsupported expression type in WHERE clause".to_string(),
+                    query: "".to_string(),
+                })
+            }
         }
     }
 
     /// Evaluate a binary operation
-    fn evaluate_binary_op(
-        left: &Expr,
-        op: &BinaryOperator,
-        right: &Expr,
-        record: &FieldValue,
-    ) -> Result<bool, SqlError> {
+    fn evaluate_binary_op(left: &Expr, op: &BinaryOperator, right: &Expr, record: &FieldValue) -> Result<bool, SqlError> {
         match op {
             BinaryOperator::And => {
                 let left_result = Self::evaluate_expression(left, record)?;
@@ -415,20 +403,20 @@ impl ExpressionEvaluator {
             Expr::Column(column_name) => {
                 Ok(extract_field_value(record, column_name).unwrap_or(FieldValue::Null))
             }
-            Expr::Literal(literal) => Ok(Self::literal_to_field_value(literal)),
-            _ => Err(SqlError::ExecutionError {
-                message: "Complex expressions not yet supported in comparisons".to_string(),
-                query: Some("".to_string()),
-            }),
+            Expr::Literal(literal) => {
+                Ok(Self::literal_to_field_value(literal))
+            }
+            _ => {
+                Err(SqlError::ExecutionError {
+                    message: "Complex expressions not yet supported in comparisons".to_string(),
+                    query: "".to_string(),
+                })
+            }
         }
     }
 
     /// Evaluate a unary operation
-    fn evaluate_unary_op(
-        op: &UnaryOperator,
-        expr: &Expr,
-        record: &FieldValue,
-    ) -> Result<bool, SqlError> {
+    fn evaluate_unary_op(op: &UnaryOperator, expr: &Expr, record: &FieldValue) -> Result<bool, SqlError> {
         match op {
             UnaryOperator::Not => {
                 let result = Self::evaluate_expression(expr, record)?;
@@ -442,19 +430,17 @@ impl ExpressionEvaluator {
                 let value = Self::evaluate_expression_value(expr, record)?;
                 Ok(!matches!(value, FieldValue::Null))
             }
-            _ => Err(SqlError::ExecutionError {
-                message: format!("Unsupported unary operator: {:?}", op),
-                query: Some("".to_string()),
-            }),
+            _ => {
+                Err(SqlError::ExecutionError {
+                    message: format!("Unsupported unary operator: {:?}", op),
+                    query: "".to_string(),
+                })
+            }
         }
     }
 
     /// Compare two FieldValues using the specified operator
-    fn compare_values(
-        left: &FieldValue,
-        op: &BinaryOperator,
-        right: &FieldValue,
-    ) -> Result<bool, SqlError> {
+    fn compare_values(left: &FieldValue, op: &BinaryOperator, right: &FieldValue) -> Result<bool, SqlError> {
         use std::cmp::Ordering;
 
         // Handle NULL comparisons
@@ -471,21 +457,15 @@ impl ExpressionEvaluator {
         // Type-specific comparisons with proper coercion
         let ordering = match (left, right) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => a.cmp(b),
-            (FieldValue::Float(a), FieldValue::Float(b)) => {
-                a.partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (FieldValue::Integer(a), FieldValue::Float(b)) => {
-                (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (FieldValue::Float(a), FieldValue::Integer(b)) => {
-                a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
-            }
+            (FieldValue::Float(a), FieldValue::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (FieldValue::Integer(a), FieldValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
+            (FieldValue::Float(a), FieldValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
             (FieldValue::String(a), FieldValue::String(b)) => a.cmp(b),
             (FieldValue::Boolean(a), FieldValue::Boolean(b)) => a.cmp(b),
             _ => {
                 return Err(SqlError::ExecutionError {
                     message: format!("Cannot compare {:?} with {:?}", left, right),
-                    query: Some("".to_string()),
+                    query: "".to_string(),
                 });
             }
         };
@@ -500,7 +480,7 @@ impl ExpressionEvaluator {
             _ => {
                 return Err(SqlError::ExecutionError {
                     message: format!("Unsupported comparison operator: {:?}", op),
-                    query: Some("".to_string()),
+                    query: "".to_string(),
                 });
             }
         };
@@ -550,24 +530,12 @@ impl ExpressionEvaluator {
 /// providing real-time access to Kafka topic data for subquery operations.
 pub struct KafkaDataSource {
     // Use serde_json::Value for now since FieldValue doesn't have Serialize/Deserialize
-    ktable: KTable<
-        String,
-        serde_json::Value,
-        crate::velostream::kafka::serialization::JsonSerializer,
-        crate::velostream::kafka::serialization::JsonSerializer,
-    >,
+    ktable: KTable<String, serde_json::Value, crate::velostream::kafka::serialization::JsonSerializer, crate::velostream::kafka::serialization::JsonSerializer>,
 }
 
 impl KafkaDataSource {
     /// Create a new Kafka data source from an existing KTable
-    pub fn from_ktable(
-        ktable: KTable<
-            String,
-            serde_json::Value,
-            crate::velostream::kafka::serialization::JsonSerializer,
-            crate::velostream::kafka::serialization::JsonSerializer,
-        >,
-    ) -> Self {
+    pub fn from_ktable(ktable: KTable<String, serde_json::Value, crate::velostream::kafka::serialization::JsonSerializer, crate::velostream::kafka::serialization::JsonSerializer>) -> Self {
         Self { ktable }
     }
 
@@ -587,8 +555,9 @@ impl KafkaDataSource {
             }
             serde_json::Value::String(s) => FieldValue::String(s.clone()),
             serde_json::Value::Array(arr) => {
-                let field_values: Vec<FieldValue> =
-                    arr.iter().map(Self::json_to_field_value).collect();
+                let field_values: Vec<FieldValue> = arr.iter()
+                    .map(Self::json_to_field_value)
+                    .collect();
                 FieldValue::Array(field_values)
             }
             serde_json::Value::Object(obj) => {
@@ -604,7 +573,7 @@ impl KafkaDataSource {
 
 impl SqlDataSource for KafkaDataSource {
     fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        let records = self.ktable.snapshot(); // Use snapshot() instead of get_all_records()
+        let records = self.ktable.get_all_records();
         let mut field_value_records = HashMap::new();
 
         for (key, json_value) in records {
@@ -616,8 +585,7 @@ impl SqlDataSource for KafkaDataSource {
     }
 
     fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        let key_string = key.to_string(); // Convert &str to String
-        if let Some(json_value) = self.ktable.get(&key_string) {
+        if let Some(json_value) = self.ktable.get(key) {
             let field_value = Self::json_to_field_value(&json_value);
             Ok(Some(field_value))
         } else {
@@ -630,7 +598,7 @@ impl SqlDataSource for KafkaDataSource {
     }
 
     fn record_count(&self) -> usize {
-        self.ktable.len() // Use len() instead of size()
+        self.ktable.size()
     }
 }
 
@@ -700,11 +668,7 @@ impl<T: SqlDataSource> SqlQueryable for T {
         Ok(false)
     }
 
-    fn sql_column_values(
-        &self,
-        column: &str,
-        where_clause: &str,
-    ) -> Result<Vec<FieldValue>, SqlError> {
+    fn sql_column_values(&self, column: &str, where_clause: &str) -> Result<Vec<FieldValue>, SqlError> {
         let filtered_records = self.sql_filter(where_clause)?;
         let mut values = Vec::new();
 
@@ -733,14 +697,81 @@ impl<T: SqlDataSource> SqlQueryable for T {
         } else {
             // Multiple records - this should error for scalar subqueries
             return Err(SqlError::ExecutionError {
-                message: format!(
-                    "Scalar subquery returned more than one row: {} rows",
-                    filtered_records.len()
-                ),
-                query: Some(format!("SELECT {} WHERE {}", select_expr, where_clause)),
+                message: format!("Scalar subquery returned more than one row: {} rows", filtered_records.len()),
+                query: format!("SELECT {} WHERE {}", select_expr, where_clause),
             });
         }
 
         Ok(FieldValue::Null)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expression_evaluator_comparison_operators() {
+        let evaluator = ExpressionEvaluator::new();
+
+        // Test all comparison operators
+        let operators = vec![
+            ("age = 25", "age", 25, true),
+            ("age != 25", "age", 30, true),
+            ("age < 30", "age", 25, true),
+            ("age <= 25", "age", 25, true),
+            ("age > 20", "age", 25, true),
+            ("age >= 25", "age", 25, true),
+        ];
+
+        for (clause, field, value, expected) in operators {
+            let predicate = evaluator.parse_where_clause(clause).expect("Should parse");
+
+            let mut fields = HashMap::new();
+            fields.insert(field.to_string(), FieldValue::Integer(value));
+            let record = FieldValue::Struct(fields);
+
+            assert_eq!(predicate(&"key1".to_string(), &record), expected,
+                      "Failed for clause: {}", clause);
+        }
+    }
+
+    #[test]
+    fn test_expression_evaluator_logical_operators() {
+        let evaluator = ExpressionEvaluator::new();
+
+        // Test AND operator
+        let predicate = evaluator.parse_where_clause("age > 20 AND status = 'active'").expect("Should parse");
+
+        let mut fields = HashMap::new();
+        fields.insert("age".to_string(), FieldValue::Integer(25));
+        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+        let record = FieldValue::Struct(fields);
+
+        assert!(predicate(&"key1".to_string(), &record));
+
+        // Test OR operator
+        let predicate = evaluator.parse_where_clause("age < 18 OR status = 'premium'").expect("Should parse");
+
+        let mut fields = HashMap::new();
+        fields.insert("age".to_string(), FieldValue::Integer(25));
+        fields.insert("status".to_string(), FieldValue::String("premium".to_string()));
+        let record = FieldValue::Struct(fields);
+
+        assert!(predicate(&"key1".to_string(), &record));
+    }
+
+    #[test]
+    fn test_expression_evaluator_type_coercion() {
+        let evaluator = ExpressionEvaluator::new();
+
+        // Test integer/float comparison
+        let predicate = evaluator.parse_where_clause("score > 85").expect("Should parse");
+
+        let mut fields = HashMap::new();
+        fields.insert("score".to_string(), FieldValue::Float(90.5));
+        let record = FieldValue::Struct(fields);
+
+        assert!(predicate(&"key1".to_string(), &record));
     }
 }
