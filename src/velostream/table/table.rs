@@ -2,6 +2,7 @@ use crate::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, 
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
+use crate::velostream::serialization::{SerializationFormat, FieldValue};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -18,21 +19,26 @@ use tokio::time::sleep;
 /// - Stream-table joins for enrichment
 /// - Changelog-based state recovery
 ///
+/// Tables now work with FieldValue records and pluggable serialization formats,
+/// supporting JSON, Avro, Protobuf, and the full SQL type system.
+///
 /// # Examples
 ///
 /// ```rust,no_run
-/// use velostream::velostream::kafka::{Table, JsonSerializer};
+/// use velostream::velostream::table::Table;
 /// use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
+/// use velostream::velostream::kafka::serialization::JsonSerializer;
+/// use velostream::velostream::serialization::JsonFormat;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create a Table from a compacted topic
+///     // Create a Table with FieldValue support
 ///     let user_table = Table::new(
 ///         ConsumerConfig::new("localhost:9092", "user-table-group")
 ///             .auto_offset_reset(OffsetReset::Earliest),
 ///         "users".to_string(),
 ///         JsonSerializer,
-///         JsonSerializer,
+///         JsonFormat,
 ///     ).await?;
 ///
 ///     // Start consuming and building state
@@ -41,24 +47,24 @@ use tokio::time::sleep;
 ///         let _ = user_table_clone.start().await;
 ///     });
 ///
-///     // Query current state
-///     let user: Option<serde_json::Value> = user_table.get(&"user-123".to_string());
+///     // Query current state (returns FieldValue records)
+///     let user_record = user_table.get(&"user-123".to_string());
 ///
-///     // Get full snapshot
+///     // Get full snapshot with rich type system
 ///     let all_users = user_table.snapshot();
-///     
+///
 ///     Ok(())
 /// }
 /// ```
-pub struct Table<K, V, KS, VS>
+pub struct Table<K, KS, VS>
 where
-    K: Clone + Eq + Hash + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
+    K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
     KS: Serializer<K> + Send + Sync + 'static,
-    VS: Serializer<V> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
 {
-    consumer: Arc<KafkaConsumer<K, V, KS, VS>>,
-    state: Arc<RwLock<HashMap<K, V>>>,
+    consumer: Arc<KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>>,
+    value_format: Arc<VS>,
+    state: Arc<RwLock<HashMap<K, HashMap<String, FieldValue>>>>,
     topic: String,
     group_id: String,
     running: Arc<AtomicBool>,
@@ -76,29 +82,29 @@ pub struct TableStats {
 
 /// Change event representing a state update in the Table
 #[derive(Debug, Clone)]
-pub struct ChangeEvent<K, V> {
+pub struct ChangeEvent<K> {
     pub key: K,
-    pub old_value: Option<V>,
-    pub new_value: Option<V>,
+    pub old_value: Option<HashMap<String, FieldValue>>,
+    pub new_value: Option<HashMap<String, FieldValue>>,
     pub timestamp: SystemTime,
 }
 
-impl<K, V, KS, VS> Table<K, V, KS, VS>
+impl<K, KS, VS> Table<K, KS, VS>
 where
-    K: Clone + Eq + Hash + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
+    K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
     KS: Serializer<K> + Send + Sync + 'static,
-    VS: Serializer<V> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
 {
     /// Creates a new Table from a Kafka topic
     ///
     /// The consumer will be configured to start from the earliest offset
-    /// to rebuild the complete state from the topic.
+    /// to rebuild the complete state from the topic. Values are deserialized
+    /// using the provided SerializationFormat into FieldValue records.
     pub async fn new(
         mut consumer_config: ConsumerConfig,
         topic: String,
         key_serializer: KS,
-        value_serializer: VS,
+        value_format: VS,
     ) -> Result<Self, ConsumerError> {
         // Ensure we start from earliest to rebuild full state
         consumer_config = consumer_config
@@ -108,13 +114,18 @@ where
 
         let group_id = consumer_config.group_id.clone();
 
-        let consumer =
-            KafkaConsumer::with_config(consumer_config, key_serializer, value_serializer)?;
+        // Use BytesSerializer for values since we'll handle deserialization ourselves
+        let consumer = KafkaConsumer::with_config(
+            consumer_config,
+            key_serializer,
+            crate::velostream::kafka::serialization::BytesSerializer,
+        )?;
 
         consumer.subscribe(&[&topic])?;
 
         Ok(Table {
             consumer: Arc::new(consumer),
+            value_format: Arc::new(value_format),
             state: Arc::new(RwLock::new(HashMap::new())),
             topic: topic.clone(),
             group_id,
@@ -123,12 +134,17 @@ where
         })
     }
 
-    /// Creates a Table with an existing consumer
-    pub fn from_consumer(consumer: KafkaConsumer<K, V, KS, VS>, topic: String) -> Self {
+    /// Creates a Table with an existing consumer and SerializationFormat
+    pub fn from_consumer(
+        consumer: KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>,
+        topic: String,
+        value_format: VS,
+    ) -> Self {
         let group_id = consumer.group_id().to_string();
 
         Table {
             consumer: Arc::new(consumer),
+            value_format: Arc::new(value_format),
             state: Arc::new(RwLock::new(HashMap::new())),
             topic,
             group_id,
@@ -176,29 +192,34 @@ where
     }
 
     /// Processes a single message and updates the table state
-    async fn process_message(&self, message: Message<K, V>) {
+    async fn process_message(&self, message: Message<K, Vec<u8>>) {
         if let Some(key) = message.key() {
             let _old_value = {
                 let state = self.state.read().unwrap();
                 state.get(key).cloned()
             };
 
-            // Update state
-            {
-                let mut state = self.state.write().unwrap();
-                state.insert(key.clone(), message.value().clone());
-            }
+            // Deserialize the value bytes using the SerializationFormat
+            if let Ok(field_value_record) = self.value_format.deserialize_record(message.value()) {
+                // Update state
+                {
+                    let mut state = self.state.write().unwrap();
+                    state.insert(key.clone(), field_value_record);
+                }
 
-            // Update last modified time
-            {
-                let mut last_updated = self.last_updated.write().unwrap();
-                *last_updated = Some(SystemTime::now());
+                // Update last modified time
+                {
+                    let mut last_updated = self.last_updated.write().unwrap();
+                    *last_updated = Some(SystemTime::now());
+                }
+            } else {
+                eprintln!("Failed to deserialize message for key: {:?}", key);
             }
         }
     }
 
-    /// Gets the current value for a key
-    pub fn get(&self, key: &K) -> Option<V> {
+    /// Gets the current value for a key as a FieldValue record
+    pub fn get(&self, key: &K) -> Option<HashMap<String, FieldValue>> {
         self.state.read().unwrap().get(key).cloned()
     }
 
@@ -224,9 +245,9 @@ where
 
     /// Creates a snapshot of the current state
     ///
-    /// This returns a clone of the entire state, so use with caution
-    /// for large tables.
-    pub fn snapshot(&self) -> HashMap<K, V> {
+    /// This returns a clone of the entire state as FieldValue records.
+    /// Use with caution for large tables.
+    pub fn snapshot(&self) -> HashMap<K, HashMap<String, FieldValue>> {
         self.state.read().unwrap().clone()
     }
 
@@ -266,14 +287,14 @@ where
         &self.group_id
     }
 
-    /// Creates a derived table by applying a function to each value
+    /// Creates a derived table by applying a function to each FieldValue record
     ///
     /// Returns a HashMap snapshot with transformed values.
     /// For real-time transformations, consider using a separate Table.
     pub fn map_values<V2, F>(&self, mapper: F) -> HashMap<K, V2>
     where
         V2: Clone,
-        F: Fn(&V) -> V2,
+        F: Fn(&HashMap<String, FieldValue>) -> V2,
     {
         self.snapshot()
             .into_iter()
@@ -285,9 +306,9 @@ where
     ///
     /// Returns a HashMap with only entries that pass the predicate.
     /// For real-time filtering, consider using a separate Table.
-    pub fn filter<F>(&self, predicate: F) -> HashMap<K, V>
+    pub fn filter<F>(&self, predicate: F) -> HashMap<K, HashMap<String, FieldValue>>
     where
-        F: Fn(&K, &V) -> bool,
+        F: Fn(&K, &HashMap<String, FieldValue>) -> bool,
     {
         self.snapshot()
             .into_iter()
@@ -297,16 +318,16 @@ where
 }
 
 // We need to implement Clone for Table to enable transformations
-impl<K, V, KS, VS> Clone for Table<K, V, KS, VS>
+impl<K, KS, VS> Clone for Table<K, KS, VS>
 where
-    K: Clone + Eq + Hash + Send + Sync + 'static,
-    V: Clone + Send + Sync + 'static,
+    K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
     KS: Serializer<K> + Send + Sync + 'static,
-    VS: Serializer<V> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {
         Table {
             consumer: self.consumer.clone(),
+            value_format: self.value_format.clone(),
             state: self.state.clone(),
             topic: self.topic.clone(),
             group_id: self.group_id.clone(),

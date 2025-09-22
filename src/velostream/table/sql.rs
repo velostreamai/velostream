@@ -41,7 +41,8 @@ use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::table::table::Table;
-use serde_json;
+use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::serialization::SerializationFormat;
 use std::collections::HashMap;
 
 /// Data source interface for SQL subquery execution
@@ -544,82 +545,68 @@ impl ExpressionEvaluator {
     }
 }
 
-/// Kafka-based data source implementation using Table
+/// Table-based data source implementation for SQL queries
 ///
 /// This implementation bridges Table state with the SQL subquery engine,
-/// providing real-time access to Kafka topic data for subquery operations.
-pub struct KafkaDataSource {
-    // Use serde_json::Value for now since FieldValue doesn't have Serialize/Deserialize
-    table: Table<
-        String,
-        serde_json::Value,
-        crate::velostream::kafka::serialization::JsonSerializer,
-        crate::velostream::kafka::serialization::JsonSerializer,
-    >,
+/// providing real-time access to Table data with any SerializationFormat.
+/// Now supports JSON, Avro, Protobuf, and the full FieldValue type system.
+pub struct TableDataSource<KS, VS>
+where
+    KS: Serializer<String> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
+{
+    table: Table<String, KS, VS>,
 }
 
-impl KafkaDataSource {
-    /// Create a new Kafka data source from an existing Table
-    pub fn from_table(
-        table: Table<
-            String,
-            serde_json::Value,
-            crate::velostream::kafka::serialization::JsonSerializer,
-            crate::velostream::kafka::serialization::JsonSerializer,
-        >,
-    ) -> Self {
+/// Backward compatibility alias - use TableDataSource instead
+///
+/// This will be deprecated in future versions. Use TableDataSource
+/// for new code as it supports all serialization formats.
+pub type KafkaDataSource = TableDataSource<
+    crate::velostream::kafka::serialization::StringSerializer,
+    crate::velostream::serialization::JsonFormat,
+>;
+
+impl<KS, VS> TableDataSource<KS, VS>
+where
+    KS: Serializer<String> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
+{
+    /// Create a new Table data source from an existing Table
+    pub fn from_table(table: Table<String, KS, VS>) -> Self {
         Self { table }
     }
 
-    /// Convert serde_json::Value to FieldValue for SQL compatibility
-    fn json_to_field_value(value: &serde_json::Value) -> FieldValue {
-        match value {
-            serde_json::Value::Null => FieldValue::Null,
-            serde_json::Value::Bool(b) => FieldValue::Boolean(*b),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    FieldValue::Integer(i)
-                } else if let Some(f) = n.as_f64() {
-                    FieldValue::Float(f)
-                } else {
-                    FieldValue::String(n.to_string())
-                }
-            }
-            serde_json::Value::String(s) => FieldValue::String(s.clone()),
-            serde_json::Value::Array(arr) => {
-                let field_values: Vec<FieldValue> =
-                    arr.iter().map(Self::json_to_field_value).collect();
-                FieldValue::Array(field_values)
-            }
-            serde_json::Value::Object(obj) => {
-                let mut fields = HashMap::new();
-                for (key, value) in obj {
-                    fields.insert(key.clone(), Self::json_to_field_value(value));
-                }
-                FieldValue::Struct(fields)
-            }
-        }
+    /// Gets the underlying Table reference for advanced operations
+    pub fn table(&self) -> &Table<String, KS, VS> {
+        &self.table
     }
 }
 
-impl SqlDataSource for KafkaDataSource {
+impl<KS, VS> SqlDataSource for TableDataSource<KS, VS>
+where
+    KS: Serializer<String> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
+{
     fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        let records = self.table.snapshot(); // Use snapshot() instead of get_all_records()
-        let mut field_value_records = HashMap::new();
+        // Table now directly returns FieldValue records - no conversion needed!
+        let records = self.table.snapshot();
+        let mut flattened_records = HashMap::new();
 
-        for (key, json_value) in records {
-            let field_value = Self::json_to_field_value(&json_value);
-            field_value_records.insert(key, field_value);
+        for (key, field_map) in records {
+            // Convert the HashMap<String, FieldValue> to a single FieldValue::Struct
+            let struct_value = FieldValue::Struct(field_map);
+            flattened_records.insert(key, struct_value);
         }
 
-        Ok(field_value_records)
+        Ok(flattened_records)
     }
 
     fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        let key_string = key.to_string(); // Convert &str to String
-        if let Some(json_value) = self.table.get(&key_string) {
-            let field_value = Self::json_to_field_value(&json_value);
-            Ok(Some(field_value))
+        let key_string = key.to_string();
+        if let Some(field_map) = self.table.get(&key_string) {
+            let struct_value = FieldValue::Struct(field_map);
+            Ok(Some(struct_value))
         } else {
             Ok(None)
         }

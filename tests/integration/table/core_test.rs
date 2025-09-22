@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
 use velostream::velostream::kafka::*;
 use velostream::velostream::table::Table;
+use velostream::velostream::serialization::JsonFormat;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {
@@ -31,11 +32,11 @@ async fn test_table_basic_creation() {
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let result = Table::<String, UserProfile, _, _>::new(
+    let result = Table::new(
         config,
         "user-profiles".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 

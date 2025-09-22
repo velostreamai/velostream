@@ -18,5 +18,5 @@ pub mod sql;
 pub mod table;
 
 // Re-export public types
-pub use sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
+pub use sql::{KafkaDataSource, TableDataSource, SqlDataSource, SqlQueryable};
 pub use table::{ChangeEvent, Table, TableStats};
