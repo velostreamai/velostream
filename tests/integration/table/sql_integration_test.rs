@@ -12,7 +12,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use velostream::velostream::kafka::serialization::JsonSerializer;
+use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::sql::{KafkaDataSource, SqlDataSource, SqlQueryable};
@@ -49,11 +50,11 @@ async fn test_table_sql_with_real_kafka() {
     let config = ConsumerConfig::new(TEST_KAFKA_BROKERS, "table-sql-test-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    match Table::<String, serde_json::Value, _, _>::new(
+    match Table::<String, _, _>::new(
         config,
         "test-user-profiles".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await
     {

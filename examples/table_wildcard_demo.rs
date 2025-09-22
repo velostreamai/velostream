@@ -10,13 +10,14 @@ This example demonstrates:
 use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::compact_table::CompactTable;
-use velostream::velostream::table::sql::{TableDataSource, SqlQueryable};
+use velostream::velostream::table::sql::TableDataSource;
 use velostream::velostream::table::Table;
 use velostream::velostream::kafka::consumer_config::ConsumerConfig;
 use velostream::velostream::kafka::serialization::StringSerializer;
 use velostream::velostream::serialization::JsonFormat;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Velostream Table Wildcard & Memory Efficiency Demo");
     println!("====================================================");
 
@@ -64,15 +65,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Example wildcard queries (would work if data was in table):
             println!("   Available wildcard query patterns:");
-            println!("   • portfolio.positions.****.shares > 100");
-            println!("   • portfolio.positions.***  (get all positions)");
-            println!("   • users.****.profile.email  (nested user data)");
+            println!("   • portfolio.positions.*.shares > 100");
+            println!("   • portfolio.positions.*  (get all positions)");
+            println!("   • users.*.profile.email  (nested user data)");
 
         }
         Err(_) => {
             println!("⚠️  Kafka not available - skipping SQL wildcard demo");
             println!("   In production, you would:");
-            println!("   1. table.sql_wildcard_values(\"portfolio.positions.****.shares > 100\")");
+            println!("   1. table.sql_wildcard_values(\"portfolio.positions.*.shares > 100\")");
             println!("   2. Get all positions where shares > 100 across any symbol");
         }
     }
@@ -188,8 +189,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // This demonstrates the pattern that would be matched by:
-    // sql_wildcard_values("portfolio.positions.****.shares > 100")
-    println!("   🔍 Wildcard pattern 'positions.****.shares > 100' would find:");
+    // sql_wildcard_values("portfolio.positions.*.shares > 100")
+    println!("   🔍 Wildcard pattern 'positions.*.shares > 100' would find:");
     for symbol in &["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"] {
         let field_path = format!("positions.{}.shares", symbol);
         if let Some(shares) = portfolio_table.get_field_by_path(&"portfolio-001".to_string(), &field_path) {

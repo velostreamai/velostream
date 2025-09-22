@@ -646,27 +646,27 @@ where
 /// Extract a field value from a FieldValue record
 ///
 /// Supports accessing fields in Struct-type FieldValues using dot notation.
-/// Now supports wildcard patterns using '*' or '****' for any field name.
+/// Now supports wildcard patterns using '*' for any field name.
 fn extract_field_value(record: &FieldValue, field_path: &str) -> Option<FieldValue> {
     match record {
         FieldValue::Struct(fields) => {
             // For simple field access (no dots), return the field directly
             if !field_path.contains('.') {
-                if field_path == "*" || field_path == "****" {
+                if field_path == "*" {
                     // Return all fields as a struct
                     return Some(FieldValue::Struct(fields.clone()));
                 }
                 return fields.get(field_path).cloned();
             }
 
-            // For nested access like "user.profile.name" or "portfolio.positions.****.shares", split and traverse
+            // For nested access like "user.profile.name" or "portfolio.positions.*.shares", split and traverse
             let mut current = record;
             let parts: Vec<&str> = field_path.split('.').collect();
 
             for (i, part) in parts.iter().enumerate() {
                 match current {
                     FieldValue::Struct(current_fields) => {
-                        if *part == "*" || *part == "****" {
+                        if *part == "*" {
                             // Wildcard - need to search through all fields
                             for (_, field_value) in current_fields.iter() {
                                 // Recursively search in each field with remaining path
@@ -857,7 +857,7 @@ fn collect_wildcard_recursive(
         FieldValue::Struct(fields) => {
             let part = parts[index];
 
-            if part == "*" || part == "****" {
+            if part == "*" {
                 // Wildcard - search all fields at this level
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {
@@ -916,7 +916,7 @@ fn collect_wildcard_recursive_less_than(
         FieldValue::Struct(fields) => {
             let part = parts[index];
 
-            if part == "*" || part == "****" {
+            if part == "*" {
                 // Wildcard - search all fields at this level
                 for (_, field_value) in fields.iter() {
                     if index + 1 < parts.len() {

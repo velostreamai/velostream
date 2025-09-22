@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::kafka::serialization::{BytesSerializer, JsonSerializer, StringSerializer};
 use velostream::velostream::kafka::*;
 use velostream::velostream::table::Table;
-use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::serialization::{JsonFormat, FieldValue};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct UserProfile {
@@ -67,15 +67,15 @@ async fn test_table_from_consumer() {
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let consumer_result = KafkaConsumer::<String, UserProfile, _, _>::with_config(
+    let consumer_result = KafkaConsumer::<String, Vec<u8>, _, _>::with_config(
         consumer_config,
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        BytesSerializer,
     );
 
     match consumer_result {
         Ok(consumer) => {
-            let table = Table::from_consumer(consumer, "user-profiles".to_string());
+            let table = Table::from_consumer(consumer, "user-profiles".to_string(), JsonFormat);
 
             assert_eq!(table.topic(), "user-profiles");
             assert_eq!(table.group_id(), "table-consumer-group");
@@ -100,11 +100,11 @@ async fn test_table_lifecycle_management() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-lifecycle-group")
         .auto_offset_reset(OffsetReset::Latest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-lifecycle".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -149,11 +149,11 @@ async fn test_table_stats_and_metadata() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-stats-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-stats".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -191,11 +191,11 @@ async fn test_table_transformations() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-transform-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-transform".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -203,12 +203,24 @@ async fn test_table_transformations() {
         Ok(table) => {
             // Test map_values transformation
             let name_map: HashMap<String, String> =
-                table.map_values(|profile| profile.name.clone());
+                table.map_values(|profile| {
+                    if let Some(FieldValue::String(name)) = profile.get("name") {
+                        name.clone()
+                    } else {
+                        "unknown".to_string()
+                    }
+                });
             assert!(name_map.is_empty());
 
             // Test filter transformation
-            let adults: HashMap<String, UserProfile> =
-                table.filter(|_key, profile| profile.age >= 18);
+            let adults: HashMap<String, HashMap<String, FieldValue>> =
+                table.filter(|_key, profile| {
+                    if let Some(FieldValue::Integer(age)) = profile.get("age") {
+                        *age >= 18
+                    } else {
+                        false
+                    }
+                });
             assert!(adults.is_empty());
 
             // Test snapshot
@@ -233,11 +245,11 @@ async fn test_table_wait_for_keys() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-wait-group")
         .auto_offset_reset(OffsetReset::Latest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-wait".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -266,11 +278,11 @@ async fn test_table_clone_behavior() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-clone-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-clone".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -302,11 +314,11 @@ async fn test_table_with_producer_simulation() {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "table-producer-sim-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-sim".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -366,19 +378,19 @@ async fn test_table_multiple_types() {
     let order_config = ConsumerConfig::new(KAFKA_BROKERS, "table-orders-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let user_table_result = Table::<String, UserProfile, _, _>::new(
+    let user_table_result = Table::<String, _, _>::new(
         user_config,
         "users".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
-    let order_table_result = Table::<String, Order, _, _>::new(
+    let order_table_result = Table::<String, _, _>::new(
         order_config,
         "orders".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -397,8 +409,20 @@ async fn test_table_multiple_types() {
 
             // Test type-specific transformations
             let user_emails: HashMap<String, String> =
-                user_table.map_values(|user| user.email.clone());
-            let order_amounts: HashMap<String, f64> = order_table.map_values(|order| order.amount);
+                user_table.map_values(|user| {
+                    if let Some(FieldValue::String(email)) = user.get("email") {
+                        email.clone()
+                    } else {
+                        "unknown".to_string()
+                    }
+                });
+            let order_amounts: HashMap<String, f64> = order_table.map_values(|order| {
+                if let Some(FieldValue::Float(amount)) = order.get("amount") {
+                    *amount
+                } else {
+                    0.0
+                }
+            });
 
             assert!(user_emails.is_empty());
             assert!(order_amounts.is_empty());
@@ -422,11 +446,11 @@ async fn test_table_error_handling() {
     let config = ConsumerConfig::new("invalid-broker:9092", "table-error-group")
         .auto_offset_reset(OffsetReset::Earliest);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-error".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 
@@ -451,11 +475,11 @@ async fn test_table_configuration_options() {
         .session_timeout(Duration::from_secs(30))
         .fetch_min_bytes(1024);
 
-    let table_result = Table::<String, UserProfile, _, _>::new(
+    let table_result = Table::<String, _, _>::new(
         config,
         "user-profiles-config".to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await;
 

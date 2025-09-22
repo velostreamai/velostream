@@ -17,6 +17,64 @@ use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::sql::{ExpressionEvaluator, SqlDataSource, SqlQueryable};
 
+// Mock data source for wildcard testing
+struct MockWildcardDataSource {
+    records: HashMap<String, FieldValue>,
+}
+
+impl MockWildcardDataSource {
+    fn new() -> Self {
+        let mut records = HashMap::new();
+
+        // Create portfolio record with nested positions
+        let mut positions = HashMap::new();
+
+        // AAPL position
+        let mut aapl_position = HashMap::new();
+        aapl_position.insert("shares".to_string(), FieldValue::Integer(150));
+        aapl_position.insert("price".to_string(), FieldValue::ScaledInteger(15025, 2)); // $150.25
+        positions.insert("AAPL".to_string(), FieldValue::Struct(aapl_position));
+
+        // MSFT position
+        let mut msft_position = HashMap::new();
+        msft_position.insert("shares".to_string(), FieldValue::Integer(75));
+        msft_position.insert("price".to_string(), FieldValue::ScaledInteger(33025, 2)); // $330.25
+        positions.insert("MSFT".to_string(), FieldValue::Struct(msft_position));
+
+        // TSLA position (small holding)
+        let mut tsla_position = HashMap::new();
+        tsla_position.insert("shares".to_string(), FieldValue::Integer(25));
+        tsla_position.insert("price".to_string(), FieldValue::ScaledInteger(45050, 2)); // $450.50
+        positions.insert("TSLA".to_string(), FieldValue::Struct(tsla_position));
+
+        let mut portfolio = HashMap::new();
+        portfolio.insert("user_id".to_string(), FieldValue::String("trader-123".to_string()));
+        portfolio.insert("positions".to_string(), FieldValue::Struct(positions));
+
+        records.insert("portfolio-001".to_string(), FieldValue::Struct(portfolio));
+
+        Self { records }
+    }
+}
+
+impl SqlDataSource for MockWildcardDataSource {
+    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
+        Ok(self.records.clone())
+    }
+
+    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
+        Ok(self.records.get(key).cloned())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    fn record_count(&self) -> usize {
+        self.records.len()
+    }
+}
+
 #[test]
 fn test_expression_evaluator_comparison_operators() {
     let evaluator = ExpressionEvaluator::new();
@@ -490,4 +548,132 @@ impl MockDataSource {
             }
         }
     }
+}
+
+#[test]
+fn test_wildcard_queries_basic() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query to find all positions with shares > 100
+    let large_positions = data_source.sql_wildcard_values("positions.*.shares > 100");
+    assert!(large_positions.is_ok());
+    let positions = large_positions.unwrap();
+
+    // Should find AAPL (150 shares) but not MSFT (75 shares) or TSLA (25 shares)
+    assert_eq!(positions.len(), 1);
+    assert_eq!(positions[0], FieldValue::Integer(150));
+}
+
+#[test]
+fn test_wildcard_queries_less_than() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query to find all positions with shares < 100
+    let small_positions = data_source.sql_wildcard_values("positions.*.shares < 100");
+    assert!(small_positions.is_ok());
+    let positions = small_positions.unwrap();
+
+    // Should find MSFT (75 shares) and TSLA (25 shares) but not AAPL (150 shares)
+    assert_eq!(positions.len(), 2);
+    assert!(positions.contains(&FieldValue::Integer(75))); // MSFT
+    assert!(positions.contains(&FieldValue::Integer(25))); // TSLA
+}
+
+#[test]
+fn test_wildcard_queries_no_comparison() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query without comparison - should return all shares values
+    let all_shares = data_source.sql_wildcard_values("positions.*.shares");
+    assert!(all_shares.is_ok());
+    let shares = all_shares.unwrap();
+
+    // Should find all three positions
+    assert_eq!(shares.len(), 3);
+    assert!(shares.contains(&FieldValue::Integer(150))); // AAPL
+    assert!(shares.contains(&FieldValue::Integer(75)));  // MSFT
+    assert!(shares.contains(&FieldValue::Integer(25)));  // TSLA
+}
+
+#[test]
+fn test_wildcard_queries_with_scaled_integer() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query with ScaledInteger (prices)
+    let expensive_positions = data_source.sql_wildcard_values("positions.*.price > 300");
+    assert!(expensive_positions.is_ok());
+    let positions = expensive_positions.unwrap();
+
+    // Should find MSFT ($330.25) and TSLA ($450.50) but not AAPL ($150.25)
+    assert_eq!(positions.len(), 2);
+    assert!(positions.contains(&FieldValue::ScaledInteger(33025, 2))); // MSFT
+    assert!(positions.contains(&FieldValue::ScaledInteger(45050, 2))); // TSLA
+}
+
+#[test]
+fn test_wildcard_queries_invalid_path() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query with invalid path
+    let result = data_source.sql_wildcard_values("invalid.*.field > 100");
+    assert!(result.is_ok());
+    let values = result.unwrap();
+    assert!(values.is_empty()); // Should return empty vector for invalid paths
+}
+
+#[test]
+fn test_wildcard_queries_invalid_comparison() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test wildcard query with invalid comparison value
+    let result = data_source.sql_wildcard_values("positions.*.shares > invalid");
+    assert!(result.is_err()); // Should return error for invalid numeric threshold
+}
+
+#[test]
+fn test_financial_portfolio_wildcard_scenarios() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test realistic financial scenarios
+
+    // 1. Risk management: Find all positions with high concentration (>100 shares)
+    let high_concentration = data_source.sql_wildcard_values("positions.*.shares > 100");
+    assert!(high_concentration.is_ok());
+    assert_eq!(high_concentration.unwrap().len(), 1); // Only AAPL
+
+    // 2. Liquidity check: Find all positions with moderate holdings (50-100 shares)
+    let moderate_positions = data_source.sql_wildcard_values("positions.*.shares > 50");
+    assert!(moderate_positions.is_ok());
+    assert_eq!(moderate_positions.unwrap().len(), 2); // AAPL and MSFT
+
+    // 3. Price analysis: Find all positions with high-value stocks (>$200)
+    let high_value_stocks = data_source.sql_wildcard_values("positions.*.price > 200");
+    assert!(high_value_stocks.is_ok());
+    assert_eq!(high_value_stocks.unwrap().len(), 2); // MSFT and TSLA
+}
+
+#[test]
+fn test_wildcard_edge_cases() {
+    let data_source = MockWildcardDataSource::new();
+
+    // Test edge cases
+
+    // 1. Empty wildcard path
+    let empty_result = data_source.sql_wildcard_values("");
+    assert!(empty_result.is_err());
+
+    // 2. Just wildcard
+    let just_wildcard = data_source.sql_wildcard_values("*");
+    assert!(just_wildcard.is_ok());
+    // Should return the whole portfolio record
+
+    // 3. Multiple wildcards (not currently supported, should handle gracefully)
+    let multiple_wildcards = data_source.sql_wildcard_values("*.*.shares");
+    assert!(multiple_wildcards.is_ok());
+    // Behavior depends on implementation - should handle gracefully
+
+    // 4. Wildcard at end
+    let wildcard_end = data_source.sql_wildcard_values("positions.*");
+    assert!(wildcard_end.is_ok());
+    // Should return all position objects
 }
