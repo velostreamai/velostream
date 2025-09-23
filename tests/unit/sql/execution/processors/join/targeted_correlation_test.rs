@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
@@ -53,13 +53,14 @@ fn create_minimal_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     offset: 2,
                     partition: 0,
                 }
-            }
+            },
         ];
 
         let orders_table = MockTable::new("orders".to_string(), orders_data);
         context.load_reference_table(
             "orders",
-            Arc::new(orders_table) as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>
+            Arc::new(orders_table)
+                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
         );
 
         println!("🎯 Minimal correlation context: orders table loaded with user_ids [999, 888]");
@@ -82,7 +83,9 @@ async fn execute_targeted_test(
     println!("🎯 Executing query: {}", query.trim());
     println!("🎯 Test record id: {:?}", test_record.fields.get("id"));
 
-    engine.execute_with_record(&parsed_query, test_record).await?;
+    engine
+        .execute_with_record(&parsed_query, test_record)
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -95,8 +98,14 @@ async fn execute_targeted_test(
 fn create_user_record_with_id(id: i64) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(id));
-    fields.insert("name".to_string(), FieldValue::String(format!("User_{}", id)));
-    fields.insert("email".to_string(), FieldValue::String(format!("user{}@example.com", id)));
+    fields.insert(
+        "name".to_string(),
+        FieldValue::String(format!("User_{}", id)),
+    );
+    fields.insert(
+        "email".to_string(),
+        FieldValue::String(format!("user{}@example.com", id)),
+    );
 
     StreamRecord {
         fields,
@@ -127,7 +136,9 @@ async fn test_correlated_exists_id_999_should_match() {
         Ok(results) => {
             println!("🎯 Result: {} records returned", results.len());
             if results.is_empty() {
-                println!("❌ CORRELATION FAILURE: users.id=999 not resolving to find orders.user_id=999");
+                println!(
+                    "❌ CORRELATION FAILURE: users.id=999 not resolving to find orders.user_id=999"
+                );
                 println!("   This confirms the correlation resolution bug");
 
                 // Log the specific correlation issue
@@ -140,7 +151,10 @@ async fn test_correlated_exists_id_999_should_match() {
                     - Issue: users.id correlation reference not being resolved"
                 );
             } else {
-                println!("✅ SUCCESS: Correlation working! Found {} record(s)", results.len());
+                println!(
+                    "✅ SUCCESS: Correlation working! Found {} record(s)",
+                    results.len()
+                );
                 assert_eq!(results.len(), 1, "Should return exactly one user record");
             }
         }
@@ -169,7 +183,9 @@ async fn test_correlated_exists_id_888_should_match() {
         Ok(results) => {
             println!("🎯 Result: {} records returned", results.len());
             if results.is_empty() {
-                println!("❌ CORRELATION FAILURE: users.id=888 not resolving to find orders.user_id=888");
+                println!(
+                    "❌ CORRELATION FAILURE: users.id=888 not resolving to find orders.user_id=888"
+                );
                 panic!("Correlation resolution failing for id=888");
             } else {
                 println!("✅ SUCCESS: Found matching record for id=888");
@@ -333,7 +349,9 @@ async fn test_minimal_reproduction_case() {
 
             if results.is_empty() {
                 println!("\n❌ BUG REPRODUCED: Correlation variable not being resolved");
-                println!("🐛 Root cause: users.id in EXISTS subquery not binding to outer query value");
+                println!(
+                    "🐛 Root cause: users.id in EXISTS subquery not binding to outer query value"
+                );
                 println!("💡 Fix needed: Correlation context resolution in EXISTS evaluation");
 
                 // This is our target reproduction case

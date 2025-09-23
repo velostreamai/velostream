@@ -365,7 +365,7 @@ async fn test_performance_with_large_dataset() {
     let extract_duration = start.elapsed();
 
     assert_eq!(values.len(), 500); // Half should be active
-vpmtyom    assert!(extract_duration.as_millis() < 500); // Relaxed timing for CI environments
+    assert!(extract_duration.as_millis() < 500); // Relaxed timing for CI environments
 
     println!("Performance results for 1000 records:");
     println!("  Filter: {:?}", filter_duration);

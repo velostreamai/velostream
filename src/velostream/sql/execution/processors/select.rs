@@ -5,7 +5,7 @@
 
 use super::{
     query_parsing, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
-    ProcessorContext, ProcessorResult,
+    ProcessorContext, ProcessorResult, TableReference,
 };
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
@@ -16,41 +16,300 @@ use crate::velostream::sql::execution::{
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
-use std::sync::RwLock;
 
-/// Global context for tracking outer table reference during subquery execution
-lazy_static::lazy_static! {
-    static ref OUTER_TABLE_CONTEXT: RwLock<Option<TableReference>> = RwLock::new(None);
+/// Parameter binding for SQL queries to prevent injection
+#[derive(Debug, Clone)]
+pub struct SqlParameter {
+    pub index: usize,
+    pub value: FieldValue,
 }
 
-/// Set the outer table context for correlation resolution using proper table reference
-fn set_outer_table_reference_context(table_ref: &TableReference) {
-    if let Ok(mut context) = OUTER_TABLE_CONTEXT.write() {
-        *context = Some(table_ref.clone());
+impl SqlParameter {
+    pub fn new(index: usize, value: FieldValue) -> Self {
+        Self { index, value }
     }
-}
-
-/// Get the current outer table reference context for correlation resolution
-fn get_outer_table_reference_context() -> Option<TableReference> {
-    OUTER_TABLE_CONTEXT.read().ok()?.clone()
-}
-
-/// Clear the outer table reference context
-fn clear_outer_table_reference_context() {
-    if let Ok(mut context) = OUTER_TABLE_CONTEXT.write() {
-        *context = None;
-    }
-}
-
-/// Legacy function - Get table name for backward compatibility
-fn get_outer_table_context() -> Option<String> {
-    get_outer_table_reference_context().map(|table_ref| table_ref.name)
 }
 
 /// SELECT query processor
 pub struct SelectProcessor;
 
 impl SelectProcessor {
+    /// Build a parameterized query with ? placeholders and separate parameter array
+    /// This approach is much faster and more secure than string escaping
+    pub fn build_parameterized_query(
+        &self,
+        template: &str,
+        params: Vec<SqlParameter>,
+    ) -> Result<String, SqlError> {
+        if params.is_empty() {
+            return Ok(template.to_string());
+        }
+
+        // Use different strategies based on parameter count for optimal performance
+        if params.len() <= 3 {
+            // Fast path: For small parameter sets, use simple string replacement
+            self.build_parameterized_query_simple(template, params)
+        } else {
+            // Complex path: For larger parameter sets, use HashMap lookup
+            self.build_parameterized_query_complex(template, params)
+        }
+    }
+
+    /// Fast path for small parameter sets (1-3 parameters)
+    #[inline]
+    fn build_parameterized_query_simple(
+        &self,
+        template: &str,
+        params: Vec<SqlParameter>,
+    ) -> Result<String, SqlError> {
+        let mut result = template.to_string();
+
+        // Sort parameters by index in descending order to avoid index shifting issues
+        let mut sorted_params = params;
+        sorted_params.sort_by(|a, b| b.index.cmp(&a.index));
+
+        for param in sorted_params {
+            let placeholder = format!("${}", param.index);
+            if result.contains(&placeholder) {
+                let param_value = self.format_param_value_fast(&param.value)?;
+                result = result.replace(&placeholder, &param_value);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Complex path for larger parameter sets (4+ parameters)
+    #[inline]
+    fn build_parameterized_query_complex(
+        &self,
+        template: &str,
+        params: Vec<SqlParameter>,
+    ) -> Result<String, SqlError> {
+        // Create parameter lookup map for O(1) access
+        let param_map: std::collections::HashMap<usize, &FieldValue> =
+            params.iter().map(|p| (p.index, &p.value)).collect();
+
+        // Pre-calculate estimated capacity to minimize reallocations
+        let estimated_param_size: usize = params
+            .iter()
+            .map(|p| self.estimate_param_size(&p.value))
+            .sum();
+        let estimated_capacity = template.len() + estimated_param_size;
+
+        // Single-pass template processing with pre-allocated buffer
+        let mut result = String::with_capacity(estimated_capacity);
+        let mut chars = template.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' {
+                // Parse parameter index
+                let mut index_str = String::new();
+                while let Some(&next_ch) = chars.peek() {
+                    if next_ch.is_ascii_digit() {
+                        index_str.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+
+                if let Ok(index) = index_str.parse::<usize>() {
+                    if let Some(param_value) = param_map.get(&index) {
+                        // Direct parameter substitution without intermediate string allocation
+                        self.write_param_value(&mut result, param_value)?;
+                    } else {
+                        // Parameter not found, keep placeholder
+                        result.push('$');
+                        result.push_str(&index_str);
+                    }
+                } else {
+                    // Invalid parameter syntax, keep original
+                    result.push(ch);
+                    result.push_str(&index_str);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Fast parameter value formatting for simple cases
+    #[inline]
+    fn format_param_value_fast(&self, value: &FieldValue) -> Result<String, SqlError> {
+        Ok(match value {
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => {
+                if f.is_finite() {
+                    f.to_string()
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            FieldValue::String(s) => {
+                // Optimized string escaping for common cases
+                if s.chars()
+                    .all(|c| c != '\'' && c != '\\' && c != '\0' && c != '\x1a' && !c.is_control())
+                {
+                    // Fast path: no escaping needed
+                    format!("'{}'", s)
+                } else {
+                    // Slow path: comprehensive escaping
+                    let escaped = s
+                        .replace('\\', "\\\\")
+                        .replace('\'', "''")
+                        .replace('\0', "")
+                        .replace('\x1a', "")
+                        .chars()
+                        .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
+                        .collect::<String>();
+                    format!("'{}'", escaped)
+                }
+            }
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "NULL".to_string(),
+            FieldValue::Timestamp(ts) => format!("'{}'", ts.format("%Y-%m-%d %H:%M:%S")),
+            FieldValue::Date(d) => format!("'{}'", d.format("%Y-%m-%d")),
+            FieldValue::ScaledInteger(value, scale) => {
+                let divisor = 10_i64.pow(*scale as u32);
+                let decimal_value = *value as f64 / divisor as f64;
+                if decimal_value.is_finite() {
+                    decimal_value.to_string()
+                } else {
+                    "NULL".to_string()
+                }
+            }
+            FieldValue::Decimal(d) => d.to_string(),
+            _ => "NULL".to_string(),
+        })
+    }
+
+    /// Estimate the size needed for a parameter value to optimize string allocation
+    #[inline]
+    fn estimate_param_size(&self, value: &FieldValue) -> usize {
+        match value {
+            FieldValue::Integer(_) => 20,             // i64 max is 19 digits
+            FieldValue::Float(_) => 25,               // Scientific notation can be long
+            FieldValue::String(s) => s.len() * 2 + 2, // Worst case: all chars escaped + quotes
+            FieldValue::Boolean(_) => 5,              // "true" or "false"
+            FieldValue::Null => 4,                    // "NULL"
+            FieldValue::Timestamp(_) => 21,           // "'YYYY-MM-DD HH:MM:SS'"
+            FieldValue::Date(_) => 12,                // "'YYYY-MM-DD'"
+            FieldValue::ScaledInteger(_, _) => 30,    // Conservative estimate for decimal
+            FieldValue::Decimal(_) => 50,             // Conservative estimate
+            _ => 10,                                  // Default estimate
+        }
+    }
+
+    /// Write parameter value directly to string buffer for optimal performance
+    #[inline]
+    fn write_param_value(&self, buffer: &mut String, value: &FieldValue) -> Result<(), SqlError> {
+        match value {
+            FieldValue::Integer(i) => {
+                use std::fmt::Write;
+                write!(buffer, "{}", i).map_err(|_| SqlError::ExecutionError {
+                    message: "Failed to format integer parameter".to_string(),
+                    query: None,
+                })?;
+            }
+            FieldValue::Float(f) => {
+                if f.is_finite() {
+                    use std::fmt::Write;
+                    write!(buffer, "{}", f).map_err(|_| SqlError::ExecutionError {
+                        message: "Failed to format float parameter".to_string(),
+                        query: None,
+                    })?;
+                } else {
+                    buffer.push_str("NULL");
+                }
+            }
+            FieldValue::String(s) => {
+                buffer.push('\'');
+                // Single-pass string escaping with direct buffer writing
+                for ch in s.chars() {
+                    match ch {
+                        '\\' => buffer.push_str("\\\\"),
+                        '\'' => buffer.push_str("''"),
+                        '\0' | '\x1a' => {} // Remove dangerous characters
+                        c if c.is_control() && c != '\t' && c != '\n' && c != '\r' => {} // Filter control chars
+                        c => buffer.push(c),
+                    }
+                }
+                buffer.push('\'');
+            }
+            FieldValue::Boolean(b) => {
+                buffer.push_str(if *b { "true" } else { "false" });
+            }
+            FieldValue::Null => {
+                buffer.push_str("NULL");
+            }
+            FieldValue::Timestamp(ts) => {
+                use std::fmt::Write;
+                write!(buffer, "'{}'", ts.format("%Y-%m-%d %H:%M:%S")).map_err(|_| {
+                    SqlError::ExecutionError {
+                        message: "Failed to format timestamp parameter".to_string(),
+                        query: None,
+                    }
+                })?;
+            }
+            FieldValue::Date(d) => {
+                use std::fmt::Write;
+                write!(buffer, "'{}'", d.format("%Y-%m-%d")).map_err(|_| {
+                    SqlError::ExecutionError {
+                        message: "Failed to format date parameter".to_string(),
+                        query: None,
+                    }
+                })?;
+            }
+            FieldValue::ScaledInteger(value, scale) => {
+                let divisor = 10_i64.pow(*scale as u32);
+                let decimal_value = *value as f64 / divisor as f64;
+                if decimal_value.is_finite() {
+                    use std::fmt::Write;
+                    write!(buffer, "{}", decimal_value).map_err(|_| SqlError::ExecutionError {
+                        message: "Failed to format scaled integer parameter".to_string(),
+                        query: None,
+                    })?;
+                } else {
+                    buffer.push_str("NULL");
+                }
+            }
+            FieldValue::Decimal(d) => {
+                use std::fmt::Write;
+                write!(buffer, "{}", d).map_err(|_| SqlError::ExecutionError {
+                    message: "Failed to format decimal parameter".to_string(),
+                    query: None,
+                })?;
+            }
+            _ => {
+                buffer.push_str("NULL");
+            }
+        }
+        Ok(())
+    }
+
+    /// Process a SELECT query with correlation context management
+    pub fn process_with_correlation(
+        &mut self,
+        query: &StreamingQuery,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+        table_ref: &TableReference,
+    ) -> Result<ProcessorResult, SqlError> {
+        // Save original context and set new correlation context
+        let original_context = context.correlation_context.clone();
+        context.correlation_context = Some(table_ref.clone());
+
+        // Process query with correlation context
+        let result = Self::process(query, record, context);
+
+        // Always restore original context
+        context.correlation_context = original_context;
+
+        result
+    }
+
     /// Process a SELECT query
     pub fn process(
         query: &StreamingQuery,
@@ -123,12 +382,13 @@ impl SelectProcessor {
                     JoinProcessor::process_joins(&joined_record, join_clauses, context)?;
             }
 
-            // Set outer table context using proper table reference parsing
+            // Set correlation context for subquery resolution
             let table_ref = extract_table_reference_from_stream_source(from);
-            set_outer_table_reference_context(&table_ref);
+            let original_context = context.correlation_context.clone();
+            context.correlation_context = Some(table_ref);
 
             // Apply WHERE clause
-            if let Some(where_expr) = where_clause {
+            let where_passed = if let Some(where_expr) = where_clause {
                 // Create a SelectProcessor instance for subquery evaluation
                 let subquery_executor = SelectProcessor;
                 let where_result = ExpressionEvaluator::evaluate_expression_with_subqueries(
@@ -138,19 +398,22 @@ impl SelectProcessor {
                     context,
                 );
 
-                // Clear context after WHERE processing
-                clear_outer_table_reference_context();
-
-                if !where_result? {
-                    return Ok(ProcessorResult {
-                        record: None,
-                        header_mutations: Vec::new(),
-                        should_count: false,
-                    });
-                }
+                // Check result before restoring context
+                where_result?
             } else {
-                // Clear context if no WHERE clause
-                clear_outer_table_reference_context();
+                true
+            };
+
+            // Restore original context after WHERE processing
+            context.correlation_context = original_context;
+
+            // Return early if WHERE clause failed
+            if !where_passed {
+                return Ok(ProcessorResult {
+                    record: None,
+                    header_mutations: Vec::new(),
+                    should_count: false,
+                });
             }
 
             // Handle GROUP BY if present
@@ -1390,55 +1653,77 @@ impl SelectProcessor {
 /// # Returns
 /// * The WHERE clause with correlation variables substituted with actual values
 /// Convert a FieldValue to its SQL string representation
+/// Convert a FieldValue to a SQL string literal with comprehensive SQL injection protection
+///
+/// Security measures:
+/// - Escapes single quotes by doubling them (SQL standard)
+/// - Escapes backslashes to prevent escape sequence attacks
+/// - Removes null bytes that could terminate strings early
+/// - Handles control characters that could corrupt SQL parsing
+/// - Uses safe numeric conversion for numeric types
 fn field_value_to_sql_string(field_value: &FieldValue) -> String {
     match field_value {
         FieldValue::Integer(i) => i.to_string(),
-        FieldValue::Float(f) => f.to_string(),
-        FieldValue::String(s) => format!("'{}'", s.replace("'", "''")), // Escape single quotes
+        FieldValue::Float(f) => {
+            // Ensure finite values only (prevent NaN/Inf injection)
+            if f.is_finite() {
+                f.to_string()
+            } else {
+                "NULL".to_string()
+            }
+        }
+        FieldValue::String(s) => {
+            // Comprehensive SQL injection protection for strings
+            let escaped = s
+                .replace('\\', "\\\\") // Escape backslashes first
+                .replace('\'', "''") // Escape single quotes (SQL standard)
+                .replace('\0', "") // Remove null bytes
+                .replace('\x1a', "") // Remove SUB character (can terminate strings in some DBs)
+                .chars()
+                .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
+                .collect::<String>();
+            format!("'{}'", escaped)
+        }
         FieldValue::Boolean(b) => b.to_string(),
         FieldValue::Null => "NULL".to_string(),
-        FieldValue::Timestamp(ts) => format!("'{}'", ts.format("%Y-%m-%d %H:%M:%S")),
-        FieldValue::Date(d) => format!("'{}'", d.format("%Y-%m-%d")),
+        FieldValue::Timestamp(ts) => {
+            // Use safe timestamp formatting
+            let formatted = ts.format("%Y-%m-%d %H:%M:%S").to_string();
+            format!("'{}'", formatted)
+        }
+        FieldValue::Date(d) => {
+            // Use safe date formatting
+            let formatted = d.format("%Y-%m-%d").to_string();
+            format!("'{}'", formatted)
+        }
         FieldValue::ScaledInteger(value, scale) => {
             // Convert ScaledInteger back to decimal representation
             let divisor = 10_i64.pow(*scale as u32);
             let decimal_value = *value as f64 / divisor as f64;
-            decimal_value.to_string()
+            // Ensure finite value
+            if decimal_value.is_finite() {
+                decimal_value.to_string()
+            } else {
+                "NULL".to_string()
+            }
         }
         FieldValue::Decimal(d) => d.to_string(),
         FieldValue::Array(_) => "ARRAY[]".to_string(), // Simplified representation
-        FieldValue::Map(_) => "{}".to_string(), // Simplified representation
-        FieldValue::Struct(_) => "{}".to_string(), // Simplified representation
+        FieldValue::Map(_) => "'{}'".to_string(),      // Use quoted string for safety
+        FieldValue::Struct(_) => "'{}'".to_string(),   // Use quoted string for safety
         FieldValue::Interval { value, unit: _ } => value.to_string(), // Simplified representation
     }
 }
 
-/// Table reference with optional alias for proper SQL parsing
-#[derive(Debug, Clone, PartialEq)]
-struct TableReference {
-    /// The table or stream name
-    name: String,
-    /// Optional alias (e.g., "customers c" → alias = Some("c"))
-    alias: Option<String>,
-}
-
+/// Add matches method to TableReference for correlation checking
 impl TableReference {
-    /// Create a new table reference without alias
-    fn new(name: String) -> Self {
-        Self { name, alias: None }
-    }
-
-    /// Create a new table reference with alias
-    fn with_alias(name: String, alias: String) -> Self {
-        Self { name, alias: Some(alias) }
-    }
-
     /// Check if a given identifier matches this table reference
     fn matches(&self, identifier: &str) -> bool {
-        identifier.eq_ignore_ascii_case(&self.name) ||
-        self.alias.as_ref().map_or(false, |alias|
-            identifier.eq_ignore_ascii_case(alias)
-        )
+        identifier.eq_ignore_ascii_case(&self.name)
+            || self
+                .alias
+                .as_ref()
+                .map_or(false, |alias| identifier.eq_ignore_ascii_case(alias))
     }
 }
 
@@ -1501,47 +1786,87 @@ fn substitute_correlation_variables_with_table_ref(
     outer_table_ref: &TableReference,
     current_record: &StreamRecord,
 ) -> Result<String, SqlError> {
-    let correlation_ctx = CorrelationContext::new(
-        outer_table_ref.clone(),
-        current_record.clone()
-    );
+    let correlation_ctx = CorrelationContext::new(outer_table_ref.clone(), current_record.clone());
 
     // Use pre-compiled regex for performance
-    let result = TABLE_COLUMN_PATTERN.replace_all(where_clause, |caps: &regex::Captures| {
-        let table_alias = caps.get(1).unwrap().as_str();
-        let column_name = caps.get(2).unwrap().as_str();
-        let full_match = caps.get(0).unwrap().as_str();
+    let result = TABLE_COLUMN_PATTERN
+        .replace_all(where_clause, |caps: &regex::Captures| {
+            let table_alias = caps.get(1).unwrap().as_str();
+            let column_name = caps.get(2).unwrap().as_str();
+            let full_match = caps.get(0).unwrap().as_str();
 
-        // Proper correlation check using parsed table reference
-        if correlation_ctx.is_correlation_reference(table_alias) {
-            if let Some(field_value) = correlation_ctx.resolve_correlation_field(column_name) {
-                field_value_to_sql_string(field_value)
+            // Proper correlation check using parsed table reference
+            if correlation_ctx.is_correlation_reference(table_alias) {
+                if let Some(field_value) = correlation_ctx.resolve_correlation_field(column_name) {
+                    field_value_to_sql_string(field_value)
+                } else {
+                    // Field not found in current record - leave as is
+                    full_match.to_string()
+                }
             } else {
-                // Field not found in current record - leave as is
+                // Not a correlation reference - leave as is
                 full_match.to_string()
             }
-        } else {
-            // Not a correlation reference - leave as is
-            full_match.to_string()
-        }
-    }).to_string();
+        })
+        .to_string();
 
     Ok(result)
 }
 
-/// Enhanced function that uses proper table reference parsing
+/// Enhanced function that uses parameterized queries instead of string substitution
+fn substitute_correlation_variables_parameterized(
+    where_clause: &str,
+    current_record: &StreamRecord,
+    context: &ProcessorContext,
+) -> Result<(String, Vec<SqlParameter>), SqlError> {
+    let mut params = Vec::new();
+    let mut param_index = 0;
+
+    // Use the correlation context from ProcessorContext instead of global state
+    let table_ref = if let Some(table_ref) = &context.correlation_context {
+        table_ref
+    } else {
+        // Fallback for backward compatibility - assume "users" table
+        &TableReference::new("users".to_string())
+    };
+
+    // Use pre-compiled regex for performance
+    let mut result = where_clause.to_string();
+
+    // Find all table.column patterns and replace with parameters
+    for caps in TABLE_COLUMN_PATTERN.find_iter(where_clause) {
+        let full_match = caps.as_str();
+        let parts: Vec<&str> = full_match.split('.').collect();
+
+        if parts.len() == 2 {
+            let table_alias = parts[0];
+            let column_name = parts[1];
+
+            // Check if this is a correlation reference
+            if table_ref.matches(table_alias) {
+                if let Some(field_value) = current_record.fields.get(column_name) {
+                    let placeholder = format!("${}", param_index);
+                    params.push(SqlParameter::new(param_index, field_value.clone()));
+                    result = result.replace(full_match, &placeholder);
+                    param_index += 1;
+                }
+            }
+        }
+    }
+
+    Ok((result, params))
+}
+
+/// Legacy function for backward compatibility - uses parameterized approach internally
 fn substitute_correlation_variables(
     where_clause: &str,
     current_record: &StreamRecord,
+    context: &ProcessorContext,
 ) -> Result<String, SqlError> {
-    // Use the global table reference context (includes alias information)
-    if let Some(table_ref) = get_outer_table_reference_context() {
-        substitute_correlation_variables_with_table_ref(where_clause, &table_ref, current_record)
-    } else {
-        // Fallback for backward compatibility - assume "users" table
-        let table_ref = TableReference::new("users".to_string());
-        substitute_correlation_variables_with_table_ref(where_clause, &table_ref, current_record)
-    }
+    let (template, params) =
+        substitute_correlation_variables_parameterized(where_clause, current_record, context)?;
+    let processor = SelectProcessor;
+    processor.build_parameterized_query(&template, params)
 }
 
 impl SubqueryExecutor for SelectProcessor {
@@ -1562,7 +1887,8 @@ impl SubqueryExecutor for SelectProcessor {
                 let select_expr = query_parsing::extract_select_expression(query)?;
 
                 // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause = substitute_correlation_variables(&where_clause, current_record)?;
+                where_clause =
+                    substitute_correlation_variables(&where_clause, current_record, context)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
@@ -1592,12 +1918,19 @@ impl SubqueryExecutor for SelectProcessor {
                 let table_name = query_parsing::extract_table_name(query)?;
                 let mut where_clause = query_parsing::extract_where_clause(query)?;
 
-                println!("🔍 EXISTS DEBUG: table_name='{}', original WHERE='{}'", table_name, where_clause);
+                println!(
+                    "🔍 EXISTS DEBUG: table_name='{}', original WHERE='{}'",
+                    table_name, where_clause
+                );
 
                 // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause = substitute_correlation_variables(&where_clause, current_record)?;
+                where_clause =
+                    substitute_correlation_variables(&where_clause, current_record, context)?;
 
-                println!("🔍 EXISTS DEBUG: After correlation: WHERE='{}'", where_clause);
+                println!(
+                    "🔍 EXISTS DEBUG: After correlation: WHERE='{}'",
+                    where_clause
+                );
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;
@@ -1605,7 +1938,10 @@ impl SubqueryExecutor for SelectProcessor {
                 // Execute EXISTS query using Table SQL interface
                 let result = table.sql_exists(&where_clause)?;
 
-                println!("🔍 EXISTS DEBUG: sql_exists('{}') returned: {}", where_clause, result);
+                println!(
+                    "🔍 EXISTS DEBUG: sql_exists('{}') returned: {}",
+                    where_clause, result
+                );
 
                 Ok(result)
             }
@@ -1634,7 +1970,8 @@ impl SubqueryExecutor for SelectProcessor {
                 let column = query_parsing::extract_select_column(query)?;
 
                 // CORRELATION FIX: Substitute correlation variables with current record values
-                where_clause = substitute_correlation_variables(&where_clause, current_record)?;
+                where_clause =
+                    substitute_correlation_variables(&where_clause, current_record, context)?;
 
                 // Get the reference table from context
                 let table = context.get_table(&table_name)?;

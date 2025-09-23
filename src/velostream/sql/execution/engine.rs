@@ -208,7 +208,6 @@ impl StreamExecutionEngine {
         self
     }
 
-
     /// Fluent API: Enable enhanced error handling
     pub fn with_enhanced_error_handling(mut self) -> Self {
         self.config = self.config.with_enhanced_errors();
@@ -1400,5 +1399,4 @@ impl StreamExecutionEngine {
 
         Ok(())
     }
-
 }

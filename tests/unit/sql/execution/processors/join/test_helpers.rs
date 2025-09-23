@@ -11,14 +11,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestExecutor, CommonTestRecords
+    CommonTestRecords, MockTable, StandardTestData, TestExecutor,
 };
 
 /// Custom test execution engine that properly sets up test data
@@ -39,10 +39,7 @@ impl TestExecutionEngine {
         // Set up context customizer to inject test data
         engine.context_customizer = Some(TestExecutor::create_standard_context_customizer());
 
-        Self {
-            engine,
-            test_data,
-        }
+        Self { engine, test_data }
     }
 
     /// Execute a query with test data available for subqueries

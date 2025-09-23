@@ -12,7 +12,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    TestDataBuilder, TestExecutor, CommonTestRecords
+    CommonTestRecords, TestDataBuilder, TestExecutor,
 };
 
 fn create_test_record_for_join() -> StreamRecord {
@@ -327,22 +327,33 @@ async fn test_using_shared_test_utilities_demo() {
     let user_record = TestDataBuilder::user_record(1, "Alice", "alice@example.com", "active");
     let order_record = TestDataBuilder::order_record(101, 1, 99.99, "completed", Some(50));
 
-    assert_eq!(user_record.fields.get("name"), Some(&FieldValue::String("Alice".to_string())));
-    assert_eq!(order_record.fields.get("amount"), Some(&FieldValue::Float(99.99)));
+    assert_eq!(
+        user_record.fields.get("name"),
+        Some(&FieldValue::String("Alice".to_string()))
+    );
+    assert_eq!(
+        order_record.fields.get("amount"),
+        Some(&FieldValue::Float(99.99))
+    );
 
     // 2. Using CommonTestRecords for standard test data
     let subquery_record = CommonTestRecords::subquery_join_record();
-    assert_eq!(subquery_record.fields.get("user_id"), Some(&FieldValue::Integer(100)));
+    assert_eq!(
+        subquery_record.fields.get("user_id"),
+        Some(&FieldValue::Integer(100))
+    );
 
     // 3. Using TestExecutor to execute queries with mock data
-    let result = TestExecutor::execute_with_standard_data(
-        "SELECT id, name FROM users WHERE id = 100",
-        None
-    ).await;
+    let result =
+        TestExecutor::execute_with_standard_data("SELECT id, name FROM users WHERE id = 100", None)
+            .await;
 
     match result {
         Ok(records) => {
-            println!("✅ Shared utilities test passed - got {} records", records.len());
+            println!(
+                "✅ Shared utilities test passed - got {} records",
+                records.len()
+            );
         }
         Err(e) => {
             // This might fail due to parser limitations, which is OK

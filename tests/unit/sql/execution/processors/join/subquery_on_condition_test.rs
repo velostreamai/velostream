@@ -9,15 +9,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::sql::{SqlDataSource, SqlQueryable};
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestExecutor, TestDataBuilder
+    MockTable, StandardTestData, TestDataBuilder, TestExecutor,
 };
 
 fn create_test_record_for_on_condition() -> StreamRecord {
@@ -58,14 +58,20 @@ impl MockOrdersTable {
         order1.insert("id".to_string(), FieldValue::Integer(1));
         order1.insert("user_id".to_string(), FieldValue::Integer(100));
         order1.insert("amount".to_string(), FieldValue::Float(150.0));
-        order1.insert("status".to_string(), FieldValue::String("active".to_string()));
+        order1.insert(
+            "status".to_string(),
+            FieldValue::String("active".to_string()),
+        );
         records.insert("order1".to_string(), FieldValue::Struct(order1));
 
         let mut order2 = HashMap::new();
         order2.insert("id".to_string(), FieldValue::Integer(2));
         order2.insert("user_id".to_string(), FieldValue::Integer(100));
         order2.insert("amount".to_string(), FieldValue::Float(200.0));
-        order2.insert("status".to_string(), FieldValue::String("completed".to_string()));
+        order2.insert(
+            "status".to_string(),
+            FieldValue::String("completed".to_string()),
+        );
         records.insert("order2".to_string(), FieldValue::Struct(order2));
 
         Self { records }
@@ -145,7 +151,7 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
             let mock_table = MockTable::new(name.clone(), records);
             context.load_reference_table(
                 &name,
-                Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>
+                Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>,
             );
         }
 
@@ -159,7 +165,7 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
         let permissions_table = MockTable::new("permissions".to_string(), permissions_data);
         context.load_reference_table(
             "permissions",
-            Arc::new(permissions_table) as Arc<dyn SqlQueryable + Send + Sync>
+            Arc::new(permissions_table) as Arc<dyn SqlQueryable + Send + Sync>,
         );
 
         // Create 'valid_statuses' table for IN tests
@@ -168,13 +174,17 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
             TestDataBuilder::config_record(2, "pending", true, true, None),
             TestDataBuilder::config_record(3, "completed", true, true, None),
         ];
-        let valid_statuses_table = MockTable::new("valid_statuses".to_string(), valid_statuses_data);
+        let valid_statuses_table =
+            MockTable::new("valid_statuses".to_string(), valid_statuses_data);
         context.load_reference_table(
             "valid_statuses",
-            Arc::new(valid_statuses_table) as Arc<dyn SqlQueryable + Send + Sync>
+            Arc::new(valid_statuses_table) as Arc<dyn SqlQueryable + Send + Sync>,
         );
 
-        println!("DEBUG: Injected {} test tables into context (extended)", context.state_tables.len());
+        println!(
+            "DEBUG: Injected {} test tables into context (extended)",
+            context.state_tables.len()
+        );
     })
 }
 

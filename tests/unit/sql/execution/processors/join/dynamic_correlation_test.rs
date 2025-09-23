@@ -8,8 +8,8 @@ This validates that correlation works correctly regardless of the outer table na
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
@@ -83,10 +83,13 @@ fn create_dynamic_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
         let orders_table = MockTable::new("orders".to_string(), orders_data);
         context.load_reference_table(
             "orders",
-            Arc::new(orders_table) as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>
+            Arc::new(orders_table)
+                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
         );
 
-        println!("🎯 Dynamic correlation context: loaded orders table for dynamic correlation testing");
+        println!(
+            "🎯 Dynamic correlation context: loaded orders table for dynamic correlation testing"
+        );
     })
 }
 
@@ -102,7 +105,9 @@ async fn execute_dynamic_correlation_test(
     let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query)?;
 
-    engine.execute_with_record(&parsed_query, test_record).await?;
+    engine
+        .execute_with_record(&parsed_query, test_record)
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -116,7 +121,10 @@ fn create_customer_record(id: i64, name: &str) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("name".to_string(), FieldValue::String(name.to_string()));
-    fields.insert("email".to_string(), FieldValue::String(format!("{}@example.com", name.to_lowercase())));
+    fields.insert(
+        "email".to_string(),
+        FieldValue::String(format!("{}@example.com", name.to_lowercase())),
+    );
 
     StreamRecord {
         fields,
@@ -210,8 +218,14 @@ async fn test_dynamic_correlation_with_customer_alias() {
 
     match &result {
         Ok(results) => {
-            println!("✅ Customer alias 'c' correlation: {} results", results.len());
-            assert!(!results.is_empty(), "Should resolve c.id correlation for customer_id=200");
+            println!(
+                "✅ Customer alias 'c' correlation: {} results",
+                results.len()
+            );
+            assert!(
+                !results.is_empty(),
+                "Should resolve c.id correlation for customer_id=200"
+            );
         }
         Err(e) => {
             panic!("Customer alias correlation test failed: {}", e);
@@ -234,8 +248,14 @@ async fn test_dynamic_correlation_with_product_alias() {
 
     match &result {
         Ok(results) => {
-            println!("✅ Product alias 'p' correlation: {} results", results.len());
-            assert!(!results.is_empty(), "Should resolve p.id correlation for product_id=400");
+            println!(
+                "✅ Product alias 'p' correlation: {} results",
+                results.len()
+            );
+            assert!(
+                !results.is_empty(),
+                "Should resolve p.id correlation for product_id=400"
+            );
         }
         Err(e) => {
             panic!("Product alias correlation test failed: {}", e);
@@ -265,7 +285,10 @@ async fn test_dynamic_correlation_no_match() {
         Ok(results) => {
             println!("🔍 No match test: {} results returned", results.len());
             if !results.is_empty() {
-                println!("❌ UNEXPECTED: Found {} results when none expected", results.len());
+                println!(
+                    "❌ UNEXPECTED: Found {} results when none expected",
+                    results.len()
+                );
                 println!("   This suggests correlation may not be working correctly");
                 println!("   or MockTable WHERE clause evaluation has issues");
 
@@ -274,7 +297,10 @@ async fn test_dynamic_correlation_no_match() {
                     println!("   Result {}: {:?}", i, record.fields);
                 }
             }
-            assert!(results.is_empty(), "Should not find customer without orders (customer_id=999 not in orders table)");
+            assert!(
+                results.is_empty(),
+                "Should not find customer without orders (customer_id=999 not in orders table)"
+            );
         }
         Err(e) => {
             panic!("No match test failed: {}", e);
@@ -300,7 +326,10 @@ async fn test_backward_compatibility_users_table() {
         Ok(results) => {
             println!("✅ Backward compatibility: {} results", results.len());
             // This should work because the new system still recognizes "users" as a correlation table
-            assert!(!results.is_empty(), "Backward compatibility maintained for users table");
+            assert!(
+                !results.is_empty(),
+                "Backward compatibility maintained for users table"
+            );
         }
         Err(e) => {
             panic!("Backward compatibility test failed: {}", e);

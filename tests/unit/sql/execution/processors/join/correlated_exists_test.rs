@@ -10,13 +10,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestDataBuilder, TestExecutor
+    MockTable, StandardTestData, TestDataBuilder, TestExecutor,
 };
 
 /// Create a context customizer with specific test data for correlation testing
@@ -33,23 +33,28 @@ fn create_correlation_test_context() -> Arc<dyn Fn(&mut ProcessorContext) + Send
         let users_table = MockTable::new("users".to_string(), users_data);
         context.load_reference_table(
             "users",
-            Arc::new(users_table) as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>
+            Arc::new(users_table)
+                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
         );
 
         // Orders table with specific user_id relationships
         let orders_data = vec![
             TestDataBuilder::order_record(1001, 100, 250.50, "completed", Some(50)), // User 100 has orders
-            TestDataBuilder::order_record(1002, 100, 175.25, "pending", Some(51)),   // User 100 has orders
+            TestDataBuilder::order_record(1002, 100, 175.25, "pending", Some(51)), // User 100 has orders
             TestDataBuilder::order_record(1003, 200, 500.00, "completed", Some(52)), // User 200 has orders
-            // User 300 has NO orders - important for testing
+                                                                                     // User 300 has NO orders - important for testing
         ];
         let orders_table = MockTable::new("orders".to_string(), orders_data);
         context.load_reference_table(
             "orders",
-            Arc::new(orders_table) as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>
+            Arc::new(orders_table)
+                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
         );
 
-        println!("DEBUG: Correlation test context loaded with {} tables", context.state_tables.len());
+        println!(
+            "DEBUG: Correlation test context loaded with {} tables",
+            context.state_tables.len()
+        );
     })
 }
 
@@ -66,7 +71,9 @@ async fn execute_correlation_test(
     let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query)?;
 
-    engine.execute_with_record(&parsed_query, test_record).await?;
+    engine
+        .execute_with_record(&parsed_query, test_record)
+        .await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -91,9 +98,15 @@ async fn test_non_correlated_exists() {
 
     match &result {
         Ok(results) => {
-            println!("✅ Non-correlated EXISTS returned {} results", results.len());
+            println!(
+                "✅ Non-correlated EXISTS returned {} results",
+                results.len()
+            );
             // This should work - EXISTS (SELECT 1 FROM orders WHERE user_id = 100) should find records
-            assert!(!results.is_empty(), "Non-correlated EXISTS should return results when orders exist for user_id=100");
+            assert!(
+                !results.is_empty(),
+                "Non-correlated EXISTS should return results when orders exist for user_id=100"
+            );
         }
         Err(e) => {
             println!("❌ Non-correlated EXISTS failed: {}", e);
@@ -118,7 +131,10 @@ async fn test_correlated_exists_exact_match() {
 
     match &result {
         Ok(results) => {
-            println!("🔍 Correlated EXISTS (should match) returned {} results", results.len());
+            println!(
+                "🔍 Correlated EXISTS (should match) returned {} results",
+                results.len()
+            );
             if results.is_empty() {
                 println!("❌ ISSUE CONFIRMED: Correlated EXISTS failing to resolve users.id = 100");
                 println!("   Query: WHERE EXISTS (SELECT 1 FROM orders WHERE user_id = users.id)");
@@ -149,13 +165,17 @@ async fn test_correlated_exists_no_match() {
     "#;
 
     // Test with user record id=300 (should NOT match because no orders exist with user_id=300)
-    let test_record = TestDataBuilder::user_record(300, "Charlie", "charlie@example.com", "inactive");
+    let test_record =
+        TestDataBuilder::user_record(300, "Charlie", "charlie@example.com", "inactive");
 
     let result = execute_correlation_test(query, test_record).await;
 
     match &result {
         Ok(results) => {
-            println!("🔍 Correlated EXISTS (should NOT match) returned {} results", results.len());
+            println!(
+                "🔍 Correlated EXISTS (should NOT match) returned {} results",
+                results.len()
+            );
             if !results.is_empty() {
                 println!("❌ Unexpected: Found results when none should exist for user_id=300");
                 panic!("EXISTS should return empty for user_id=300 (no orders)");
@@ -186,7 +206,10 @@ async fn test_correlated_in_subquery_baseline() {
 
     match &result {
         Ok(results) => {
-            println!("✅ IN subquery (baseline) returned {} results", results.len());
+            println!(
+                "✅ IN subquery (baseline) returned {} results",
+                results.len()
+            );
             assert!(!results.is_empty(), "IN subquery should work as baseline");
         }
         Err(e) => {
@@ -212,13 +235,20 @@ async fn test_table_data_verification() {
     match &result {
         Ok(results) => {
             println!("✅ Direct table query returned {} results", results.len());
-            assert!(!results.is_empty(), "Direct table query should return results");
+            assert!(
+                !results.is_empty(),
+                "Direct table query should return results"
+            );
 
             // Verify the data
             if let Some(record) = results.first() {
                 if let Some(id) = record.fields.get("id") {
                     println!("   Found user with id: {:?}", id);
-                    assert_eq!(id, &FieldValue::Integer(100), "Should find user with id=100");
+                    assert_eq!(
+                        id,
+                        &FieldValue::Integer(100),
+                        "Should find user with id=100"
+                    );
                 }
             }
         }
@@ -246,7 +276,9 @@ async fn test_simplified_exists_debug() {
         Ok(results) => {
             println!("🔍 Simplified EXISTS returned {} results", results.len());
             if results.is_empty() {
-                println!("❌ Even simplified EXISTS failing - deeper issue with EXISTS implementation");
+                println!(
+                    "❌ Even simplified EXISTS failing - deeper issue with EXISTS implementation"
+                );
                 panic!("Simplified EXISTS should work if orders table has any records");
             } else {
                 println!("✅ Simplified EXISTS working - issue is specifically with correlation");
@@ -275,7 +307,10 @@ async fn test_orders_table_debug() {
 
     match &result {
         Ok(results) => {
-            println!("🔍 Orders table debug query returned {} results", results.len());
+            println!(
+                "🔍 Orders table debug query returned {} results",
+                results.len()
+            );
             if results.is_empty() {
                 println!("❌ No users found with matching orders - data loading issue?");
                 panic!("Should find users that have orders");

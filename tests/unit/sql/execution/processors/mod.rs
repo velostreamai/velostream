@@ -6,5 +6,6 @@ pub mod dml;
 pub mod join;
 pub mod limit;
 pub mod processor_context_table_test;
+pub mod select_safety_test;
 pub mod show;
 pub mod window;

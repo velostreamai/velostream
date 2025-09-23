@@ -77,6 +77,35 @@ pub struct ProcessorContext {
     /// State tables for SQL subquery execution
     /// Maps table name to SQL-queryable Table data source for subquery operations
     pub state_tables: HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>,
+
+    // === CORRELATION CONTEXT FOR SUBQUERIES ===
+    /// Current correlation context for correlated subqueries
+    /// This replaces the global lazy_static state for thread safety
+    pub correlation_context: Option<TableReference>,
+}
+
+/// Table reference with optional alias for SQL parsing and correlation
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableReference {
+    /// The table or stream name
+    pub name: String,
+    /// Optional alias for the table
+    pub alias: Option<String>,
+}
+
+impl TableReference {
+    /// Create a new table reference without alias
+    pub fn new(name: String) -> Self {
+        Self { name, alias: None }
+    }
+
+    /// Create a table reference with an alias
+    pub fn with_alias(name: String, alias: String) -> Self {
+        Self {
+            name,
+            alias: Some(alias),
+        }
+    }
 }
 
 /// Window processing context
@@ -112,6 +141,7 @@ impl ProcessorContext {
             performance_monitor: None,
             watermark_manager: None, // Disabled by default for backward compatibility
             state_tables: HashMap::new(),
+            correlation_context: None,
         }
     }
 

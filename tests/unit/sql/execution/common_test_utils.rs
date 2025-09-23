@@ -12,10 +12,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::sql::SqlQueryable;
 
 // ============================================================================
@@ -290,9 +290,15 @@ impl TestDataBuilder {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(id));
         fields.insert("name".to_string(), FieldValue::String(name.to_string()));
-        fields.insert("product_name".to_string(), FieldValue::String(name.to_string()));
+        fields.insert(
+            "product_name".to_string(),
+            FieldValue::String(name.to_string()),
+        );
         fields.insert("price".to_string(), FieldValue::Float(price));
-        fields.insert("category".to_string(), FieldValue::String(category.to_string()));
+        fields.insert(
+            "category".to_string(),
+            FieldValue::String(category.to_string()),
+        );
         if let Some(oid) = owner_id {
             fields.insert("owner_id".to_string(), FieldValue::Integer(oid));
         }
@@ -338,7 +344,10 @@ impl TestDataBuilder {
     ) -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(id));
-        fields.insert("config_name".to_string(), FieldValue::String(config_name.to_string()));
+        fields.insert(
+            "config_name".to_string(),
+            FieldValue::String(config_name.to_string()),
+        );
         fields.insert("active".to_string(), FieldValue::Boolean(active));
         fields.insert("enabled".to_string(), FieldValue::Boolean(enabled));
         if let Some(max_val) = max_value {
@@ -415,10 +424,24 @@ impl StandardTestData {
     /// Create standard products table data
     pub fn products() -> Vec<StreamRecord> {
         vec![
-            TestDataBuilder::product_record(1, "laptop", 999.99, "electronics", Some(100), Some(10)),
+            TestDataBuilder::product_record(
+                1,
+                "laptop",
+                999.99,
+                "electronics",
+                Some(100),
+                Some(10),
+            ),
             TestDataBuilder::product_record(2, "phone", 599.99, "electronics", Some(101), Some(10)),
             TestDataBuilder::product_record(3, "book", 29.99, "books", Some(100), Some(11)),
-            TestDataBuilder::product_record(4, "tablet", 349.99, "electronics", Some(102), Some(10)),
+            TestDataBuilder::product_record(
+                4,
+                "tablet",
+                349.99,
+                "electronics",
+                Some(102),
+                Some(10),
+            ),
         ]
     }
 
@@ -457,9 +480,16 @@ impl StandardTestData {
         data_sources.insert("blocks".to_string(), Self::blocks());
 
         // Legacy aliases for backward compatibility
-        data_sources.insert("active_configs".to_string(), vec![
-            TestDataBuilder::config_record(1, "production", true, true, Some(100)),
-        ]);
+        data_sources.insert(
+            "active_configs".to_string(),
+            vec![TestDataBuilder::config_record(
+                1,
+                "production",
+                true,
+                true,
+                Some(100),
+            )],
+        );
 
         data_sources
     }
@@ -474,7 +504,8 @@ pub struct TestExecutor;
 
 impl TestExecutor {
     /// Create a context customizer that injects standard test tables
-    pub fn create_standard_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
+    pub fn create_standard_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync>
+    {
         Arc::new(move |context: &mut ProcessorContext| {
             let test_data = StandardTestData::comprehensive_test_data();
 
@@ -482,28 +513,34 @@ impl TestExecutor {
                 let mock_table = MockTable::new(name.clone(), records);
                 context.load_reference_table(
                     &name,
-                    Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>
+                    Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>,
                 );
             }
 
-            println!("DEBUG: Injected {} test tables into context", context.state_tables.len());
+            println!(
+                "DEBUG: Injected {} test tables into context",
+                context.state_tables.len()
+            );
         })
     }
 
     /// Create a context customizer with custom data
     pub fn create_custom_context_customizer(
-        custom_data: HashMap<String, Vec<StreamRecord>>
+        custom_data: HashMap<String, Vec<StreamRecord>>,
     ) -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
         Arc::new(move |context: &mut ProcessorContext| {
             for (name, records) in &custom_data {
                 let mock_table = MockTable::new(name.clone(), records.clone());
                 context.load_reference_table(
                     name,
-                    Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>
+                    Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>,
                 );
             }
 
-            println!("DEBUG: Injected {} custom test tables into context", context.state_tables.len());
+            println!(
+                "DEBUG: Injected {} custom test tables into context",
+                context.state_tables.len()
+            );
         })
     }
 
@@ -577,9 +614,15 @@ impl CommonTestRecords {
         fields.insert("id".to_string(), FieldValue::Integer(1));
         fields.insert("user_id".to_string(), FieldValue::Integer(100));
         fields.insert("order_id".to_string(), FieldValue::Integer(500));
-        fields.insert("name".to_string(), FieldValue::String("Test User".to_string()));
+        fields.insert(
+            "name".to_string(),
+            FieldValue::String("Test User".to_string()),
+        );
         fields.insert("amount".to_string(), FieldValue::Float(250.0));
-        fields.insert("status".to_string(), FieldValue::String("active".to_string()));
+        fields.insert(
+            "status".to_string(),
+            FieldValue::String("active".to_string()),
+        );
 
         StreamRecord {
             fields,

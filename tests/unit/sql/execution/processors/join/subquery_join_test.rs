@@ -12,15 +12,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
-use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::sql::SqlQueryable;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    MockTable, StandardTestData, TestExecutor, CommonTestRecords
+    CommonTestRecords, MockTable, StandardTestData, TestExecutor,
 };
 
 // ============================================================================
@@ -32,7 +32,6 @@ use crate::unit::sql::execution::common_test_utils::{
 pub fn create_test_data_sources() -> HashMap<String, Vec<StreamRecord>> {
     StandardTestData::comprehensive_test_data()
 }
-
 
 // ============================================================================
 // TEST HELPER FUNCTIONS (Updated to use shared utilities)

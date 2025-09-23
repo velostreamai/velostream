@@ -326,12 +326,15 @@ async fn test_complex_subquery_in_select() {
 
     let results = match result {
         Ok(results) => {
-            println!("DEBUG: Complex subquery executed successfully with {} results", results.len());
+            println!(
+                "DEBUG: Complex subquery executed successfully with {} results",
+                results.len()
+            );
             for (i, record) in results.iter().enumerate() {
                 println!("DEBUG: Result {}: fields = {:?}", i, record.fields);
             }
             results
-        },
+        }
         Err(e) => {
             println!("DEBUG: Complex subquery test error: {:?}", e);
             println!("DEBUG: Error chain:");
@@ -386,7 +389,7 @@ async fn test_nested_subqueries() {
             for (i, record) in results.iter().enumerate() {
                 println!("DEBUG: Result {}: fields = {:?}", i, record.fields);
             }
-        },
+        }
         Err(e) => {
             println!("DEBUG: Nested subquery execution failed: {:?}", e);
         }
@@ -477,7 +480,10 @@ async fn test_subquery_types_comprehensive() {
             "NOT IN",
             "SELECT id FROM test_stream WHERE id NOT IN (SELECT valid_id FROM config)",
         ),
-        ("Scalar", "SELECT id, (SELECT max_value FROM config) as scalar_val FROM test_stream"),
+        (
+            "Scalar",
+            "SELECT id, (SELECT max_value FROM config) as scalar_val FROM test_stream",
+        ),
     ];
 
     for (subquery_type, query) in queries {
@@ -490,9 +496,12 @@ async fn test_subquery_types_comprehensive() {
             Ok(results) => {
                 println!("DEBUG: {} subquery executed successfully", subquery_type);
                 println!("DEBUG: Number of results: {}", results.len());
-            },
+            }
             Err(e) => {
-                println!("DEBUG: {} subquery execution failed: {:?}", subquery_type, e);
+                println!(
+                    "DEBUG: {} subquery execution failed: {:?}",
+                    subquery_type, e
+                );
             }
         }
 
