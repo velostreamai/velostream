@@ -1860,4 +1860,35 @@ SHOW (CPU, MEMORY, NETWORK, DISK);
 
 ---
 
+## 🔴 **NEW CRITICAL ISSUES - Subquery Implementation** (Added 2025-01-23)
+
+### **Thread Safety Problem - Global State in Correlation**
+**File:** `src/velostream/sql/execution/processors/select.rs:21-48`
+**Issue:** Using `lazy_static` global `RwLock<Option<TableReference>>` causes race conditions
+**Impact:** CRITICAL - Data corruption in concurrent execution
+**Fix:** Move correlation context to ProcessorContext instead of global state
+
+### **SQL Injection Vulnerability**
+**File:** `src/velostream/sql/execution/processors/select.rs:1393-1414`
+**Issue:** `field_value_to_sql_string()` only escapes single quotes
+**Impact:** CRITICAL - Security vulnerability
+**Fix:** Implement proper SQL parameter binding
+
+### **Error Handling - Silent Failures**
+**File:** `src/velostream/sql/execution/processors/select.rs:27-42`
+**Issue:** `.ok()?` swallows lock poisoning errors
+**Impact:** HIGH - Masks critical failures
+**Fix:** Proper error propagation with context
+
+### **Resource Cleanup - RAII Pattern Missing**
+**File:** `src/velostream/sql/execution/processors/select.rs:127-154`
+**Issue:** Manual cleanup calls, no guarantee on panic
+**Impact:** HIGH - Resource leaks
+**Fix:** Implement RAII guard pattern for correlation context
+
+**Action Required:** These issues MUST be fixed before subquery feature can be production-ready.
+See commit 18607c7 for the problematic implementation.
+
+---
+
 *This consolidated TODO replaces all individual TODO documents and serves as the single source of truth for Velostream development priorities.*

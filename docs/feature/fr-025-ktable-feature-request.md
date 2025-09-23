@@ -757,7 +757,55 @@ impl<T: SqlDataSource> SqlQueryable for T {
 }
 ```
 
-### **🚨 NEW CRITICAL BLOCKER: Stream-Table Joins**
+### **🚨 CRITICAL BLOCKERS DISCOVERED (September 23, 2025)**
+
+#### **NEW: Subquery Implementation Has Critical Flaws**
+**Discovered in Commit**: 18607c7 (September 23, 2025)
+
+##### **1. Thread Safety Problem - Global State**
+**File**: `src/velostream/sql/execution/processors/select.rs:21-48`
+**Issue**: Using `lazy_static` global `RwLock<Option<TableReference>>` for correlation context
+**Impact**: **CRITICAL** - Race conditions and data corruption in concurrent query execution
+```rust
+// ❌ CURRENT: Dangerous global state
+lazy_static! {
+    static ref OUTER_TABLE_CONTEXT: RwLock<Option<TableReference>> = RwLock::new(None);
+}
+
+// ✅ REQUIRED: Move to ProcessorContext
+impl ProcessorContext {
+    pub fn set_correlation_context(&mut self, table_ref: TableReference) {
+        self.correlation_context = Some(table_ref);
+    }
+}
+```
+
+##### **2. SQL Injection Vulnerability**
+**File**: `src/velostream/sql/execution/processors/select.rs:1393-1414`
+**Issue**: Insufficient SQL escaping in `field_value_to_sql_string()`
+**Impact**: **CRITICAL** - Security vulnerability
+```rust
+// ❌ CURRENT: Only escapes single quotes
+FieldValue::String(s) => format!("'{}'", s.replace("'", "''"))
+
+// ✅ REQUIRED: Proper parameter binding or comprehensive escaping
+```
+
+##### **3. Error Handling - Silent Failures**
+**File**: `src/velostream/sql/execution/processors/select.rs:27-42`
+**Issue**: Lock failures silently ignored with `.ok()?`
+**Impact**: **HIGH** - Critical errors masked, debugging nightmare
+
+##### **4. No RAII Pattern for Context Cleanup**
+**File**: `src/velostream/sql/execution/processors/select.rs:127-154`
+**Issue**: Manual cleanup calls, no guarantee on panic/error
+**Impact**: **HIGH** - Resource leaks, corrupted state
+
+**Action Required**: These issues MUST be fixed before subquery feature is production-ready!
+
+---
+
+### **🚨 EXISTING CRITICAL BLOCKER: Stream-Table Joins**
 
 #### **Current Status for Financial Services Demo**:
 ❌ **Stream-Table Joins missing** - 40% of financial demo capability gap
