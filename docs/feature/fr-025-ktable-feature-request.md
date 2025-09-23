@@ -803,6 +803,148 @@ FieldValue::String(s) => format!("'{}'", s.replace("'", "''"))
 
 **Action Required**: These issues MUST be fixed before subquery feature is production-ready!
 
+#### **📋 IMPLEMENTATION GUIDE FOR FIXES**
+
+##### **Fix Order (MUST follow this sequence):**
+1. **Thread Safety** (blocks all other work)
+2. **SQL Injection** (security critical)
+3. **Error Handling** (debugging support)
+4. **RAII Pattern** (code quality)
+
+##### **Detailed Implementation Steps:**
+
+**1. Thread Safety Fix - Move to ProcessorContext**
+```rust
+// Step 1: Add to ProcessorContext struct (src/velostream/sql/execution/processors/context.rs)
+pub struct ProcessorContext {
+    // ... existing fields ...
+    pub correlation_context: Option<TableReference>,  // ADD THIS
+}
+
+// Step 2: Remove global state from select.rs
+// DELETE lines 21-48 (lazy_static and global functions)
+
+// Step 3: Update correlation handling in select.rs:127-154
+impl SelectProcessor {
+    fn process_with_correlation(&mut self,
+                                context: &mut ProcessorContext,
+                                table_ref: &TableReference) -> Result<ProcessorResult, SqlError> {
+        // Use RAII guard for automatic cleanup
+        let guard = CorrelationGuard::new(context, table_ref);
+        // ... process query ...
+        // guard automatically cleans up on drop
+    }
+}
+```
+
+**2. SQL Injection Fix - Parameter Binding**
+```rust
+// Replace field_value_to_sql_string() with parameterized approach
+pub struct SqlParameter {
+    index: usize,
+    value: FieldValue,
+}
+
+impl SelectProcessor {
+    fn build_parameterized_query(&self, template: &str, params: Vec<SqlParameter>) -> String {
+        // Use ? placeholders and separate parameter array
+        // Never concatenate user values into SQL strings
+    }
+}
+```
+
+**3. Error Handling Fix**
+```rust
+// Replace all .ok()? patterns with proper error handling
+fn set_correlation_context(context: &mut ProcessorContext,
+                          table_ref: TableReference) -> Result<(), SqlError> {
+    context.correlation_context = Some(table_ref);
+    Ok(())
+}
+```
+
+**4. RAII Pattern Implementation**
+```rust
+struct CorrelationGuard<'a> {
+    context: &'a mut ProcessorContext,
+    original: Option<TableReference>,
+}
+
+impl<'a> CorrelationGuard<'a> {
+    fn new(context: &'a mut ProcessorContext, table_ref: &TableReference) -> Self {
+        let original = context.correlation_context.clone();
+        context.correlation_context = Some(table_ref.clone());
+        Self { context, original }
+    }
+}
+
+impl<'a> Drop for CorrelationGuard<'a> {
+    fn drop(&mut self) {
+        self.context.correlation_context = self.original.clone();
+    }
+}
+```
+
+##### **Test Cases Required:**
+```rust
+// tests/unit/sql/execution/processors/select_safety_test.rs
+
+#[tokio::test]
+async fn test_concurrent_subquery_execution() {
+    // Spawn 100 concurrent tasks executing correlated subqueries
+    // Verify no race conditions or data corruption
+}
+
+#[test]
+fn test_sql_injection_prevention() {
+    let malicious_input = "'; DROP TABLE users; --";
+    // Verify query is safely parameterized
+}
+
+#[test]
+fn test_panic_cleanup() {
+    // Force panic during subquery execution
+    // Verify correlation context is properly cleaned up
+}
+
+#[test]
+fn test_error_propagation() {
+    // Verify all errors are properly propagated with context
+}
+```
+
+##### **Acceptance Criteria:**
+- [ ] No global state - all context in ProcessorContext
+- [ ] Concurrent execution test with 100 threads passes
+- [ ] SQL injection test with malicious input passes
+- [ ] Panic recovery test shows proper cleanup
+- [ ] All errors have proper context and stack traces
+- [ ] Performance benchmark shows <5% regression
+- [ ] All existing subquery tests still pass
+
+##### **Dependencies & Impact:**
+- **ProcessorContext changes** affect all processors
+- **Tests to update**:
+  - tests/unit/sql/execution/processors/join/subquery_join_test.rs
+  - tests/unit/sql/execution/processors/join/correlated_exists_test.rs
+  - tests/unit/sql/execution/processors/join/dynamic_correlation_test.rs
+- **Documentation**: Update SQL execution architecture docs
+
+##### **Validation Commands:**
+```bash
+# Run thread safety tests
+cargo test test_concurrent_subquery_execution -- --nocapture
+
+# Run security tests
+cargo test test_sql_injection -- --nocapture
+
+# Check for global state
+grep -r "lazy_static" src/velostream/sql/execution/processors/
+
+# Verify RAII patterns
+cargo clippy -- -D clippy::mem_forget
+```
+
 ---
 
 ### **🚨 EXISTING CRITICAL BLOCKER: Stream-Table Joins**
