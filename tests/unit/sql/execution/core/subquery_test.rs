@@ -308,30 +308,44 @@ async fn test_not_in_subquery() {
 }
 
 #[tokio::test]
-#[ignore = "Complex subquery execution needs further implementation"]
 async fn test_complex_subquery_in_select() {
     // Test more complex subquery usage in SELECT clause
     let query = r#"
-        SELECT 
+        SELECT
             id,
             name,
-            (SELECT 'default_config') as config_type,
-            (SELECT 999) as max_limit
-        FROM test_stream 
-        WHERE EXISTS (SELECT 1 FROM active_configs WHERE config_name = 'production')
+            (SELECT config_type FROM config) as config_type,
+            (SELECT max_limit FROM config) as max_limit
+        FROM test_stream
+        WHERE EXISTS (SELECT 1 FROM active_configs)
     "#;
 
     let result = execute_subquery_test(query).await;
-    if let Err(ref e) = result {
-        println!("Complex subquery test error: {:?}", e);
-    }
-    assert!(
-        result.is_ok(),
-        "Complex subquery should parse and execute: {:?}",
-        result.err()
-    );
+    println!("DEBUG: Complex subquery test starting");
+    println!("DEBUG: Query: {}", query);
 
-    let results = result.unwrap();
+    let results = match result {
+        Ok(results) => {
+            println!("DEBUG: Complex subquery executed successfully with {} results", results.len());
+            for (i, record) in results.iter().enumerate() {
+                println!("DEBUG: Result {}: fields = {:?}", i, record.fields);
+            }
+            results
+        },
+        Err(e) => {
+            println!("DEBUG: Complex subquery test error: {:?}", e);
+            println!("DEBUG: Error chain:");
+            let mut source = e.source();
+            let mut level = 1;
+            while let Some(err) = source {
+                println!("  Level {}: {:?}", level, err);
+                source = err.source();
+                level += 1;
+            }
+            panic!("Complex subquery should parse and execute: {:?}", e);
+        }
+    };
+
     assert_eq!(results.len(), 1);
 
     // Verify all expected fields are present
@@ -352,7 +366,6 @@ async fn test_complex_subquery_in_select() {
 }
 
 #[tokio::test]
-#[ignore = "Nested subqueries need further implementation"]
 async fn test_nested_subqueries() {
     // Test nested subquery scenarios - simplified for now
     let query = r#"
@@ -362,7 +375,23 @@ async fn test_nested_subqueries() {
         FROM test_stream
     "#;
 
+    println!("DEBUG: Testing nested subquery with query: {}", query);
+
     let result = execute_subquery_test(query).await;
+
+    match &result {
+        Ok(results) => {
+            println!("DEBUG: Nested subquery executed successfully");
+            println!("DEBUG: Number of results: {}", results.len());
+            for (i, record) in results.iter().enumerate() {
+                println!("DEBUG: Result {}: fields = {:?}", i, record.fields);
+            }
+        },
+        Err(e) => {
+            println!("DEBUG: Nested subquery execution failed: {:?}", e);
+        }
+    }
+
     assert!(result.is_ok(), "Nested subqueries should parse and execute");
 
     let results = result.unwrap();
@@ -429,7 +458,6 @@ async fn test_subquery_error_handling() {
 }
 
 #[tokio::test]
-#[ignore = "Comprehensive subquery test needs timeout fixes"]
 async fn test_subquery_types_comprehensive() {
     // Test all subquery types are recognized by the parser
     let queries = vec![
@@ -453,7 +481,21 @@ async fn test_subquery_types_comprehensive() {
     ];
 
     for (subquery_type, query) in queries {
+        println!("DEBUG: Testing {} subquery type", subquery_type);
+        println!("DEBUG: Query: {}", query);
+
         let result = execute_subquery_test(query).await;
+
+        match &result {
+            Ok(results) => {
+                println!("DEBUG: {} subquery executed successfully", subquery_type);
+                println!("DEBUG: Number of results: {}", results.len());
+            },
+            Err(e) => {
+                println!("DEBUG: {} subquery execution failed: {:?}", subquery_type, e);
+            }
+        }
+
         assert!(
             result.is_ok(),
             "{} subquery should parse successfully",
