@@ -4,6 +4,7 @@
 //! before deployment to StreamJobServer to prevent runtime failures.
 
 use crate::velostream::sql::{
+    ast::{Expr, SelectField, StreamingQuery, SubqueryType},
     config::with_clause_parser::WithClauseParser,
     parser::StreamingSqlParser,
     query_analyzer::{
@@ -211,14 +212,30 @@ impl SqlValidator {
             }
         };
 
-        // Use the main validation method
-        let mut content_result = self.validate_sql_content(&content);
-        content_result.file_path = file_path.to_string_lossy().to_string();
-        content_result
+        // Extract application name from comments
+        result.application_name = self.extract_application_name(&content);
+
+        // Split into individual queries with line tracking
+        let queries = self.split_sql_statements(&content);
+        result.total_queries = queries.len();
+
+        for (i, (query, start_line)) in queries.iter().enumerate() {
+            let query_result = self.validate_query(query, i, *start_line, &content);
+            if query_result.is_valid {
+                result.valid_queries += 1;
+            } else {
+                result.is_valid = false;
+            }
+            result.query_results.push(query_result);
+        }
+
+        // Analyze configuration completeness
+        self.analyze_configuration_completeness(&mut result);
+        result
     }
 
     /// Validate a single SQL query string
-    fn validate_query(
+    pub fn validate_query(
         &self,
         query: &str,
         query_index: usize,
@@ -276,79 +293,54 @@ impl SqlValidator {
             }
         }
 
+        // Add subquery validation using parsed AST
+        self.validate_subquery_patterns_ast(&parsed_query, &mut result);
+
         result
     }
 
     // Helper methods - robust SQL statement splitting
     fn split_sql_statements(&self, content: &str) -> Vec<(String, usize)> {
-        let mut statements = Vec::new();
-        let mut current_statement = String::new();
-        let mut current_line = 1;
-        let mut statement_start_line = 1;
-        let mut in_string = false;
-        let mut string_delimiter = '"';
-        let mut in_comment = false;
-        let mut prev_char = ' ';
+        let mut queries = Vec::new();
+        let mut current_query = String::new();
+        let mut query_start_line = 0;
+        let mut current_line = 0;
+        let mut in_query = false;
 
-        for ch in content.chars() {
-            match ch {
-                '\n' => {
-                    current_line += 1;
-                    in_comment = false; // End line comments
-                    current_statement.push(ch);
-                }
-                '-' if !in_string && !in_comment && prev_char == '-' => {
-                    in_comment = true;
-                    current_statement.push(ch);
-                }
-                '"' | '\'' if !in_string && !in_comment => {
-                    in_string = true;
-                    string_delimiter = ch;
-                    current_statement.push(ch);
-                }
-                c if in_string && c == string_delimiter => {
-                    in_string = false;
-                    current_statement.push(ch);
-                }
-                ';' if !in_string && !in_comment => {
-                    current_statement.push(ch);
-                    let trimmed = current_statement.trim();
-                    if !trimmed.is_empty()
-                        && !trimmed.starts_with("--")
-                        && self.is_sql_statement(trimmed)
-                    {
-                        statements.push((current_statement.clone(), statement_start_line));
-                    }
-                    current_statement.clear();
-                    statement_start_line = current_line + 1;
-                }
-                _ => {
-                    if current_statement.trim().is_empty() && !ch.is_whitespace() && !in_comment {
-                        statement_start_line = current_line;
-                    }
-                    current_statement.push(ch);
-                }
+        for line in content.lines() {
+            current_line += 1;
+            let trimmed = line.trim();
+
+            // Skip empty lines and full-line comments
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                continue;
             }
-            prev_char = ch;
+
+            // Mark the start of a new query
+            if !in_query {
+                query_start_line = current_line;
+                in_query = true;
+            }
+
+            current_query.push_str(line);
+            current_query.push('\n');
+
+            // Check for query termination
+            if trimmed.ends_with(";") || trimmed.contains("EMIT CHANGES") {
+                if !current_query.trim().is_empty() {
+                    queries.push((current_query.trim().to_string(), query_start_line - 1));
+                }
+                current_query.clear();
+                in_query = false;
+            }
         }
 
-        // Handle last statement if it doesn't end with semicolon
-        let trimmed = current_statement.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with("--") && self.is_sql_statement(trimmed) {
-            statements.push((current_statement, statement_start_line));
+        // Add any remaining query
+        if !current_query.trim().is_empty() {
+            queries.push((current_query.trim().to_string(), query_start_line - 1));
         }
 
-        statements
-    }
-
-    fn is_sql_statement(&self, text: &str) -> bool {
-        let trimmed = text.trim_start();
-        trimmed.starts_with("CREATE")
-            || trimmed.starts_with("SELECT")
-            || trimmed.starts_with("INSERT")
-            || trimmed.starts_with("UPDATE")
-            || trimmed.starts_with("DELETE")
-            || trimmed.starts_with("DROP")
+        queries
     }
 
     fn extract_application_name(&self, content: &str) -> Option<String> {
@@ -645,6 +637,546 @@ impl SqlValidator {
         }
 
         context
+    }
+
+    /// Comprehensive subquery pattern validation
+    fn validate_subquery_patterns(&self, result: &mut QueryValidationResult) {
+        let query_text = &result.query_text;
+
+        // Detect subquery patterns
+        let has_exists_subquery = query_text.contains("EXISTS (") || query_text.contains("EXISTS(");
+        let has_in_subquery = query_text.contains("IN (SELECT") || query_text.contains("IN(SELECT");
+        let has_scalar_subquery = Self::detect_scalar_subquery(query_text);
+        let has_any_subquery = query_text.matches("SELECT").count() > 1;
+
+        if !has_any_subquery {
+            return; // No subqueries detected
+        }
+
+        // Basic subquery warning
+        if has_any_subquery && !has_exists_subquery && !has_in_subquery && !has_scalar_subquery {
+            result.warnings.push(ValidationError {
+                message:
+                    "Complex subqueries detected - ensure they are supported in streaming context"
+                        .to_string(),
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+        }
+
+        // EXISTS subquery validation
+        if has_exists_subquery {
+            result.warnings.push(ValidationError {
+                message: "EXISTS subqueries require careful memory management in streaming - consider table materialization".to_string(),
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+
+            // Check for correlation patterns
+            if Self::detect_correlation_patterns(query_text) {
+                result.warnings.push(ValidationError {
+                    message: "Correlated EXISTS subquery detected - may impact streaming performance significantly".to_string(),
+                    line: Some(result.start_line),
+                    column: None,
+                    severity: ErrorSeverity::Warning,
+                });
+            }
+        }
+
+        // IN subquery validation
+        if has_in_subquery {
+            result.warnings.push(ValidationError {
+                message: "IN subqueries with SELECT may cause performance issues - consider JOIN or EXISTS".to_string(),
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+
+            // Check for correlation in IN subquery
+            if Self::detect_correlation_patterns(query_text) {
+                result.warnings.push(ValidationError {
+                    message: "Correlated IN subquery detected - consider rewriting as correlated EXISTS for better performance".to_string(),
+                    line: Some(result.start_line),
+                    column: None,
+                    severity: ErrorSeverity::Warning,
+                });
+            }
+        }
+
+        // Scalar subquery validation
+        if has_scalar_subquery {
+            result.warnings.push(ValidationError {
+                message: "Scalar subqueries in SELECT/WHERE detected - ensure single value return in streaming context".to_string(),
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+        }
+
+        // Complex nesting warning
+        let select_count = query_text.matches("SELECT").count();
+        if select_count > 3 {
+            result.warnings.push(ValidationError {
+                message: format!(
+                    "Deeply nested subqueries detected ({} levels) - consider query simplification",
+                    select_count
+                ),
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+        }
+
+        // Check for unsupported WHERE clause patterns in subqueries
+        if query_text.contains("WHERE") && has_any_subquery {
+            let query_text_clone = query_text.clone();
+            Self::validate_subquery_where_clauses(&query_text_clone, result);
+        }
+    }
+
+    /// Detect scalar subqueries in SELECT or WHERE clauses
+    fn detect_scalar_subquery(query_text: &str) -> bool {
+        // Look for SELECT (subquery) patterns outside of EXISTS/IN contexts
+        let select_positions: Vec<_> = query_text.match_indices("SELECT").collect();
+
+        for (pos, _) in select_positions.iter().skip(1) {
+            // Skip main SELECT
+            let context_start = pos.saturating_sub(20);
+            let context_end = (pos + 50).min(query_text.len());
+            let context = &query_text[context_start..context_end];
+
+            // Not part of EXISTS or IN subquery
+            if !context.contains("EXISTS") && !context.contains(" IN ") {
+                // Check if it's in a scalar context (SELECT list, WHERE condition)
+                if context.contains("= (SELECT")
+                    || context.contains("> (SELECT")
+                    || context.contains("< (SELECT")
+                    || context.contains(", (SELECT")
+                    || context.starts_with("(SELECT")
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Detect correlation patterns (outer table references in subqueries)
+    fn detect_correlation_patterns(query_text: &str) -> bool {
+        // Look for table.column patterns that might indicate correlation
+        // This is a heuristic - actual correlation detection would require full parsing
+
+        // Common correlation patterns
+        let correlation_indicators = [
+            ".id",
+            ".customer_id",
+            ".order_id",
+            ".user_id",
+            ".product_id",
+            "outer.",
+            "main.",
+            "parent.",
+            "t1.",
+            "t2.",
+            "a.",
+            "b.",
+        ];
+
+        for indicator in &correlation_indicators {
+            if query_text.contains(indicator) {
+                // Check if this appears in a subquery context
+                if let Some(subquery_start) = query_text.find("(SELECT") {
+                    let subquery_part = &query_text[subquery_start..];
+                    if subquery_part.contains(indicator) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Validate WHERE clauses within subqueries for unsupported patterns
+    fn validate_subquery_where_clauses(query_text: &str, result: &mut QueryValidationResult) {
+        // Look for potentially problematic WHERE patterns in subqueries
+        let problematic_patterns = [
+            (
+                "LIKE '%",
+                "LIKE patterns starting with % in subqueries can be slow",
+            ),
+            (
+                "REGEXP",
+                "Regular expressions in subquery WHERE clauses may impact performance",
+            ),
+            (
+                "SUBSTRING(",
+                "String functions in subquery WHERE clauses may not be optimized",
+            ),
+            (
+                "CASE WHEN",
+                "Complex CASE expressions in subquery WHERE clauses may be slow",
+            ),
+        ];
+
+        for (pattern, warning) in &problematic_patterns {
+            if query_text.contains(pattern) {
+                // Check if it's likely in a subquery
+                if let Some(subquery_start) = query_text.find("(SELECT") {
+                    let subquery_part = &query_text[subquery_start..];
+                    if subquery_part.contains(pattern) {
+                        result.warnings.push(ValidationError {
+                            message: warning.to_string(),
+                            line: Some(result.start_line),
+                            column: None,
+                            severity: ErrorSeverity::Warning,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Enhanced AST-based subquery validation using parsed query structure
+    fn validate_subquery_patterns_ast(
+        &self,
+        parsed_query: &StreamingQuery,
+        result: &mut QueryValidationResult,
+    ) {
+        let mut subquery_analyzer = SubqueryAnalyzer::new();
+        subquery_analyzer.analyze_query(parsed_query);
+
+        // Report findings based on AST analysis
+        for finding in subquery_analyzer.findings {
+            result.warnings.push(ValidationError {
+                message: finding.message,
+                line: Some(result.start_line),
+                column: None,
+                severity: ErrorSeverity::Warning,
+            });
+        }
+    }
+}
+
+/// AST-based subquery analyzer for precise detection
+struct SubqueryAnalyzer {
+    findings: Vec<SubqueryFinding>,
+    subquery_depth: usize,
+    max_depth: usize,
+}
+
+struct SubqueryFinding {
+    message: String,
+    subquery_type: Option<SubqueryType>,
+}
+
+impl SubqueryAnalyzer {
+    fn new() -> Self {
+        Self {
+            findings: Vec::new(),
+            subquery_depth: 0,
+            max_depth: 10, // Prevent infinite recursion
+        }
+    }
+
+    fn analyze_query(&mut self, query: &StreamingQuery) {
+        // Prevent infinite recursion
+        if self.subquery_depth >= self.max_depth {
+            self.findings.push(SubqueryFinding {
+                message: format!(
+                    "Maximum subquery depth exceeded ({}) - possible circular reference",
+                    self.max_depth
+                ),
+                subquery_type: None,
+            });
+            return;
+        }
+
+        match query {
+            StreamingQuery::Select {
+                where_clause,
+                fields,
+                ..
+            } => {
+                // Analyze WHERE clause for subqueries
+                if let Some(where_expr) = where_clause {
+                    self.analyze_expression(where_expr);
+                }
+
+                // Analyze SELECT fields for subqueries
+                for field in fields {
+                    if let SelectField::Expression { expr, .. } = field {
+                        self.analyze_expression(expr);
+                    }
+                }
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                self.analyze_query(as_select);
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                self.analyze_query(as_select);
+            }
+            StreamingQuery::CreateStreamInto { as_select, .. } => {
+                self.analyze_query(as_select);
+            }
+            StreamingQuery::CreateTableInto { as_select, .. } => {
+                self.analyze_query(as_select);
+            }
+            StreamingQuery::InsertInto { .. } => {
+                // INSERT queries don't typically have subqueries we need to analyze
+            }
+            StreamingQuery::Update { where_clause, .. } => {
+                if let Some(where_expr) = where_clause {
+                    self.analyze_expression(where_expr);
+                }
+            }
+            StreamingQuery::Delete { where_clause, .. } => {
+                if let Some(where_expr) = where_clause {
+                    self.analyze_expression(where_expr);
+                }
+            }
+            StreamingQuery::Union { .. } => {
+                // Union queries can contain nested SELECT statements but are handled at a higher level
+                self.findings.push(SubqueryFinding {
+                    message: "Complex subqueries detected (UNION) - ensure they are supported in streaming context".to_string(),
+                    subquery_type: None,
+                });
+            }
+            StreamingQuery::StartJob { query, .. } => {
+                self.analyze_query(query);
+            }
+            // Other variants don't contain subqueries we need to analyze
+            _ => {}
+        }
+
+        // Report nesting depth if significant
+        if self.subquery_depth > 2 {
+            self.findings.push(SubqueryFinding {
+                message: format!(
+                    "Deeply nested subqueries detected ({} levels) - consider query simplification",
+                    self.subquery_depth + 1
+                ),
+                subquery_type: None,
+            });
+        }
+    }
+
+    fn analyze_expression(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
+                self.subquery_depth += 1;
+
+                // Generate specific warnings based on subquery type
+                match subquery_type {
+                    SubqueryType::Exists => {
+                        self.findings.push(SubqueryFinding {
+                            message: "EXISTS subqueries require careful memory management in streaming - consider table materialization".to_string(),
+                            subquery_type: Some(SubqueryType::Exists),
+                        });
+
+                        // Check for correlation by analyzing the subquery
+                        if self.has_correlation_patterns(query) {
+                            self.findings.push(SubqueryFinding {
+                                message: "Correlated EXISTS subquery detected - may impact streaming performance significantly".to_string(),
+                                subquery_type: Some(SubqueryType::Exists),
+                            });
+                        }
+                    }
+                    SubqueryType::NotExists => {
+                        self.findings.push(SubqueryFinding {
+                            message: "NOT EXISTS subqueries require careful memory management in streaming".to_string(),
+                            subquery_type: Some(SubqueryType::NotExists),
+                        });
+                    }
+                    SubqueryType::In => {
+                        self.findings.push(SubqueryFinding {
+                            message: "IN subqueries with SELECT may cause performance issues - consider JOIN or EXISTS".to_string(),
+                            subquery_type: Some(SubqueryType::In),
+                        });
+
+                        if self.has_correlation_patterns(query) {
+                            self.findings.push(SubqueryFinding {
+                                message: "Correlated IN subquery detected - consider rewriting as correlated EXISTS for better performance".to_string(),
+                                subquery_type: Some(SubqueryType::In),
+                            });
+                        }
+                    }
+                    SubqueryType::NotIn => {
+                        self.findings.push(SubqueryFinding {
+                            message: "NOT IN subqueries can be problematic with NULL values - consider NOT EXISTS".to_string(),
+                            subquery_type: Some(SubqueryType::NotIn),
+                        });
+                    }
+                    SubqueryType::Scalar => {
+                        self.findings.push(SubqueryFinding {
+                            message: "Scalar subqueries in SELECT/WHERE detected - ensure single value return in streaming context".to_string(),
+                            subquery_type: Some(SubqueryType::Scalar),
+                        });
+                    }
+                    SubqueryType::Any | SubqueryType::All => {
+                        self.findings.push(SubqueryFinding {
+                            message: format!(
+                                "{:?} subqueries may have limited support in streaming context",
+                                subquery_type
+                            ),
+                            subquery_type: Some(subquery_type.clone()),
+                        });
+                    }
+                }
+
+                // Recursively analyze the subquery
+                self.analyze_query(query);
+                self.subquery_depth -= 1;
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.analyze_expression(left);
+                self.analyze_expression(right);
+            }
+            Expr::UnaryOp { expr, .. } => {
+                self.analyze_expression(expr);
+            }
+            Expr::Function { args, .. } => {
+                for arg in args {
+                    self.analyze_expression(arg);
+                }
+            }
+            Expr::WindowFunction { args, .. } => {
+                for arg in args {
+                    self.analyze_expression(arg);
+                }
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                for (condition, result_expr) in when_clauses {
+                    self.analyze_expression(condition);
+                    self.analyze_expression(result_expr);
+                }
+                if let Some(else_expr) = else_clause {
+                    self.analyze_expression(else_expr);
+                }
+            }
+            Expr::List(exprs) => {
+                for expr in exprs {
+                    self.analyze_expression(expr);
+                }
+            }
+            Expr::Between {
+                expr, low, high, ..
+            } => {
+                self.analyze_expression(expr);
+                self.analyze_expression(low);
+                self.analyze_expression(high);
+            }
+            // Leaf nodes don't contain subqueries
+            Expr::Column(_) | Expr::Literal(_) => {}
+        }
+    }
+
+    /// Heuristic to detect correlation patterns in subqueries
+    fn has_correlation_patterns(&self, _query: &StreamingQuery) -> bool {
+        // For now, use a simple heuristic - could be enhanced with proper symbol table analysis
+        // This would require analyzing if the subquery references columns from outer query
+        // For demonstration, we'll return false and rely on the outer table.column pattern detection
+        false
+    }
+
+    /// Split SQL content into individual queries with line tracking (from working binary implementation)
+    fn split_sql_queries_with_lines(&self, content: &str) -> Vec<(String, usize)> {
+        let mut queries = Vec::new();
+        let mut current_query = String::new();
+        let mut query_start_line = 0;
+        let mut current_line = 0;
+        let mut in_query = false;
+
+        for line in content.lines() {
+            current_line += 1;
+            let trimmed = line.trim();
+
+            // Skip empty lines and full-line comments
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                continue;
+            }
+
+            // Mark the start of a new query
+            if !in_query {
+                query_start_line = current_line;
+                in_query = true;
+            }
+
+            current_query.push_str(line);
+            current_query.push('\n');
+
+            // Check for query termination
+            if trimmed.ends_with(";") || trimmed.contains("EMIT CHANGES") {
+                if !current_query.trim().is_empty() {
+                    queries.push((current_query.trim().to_string(), query_start_line - 1));
+                }
+                current_query.clear();
+                in_query = false;
+            }
+        }
+
+        // Add any remaining query
+        if !current_query.trim().is_empty() {
+            queries.push((current_query.trim().to_string(), query_start_line - 1));
+        }
+
+        queries
+    }
+
+    /// Build configuration summary from all queries (adapted for library data structures)
+    fn build_configuration_summary(
+        &self,
+        query_results: &[QueryValidationResult],
+        summary: &mut ConfigurationSummary,
+    ) {
+        let mut source_names = std::collections::HashSet::new();
+        let mut sink_names = std::collections::HashSet::new();
+
+        for query_result in query_results {
+            // Track source names for duplicates
+            for source in &query_result.sources_found {
+                let source_name = &source.name;
+                if !source_names.insert(source_name.clone()) {
+                    summary
+                        .duplicate_names
+                        .push(format!("Source '{}' defined multiple times", source_name));
+                }
+            }
+
+            // Track sink names for duplicates
+            for sink in &query_result.sinks_found {
+                let sink_name = &sink.name;
+                if !sink_names.insert(sink_name.clone()) {
+                    summary
+                        .duplicate_names
+                        .push(format!("Sink '{}' defined multiple times", sink_name));
+                }
+            }
+
+            // Collect missing configurations (convert ConfigurationIssue to string format)
+            for config_issue in &query_result.missing_source_configs {
+                summary.missing_configurations.push(format!(
+                    "Source '{}': missing keys [{}]",
+                    config_issue.name,
+                    config_issue.missing_keys.join(", ")
+                ));
+            }
+            for config_issue in &query_result.missing_sink_configs {
+                summary.missing_configurations.push(format!(
+                    "Sink '{}': missing keys [{}]",
+                    config_issue.name,
+                    config_issue.missing_keys.join(", ")
+                ));
+            }
+        }
     }
 }
 

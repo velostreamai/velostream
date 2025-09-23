@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 
-# Velo CLI binary path (unified validator)
+# Velo CLI binary path (comprehensive CLI tool with fixed SQL validation)
 VELO_CLI="$PROJECT_ROOT/target/debug/velo-cli"
 
 # Default SQL file to validate
