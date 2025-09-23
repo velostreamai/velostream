@@ -9,10 +9,548 @@ Comprehensive test suite for JOIN operations involving subqueries:
 */
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::table::sql::SqlQueryable;
+
+// Import shared test utilities
+use crate::unit::sql::execution::common_test_utils::{
+    MockTable, StandardTestData, TestExecutor, CommonTestRecords
+};
+
+// ============================================================================
+// LEGACY TEST FUNCTIONS (now using shared utilities)
+// ============================================================================
+
+/// Create comprehensive test data sources for subquery testing
+/// This is now a wrapper around the shared StandardTestData
+pub fn create_test_data_sources() -> HashMap<String, Vec<StreamRecord>> {
+    StandardTestData::comprehensive_test_data()
+}
+
+
+// ============================================================================
+// TEST HELPER FUNCTIONS (Updated to use shared utilities)
+// ============================================================================
+
+fn create_test_record_for_subquery_join() -> StreamRecord {
+    CommonTestRecords::subquery_join_record()
+}
+
+/// Create a context customizer that injects test tables (now using shared utilities)
+fn create_test_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
+    TestExecutor::create_standard_context_customizer()
+}
+
+async fn execute_subquery_join_test(
+    query: &str,
+) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let serialization_format = std::sync::Arc::new(JsonFormat);
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    // Set up the context customizer to inject test tables
+    engine.context_customizer = Some(create_test_context_customizer());
+
+    let parser = StreamingSqlParser::new();
+
+    let parsed_query = parser.parse(query)?;
+    let record = create_test_record_for_subquery_join();
+
+    engine.execute_with_record(&parsed_query, record).await?;
+
+    let mut results = Vec::new();
+    while let Ok(result) = rx.try_recv() {
+        results.push(result);
+    }
+    Ok(results)
+}
+
+// Test 1: JOIN with subquery as right side (derived table)
+#[tokio::test]
+async fn test_join_with_subquery_as_right_side() {
+    let query = r#"
+        SELECT u.id, u.name, o.order_count
+        FROM users u
+    product_fields_1.insert("id".to_string(), FieldValue::Integer(1));
+    product_fields_1.insert("name".to_string(), FieldValue::String("laptop".to_string()));
+    product_fields_1.insert("product_name".to_string(), FieldValue::String("laptop".to_string()));
+    product_fields_1.insert("price".to_string(), FieldValue::Float(999.99));
+    product_fields_1.insert(
+        "category".to_string(),
+        FieldValue::String("electronics".to_string()),
+    );
+    product_fields_1.insert("owner_id".to_string(), FieldValue::Integer(100));
+    product_fields_1.insert("category_id".to_string(), FieldValue::Integer(10));
+
+    products_records.push(StreamRecord {
+        fields: product_fields_1,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+    });
+
+    // Product 2: Phone
+    let mut product_fields_2 = HashMap::new();
+    product_fields_2.insert("id".to_string(), FieldValue::Integer(2));
+    product_fields_2.insert("name".to_string(), FieldValue::String("phone".to_string()));
+    product_fields_2.insert("product_name".to_string(), FieldValue::String("phone".to_string()));
+    product_fields_2.insert("price".to_string(), FieldValue::Float(599.99));
+    product_fields_2.insert(
+        "category".to_string(),
+        FieldValue::String("electronics".to_string()),
+    );
+    product_fields_2.insert("owner_id".to_string(), FieldValue::Integer(101));
+    product_fields_2.insert("category_id".to_string(), FieldValue::Integer(10));
+
+    products_records.push(StreamRecord {
+        fields: product_fields_2,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200001,
+        offset: 2,
+        partition: 0,
+    });
+
+    // Product 3: Book (different category)
+    let mut product_fields_3 = HashMap::new();
+    product_fields_3.insert("id".to_string(), FieldValue::Integer(3));
+    product_fields_3.insert("name".to_string(), FieldValue::String("book".to_string()));
+    product_fields_3.insert("product_name".to_string(), FieldValue::String("book".to_string()));
+    product_fields_3.insert("price".to_string(), FieldValue::Float(29.99));
+    product_fields_3.insert(
+        "category".to_string(),
+        FieldValue::String("books".to_string()),
+    );
+    product_fields_3.insert("owner_id".to_string(), FieldValue::Integer(100));
+    product_fields_3.insert("category_id".to_string(), FieldValue::Integer(11));
+
+    products_records.push(StreamRecord {
+        fields: product_fields_3,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200002,
+        offset: 3,
+        partition: 0,
+    });
+
+    products_records
+}
+
+/// Create users table test data for JOIN operations
+fn create_users_table_data() -> Vec<StreamRecord> {
+    let mut users_records = Vec::new();
+
+    // User 1
+    let mut user_fields_1 = HashMap::new();
+    user_fields_1.insert("id".to_string(), FieldValue::Integer(100));
+    user_fields_1.insert("user_id".to_string(), FieldValue::Integer(100)); // For compatibility
+    user_fields_1.insert(
+        "name".to_string(),
+        FieldValue::String("Test User".to_string()),
+    );
+    user_fields_1.insert(
+        "email".to_string(),
+        FieldValue::String("user@example.com".to_string()),
+    );
+    user_fields_1.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
+
+    users_records.push(StreamRecord {
+        fields: user_fields_1,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+    });
+
+    // User 2
+    let mut user_fields_2 = HashMap::new();
+    user_fields_2.insert("id".to_string(), FieldValue::Integer(101));
+    user_fields_2.insert("user_id".to_string(), FieldValue::Integer(101)); // For compatibility
+    user_fields_2.insert(
+        "name".to_string(),
+        FieldValue::String("Another User".to_string()),
+    );
+    user_fields_2.insert(
+        "email".to_string(),
+        FieldValue::String("user2@example.com".to_string()),
+    );
+    user_fields_2.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
+
+    users_records.push(StreamRecord {
+        fields: user_fields_2,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200001,
+        offset: 2,
+        partition: 0,
+    });
+
+    users_records
+}
+
+/// Create blocks table test data for NOT EXISTS testing
+/// This table is intentionally empty to make NOT EXISTS return true
+fn create_blocks_table_data() -> Vec<StreamRecord> {
+    // Return empty vector - this will make NOT EXISTS (SELECT ... FROM blocks) return true
+    // because there are no records that match the condition
+    Vec::new()
+}
+
+/// Create orders table test data
+fn create_orders_table_data() -> Vec<StreamRecord> {
+    let mut orders_records = Vec::new();
+
+    // Order record 1: for user_id 100
+    let mut order_fields_1 = HashMap::new();
+    order_fields_1.insert("id".to_string(), FieldValue::Integer(1001));
+    order_fields_1.insert("user_id".to_string(), FieldValue::Integer(100));
+    order_fields_1.insert("amount".to_string(), FieldValue::Float(250.50));
+    order_fields_1.insert(
+        "status".to_string(),
+        FieldValue::String("completed".to_string()),
+    );
+    order_fields_1.insert("product_id".to_string(), FieldValue::Integer(50));
+
+    orders_records.push(StreamRecord {
+        fields: order_fields_1,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+    });
+
+    // Order record 2: for user_id 100
+    let mut order_fields_2 = HashMap::new();
+    order_fields_2.insert("id".to_string(), FieldValue::Integer(1002));
+    order_fields_2.insert("user_id".to_string(), FieldValue::Integer(100));
+    order_fields_2.insert("amount".to_string(), FieldValue::Float(175.25));
+    order_fields_2.insert(
+        "status".to_string(),
+        FieldValue::String("pending".to_string()),
+    );
+    order_fields_2.insert("product_id".to_string(), FieldValue::Integer(51));
+
+    orders_records.push(StreamRecord {
+        fields: order_fields_2,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200001,
+        offset: 2,
+        partition: 0,
+    });
+
+    // Order record 3: for user_id 101
+    let mut order_fields_3 = HashMap::new();
+    order_fields_3.insert("id".to_string(), FieldValue::Integer(1003));
+    order_fields_3.insert("user_id".to_string(), FieldValue::Integer(101));
+    order_fields_3.insert("amount".to_string(), FieldValue::Float(500.00));
+    order_fields_3.insert(
+        "status".to_string(),
+        FieldValue::String("completed".to_string()),
+    );
+    order_fields_3.insert("product_id".to_string(), FieldValue::Integer(52));
+
+    orders_records.push(StreamRecord {
+        fields: order_fields_3,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200002,
+        offset: 3,
+        partition: 0,
+    });
+
+    orders_records
+}
+
+/// Create categories table test data
+fn create_categories_table_data() -> Vec<StreamRecord> {
+    let mut categories_records = Vec::new();
+
+    // Category record 1: active category
+    let mut category_fields_1 = HashMap::new();
+    category_fields_1.insert("id".to_string(), FieldValue::Integer(10));
+    category_fields_1.insert(
+        "name".to_string(),
+        FieldValue::String("Electronics".to_string()),
+    );
+    category_fields_1.insert("active".to_string(), FieldValue::Boolean(true));
+    category_fields_1.insert("featured".to_string(), FieldValue::Boolean(true));
+
+    categories_records.push(StreamRecord {
+        fields: category_fields_1,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200000,
+        offset: 1,
+        partition: 0,
+    });
+
+    // Category record 2: inactive category
+    let mut category_fields_2 = HashMap::new();
+    category_fields_2.insert("id".to_string(), FieldValue::Integer(11));
+    category_fields_2.insert(
+        "name".to_string(),
+        FieldValue::String("Books".to_string()),
+    );
+    category_fields_2.insert("active".to_string(), FieldValue::Boolean(false));
+    category_fields_2.insert("featured".to_string(), FieldValue::Boolean(false));
+
+    categories_records.push(StreamRecord {
+        fields: category_fields_2,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200001,
+        offset: 2,
+        partition: 0,
+    });
+
+    // Category record 3: active but not featured
+    let mut category_fields_3 = HashMap::new();
+    category_fields_3.insert("id".to_string(), FieldValue::Integer(12));
+    category_fields_3.insert(
+        "name".to_string(),
+        FieldValue::String("Clothing".to_string()),
+    );
+    category_fields_3.insert("active".to_string(), FieldValue::Boolean(true));
+    category_fields_3.insert("featured".to_string(), FieldValue::Boolean(false));
+
+    categories_records.push(StreamRecord {
+        fields: category_fields_3,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp: 1640995200002,
+        offset: 3,
+        partition: 0,
+    });
+
+    categories_records
+}
+
+// ============================================================================
+// MOCK TABLE UTILITIES
+// ============================================================================
+
+/// Mock table implementation for testing
+///
+/// Provides a simple in-memory table that implements SqlQueryable
+/// for testing subquery execution without needing real data sources.
+pub struct MockTable {
+    pub name: String,
+    pub records: Vec<StreamRecord>,
+}
+
+impl MockTable {
+    /// Create a new mock table with the given name and records
+    pub fn new(name: String, records: Vec<StreamRecord>) -> Self {
+        Self { name, records }
+    }
+
+    /// Helper to evaluate a simple WHERE clause against a record
+    /// This is a simplified implementation for testing
+    fn evaluate_where_clause(&self, record: &StreamRecord, where_clause: &str) -> bool {
+        // For testing, we'll implement basic equality checks
+        // Format: "column = value" or "column = 'string'"
+
+        if where_clause.is_empty() || where_clause == "true" {
+            return true;
+        }
+
+        if where_clause == "false" {
+            return false;
+        }
+
+        // Simple parsing for basic conditions
+        let parts: Vec<&str> = where_clause.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let column = parts[0];
+            let operator = parts[1];
+            let value_str = parts[2..].join(" ");
+
+            if let Some(field_value) = record.fields.get(column) {
+                match operator {
+                    "=" | "==" => {
+                        return self.compare_values(field_value, &value_str, "=");
+                    }
+                    "!=" | "<>" => {
+                        return self.compare_values(field_value, &value_str, "!=");
+                    }
+                    ">" => {
+                        return self.compare_values(field_value, &value_str, ">");
+                    }
+                    "<" => {
+                        return self.compare_values(field_value, &value_str, "<");
+                    }
+                    ">=" => {
+                        return self.compare_values(field_value, &value_str, ">=");
+                    }
+                    "<=" => {
+                        return self.compare_values(field_value, &value_str, "<=");
+                    }
+                    "IN" => {
+                        // For IN clauses, we'll skip for now as they're more complex
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Default to true for unsupported clauses in test mode
+        true
+    }
+
+    fn compare_values(&self, field_value: &FieldValue, value_str: &str, operator: &str) -> bool {
+        // Remove quotes if present
+        let clean_value = value_str.trim_matches('\'').trim_matches('"');
+
+        match field_value {
+            FieldValue::Integer(i) => {
+                if let Ok(v) = clean_value.parse::<i64>() {
+                    match operator {
+                        "=" => *i == v,
+                        "!=" => *i != v,
+                        ">" => *i > v,
+                        "<" => *i < v,
+                        ">=" => *i >= v,
+                        "<=" => *i <= v,
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            }
+            FieldValue::Float(f) => {
+                if let Ok(v) = clean_value.parse::<f64>() {
+                    match operator {
+                        "=" => (*f - v).abs() < 0.0001,
+                        "!=" => (*f - v).abs() >= 0.0001,
+                        ">" => *f > v,
+                        "<" => *f < v,
+                        ">=" => *f >= v,
+                        "<=" => *f <= v,
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            }
+            FieldValue::String(s) => match operator {
+                "=" => s == clean_value,
+                "!=" => s != clean_value,
+                _ => false,
+            },
+            FieldValue::Boolean(b) => {
+                if let Ok(v) = clean_value.parse::<bool>() {
+                    match operator {
+                        "=" => *b == v,
+                        "!=" => *b != v,
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
+impl SqlQueryable for MockTable {
+    fn sql_filter(&self, where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
+        // For testing, return the first matching record's fields
+        for record in &self.records {
+            if self.evaluate_where_clause(record, where_clause) {
+                return Ok(record.fields.clone());
+            }
+        }
+
+        // Return empty if no records match
+        Ok(HashMap::new())
+    }
+
+    fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError> {
+        // Check if any record matches the WHERE clause
+        for record in &self.records {
+            if self.evaluate_where_clause(record, where_clause) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn sql_column_values(
+        &self,
+        column: &str,
+        where_clause: &str,
+    ) -> Result<Vec<FieldValue>, SqlError> {
+        let mut values = Vec::new();
+
+        for record in &self.records {
+            if self.evaluate_where_clause(record, where_clause) {
+                if let Some(value) = record.fields.get(column) {
+                    values.push(value.clone());
+                }
+            }
+        }
+
+        Ok(values)
+    }
+
+    fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError> {
+        // Simple implementation for COUNT(*) and other basic expressions
+        if select_expr == "COUNT(*)" {
+            let mut count = 0;
+            for record in &self.records {
+                if self.evaluate_where_clause(record, where_clause) {
+                    count += 1;
+                }
+            }
+            return Ok(FieldValue::Integer(count));
+        }
+
+        // For column selection, return the first matching value
+        for record in &self.records {
+            if self.evaluate_where_clause(record, where_clause) {
+                if let Some(value) = record.fields.get(select_expr) {
+                    return Ok(value.clone());
+                }
+            }
+        }
+
+        // Return NULL if no match
+        Ok(FieldValue::Null)
+    }
+
+    fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
+        // For testing, we'll return empty vec as wildcard support is not needed for basic tests
+        Ok(Vec::new())
+    }
+
+    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError> {
+        // For testing, we'll return NULL as wildcard aggregates are not needed for basic tests
+        Ok(FieldValue::Null)
+    }
+}
+
+// ============================================================================
+// TEST HELPER FUNCTIONS
+// ============================================================================
 
 fn create_test_record_for_subquery_join() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -39,12 +577,21 @@ fn create_test_record_for_subquery_join() -> StreamRecord {
     }
 }
 
+/// Create a context customizer that injects test tables (now using shared utilities)
+fn create_test_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
+    TestExecutor::create_standard_context_customizer()
+}
+
 async fn execute_subquery_join_test(
     query: &str,
 ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let serialization_format = std::sync::Arc::new(JsonFormat);
     let mut engine = StreamExecutionEngine::new(tx);
+
+    // Set up the context customizer to inject test tables
+    engine.context_customizer = Some(create_test_context_customizer());
+
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
@@ -155,7 +702,8 @@ async fn test_complex_left_join_with_subqueries() {
     // are now fully supported with our enhanced implementation
     assert!(
         result.is_ok(),
-        "Complex JOIN with subqueries should now work with full implementation"
+        "Complex JOIN with subqueries should now work with full implementation. Error: {:?}",
+        result.err()
     );
 
     // Verify we got results
@@ -206,7 +754,8 @@ async fn test_right_join_with_not_exists_in_on_condition() {
     // The execution engine successfully handles this with mock data
     assert!(
         result.is_ok(),
-        "NOT EXISTS in JOIN ON conditions should work with mock implementation"
+        "NOT EXISTS in JOIN ON conditions should work with mock implementation. Error: {:?}",
+        result.err()
     );
 
     // Verify we got results
