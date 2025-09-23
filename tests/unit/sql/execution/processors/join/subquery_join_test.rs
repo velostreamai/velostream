@@ -410,8 +410,8 @@ impl MockTable {
             }
         }
 
-        // Default to true for unsupported clauses in test mode
-        true
+        // Default to false for unsupported clauses - be strict in testing
+        false
     }
 
     fn compare_values(&self, field_value: &FieldValue, value_str: &str, operator: &str) -> bool {

@@ -93,7 +93,7 @@ fn test_parameterized_query_types() {
     let template = "SELECT * FROM test WHERE int_val = $0 AND float_val = $1 AND bool_val = $2 AND null_val = $3";
     let params = vec![
         SqlParameter::new(0, FieldValue::Integer(42)),
-        SqlParameter::new(1, FieldValue::Float(3.14159)),
+        SqlParameter::new(1, FieldValue::Float(42.7)),
         SqlParameter::new(2, FieldValue::Boolean(true)),
         SqlParameter::new(3, FieldValue::Null),
     ];
@@ -103,7 +103,7 @@ fn test_parameterized_query_types() {
         .unwrap();
 
     assert!(result.contains("42"), "Should contain integer");
-    assert!(result.contains("3.14159"), "Should contain float");
+    assert!(result.contains("42.7"), "Should contain float");
     assert!(result.contains("true"), "Should contain boolean");
     assert!(result.contains("NULL"), "Should contain null");
 
