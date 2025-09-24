@@ -5,6 +5,8 @@ pub mod config;
 pub mod datasource;
 pub mod kafka;
 pub mod sql;
+// Table tests - Tests for materialized table functionality
+pub mod table;
 pub mod test_messages;
 pub mod test_utils;
 // Stream job server tests - Tests for stream job functionality

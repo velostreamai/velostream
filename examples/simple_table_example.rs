@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::JsonSerializer;
-use velostream::KTable;
+use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::Table;
 
 /// Simple user data structure
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -16,35 +18,35 @@ struct User {
 const KAFKA_BROKERS: &str = "localhost:9092";
 const USERS_TOPIC: &str = "users";
 
-/// Simple KTable example demonstrating basic usage
+/// Simple Table example demonstrating basic usage
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Simple KTable Example");
+    println!("🚀 Simple Table Example");
     println!("{}", "=".repeat(40));
 
-    // 1. Create KTable configuration
-    println!("⚙️  Creating KTable configuration...");
-    let config = ConsumerConfig::new(KAFKA_BROKERS, "simple-ktable-group")
+    // 1. Create Table configuration
+    println!("⚙️  Creating Table configuration...");
+    let config = ConsumerConfig::new(KAFKA_BROKERS, "simple-table-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(5));
 
-    // 2. Create KTable
-    println!("🏗️  Creating KTable for users...");
-    let user_table = match KTable::<String, User, _, _>::new(
+    // 2. Create Table
+    println!("🏗️  Creating Table for users...");
+    let user_table = match Table::<String, StringSerializer, JsonFormat>::new(
         config,
         USERS_TOPIC.to_string(),
-        JsonSerializer,
-        JsonSerializer,
+        StringSerializer,
+        JsonFormat,
     )
     .await
     {
         Ok(table) => {
-            println!("✅ KTable created successfully");
+            println!("✅ Table created successfully");
             table
         }
         Err(e) => {
-            eprintln!("❌ Failed to create KTable: {:?}", e);
+            eprintln!("❌ Failed to create Table: {:?}", e);
             eprintln!("   Make sure Kafka is running at {}", KAFKA_BROKERS);
             eprintln!("   You can start Kafka with Docker:");
             eprintln!("   docker run -p 9092:9092 apache/kafka:2.13-3.7.0");
@@ -52,23 +54,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 3. Start KTable consumption in background
-    println!("▶️  Starting KTable background consumption...");
+    // 3. Start Table consumption in background
+    println!("▶️  Starting Table background consumption...");
     let table_clone = user_table.clone();
     let consumption_handle = tokio::spawn(async move {
         if let Err(e) = table_clone.start().await {
-            eprintln!("❌ KTable consumption error: {:?}", e);
+            eprintln!("❌ Table consumption error: {:?}", e);
         }
     });
 
     // 4. Give it a moment to start
     sleep(Duration::from_millis(500)).await;
 
-    // 5. Check if KTable is running
+    // 5. Check if Table is running
     if user_table.is_running() {
-        println!("✅ KTable is running and consuming messages");
+        println!("✅ Table is running and consuming messages");
     } else {
-        println!("⚠️  KTable is not running");
+        println!("⚠️  Table is not running");
     }
 
     // 6. Wait for some data to load (if any exists)
@@ -90,14 +92,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 7. Demonstrate basic operations
-    println!("\n🔍 Demonstrating KTable operations:");
+    println!("\n🔍 Demonstrating Table operations:");
 
     // Check if specific user exists
     let user_id = "user1";
     if user_table.contains_key(&user_id.to_string()) {
         println!("✅ User '{}' exists in table", user_id);
         if let Some(user) = user_table.get(&user_id.to_string()) {
-            println!("   Details: {} <{}>", user.name, user.email);
+            let name = user
+                .get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            let email = user
+                .get("email")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            println!("   Details: {} <{}>", name, email);
         }
     } else {
         println!("❌ User '{}' not found in table", user_id);
@@ -105,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show table statistics
     let stats = user_table.stats();
-    println!("\n📊 KTable Statistics:");
+    println!("\n📊 Table Statistics:");
     println!("   Topic: {}", stats.topic);
     println!("   Group: {}", stats.group_id);
     println!("   Keys: {}", stats.key_count);
@@ -120,11 +142,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n🔄 Demonstrating transformations:");
 
         // Map values to extract just names
-        let names = user_table.map_values(|user| user.name.clone());
+        let names = user_table.map_values(|user| {
+            user.get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("Unknown".to_string())
+        });
         println!("   User names: {:?}", names.values().collect::<Vec<_>>());
 
         // Filter users (example: names starting with 'J')
-        let j_users = user_table.filter(|_key, user| user.name.starts_with('J'));
+        let j_users = user_table.filter(|_key, user| {
+            user.get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s.starts_with('J'))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(false)
+        });
         println!("   Users with names starting with 'J': {}", j_users.len());
 
         // Get snapshot of all data
@@ -166,13 +208,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     user_table.stop();
     consumption_handle.abort();
 
-    println!("✅ Simple KTable example completed!");
+    println!("✅ Simple Table example completed!");
     Ok(())
 }
 
-/// Display all users in the KTable
-fn display_users(user_table: &KTable<String, User, JsonSerializer, JsonSerializer>) {
-    println!("\n👥 Users in KTable:");
+/// Display all users in the Table
+fn display_users(user_table: &Table<String, StringSerializer, JsonFormat>) {
+    println!("\n👥 Users in Table:");
     println!("{}", "-".repeat(40));
 
     if user_table.is_empty() {
@@ -182,7 +224,27 @@ fn display_users(user_table: &KTable<String, User, JsonSerializer, JsonSerialize
 
     for user_id in user_table.keys() {
         if let Some(user) = user_table.get(&user_id) {
-            println!("   {}: {} <{}>", user_id, user.name, user.email);
+            let name = user
+                .get("name")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            let email = user
+                .get("email")
+                .and_then(|v| {
+                    if let FieldValue::String(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
+                .map_or("Unknown", |s| s);
+            println!("   {}: {} <{}>", user_id, name, email);
         }
     }
     println!();

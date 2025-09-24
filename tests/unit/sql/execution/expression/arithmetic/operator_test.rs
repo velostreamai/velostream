@@ -82,6 +82,7 @@ async fn test_like_operator() {
                 alias: Some("like_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
+            from_alias: None,
             where_clause: None,
             joins: None,
             group_by: None,
@@ -142,6 +143,7 @@ async fn test_not_like_operator() {
                 alias: Some("not_like_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
+            from_alias: None,
             where_clause: None,
             joins: None,
             group_by: None,
@@ -204,6 +206,7 @@ async fn test_like_operator_edge_cases() {
                 alias: Some("like_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
+            from_alias: None,
             where_clause: None,
             joins: None,
             group_by: None,
@@ -244,6 +247,7 @@ async fn test_like_operator_edge_cases() {
             alias: Some("null_like_result".to_string()),
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: None,
         joins: None,
         group_by: None,
@@ -278,6 +282,7 @@ async fn test_like_operator_edge_cases() {
             alias: Some("number_like_result".to_string()),
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: None,
         joins: None,
         group_by: None,
@@ -353,6 +358,7 @@ async fn test_in_operator_basic() {
                 alias: None,
             }],
             from: StreamSource::Stream("test".to_string()),
+            from_alias: None,
             where_clause: Some(Expr::BinaryOp {
                 left: Box::new(match query_str.split(" IN ").next().unwrap() {
                     "id" => Expr::Column("id".to_string()),
@@ -427,6 +433,7 @@ async fn test_not_in_operator_basic() {
                 alias: None,
             }],
             from: StreamSource::Stream("test".to_string()),
+            from_alias: None,
             where_clause: Some(Expr::BinaryOp {
                 left: Box::new(Expr::Column(column.to_string())),
                 op: BinaryOperator::NotIn,
@@ -481,6 +488,7 @@ async fn test_in_operator_with_null_values() {
             alias: None,
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: Some(Expr::BinaryOp {
             left: Box::new(Expr::Column("nullable_field".to_string())),
             op: BinaryOperator::In,
@@ -514,6 +522,7 @@ async fn test_in_operator_with_null_values() {
             alias: None,
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: Some(Expr::BinaryOp {
             left: Box::new(Expr::Column("nullable_field".to_string())),
             op: BinaryOperator::NotIn,
@@ -573,6 +582,7 @@ async fn test_in_operator_edge_cases() {
             alias: None,
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: Some(Expr::BinaryOp {
             left: Box::new(Expr::Column("id".to_string())),
             op: BinaryOperator::In,
@@ -604,6 +614,7 @@ async fn test_in_operator_edge_cases() {
             alias: None,
         }],
         from: StreamSource::Stream("test".to_string()),
+        from_alias: None,
         where_clause: Some(Expr::BinaryOp {
             left: Box::new(Expr::Column("id".to_string())),
             op: BinaryOperator::In,

@@ -13,8 +13,9 @@ use crate::velostream::sql::{SqlError, StreamingQuery};
 pub mod context;
 pub mod processor_types;
 
-pub use context::{ProcessorContext, WindowContext};
+pub use context::{ProcessorContext, TableReference, WindowContext};
 pub use processor_types::{HeaderMutation, HeaderOperation, ProcessorResult};
+pub use select::SqlParameter;
 
 /// Main processor coordination interface
 pub struct QueryProcessor;
@@ -207,6 +208,7 @@ pub mod job;
 pub mod join;
 pub mod join_context;
 pub mod limit;
+pub mod query_parsing;
 pub mod select;
 pub mod show;
 pub mod update;

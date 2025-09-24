@@ -298,7 +298,7 @@ fn create_test_query() -> StreamingQuery {
     StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
         from: StreamSource::Table("test_table".to_string()),
-        joins: None,
+            from_alias: None,        joins: None,
         r#where: None,
         group_by: None,
         having: None,

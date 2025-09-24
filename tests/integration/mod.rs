@@ -7,8 +7,8 @@ pub mod execution_engine_test;
 pub mod failure_recovery_test;
 pub mod kafka_advanced_test;
 pub mod kafka_basic_test;
-pub mod ktable_test;
 pub mod sql_integration_test;
+pub mod table;
 pub mod timeout_config_test;
 pub mod transactions_test;
 

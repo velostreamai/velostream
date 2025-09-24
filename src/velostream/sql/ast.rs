@@ -83,6 +83,7 @@ pub enum EmitMode {
 ///     // SELECT query
 ///     let select_query = StreamingQuery::Select {
 ///         fields: vec![SelectField::Wildcard],
+///         from_alias: None,
 ///         from: StreamSource::Stream("orders".to_string()),
 ///         joins: None,
 ///         where_clause: None,
@@ -113,6 +114,8 @@ pub enum StreamingQuery {
         fields: Vec<SelectField>,
         /// Source stream or table
         from: StreamSource,
+        /// Optional alias for the FROM source (e.g., "c" in "FROM customers c")
+        from_alias: Option<String>,
         /// Optional JOIN clauses
         joins: Option<Vec<JoinClause>>,
         /// Optional WHERE clause for filtering
@@ -169,7 +172,7 @@ pub enum StreamingQuery {
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
-    /// Creates a materialized table (KTable) that maintains the current
+    /// Creates a materialized table (Table) that maintains the current
     /// state based on the continuous execution of the SELECT query.
     /// Supports aggregations and maintains consistent state.
     CreateTable {
@@ -386,7 +389,7 @@ pub enum JobStatus {
 pub enum ShowResourceType {
     /// Show all registered streams (Kafka topics exposed as streams)
     Streams,
-    /// Show all registered tables (KTables and materialized views)
+    /// Show all registered tables (Tables and materialized views)
     Tables,
     /// Show all available Kafka topics (whether registered or not)
     Topics,
@@ -428,7 +431,7 @@ pub enum SelectField {
 pub enum StreamSource {
     /// Named stream reference
     Stream(String),
-    /// Table reference (KTable)
+    /// Table reference (Table)
     Table(String),
     /// URI-based data source (FR-047 compliant)
     Uri(String),

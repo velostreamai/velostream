@@ -155,6 +155,7 @@ Quick lookup for all available SQL functions organized by category. Click any fu
 | **Window** | [window.md](window.md) | ROW_NUMBER, RANK, LAG, LEAD |
 | **JSON** | [json.md](json.md) | JSON processing |
 | **Advanced** | [advanced.md](advanced.md) | Utility and specialized functions |
+| **Table Integration** | [table-integration.md](table-integration.md) | Table SQL, subqueries, and path expressions |
 
 ---
 

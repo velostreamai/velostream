@@ -265,6 +265,7 @@ fn create_benchmark_query() -> StreamingQuery {
             SelectField::Column("volume".to_string()),
         ],
         from: StreamSource::Stream("benchmark_data".to_string()),
+        from_alias: None,
         joins: None,
         where_clause: None,
         group_by: None,

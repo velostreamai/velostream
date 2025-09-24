@@ -77,6 +77,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         group_by_states: HashMap::new(),
         schemas,
         stream_handles,
+        state_tables: HashMap::new(),
         data_sources: HashMap::new(),
         persistent_window_states: Vec::new(),
         dirty_window_states: 0,
@@ -90,6 +91,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         source_positions: HashMap::new(),
         // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
         watermark_manager: None,
+        correlation_context: None,
     }
 }
 
@@ -421,6 +423,7 @@ async fn test_show_streams_empty_context() {
         group_by_states: HashMap::new(),
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
+        state_tables: HashMap::new(),
         data_sources: HashMap::new(),
         persistent_window_states: Vec::new(),
         dirty_window_states: 0,
@@ -434,6 +437,7 @@ async fn test_show_streams_empty_context() {
         source_positions: HashMap::new(),
         // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
         watermark_manager: None,
+        correlation_context: None,
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

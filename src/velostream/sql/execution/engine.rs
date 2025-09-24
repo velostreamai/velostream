@@ -159,6 +159,9 @@ pub struct StreamExecutionEngine {
         Option<Arc<crate::velostream::sql::execution::performance::PerformanceMonitor>>,
     // Configuration for enhanced features
     config: StreamingConfig,
+    // Optional context customizer for tests
+    #[doc(hidden)]
+    pub context_customizer: Option<Arc<dyn Fn(&mut ProcessorContext) + Send + Sync>>,
 }
 
 // =============================================================================
@@ -195,6 +198,7 @@ impl StreamExecutionEngine {
             group_states: HashMap::new(),
             performance_monitor: None,
             config,
+            context_customizer: None,
         }
     }
 
@@ -235,6 +239,10 @@ impl StreamExecutionEngine {
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
+        println!(
+            "DEBUG: create_processor_context called for query_id: {}",
+            query_id
+        );
         let mut context = ProcessorContext::new(query_id);
 
         // Set engine state
@@ -245,6 +253,11 @@ impl StreamExecutionEngine {
 
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
+
+        // Apply any context customization (used by tests)
+        if let Some(customizer) = &self.context_customizer {
+            customizer(&mut context);
+        }
 
         context
     }
