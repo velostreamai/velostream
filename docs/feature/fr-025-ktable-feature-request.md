@@ -1,5 +1,110 @@
 # KTable Implementation - Feature Request
 
+## 🔥 **TOP PRIORITY: CTAS-Based Table Creation & Sharing Architecture**
+
+**CRITICAL MISSING PIECE**: Currently, multiple SQL jobs cannot share KTable instances because there's no centralized table registry or creation mechanism. Each job creates its own isolated tables, leading to memory duplication and state inconsistencies.
+
+### **Problem Statement**
+
+```rust
+// ❌ CURRENT: Each job creates its own table (memory waste, inconsistent state)
+let job1_engine = StreamExecutionEngine::new(output1);  // Creates own tables
+let job2_engine = StreamExecutionEngine::new(output2);  // Creates different tables
+let job3_engine = StreamExecutionEngine::new(output3);  // More duplicate tables
+```
+
+**Result**: 3 jobs querying "orders" = 3 separate KTable instances with different states.
+
+### **Solution: CTAS-Based Table Registry**
+
+```sql
+-- Step 1: Create shared tables via CTAS
+CREATE TABLE orders AS
+SELECT order_id, user_id, amount, status, created_at
+FROM kafka://orders-topic
+EMIT CHANGES;
+
+CREATE TABLE users AS
+SELECT id, name, email, status
+FROM kafka://users-topic
+EMIT CHANGES;
+```
+
+```rust
+// Step 2: Deploy jobs that share tables
+server.deploy_job("fraud-detection",
+    "SELECT * FROM orders WHERE amount > (SELECT AVG(amount) * 3 FROM orders)")?;
+
+server.deploy_job("user-enrichment",
+    "SELECT o.*, u.name FROM orders o JOIN users u ON o.user_id = u.id")?;
+```
+
+**Result**: All jobs share the same `orders` and `users` KTable instances.
+
+### **Required Implementation**
+
+1. **StreamJobServer Table Registry**:
+```rust
+pub struct StreamJobServer {
+    jobs: Arc<RwLock<HashMap<String, RunningJob>>>,
+    // ✅ ADD: Shared table registry
+    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    // ✅ ADD: Table creation jobs (CTAS background processes)
+    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+}
+```
+
+2. **CTAS Execution**:
+```rust
+impl StreamJobServer {
+    pub async fn create_table(&self, ctas_query: String) -> Result<String, SqlError> {
+        // 1. Parse CREATE TABLE AS SELECT
+        // 2. Create underlying KTable/Table instance
+        // 3. Start background job to populate table via SELECT
+        // 4. Register in table_registry for sharing
+    }
+}
+```
+
+3. **Table Dependency Injection**:
+```rust
+pub async fn deploy_job(&self, name: String, query: String) -> Result<(), SqlError> {
+    // 1. Parse query to find table dependencies
+    let required_tables = extract_table_references(&parsed_query);
+
+    // 2. Ensure all tables exist (fail fast if missing)
+    for table in &required_tables {
+        if !self.table_registry.contains_key(table) {
+            return Err("Table not found. Create with CREATE TABLE AS SELECT");
+        }
+    }
+
+    // 3. Inject shared tables into engine context
+    engine.context_customizer = Some(Arc::new(move |context| {
+        for table_name in &required_tables {
+            context.load_reference_table(table_name, shared_table);
+        }
+    }));
+}
+```
+
+### **Priority Justification**
+
+- **Memory Efficiency**: Single KTable per topic vs N duplicates
+- **State Consistency**: All jobs see same materialized state
+- **Dependency Management**: Clear table creation → job deployment workflow
+- **SQL Standard Compliance**: CTAS is standard SQL for materialized views
+- **Production Readiness**: Explicit resource management vs implicit creation
+
+### **Success Criteria**
+- [ ] `CREATE TABLE orders AS SELECT * FROM kafka://orders-topic` creates shared KTable
+- [ ] Multiple jobs can reference same `orders` table without duplication
+- [ ] Job deployment fails if required tables don't exist
+- [ ] Background CTAS process continuously populates tables
+- [ ] Table lifecycle independent of job lifecycle
+
+---
+
 ## Table of Contents
 
 - [🚀 Feature Overview](#-feature-overview)

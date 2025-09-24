@@ -807,6 +807,26 @@ impl<T: SqlDataSource> SqlQueryable for T {
     }
 
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError> {
+        let expr = select_expr.trim();
+
+        // Check if this is an aggregate function
+        if let Some(start) = expr.find('(') {
+            if let Some(_end) = expr.rfind(')') {
+                let func_name = expr[..start].to_uppercase();
+
+                // Handle aggregate functions and scalar functions
+                match func_name.as_str() {
+                    "MAX" | "MIN" | "COUNT" | "AVG" | "SUM" | "STDDEV" | "DELTA" | "ABS" => {
+                        return compute_scalar_aggregate(self, expr, where_clause);
+                    }
+                    _ => {
+                        // Not a recognized aggregate function, fall through to field extraction
+                    }
+                }
+            }
+        }
+
+        // Handle simple field extraction (non-aggregate)
         let filtered_records = self.sql_filter(where_clause)?;
 
         if filtered_records.is_empty() {
@@ -820,10 +840,10 @@ impl<T: SqlDataSource> SqlQueryable for T {
                 return Ok(field_value);
             }
         } else {
-            // Multiple records - this should error for scalar subqueries
+            // Multiple records - this should error for scalar subqueries with simple field access
             return Err(SqlError::ExecutionError {
                 message: format!(
-                    "Scalar subquery returned more than one row: {} rows",
+                    "Scalar subquery returned more than one row: {} rows. Use an aggregate function like MAX(), MIN(), COUNT(), AVG(), or SUM() for multi-row results.",
                     filtered_records.len()
                 ),
                 query: Some(format!("SELECT {} WHERE {}", select_expr, where_clause)),
@@ -990,6 +1010,209 @@ impl<T: SqlDataSource> SqlQueryable for T {
                 position: Some(0),
             }),
         }
+    }
+}
+
+/// Compute aggregate functions on filtered records for scalar subqueries
+///
+/// This function handles aggregate functions like MAX, MIN, COUNT, AVG, SUM, STDDEV
+/// by applying the WHERE clause filter and then computing the aggregate across all matching records.
+fn compute_scalar_aggregate<T: SqlQueryable>(
+    source: &T,
+    aggregate_expr: &str,
+    where_clause: &str,
+) -> Result<FieldValue, SqlError> {
+    let expr = aggregate_expr.trim();
+
+    // Parse the aggregate function
+    let (func_name, field_path) = if let Some(start) = expr.find('(') {
+        if let Some(end) = expr.rfind(')') {
+            let func = expr[..start].to_uppercase();
+            let path = expr[start + 1..end].trim().to_string();
+            (func, path)
+        } else {
+            return Err(SqlError::ParseError {
+                message: "Invalid aggregate expression: missing closing parenthesis".to_string(),
+                position: Some(expr.len()),
+            });
+        }
+    } else {
+        return Err(SqlError::ParseError {
+            message: "Invalid aggregate expression: expected function(field) format".to_string(),
+            position: Some(0),
+        });
+    };
+
+    // Get filtered records based on WHERE clause
+    let filtered_records = source.sql_filter(where_clause)?;
+
+    // Handle empty result sets first - SQL standard behavior
+    if filtered_records.is_empty() {
+        return match func_name.as_str() {
+            "COUNT" => Ok(FieldValue::Integer(0)), // COUNT(*) on empty set = 0
+            "DELTA" => Ok(FieldValue::Null),       // DELTA on empty set = NULL
+            "ABS" => Ok(FieldValue::Null),         // ABS on empty set = NULL
+            _ => Ok(FieldValue::Null),             // All other aggregates on empty set = NULL
+        };
+    }
+
+    // Extract values from the specified field across all filtered records
+    let mut values = Vec::new();
+    for (_key, record) in filtered_records {
+        if field_path == "*" {
+            // COUNT(*) - just count the records
+            if func_name == "COUNT" {
+                values.push(FieldValue::Integer(1));
+            }
+        } else {
+            // Extract specific field value
+            if let Some(field_value) = extract_field_value(&record, &field_path) {
+                values.push(field_value);
+            }
+        }
+    }
+
+    // Apply the aggregate function
+    match func_name.as_str() {
+        "COUNT" => {
+            if field_path == "*" {
+                Ok(FieldValue::Integer(values.len() as i64))
+            } else {
+                // COUNT(field) - count non-null values
+                let non_null_count = values
+                    .iter()
+                    .filter(|v| !matches!(v, FieldValue::Null))
+                    .count();
+                Ok(FieldValue::Integer(non_null_count as i64))
+            }
+        }
+        "MAX" => {
+            let mut max_val: Option<f64> = None;
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    max_val = Some(max_val.map_or(num, |m| m.max(num)));
+                }
+            }
+            max_val
+                .map(FieldValue::Float)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: "No numeric values found for MAX".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+        }
+        "MIN" => {
+            let mut min_val: Option<f64> = None;
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    min_val = Some(min_val.map_or(num, |m| m.min(num)));
+                }
+            }
+            min_val
+                .map(FieldValue::Float)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: "No numeric values found for MIN".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+        }
+        "AVG" => {
+            let mut sum = 0.0;
+            let mut count = 0;
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    sum += num;
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                Ok(FieldValue::Float(sum / count as f64))
+            } else {
+                Err(SqlError::ExecutionError {
+                    message: "No numeric values found for AVG".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+            }
+        }
+        "SUM" => {
+            let mut sum = 0.0;
+            let mut has_values = false;
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    sum += num;
+                    has_values = true;
+                }
+            }
+            if has_values {
+                Ok(FieldValue::Float(sum))
+            } else {
+                Err(SqlError::ExecutionError {
+                    message: "No numeric values found for SUM".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+            }
+        }
+        "STDDEV" => {
+            // Calculate standard deviation (sample standard deviation)
+            let mut nums = Vec::new();
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    nums.push(num);
+                }
+            }
+
+            if nums.len() < 2 {
+                return Err(SqlError::ExecutionError {
+                    message: "STDDEV requires at least 2 numeric values".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                });
+            }
+
+            let mean = nums.iter().sum::<f64>() / nums.len() as f64;
+            let variance =
+                nums.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (nums.len() - 1) as f64; // Sample std dev (n-1)
+            Ok(FieldValue::Float(variance.sqrt()))
+        }
+        "DELTA" => {
+            // Calculate delta (difference between max and min values)
+            let mut nums = Vec::new();
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    nums.push(num);
+                }
+            }
+
+            if nums.is_empty() {
+                return Ok(FieldValue::Null); // No values to calculate delta
+            }
+
+            if nums.len() == 1 {
+                return Ok(FieldValue::Float(0.0)); // Single value has no delta
+            }
+
+            let min_val = nums.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+            let max_val = nums.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+            Ok(FieldValue::Float(max_val - min_val))
+        }
+        "ABS" => {
+            // Calculate absolute value - for scalar subqueries, this applies to each value and returns the sum of absolute values
+            // This makes sense in contexts like "total absolute change" or "sum of absolute deviations"
+            let mut abs_sum = 0.0;
+            let mut has_values = false;
+            for value in &values {
+                if let Some(num) = extract_numeric_value(value) {
+                    abs_sum += num.abs();
+                    has_values = true;
+                }
+            }
+            if has_values {
+                Ok(FieldValue::Float(abs_sum))
+            } else {
+                Ok(FieldValue::Null) // No numeric values found
+            }
+        }
+        _ => Err(SqlError::ParseError {
+            message: format!("Unknown aggregate function: {}", func_name),
+            position: Some(0),
+        }),
     }
 }
 
