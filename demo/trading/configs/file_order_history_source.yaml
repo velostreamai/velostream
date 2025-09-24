@@ -1,0 +1,49 @@
+# Order History File Source Configuration
+# Configuration for reading order history from CSV file
+
+data_source:
+  type: file
+  path: "./demo/trading/data/order_history.csv"
+  format: csv
+  has_headers: true
+
+schema:
+  fields:
+    - name: order_id
+      type: string
+      primary_key: true
+    - name: trader_id
+      type: string
+      indexed: true
+    - name: symbol
+      type: string
+      indexed: true
+    - name: side
+      type: string
+      values: ["BUY", "SELL"]
+    - name: quantity
+      type: integer
+    - name: price
+      type: decimal
+      precision: 10
+      scale: 4
+    - name: timestamp
+      type: timestamp
+      format: "yyyy-MM-dd HH:mm:ss"
+    - name: order_type
+      type: string
+      values: ["LIMIT", "MARKET", "STOP"]
+    - name: commission
+      type: decimal
+      precision: 8
+      scale: 2
+
+processing:
+  mode: batch
+  batch_size: 20000
+  refresh_interval: "30 seconds"
+
+output:
+  retention: "30 days"
+  format: avro
+  compression: gzip

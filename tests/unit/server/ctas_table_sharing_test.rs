@@ -126,6 +126,9 @@ async fn test_invalid_ctas_queries() {
                     println!("❌ Wrong error message. Expected: {}, Got: {}", expected_error, message);
                 }
             }
+            Err(e) => {
+                println!("❌ Unexpected error type: {}", e);
+            }
             Ok(_) => {
                 println!("❌ Should have rejected invalid query");
             }

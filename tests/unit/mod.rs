@@ -11,5 +11,7 @@ pub mod test_messages;
 pub mod test_utils;
 // Stream job server tests - Tests for stream job functionality
 pub mod stream_job;
+// Server tests - Tests for server components including CTAS functionality
+pub mod server;
 // Serialization tests - Tests for different serialization formats
 pub mod serialization;

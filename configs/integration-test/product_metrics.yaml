@@ -1,0 +1,32 @@
+# Product Metrics Configuration
+# Configuration for product sales analytics
+
+data_source:
+  type: kafka
+  brokers: "localhost:9092,localhost:9093,localhost:9094"
+  topic: "product-sales"
+
+consumer:
+  group_id: "product-metrics"
+  session_timeout_ms: 30000
+  heartbeat_interval_ms: 3000
+
+processing:
+  window_type: "tumbling"
+  window_size: "1 day"
+  grace_period: "1 hour"
+
+aggregations:
+  - type: "sum"
+    field: "revenue"
+    output: "total_revenue"
+  - type: "count"
+    field: "*"
+    output: "total_sales"
+  - type: "avg"
+    field: "unit_price"
+    output: "avg_price"
+
+output:
+  retention: "1 year"
+  format: "avro"

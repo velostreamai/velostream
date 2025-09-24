@@ -17,8 +17,8 @@ cargo run --example ctas_end_to_end_demo --no-default-features
 This demo shows the full Phase 3 CTAS implementation in action.
 */
 
-use velostream::velostream::server::stream_job_server::StreamJobServer;
 use tokio::time::{sleep, Duration};
+use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,11 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting CTAS End-to-End Demo");
 
     // Create StreamJobServer
-    let server = StreamJobServer::new(
-        "localhost:9092".to_string(),
-        "ctas-demo".to_string(),
-        10,
-    );
+    let server = StreamJobServer::new("localhost:9092".to_string(), "ctas-demo".to_string(), 10);
 
     println!("📊 Created StreamJobServer with table registry");
 
@@ -82,15 +78,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 3: Check table existence
     println!("\n🔍 Step 3: Checking table existence");
     println!("users table exists: {}", server.table_exists("users").await);
-    println!("orders table exists: {}", server.table_exists("orders").await);
-    println!("nonexistent table exists: {}", server.table_exists("nonexistent").await);
+    println!(
+        "orders table exists: {}",
+        server.table_exists("orders").await
+    );
+    println!(
+        "nonexistent table exists: {}",
+        server.table_exists("nonexistent").await
+    );
 
     // Step 4: Get table statistics
     println!("\n📊 Step 4: Getting table statistics");
     let stats = server.get_table_stats().await;
     for (table_name, table_stats) in stats {
-        println!("Table '{}': status={}, count={}",
-            table_name, table_stats.status, table_stats.record_count);
+        println!(
+            "Table '{}': status={}, count={}",
+            table_name, table_stats.status, table_stats.record_count
+        );
     }
 
     // Step 5: Get table health
@@ -115,17 +119,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         WHERE u.active = true AND o.amount > 1000
     "#;
 
-    match server.deploy_job(
-        "order-enrichment".to_string(),
-        "v1.0".to_string(),
-        enrichment_query.to_string(),
-        "enriched-orders-topic".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "order-enrichment".to_string(),
+            "v1.0".to_string(),
+            enrichment_query.to_string(),
+            "enriched-orders-topic".to_string(),
+        )
+        .await
+    {
         Ok(()) => {
             println!("✅ Successfully deployed job with table dependencies");
         }
         Err(e) => {
-            println!("⚠️  Expected error deploying job (missing stream sources): {}", e);
+            println!(
+                "⚠️  Expected error deploying job (missing stream sources): {}",
+                e
+            );
         }
     }
 
@@ -156,7 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Verify table was dropped
-    println!("orders table exists after drop: {}", server.table_exists("orders").await);
+    println!(
+        "orders table exists after drop: {}",
+        server.table_exists("orders").await
+    );
     let remaining_tables = server.list_tables().await;
     println!("Remaining tables: {:?}", remaining_tables);
 

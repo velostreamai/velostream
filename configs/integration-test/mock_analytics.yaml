@@ -1,0 +1,25 @@
+# Mock Analytics Configuration
+# Configuration for mock data source testing
+
+data_source:
+  type: mock
+  records_count: 1000
+  schema: "analytics_schema"
+
+fields:
+  - name: user_id
+    type: integer
+    range: [1, 10000]
+  - name: event_type
+    type: string
+    values: ["click", "view", "purchase", "signup"]
+  - name: timestamp
+    type: timestamp
+    format: "iso8601"
+
+processing:
+  batch_size: 100
+  interval_ms: 1000
+
+output:
+  format: json

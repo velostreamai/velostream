@@ -1,0 +1,57 @@
+# Trading Performance Configuration
+# Configuration for trading performance analysis
+
+data_source:
+  type: file
+  path: "./order_history.csv"
+  format: csv
+  has_headers: true
+
+schema:
+  fields:
+    - name: order_id
+      type: string
+      primary_key: true
+    - name: trader_id
+      type: string
+      indexed: true
+    - name: symbol
+      type: string
+      indexed: true
+    - name: side
+      type: string
+      values: ["BUY", "SELL"]
+    - name: quantity
+      type: integer
+    - name: price
+      type: decimal
+      precision: 10
+      scale: 2
+    - name: timestamp
+      type: timestamp
+      format: "yyyy-MM-dd HH:mm:ss"
+    - name: order_type
+      type: string
+      values: ["LIMIT", "MARKET", "STOP"]
+    - name: commission
+      type: decimal
+      precision: 8
+      scale: 2
+
+processing:
+  mode: streaming
+  late_data_tolerance: "1 hour"
+  checkpoint_interval: "1 minute"
+
+metrics:
+  - name: sharpe_ratio
+    calculation: "avg_return / std_return * sqrt(252)"
+  - name: max_drawdown
+    calculation: "max(cumulative_pnl) - min(cumulative_pnl)"
+  - name: win_rate
+    calculation: "profitable_trades / total_trades"
+
+output:
+  retention: "90 days"
+  format: avro
+  compression: snappy

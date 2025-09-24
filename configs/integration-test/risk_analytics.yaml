@@ -1,0 +1,43 @@
+# Risk Analytics Configuration
+# Configuration for risk calculation and monitoring
+
+data_source:
+  type: kafka
+  brokers: "localhost:9092"
+  topics:
+    - "trading-positions"
+    - "risk-limits"
+
+consumer:
+  group_id: "risk-analytics"
+  auto_offset_reset: "earliest"
+  enable_auto_commit: true
+
+processing:
+  mode: streaming
+  window_type: "tumbling"
+  window_size: "5 minutes"
+  grace_period: "30 seconds"
+
+aggregations:
+  - type: sum
+    field: "position_exposure"
+    output: "total_exposure"
+  - type: avg
+    field: "pnl_return_pct"
+    output: "avg_return"
+  - type: stddev
+    field: "pnl"
+    output: "volatility"
+
+risk_limits:
+  max_position_size: 10000000
+  max_daily_loss: 100000
+  var_confidence: 0.95
+  correlation_threshold: 0.7
+
+output:
+  retention: "7 days"
+  alerts:
+    enabled: true
+    channels: ["email", "slack"]

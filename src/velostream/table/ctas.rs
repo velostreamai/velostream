@@ -90,7 +90,10 @@ pub enum DataSourceType {
     /// Mock source for testing
     Mock { records_count: u32, schema: String },
     /// HTTP/REST API source
-    Http { endpoint: String, poll_interval: u64 },
+    Http {
+        endpoint: String,
+        poll_interval: u64,
+    },
 }
 
 /// File format types
@@ -296,16 +299,26 @@ impl CtasExecutor {
 
         // Apply WITH clause properties and handle config files
         if let Some(config_file) = properties.get("config_file") {
-            log::info!("Table '{}' configured with config file: {}", table_name, config_file);
+            log::info!(
+                "Table '{}' configured with config file: {}",
+                table_name,
+                config_file
+            );
 
             // Load configuration and create config-based source
             match self.load_data_source_config(config_file) {
                 Ok(config_source) => {
                     // Override topic with config-based source
-                    return self.create_config_based_table(table_name, &config_source, properties).await;
+                    return self
+                        .create_config_based_table(table_name, &config_source, properties)
+                        .await;
                 }
                 Err(e) => {
-                    log::warn!("Failed to load config file '{}': {}. Using default Kafka source.", config_file, e);
+                    log::warn!(
+                        "Failed to load config file '{}': {}. Using default Kafka source.",
+                        config_file,
+                        e
+                    );
                     // Continue with default Kafka table creation
                 }
             }
@@ -313,13 +326,21 @@ impl CtasExecutor {
 
         // Handle retention configuration
         if let Some(retention) = properties.get("retention") {
-            log::info!("Table '{}' configured with retention: {}", table_name, retention);
+            log::info!(
+                "Table '{}' configured with retention: {}",
+                table_name,
+                retention
+            );
             // TODO: Future enhancement - apply retention settings to table lifecycle
         }
 
         // Log applied properties
         if !properties.is_empty() {
-            log::info!("Applied {} configuration properties to table '{}'", properties.len(), table_name);
+            log::info!(
+                "Applied {} configuration properties to table '{}'",
+                properties.len(),
+                table_name
+            );
         }
 
         // Create the Table instance
@@ -392,7 +413,10 @@ impl CtasExecutor {
                         });
                     }
                     // Accept formats like "7 days", "30 days", "1 hour", etc.
-                    if !value.contains("day") && !value.contains("hour") && !value.contains("minute") {
+                    if !value.contains("day")
+                        && !value.contains("hour")
+                        && !value.contains("minute")
+                    {
                         log::warn!("retention format '{}' may not be recognized", value);
                     }
                 }
@@ -403,7 +427,10 @@ impl CtasExecutor {
                         "batch.size" => {
                             if value.parse::<u32>().is_err() {
                                 return Err(SqlError::ExecutionError {
-                                    message: format!("kafka.batch.size must be a number, got: {}", value),
+                                    message: format!(
+                                        "kafka.batch.size must be a number, got: {}",
+                                        value
+                                    ),
                                     query: None,
                                 });
                             }
@@ -411,7 +438,10 @@ impl CtasExecutor {
                         "linger.ms" => {
                             if value.parse::<u32>().is_err() {
                                 return Err(SqlError::ExecutionError {
-                                    message: format!("kafka.linger.ms must be a number, got: {}", value),
+                                    message: format!(
+                                        "kafka.linger.ms must be a number, got: {}",
+                                        value
+                                    ),
                                     query: None,
                                 });
                             }
@@ -431,7 +461,11 @@ impl CtasExecutor {
     }
 
     /// Apply properties to consumer configuration
-    fn apply_properties_to_config(&self, config: &mut ConsumerConfig, properties: &HashMap<String, String>) {
+    fn apply_properties_to_config(
+        &self,
+        config: &mut ConsumerConfig,
+        properties: &HashMap<String, String>,
+    ) {
         for (key, value) in properties.iter() {
             if let Some(kafka_key) = key.strip_prefix("kafka.") {
                 match kafka_key {
@@ -441,7 +475,10 @@ impl CtasExecutor {
                         // config.set_kafka_property(kafka_key, value);
                     }
                     _ => {
-                        log::debug!("Kafka property '{}' noted for future application", kafka_key);
+                        log::debug!(
+                            "Kafka property '{}' noted for future application",
+                            kafka_key
+                        );
                     }
                 }
             }
@@ -481,7 +518,10 @@ impl CtasExecutor {
                 },
                 properties,
             })
-        } else if config_file.contains("file") || config_file.ends_with(".csv") || config_file.ends_with(".json") {
+        } else if config_file.contains("file")
+            || config_file.ends_with(".csv")
+            || config_file.ends_with(".json")
+        {
             // File configuration
             let format = if config_file.contains("csv") {
                 FileFormat::Csv
@@ -505,7 +545,10 @@ impl CtasExecutor {
             })
         } else {
             Err(SqlError::ExecutionError {
-                message: format!("Unable to determine data source type from config file: {}", config_file),
+                message: format!(
+                    "Unable to determine data source type from config file: {}",
+                    config_file
+                ),
                 query: None,
             })
         }
@@ -520,20 +563,50 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         match &config_source.source_type {
             DataSourceType::Kafka { brokers, topic } => {
-                log::info!("Creating Kafka table '{}' from config: brokers={}, topic={}", table_name, brokers, topic);
-                self.create_kafka_table_with_config(table_name, topic, brokers, properties).await
+                log::info!(
+                    "Creating Kafka table '{}' from config: brokers={}, topic={}",
+                    table_name,
+                    brokers,
+                    topic
+                );
+                self.create_kafka_table_with_config(table_name, topic, brokers, properties)
+                    .await
             }
             DataSourceType::File { path, format } => {
-                log::info!("Creating file table '{}' from config: path={}, format={:?}", table_name, path, format);
-                self.create_file_table(table_name, path, format, properties).await
+                log::info!(
+                    "Creating file table '{}' from config: path={}, format={:?}",
+                    table_name,
+                    path,
+                    format
+                );
+                self.create_file_table(table_name, path, format, properties)
+                    .await
             }
-            DataSourceType::Mock { records_count, schema } => {
-                log::info!("Creating mock table '{}' from config: records={}, schema={}", table_name, records_count, schema);
-                self.create_mock_table(table_name, *records_count, schema, properties).await
+            DataSourceType::Mock {
+                records_count,
+                schema,
+            } => {
+                log::info!(
+                    "Creating mock table '{}' from config: records={}, schema={}",
+                    table_name,
+                    records_count,
+                    schema
+                );
+                self.create_mock_table(table_name, *records_count, schema, properties)
+                    .await
             }
-            DataSourceType::Http { endpoint, poll_interval } => {
-                log::info!("Creating HTTP table '{}' from config: endpoint={}, poll_interval={}ms", table_name, endpoint, poll_interval);
-                self.create_http_table(table_name, endpoint, *poll_interval, properties).await
+            DataSourceType::Http {
+                endpoint,
+                poll_interval,
+            } => {
+                log::info!(
+                    "Creating HTTP table '{}' from config: endpoint={}, poll_interval={}ms",
+                    table_name,
+                    endpoint,
+                    poll_interval
+                );
+                self.create_http_table(table_name, endpoint, *poll_interval, properties)
+                    .await
             }
         }
     }
@@ -576,7 +649,8 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         // For now, create a mock table since file table implementation would require more infrastructure
         log::info!("File table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 500, "file_schema", _properties).await
+        self.create_mock_table(table_name, 500, "file_schema", _properties)
+            .await
     }
 
     /// Create a mock table for testing
@@ -591,18 +665,29 @@ impl CtasExecutor {
         let counter = self
             .counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let consumer_group = format!("{}-mock-table-{}-{}", self.base_group_id, table_name, counter);
+        let consumer_group = format!(
+            "{}-mock-table-{}-{}",
+            self.base_group_id, table_name, counter
+        );
 
         let config = ConsumerConfig::new(&self.kafka_brokers, &consumer_group);
 
         // Create a mock Table instance - in real implementation this would use a MockDataSource
         // For now, we'll use the existing Table but it would fail to connect (which is expected in tests)
-        let table = Table::new(config, format!("mock-topic-{}", table_name), StringSerializer, JsonFormat)
-            .await
-            .map_err(|e| SqlError::ExecutionError {
-                message: format!("Mock table creation completed for '{}' (connection error expected: {})", table_name, e),
-                query: None,
-            })?;
+        let table = Table::new(
+            config,
+            format!("mock-topic-{}", table_name),
+            StringSerializer,
+            JsonFormat,
+        )
+        .await
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!(
+                "Mock table creation completed for '{}' (connection error expected: {})",
+                table_name, e
+            ),
+            query: None,
+        })?;
 
         self.finalize_table_creation(table_name, table).await
     }
@@ -617,11 +702,16 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         // For now, create a mock table since HTTP table implementation would require more infrastructure
         log::info!("HTTP table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 100, "http_schema", _properties).await
+        self.create_mock_table(table_name, 100, "http_schema", _properties)
+            .await
     }
 
     /// Common table finalization logic
-    async fn finalize_table_creation(&self, table_name: &str, table: Table<String, StringSerializer, JsonFormat>) -> Result<CtasResult, SqlError> {
+    async fn finalize_table_creation(
+        &self,
+        table_name: &str,
+        table: Table<String, StringSerializer, JsonFormat>,
+    ) -> Result<CtasResult, SqlError> {
         // Create TableDataSource from the Table
         let table_datasource = TableDataSource::from_table(table.clone());
         let queryable_table: Arc<dyn SqlQueryable + Send + Sync> = Arc::new(table_datasource);
@@ -710,7 +800,9 @@ mod tests {
 
         // Test another stream extraction
         let another_stream_query = parser.parse("SELECT * FROM my_stream").unwrap();
-        let source2 = executor.extract_source_from_select(&another_stream_query).unwrap();
+        let source2 = executor
+            .extract_source_from_select(&another_stream_query)
+            .unwrap();
         match source2 {
             SourceInfo::Stream(name) => assert_eq!(name, "my_stream"),
             _ => panic!("Expected Stream source"),
@@ -731,9 +823,15 @@ mod tests {
 
         // This test verifies that our implementation correctly processes properties
         // The actual CTAS parsing would populate these properties from the WITH clause
-        assert_eq!(properties.get("config_file"), Some(&"base_analytics.yaml".to_string()));
+        assert_eq!(
+            properties.get("config_file"),
+            Some(&"base_analytics.yaml".to_string())
+        );
         assert_eq!(properties.get("retention"), Some(&"30 days".to_string()));
-        assert_eq!(properties.get("kafka.batch.size"), Some(&"1000".to_string()));
+        assert_eq!(
+            properties.get("kafka.batch.size"),
+            Some(&"1000".to_string())
+        );
     }
 
     #[test]
@@ -784,7 +882,10 @@ mod tests {
             }
             Err(SqlError::ExecutionError { message, .. }) => {
                 // Should be Kafka connection error, not parsing error
-                assert!(!message.contains("Not a CREATE TABLE"), "CREATE TABLE INTO query should parse correctly");
+                assert!(
+                    !message.contains("Not a CREATE TABLE"),
+                    "CREATE TABLE INTO query should parse correctly"
+                );
             }
             Err(e) => {
                 panic!("Unexpected error for CREATE TABLE INTO query: {}", e);
@@ -799,9 +900,18 @@ mod tests {
 
         // Test different source types
         let test_cases = vec![
-            ("CREATE TABLE test AS SELECT * FROM kafka_topic", SourceInfo::Stream("kafka_topic".to_string())),
-            ("CREATE TABLE test AS SELECT * FROM file_stream", SourceInfo::Stream("file_stream".to_string())),
-            ("CREATE TABLE test AS SELECT * FROM my_stream", SourceInfo::Stream("my_stream".to_string())),
+            (
+                "CREATE TABLE test AS SELECT * FROM kafka_topic",
+                SourceInfo::Stream("kafka_topic".to_string()),
+            ),
+            (
+                "CREATE TABLE test AS SELECT * FROM file_stream",
+                SourceInfo::Stream("file_stream".to_string()),
+            ),
+            (
+                "CREATE TABLE test AS SELECT * FROM my_stream",
+                SourceInfo::Stream("my_stream".to_string()),
+            ),
         ];
 
         for (query, expected_source) in test_cases {
@@ -843,8 +953,14 @@ mod tests {
                     }
                 }
                 Err(SqlError::ExecutionError { message, .. }) => {
-                    if should_pass_validation && (message.contains("cannot be empty") || message.contains("must be a number")) {
-                        panic!("Query should have passed validation: {} - Error: {}", query, message);
+                    if should_pass_validation
+                        && (message.contains("cannot be empty")
+                            || message.contains("must be a number"))
+                    {
+                        panic!(
+                            "Query should have passed validation: {} - Error: {}",
+                            query, message
+                        );
                     }
                     // Other execution errors (like Kafka connection) are expected
                 }
@@ -864,8 +980,16 @@ mod tests {
         let invalid_properties = vec![
             ("config_file", "", "config_file property cannot be empty"),
             ("retention", "", "retention property cannot be empty"),
-            ("kafka.batch.size", "invalid", "kafka.batch.size must be a number"),
-            ("kafka.linger.ms", "not_numeric", "kafka.linger.ms must be a number"),
+            (
+                "kafka.batch.size",
+                "invalid",
+                "kafka.batch.size must be a number",
+            ),
+            (
+                "kafka.linger.ms",
+                "not_numeric",
+                "kafka.linger.ms must be a number",
+            ),
         ];
 
         for (key, value, expected_error) in invalid_properties {
@@ -875,9 +999,14 @@ mod tests {
             match executor.validate_properties(&props) {
                 Ok(_) => panic!("Should have failed validation for {}={}", key, value),
                 Err(SqlError::ExecutionError { message, .. }) => {
-                    assert!(message.contains(expected_error),
-                           "Expected error message '{}' for {}={}, got: {}",
-                           expected_error, key, value, message);
+                    assert!(
+                        message.contains(expected_error),
+                        "Expected error message '{}' for {}={}, got: {}",
+                        expected_error,
+                        key,
+                        value,
+                        message
+                    );
                 }
                 Err(e) => panic!("Unexpected error type: {}", e),
             }
@@ -886,7 +1015,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_table_lifecycle_integration() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test-lifecycle".to_string());
+        let executor =
+            CtasExecutor::new("localhost:9092".to_string(), "test-lifecycle".to_string());
 
         // Test multiple table creation with different configurations
         let tables_to_create = vec![
@@ -905,9 +1035,16 @@ mod tests {
                 }
                 Err(SqlError::ExecutionError { message, .. }) => {
                     // Expected due to no real Kafka - ensure it's connection error, not parsing
-                    assert!(!message.contains("Not a CREATE TABLE"),
-                           "Should parse correctly for table '{}': {}", expected_name, message);
-                    println!("⚠️ Expected Kafka connection error for table '{}': {}", expected_name, message);
+                    assert!(
+                        !message.contains("Not a CREATE TABLE"),
+                        "Should parse correctly for table '{}': {}",
+                        expected_name,
+                        message
+                    );
+                    println!(
+                        "⚠️ Expected Kafka connection error for table '{}': {}",
+                        expected_name, message
+                    );
                 }
                 Err(e) => {
                     panic!("Unexpected error creating table '{}': {}", expected_name, e);
@@ -918,7 +1055,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_table_creation() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test-concurrent".to_string());
+        let executor =
+            CtasExecutor::new("localhost:9092".to_string(), "test-concurrent".to_string());
 
         // Test that multiple concurrent table creations work
         let concurrent_queries = vec![
@@ -927,13 +1065,14 @@ mod tests {
             "CREATE TABLE concurrent_3 AS SELECT * FROM stream_3 WITH (\"kafka.batch.size\" = \"500\")",
         ];
 
-        let handles: Vec<_> = concurrent_queries.into_iter().map(|query| {
-            let executor_clone = executor.clone();
-            let query_owned = query.to_string();
-            tokio::spawn(async move {
-                executor_clone.execute(&query_owned).await
+        let handles: Vec<_> = concurrent_queries
+            .into_iter()
+            .map(|query| {
+                let executor_clone = executor.clone();
+                let query_owned = query.to_string();
+                tokio::spawn(async move { executor_clone.execute(&query_owned).await })
             })
-        }).collect();
+            .collect();
 
         // Wait for all tasks to complete
         for (i, handle) in handles.into_iter().enumerate() {
@@ -943,10 +1082,17 @@ mod tests {
                 }
                 Err(SqlError::ExecutionError { .. }) => {
                     // Expected due to no real Kafka
-                    println!("⚠️ Expected connection error for concurrent table {}", i + 1);
+                    println!(
+                        "⚠️ Expected connection error for concurrent table {}",
+                        i + 1
+                    );
                 }
                 Err(e) => {
-                    panic!("Unexpected error in concurrent table creation {}: {}", i + 1, e);
+                    panic!(
+                        "Unexpected error in concurrent table creation {}: {}",
+                        i + 1,
+                        e
+                    );
                 }
             }
         }
@@ -982,15 +1128,27 @@ mod tests {
             match result {
                 Ok(ctas_result) => {
                     assert_eq!(ctas_result.name(), expected_name);
-                    println!("✅ Successfully created {} table: {}", source_type, expected_name);
+                    println!(
+                        "✅ Successfully created {} table: {}",
+                        source_type, expected_name
+                    );
                 }
                 Err(SqlError::ExecutionError { message, .. }) => {
                     // Expected connection errors for certain source types
-                    println!("⚠️ Expected connection error for {} table '{}': {}", source_type, expected_name, message);
-                    assert!(!message.contains("Not a CREATE TABLE"), "Should parse correctly");
+                    println!(
+                        "⚠️ Expected connection error for {} table '{}': {}",
+                        source_type, expected_name, message
+                    );
+                    assert!(
+                        !message.contains("Not a CREATE TABLE"),
+                        "Should parse correctly"
+                    );
                 }
                 Err(e) => {
-                    panic!("Unexpected error creating {} table '{}': {}", source_type, expected_name, e);
+                    panic!(
+                        "Unexpected error creating {} table '{}': {}",
+                        source_type, expected_name, e
+                    );
                 }
             }
         }
@@ -1002,30 +1160,48 @@ mod tests {
 
         // Test config file pattern recognition
         let config_test_cases = vec![
-            ("mock_test.yaml", DataSourceType::Mock { records_count: 1000, schema: "test_schema".to_string() }),
-            ("kafka_analytics.yaml", DataSourceType::Kafka { brokers: "localhost:9092".to_string(), topic: "configured_topic".to_string() }),
-            ("file_source.json", DataSourceType::File { path: "/mock/data/file.json".to_string(), format: FileFormat::Json }),
+            (
+                "mock_test.yaml",
+                DataSourceType::Mock {
+                    records_count: 1000,
+                    schema: "test_schema".to_string(),
+                },
+            ),
+            (
+                "kafka_analytics.yaml",
+                DataSourceType::Kafka {
+                    brokers: "localhost:9092".to_string(),
+                    topic: "configured_topic".to_string(),
+                },
+            ),
+            (
+                "file_source.json",
+                DataSourceType::File {
+                    path: "/mock/data/file.json".to_string(),
+                    format: FileFormat::Json,
+                },
+            ),
         ];
 
         for (config_file, expected_type) in config_test_cases {
             match executor.load_data_source_config(config_file) {
-                Ok(config_source) => {
-                    match (&config_source.source_type, &expected_type) {
-                        (DataSourceType::Mock { .. }, DataSourceType::Mock { .. }) => {
-                            println!("✅ Correctly identified mock config: {}", config_file);
-                        }
-                        (DataSourceType::Kafka { .. }, DataSourceType::Kafka { .. }) => {
-                            println!("✅ Correctly identified Kafka config: {}", config_file);
-                        }
-                        (DataSourceType::File { .. }, DataSourceType::File { .. }) => {
-                            println!("✅ Correctly identified file config: {}", config_file);
-                        }
-                        _ => {
-                            panic!("Config type mismatch for {}: expected {:?}, got {:?}",
-                                   config_file, expected_type, config_source.source_type);
-                        }
+                Ok(config_source) => match (&config_source.source_type, &expected_type) {
+                    (DataSourceType::Mock { .. }, DataSourceType::Mock { .. }) => {
+                        println!("✅ Correctly identified mock config: {}", config_file);
                     }
-                }
+                    (DataSourceType::Kafka { .. }, DataSourceType::Kafka { .. }) => {
+                        println!("✅ Correctly identified Kafka config: {}", config_file);
+                    }
+                    (DataSourceType::File { .. }, DataSourceType::File { .. }) => {
+                        println!("✅ Correctly identified file config: {}", config_file);
+                    }
+                    _ => {
+                        panic!(
+                            "Config type mismatch for {}: expected {:?}, got {:?}",
+                            config_file, expected_type, config_source.source_type
+                        );
+                    }
+                },
                 Err(e) => {
                     panic!("Failed to load config file '{}': {}", config_file, e);
                 }
@@ -1066,15 +1242,27 @@ mod tests {
             match result {
                 Ok(ctas_result) => {
                     assert_eq!(ctas_result.name(), expected_name);
-                    println!("✅ Successfully created mixed config table: {}", expected_name);
+                    println!(
+                        "✅ Successfully created mixed config table: {}",
+                        expected_name
+                    );
                 }
                 Err(SqlError::ExecutionError { message, .. }) => {
                     // Expected for mock sources that can't actually connect
-                    println!("⚠️ Expected error for mixed config table '{}': {}", expected_name, message);
-                    assert!(!message.contains("Not a CREATE TABLE"), "Should parse correctly");
+                    println!(
+                        "⚠️ Expected error for mixed config table '{}': {}",
+                        expected_name, message
+                    );
+                    assert!(
+                        !message.contains("Not a CREATE TABLE"),
+                        "Should parse correctly"
+                    );
                 }
                 Err(e) => {
-                    panic!("Unexpected error creating mixed config table '{}': {}", expected_name, e);
+                    panic!(
+                        "Unexpected error creating mixed config table '{}': {}",
+                        expected_name, e
+                    );
                 }
             }
         }
@@ -1089,18 +1277,19 @@ mod tests {
             // Mock sources
             ("mock_source_test.yaml", "mock_table_1"),
             ("analytics_mock.yaml", "mock_table_2"),
-
             // Kafka sources
             ("kafka_realtime.yaml", "kafka_table_1"),
             ("stream_processor.yaml", "kafka_table_2"),
-
             // File sources
             ("data_file.csv", "file_table_1"),
             ("logs_file.json", "file_table_2"),
         ];
 
         for (config_file, table_name) in source_type_tests {
-            let query = format!("CREATE TABLE {} AS SELECT * FROM source WITH (\"config_file\" = \"{}\")", table_name, config_file);
+            let query = format!(
+                "CREATE TABLE {} AS SELECT * FROM source WITH (\"config_file\" = \"{}\")",
+                table_name, config_file
+            );
 
             println!("\n📊 Testing data source coverage: {}", config_file);
 
@@ -1108,12 +1297,21 @@ mod tests {
             match result {
                 Ok(ctas_result) => {
                     assert_eq!(ctas_result.name(), table_name);
-                    println!("✅ Successfully created table from {}: {}", config_file, table_name);
+                    println!(
+                        "✅ Successfully created table from {}: {}",
+                        config_file, table_name
+                    );
                 }
                 Err(SqlError::ExecutionError { message, .. }) => {
                     // Expected for sources that can't connect in test environment
-                    println!("⚠️ Expected connection error for {}: {}", config_file, message);
-                    assert!(!message.contains("Not a CREATE TABLE"), "Should parse correctly");
+                    println!(
+                        "⚠️ Expected connection error for {}: {}",
+                        config_file, message
+                    );
+                    assert!(
+                        !message.contains("Not a CREATE TABLE"),
+                        "Should parse correctly"
+                    );
                 }
                 Err(e) => {
                     panic!("Unexpected error for config '{}': {}", config_file, e);

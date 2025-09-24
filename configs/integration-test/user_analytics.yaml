@@ -1,0 +1,24 @@
+# User Analytics Configuration
+# Configuration for user behavior analytics table
+
+data_source:
+  type: kafka
+  brokers: "localhost:9092"
+  topic: "user-events"
+
+serialization:
+  format: json
+  schema_registry: false
+
+processing:
+  window_size: "1 hour"
+  watermark_delay: "5 minutes"
+
+output:
+  retention: "90 days"
+  compression: "gzip"
+
+kafka:
+  batch_size: 2000
+  linger_ms: 50
+  acks: "all"

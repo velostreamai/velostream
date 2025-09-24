@@ -1,0 +1,21 @@
+trader_id,symbol,position_size,avg_price,current_pnl,sector,strategy
+TRADER_001,AAPL,1500,174.50,1095.00,Technology,Growth
+TRADER_001,GOOGL,-800,141.20,-600.00,Technology,Short
+TRADER_002,MSFT,2000,410.25,10840.00,Technology,Value
+TRADER_002,AMZN,500,158.75,-1430.00,Consumer Discretionary,Growth
+TRADER_003,TSLA,-300,255.80,-2205.00,Automotive,Momentum
+TRADER_003,NVDA,100,850.00,2523.00,Technology,AI Theme
+TRADER_004,META,750,480.30,4027.50,Technology,Social Media
+TRADER_004,NFLX,-200,430.50,-1032.00,Communication,Content
+TRADER_005,JPM,3000,165.75,8100.00,Financial,Banking
+TRADER_005,WMT,2500,157.40,5950.00,Consumer Staples,Defensive
+TRADER_006,AAPL,-1000,176.80,-1570.00,Technology,Technical
+TRADER_006,GOOGL,1200,139.85,972.00,Technology,Search
+TRADER_007,MSFT,-500,420.15,-2260.00,Technology,Cloud
+TRADER_007,AMZN,800,154.60,1032.00,Consumer Discretionary,E-commerce
+TRADER_008,TSLA,600,245.90,1530.00,Automotive,EV Theme
+TRADER_008,NVDA,-150,880.45,-772.50,Technology,Chip Cycle
+TRADER_009,META,-900,490.25,-4522.50,Technology,Regulation Risk
+TRADER_009,NFLX,400,420.75,1836.00,Communication,Streaming
+TRADER_010,JPM,-1200,170.30,-2436.00,Financial,Interest Rate
+TRADER_010,WMT,1800,158.90,1584.00,Consumer Staples,Inflation Hedge
