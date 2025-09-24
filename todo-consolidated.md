@@ -1,11 +1,12 @@
 # Velostream Consolidated Development TODO
 
-**Last Updated**: September 23, 2025
-**Status**: ✅ **MAJOR MILESTONE ACHIEVED** - SQL Validator Architectural Improvements Complete
-**Current Priority**: **Priority 1: Stream-Table Joins for Financial Services Demo**
+**Last Updated**: September 24, 2025
+**Status**: ❌ **CRITICAL PARSER ISSUE IDENTIFIED** - SQL LIKE Expression Parsing Limitation
+**Current Priority**: **🚨 URGENT: Fix SQL Parser LIKE Expression Handling**
 
 ## Table of Contents
 
+- [🚨 CRITICAL ISSUE: SQL Parser LIKE Expression Limitation](#-critical-issue-sql-parser-like-expression-limitation)
 - [✅ COMPLETED: KTable SQL Subquery Implementation](#-completed-ktable-sql-subquery-implementation)
   - [🚀 Major Achievement: Full AST Integration](#-major-achievement-full-ast-integration)
   - [🎯 Current Capability Assessment](#-current-capability-assessment)
@@ -25,6 +26,71 @@
 - [🔴 Priority 5: Advanced SQL Features](#-priority-5-advanced-sql-features)
 - [🔴 Priority 6: Financial Analytics Features](#-priority-6-financial-analytics-features)
 - [📊 Implementation Status Summary](#-implementation-status-summary)
+
+---
+
+# 🚨 **CRITICAL ISSUE: SQL Parser LIKE Expression Limitation**
+
+**Priority**: 🚨 **TOP PRIORITY** - Blocks SQL validator performance pattern detection
+**Discovery Date**: September 24, 2025
+**Impact**: **HIGH** - SQL validator tests failing due to parser truncation
+
+## **Problem Description**
+
+The SQL parser has a **critical limitation** where `LIKE` expressions are being **truncated during parsing**, preventing proper SQL validation and performance pattern detection.
+
+### **Specific Issue**
+- **Query**: `"SELECT 1 FROM t2 WHERE t2.name LIKE '%pattern'"`
+- **Expected AST**: `BinaryOp { left: Column("t2.name"), op: Like, right: Literal(String("%pattern")) }`
+- **Actual AST**: `Column("t2.name")` (LIKE clause completely missing)
+
+### **Evidence**
+```rust
+// Input SQL
+"SELECT 1 FROM t2 WHERE t2.name LIKE '%pattern'"
+
+// Parsed AST (TRUNCATED)
+Select {
+    fields: [Expression { expr: Literal(Integer(1)), alias: None }],
+    from: Stream("t2"),
+    from_alias: None,
+    where_clause: Some(Column("t2.name")),  // ⚠️  LIKE clause MISSING
+    // ...
+}
+```
+
+## **Affected Files**
+| Component | File Path | Issue Type |
+|-----------|-----------|------------|
+| **Parser** | `src/velostream/sql/parser.rs` | 🔴 Core parsing logic truncation |
+| **AST** | `src/velostream/sql/ast.rs` | ❓ Missing LIKE operator enum? |
+| **Validator** | `src/velostream/sql/validator.rs` | ⚠️ Cannot detect patterns without proper AST |
+| **Test** | `tests/sql_validator_subquery_test.rs` | ❌ Failing: `test_subquery_where_clause_performance_warnings` |
+
+## **Test Impact**
+- **SQL Validator Tests**: 1 out of 13 failing (92% pass rate)
+- **Failing Test**: `test_subquery_where_clause_performance_warnings`
+- **Expected Behavior**: Detect `LIKE '%pattern'` as performance anti-pattern
+- **Actual Behavior**: No warnings generated (parser truncates LIKE clause)
+
+## **Debug Scripts Created**
+- `debug_like_parsing.rs` - Demonstrates parser truncation issue
+- `test_performance_warnings.rs` - Shows validator receiving no LIKE expressions
+
+## **Workaround Status**
+❌ **No workarounds implemented** - Parser fix required at source level
+
+## **Root Cause Analysis Required**
+1. **Parser Logic**: Investigate WHERE clause parsing in `parser.rs`
+2. **Tokenizer**: Check if LIKE tokens are being recognized
+3. **AST Support**: Verify LIKE operator is supported in expression enum
+4. **Expression Parsing**: Review binary operator parsing logic
+
+## **Immediate Next Steps**
+1. 🔍 **Investigate**: WHERE clause parsing logic for LIKE expressions
+2. 🔧 **Fix**: Parser truncation issue in `src/velostream/sql/parser.rs`
+3. ✅ **Test**: Verify `test_subquery_where_clause_performance_warnings` passes
+4. 🚀 **Validate**: Ensure no regression in 1,302 passing unit tests
 
 ---
 
