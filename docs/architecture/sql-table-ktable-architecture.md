@@ -1,8 +1,35 @@
 # Velostream SQL Table Architecture
 
+## 🔥 **CTAS-Based Table Creation & Sharing Architecture**
+
+Velostream implements SQL tables as **shared materialized views** created via `CREATE TABLE AS SELECT` statements. This architecture ensures memory efficiency, state consistency, and SQL standard compliance by requiring explicit table creation before use and sharing table instances across multiple jobs.
+
 ## Overview
 
-Velostream implements SQL tables as materialized views with **datasource-agnostic** state management. The system provides a unified SQL interface while delegating state management to pluggable datasource implementations. This architecture enables high-performance stream-table joins, real-time aggregations, stateful stream processing, and **SQL subquery execution** across heterogeneous data sources including Kafka, files, databases, and more.
+Velostream implements SQL tables as materialized views with **CTAS-based table registry** state management. The system provides a unified SQL interface with shared table instances, preventing memory duplication and ensuring consistent state across multiple SQL jobs. This architecture enables high-performance stream-table joins, real-time aggregations, stateful stream processing, and **SQL subquery execution** across heterogeneous data sources including Kafka, files, databases, and more.
+
+### **Critical Requirement: CTAS Table Creation**
+
+**All SQL operations require tables to be explicitly created first:**
+
+```sql
+-- Step 1: Create shared tables via CTAS
+CREATE TABLE orders AS
+SELECT order_id, user_id, amount, status, created_at
+FROM kafka://orders-topic
+EMIT CHANGES;
+
+CREATE TABLE users AS
+SELECT id, name, email, status
+FROM kafka://users-topic
+EMIT CHANGES;
+
+-- Step 2: Use tables in SQL operations
+SELECT u.name, (SELECT COUNT(*) FROM orders WHERE user_id = u.id) as order_count
+FROM users u;
+```
+
+**⚠️ Without CTAS**: All SQL operations will fail with "Table not found" error.
 
 ## Table SQL Integration Features
 
@@ -99,9 +126,22 @@ impl SubqueryExecutor for SelectProcessor {
 
 ## Architecture Components
 
-### 1. Unified SQL Interface
+### 1. CTAS-Based Shared Table Registry
 
-SQL tables in Velostream are created using `CREATE TABLE AS SELECT` statements that work with **any datasource**:
+SQL tables in Velostream are created using `CREATE TABLE AS SELECT` statements and managed via a **shared table registry** that works with **any datasource**:
+
+```rust
+// StreamJobServer with Table Registry
+pub struct StreamJobServer {
+    jobs: Arc<RwLock<HashMap<String, RunningJob>>>,
+    // ✅ Shared table registry - single source of truth
+    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    // ✅ CTAS background jobs for continuous table population
+    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+}
+```
+
+**CTAS Table Creation Workflow**:
 
 ```sql
 -- File-based materialized table
@@ -205,25 +245,42 @@ pub struct DatabaseDataSource {
 }
 ```
 
-### 5. Datasource-Agnostic Flow
+### 5. CTAS-Based Table Sharing Flow
 
 ```mermaid
 graph TD
     A[SQL CREATE TABLE AS SELECT] --> B[Parse to StreamingQuery AST]
-    B --> C[Detect Datasource Type from URI/Config]
-    C --> D{Datasource Type}
-    D -->|Kafka| E[Initialize KTable Consumer]
-    D -->|File| F[Initialize FileDataSource + Watcher]  
-    D -->|Database| G[Initialize DB Connection + Views]
-    D -->|Memory| H[Initialize In-Memory HashMap]
-    E --> I[Start Continuous Query Execution]
-    F --> I
-    G --> I
-    H --> I
-    I --> J[Process Updates via SelectProcessor]
-    J --> K[Update Datasource-Specific State]
-    K --> L[Materialized View Ready for Joins]
+    B --> C[StreamJobServer.create_table]
+    C --> D[Create Table Instance]
+    D --> E[Register in table_registry]
+    E --> F[Start Background CTAS Job]
+    F --> G[Continuous SELECT Population]
+    G --> H[Table Ready for Sharing]
+
+    I[Deploy SQL Job] --> J[Parse Query Dependencies]
+    J --> K[Check table_registry]
+    K --> L{Tables Exist?}
+    L -->|No| M[Error: Table not found]
+    L -->|Yes| N[Inject Tables into ProcessorContext]
+    N --> O[Execute Job with Shared Tables]
+
+    H --> N
+
+    subgraph "Multiple Jobs Share Tables"
+        P[Job 1: Fraud Detection]
+        Q[Job 2: Analytics]
+        R[Job 3: Monitoring]
+        P -.-> H
+        Q -.-> H
+        R -.-> H
+    end
 ```
+
+**Key Benefits of CTAS Flow**:
+- **Memory Efficiency**: Single table instance shared across N jobs
+- **State Consistency**: All jobs see same materialized state
+- **Fail Fast**: Job deployment fails if required tables don't exist
+- **SQL Compliance**: Standard CREATE TABLE AS SELECT semantics
 
 ## Advanced Table Features
 
@@ -490,23 +547,98 @@ pub trait DataSourceStats {
     fn datasource_type(&self) -> &str;
     fn health_check(&self) -> HealthStatus;
 }
+```
 
-// Kafka implementation
-impl DataSourceStats for KTable {
-    fn datasource_type(&self) -> &str { "kafka" }
-    fn health_check(&self) -> HealthStatus { 
-        if self.is_running() { HealthStatus::Healthy } else { HealthStatus::Disconnected }
+---
+
+## 🚧 **Implementation Status & Roadmap**
+
+### **Current State**
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| **SqlQueryable Trait** | ✅ **Complete** | Full SQL operations on table state |
+| **ProcessorContext Integration** | ✅ **Complete** | Table injection for subqueries |
+| **CTAS Parser** | ✅ **Complete** | CREATE TABLE AS SELECT syntax |
+| **Table State Management** | ✅ **Complete** | Kafka, File, Memory datasources |
+| **Subquery Execution** | ✅ **Complete** | EXISTS, IN, Scalar, ANY/ALL with real tables |
+| **Wildcard Expressions** | ✅ **Complete** | Advanced path queries with aggregation |
+
+### **Missing: CTAS-Based Table Registry** 🔥
+
+| Component | Status | Priority | Implementation Needed |
+|-----------|--------|----------|----------------------|
+| **StreamJobServer.table_registry** | ❌ **Missing** | **CRITICAL** | Shared table registry HashMap |
+| **StreamJobServer.create_table()** | ❌ **Missing** | **CRITICAL** | CTAS execution with background jobs |
+| **Table Dependency Injection** | ❌ **Missing** | **HIGH** | Automatic table resolution in job deployment |
+| **Table Lifecycle Management** | ❌ **Missing** | **MEDIUM** | TTL, cleanup, memory limits |
+| **Cross-Job Table Sharing** | ❌ **Missing** | **CRITICAL** | Multiple jobs sharing single table instances |
+
+### **Required Architecture Changes**
+
+```rust
+// 1. StreamJobServer Enhancement
+pub struct StreamJobServer {
+    jobs: Arc<RwLock<HashMap<String, RunningJob>>>,
+    // ✅ ADD: Shared table registry
+    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    // ✅ ADD: Table background jobs
+    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+}
+
+impl StreamJobServer {
+    // ✅ ADD: CTAS execution
+    pub async fn create_table(&self, ctas_query: String) -> Result<String, SqlError> {
+        // 1. Parse CREATE TABLE AS SELECT
+        // 2. Create table instance
+        // 3. Start background population job
+        // 4. Register in table_registry
+    }
+
+    // ✅ MODIFY: Job deployment with dependency checking
+    pub async fn deploy_job(&self, name: String, query: String) -> Result<(), SqlError> {
+        // 1. Parse query dependencies
+        // 2. Check all required tables exist
+        // 3. Inject tables into engine context
+        // 4. Deploy job
     }
 }
 
-// File implementation  
-impl DataSourceStats for FileDataSource {
-    fn datasource_type(&self) -> &str { "file" }
-    fn health_check(&self) -> HealthStatus {
-        if self.config.path.exists() { HealthStatus::Healthy } else { HealthStatus::FileNotFound }
-    }
+// 2. Table Dependency Resolution
+fn extract_table_references(query: &StreamingQuery) -> Vec<String> {
+    // Extract all table names from FROM, JOIN, subqueries
 }
 ```
+
+### **Implementation Priority**
+
+**Phase 1 (Critical - Week 1)**:
+- [ ] Add `table_registry` and `table_jobs` to `StreamJobServer`
+- [ ] Implement `StreamJobServer.create_table()` method
+- [ ] Add table dependency extraction for queries
+- [ ] Implement fail-fast deployment for missing tables
+
+**Phase 2 (High - Week 2)**:
+- [ ] Implement automatic table injection in job deployment
+- [ ] Add background CTAS job management
+- [ ] Test multi-job table sharing scenarios
+- [ ] Add table registry persistence (optional)
+
+**Phase 3 (Medium - Week 3)**:
+- [ ] Add table lifecycle management (TTL, cleanup)
+- [ ] Implement table memory limits and eviction
+- [ ] Add table dependency graph visualization
+- [ ] Performance optimization for large table registries
+
+### **Success Criteria**
+
+- [ ] `CREATE TABLE orders AS SELECT * FROM kafka://orders-topic` creates shared table
+- [ ] Multiple jobs can reference same `orders` table without duplication
+- [ ] Job deployment fails with clear error if required tables don't exist
+- [ ] Background CTAS process continuously populates tables
+- [ ] Memory usage: Single table instance regardless of job count
+
+This implementation will transform Velostream from **isolated per-job tables** to a **shared, consistent, enterprise-ready table ecosystem** that follows SQL standards and prevents resource waste.
 
 ## Integration with Financial Precision
 

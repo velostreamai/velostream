@@ -1,5 +1,40 @@
 # Subquery Quick Reference Guide
 
+## 🔥 **Prerequisites: CTAS Table Creation**
+
+**CRITICAL**: All subquery operations require tables to be explicitly created via `CREATE TABLE AS SELECT` before use. This ensures shared state across multiple queries and prevents memory duplication.
+
+### **Step 1: Create Tables First**
+```sql
+-- Create shared materialized tables
+CREATE TABLE orders AS
+SELECT order_id, user_id, amount, status, created_at
+FROM kafka://orders-topic
+EMIT CHANGES;
+
+CREATE TABLE users AS
+SELECT id, name, email, status
+FROM kafka://users-topic
+EMIT CHANGES;
+
+CREATE TABLE trades AS
+SELECT trade_id, user_id, symbol, profit_loss, timestamp
+FROM kafka://trades-topic
+EMIT CHANGES;
+```
+
+### **Step 2: Use Tables in Subqueries**
+```sql
+-- Now subqueries can reference the created tables
+SELECT user_id,
+    (SELECT MAX(amount) FROM orders WHERE user_id = u.id) as max_order
+FROM users u;
+```
+
+**⚠️ Without CTAS**: Subqueries will fail with "Table not found" error.
+
+---
+
 ## Quick Syntax Guide
 
 ### Scalar Subqueries with Aggregates ✅ **FULL SUPPORT**
@@ -419,3 +454,146 @@ WHERE CASE WHEN condition THEN 1 ELSE 0 END = 1  -- Warning: May impact performa
 6. **Aggregate Engine**: `compute_scalar_aggregate()` with full SQL compliance
 
 **✅ Production Ready & Tested**: All subquery types (EXISTS, IN, ANY/ALL, Scalar with Aggregates) pass comprehensive functional tests with real execution paths. **14/14 tests passing** with complete edge case coverage.
+
+---
+
+## 🏗️ **CTAS-Based Table Sharing Architecture**
+
+### **Problem: Multiple Job Memory Duplication**
+
+**Before CTAS** (Current Issue):
+```rust
+// Each SQL job creates its own table instances
+let job1 = deploy_job("fraud-detection", "SELECT * FROM orders");     // Creates orders_table_1
+let job2 = deploy_job("analytics", "SELECT COUNT(*) FROM orders");    // Creates orders_table_2
+let job3 = deploy_job("monitoring", "SELECT AVG(amount) FROM orders"); // Creates orders_table_3
+
+// Result: 3 separate KTable instances, different states, memory waste
+```
+
+### **Solution: CTAS-Based Shared Tables**
+
+**With CTAS** (Required Architecture):
+```sql
+-- Step 1: Create shared tables once
+CREATE TABLE orders AS SELECT * FROM kafka://orders-topic EMIT CHANGES;
+CREATE TABLE users AS SELECT * FROM kafka://users-topic EMIT CHANGES;
+
+-- Step 2: Deploy multiple jobs that share tables
+-- All jobs reference the SAME orders table instance
+```
+
+```rust
+// StreamJobServer with Table Registry
+pub struct StreamJobServer {
+    jobs: Arc<RwLock<HashMap<String, RunningJob>>>,
+    // ✅ NEW: Shared table registry
+    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    // ✅ NEW: Table creation jobs (CTAS background processes)
+    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+}
+
+// Usage
+server.create_table("CREATE TABLE orders AS SELECT * FROM kafka://orders-topic")?;
+server.deploy_job("fraud-detection", "SELECT * FROM orders WHERE amount > 1000")?;
+server.deploy_job("analytics", "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id")?;
+// Both jobs share the same orders KTable instance
+```
+
+### **Table Dependency Injection**
+
+**Automatic Table Resolution**:
+```rust
+pub async fn deploy_job(&self, name: String, query: String) -> Result<(), SqlError> {
+    // 1. Parse query to find table dependencies
+    let required_tables = extract_table_references(&parsed_query); // ["orders", "users"]
+
+    // 2. Ensure all tables exist (fail fast if missing)
+    for table in &required_tables {
+        if !self.table_registry.contains_key(table) {
+            return Err(SqlError::ExecutionError {
+                message: format!("Table '{}' not found. Create with: CREATE TABLE {} AS SELECT...", table, table),
+                query: Some(query),
+            });
+        }
+    }
+
+    // 3. Inject shared tables into engine context
+    engine.context_customizer = Some(Arc::new(move |context: &mut ProcessorContext| {
+        let registry = table_registry.blocking_read();
+        for table_name in &required_tables {
+            if let Some(shared_table) = registry.get(table_name) {
+                context.load_reference_table(table_name, Arc::clone(shared_table));
+            }
+        }
+    }));
+
+    // 4. Deploy job with injected tables
+    deploy_job_internal(name, parsed_query, execution_engine).await
+}
+```
+
+### **Benefits of CTAS Architecture**
+
+| Aspect | Before CTAS | With CTAS |
+|--------|-------------|-----------|
+| **Memory Usage** | ❌ N duplicate KTables | ✅ Single shared KTable |
+| **State Consistency** | ❌ Different states per job | ✅ Same state across all jobs |
+| **Resource Management** | ❌ Implicit table creation | ✅ Explicit table lifecycle |
+| **Dependency Management** | ❌ Jobs can start without tables | ✅ Fail fast if tables missing |
+| **SQL Compliance** | ❌ Non-standard behavior | ✅ Standard CTAS semantics |
+
+### **Real-World Example**
+
+**E-commerce Platform**:
+```sql
+-- Create shared materialized tables
+CREATE TABLE orders AS
+SELECT order_id, customer_id, product_id, amount, status, order_date
+FROM kafka://orders-stream EMIT CHANGES;
+
+CREATE TABLE customers AS
+SELECT customer_id, name, email, tier, registration_date
+FROM kafka://customers-stream EMIT CHANGES;
+
+CREATE TABLE products AS
+SELECT product_id, name, category, price, inventory_count
+FROM kafka://products-stream EMIT CHANGES;
+```
+
+**Deploy Multiple Analytics Jobs**:
+```sql
+-- Job 1: Real-time fraud detection
+SELECT * FROM orders o
+WHERE o.amount > (
+    SELECT AVG(amount) * 3
+    FROM orders
+    WHERE customer_id = o.customer_id
+);
+
+-- Job 2: Customer lifetime value
+SELECT c.customer_id, c.name, c.tier,
+    (SELECT COUNT(*) FROM orders WHERE customer_id = c.customer_id) as total_orders,
+    (SELECT SUM(amount) FROM orders WHERE customer_id = c.customer_id) as lifetime_value
+FROM customers c;
+
+-- Job 3: Inventory alerts
+SELECT p.product_id, p.name,
+    (SELECT COUNT(*) FROM orders WHERE product_id = p.product_id AND status = 'pending') as pending_orders
+FROM products p
+WHERE p.inventory_count < 10;
+```
+
+**Result**: All 3 jobs share the same `orders`, `customers`, and `products` KTable instances, ensuring memory efficiency and state consistency.
+
+### **Implementation Status**
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| **CTAS Parser** | ✅ **Complete** | `CREATE TABLE AS SELECT` syntax fully supported |
+| **Table Registry** | 🚧 **In Progress** | StreamJobServer.table_registry implementation needed |
+| **Dependency Injection** | 🚧 **In Progress** | ProcessorContext.load_reference_table integration needed |
+| **Background Population** | 🚧 **In Progress** | CTAS background jobs for table population needed |
+| **Lifecycle Management** | ⏳ **Planned** | Table TTL, memory limits, cleanup needed |
+
+This architecture transforms Velostream from isolated per-job tables to a **shared, consistent, memory-efficient table ecosystem** that follows SQL standards and enterprise best practices.
