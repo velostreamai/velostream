@@ -900,15 +900,17 @@ impl SubqueryAnalyzer {
                 fields,
                 ..
             } => {
-                // Analyze WHERE clause for subqueries
+                // Analyze WHERE clause for subqueries and performance patterns
                 if let Some(where_expr) = where_clause {
                     self.analyze_expression(where_expr);
+                    self.analyze_performance_patterns(where_expr);
                 }
 
-                // Analyze SELECT fields for subqueries
+                // Analyze SELECT fields for subqueries and performance patterns
                 for field in fields {
                     if let SelectField::Expression { expr, .. } = field {
                         self.analyze_expression(expr);
+                        self.analyze_performance_patterns(expr);
                     }
                 }
             }
@@ -1079,12 +1081,127 @@ impl SubqueryAnalyzer {
         }
     }
 
+    /// Analyze expressions for performance anti-patterns
+    fn analyze_performance_patterns(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Function { name, args } => {
+                // Detect performance-problematic patterns
+                if name.to_lowercase() == "like" && args.len() == 2 {
+                    // Check for leading wildcard pattern: LIKE '%...'
+                    if let Expr::Literal(crate::velostream::sql::ast::LiteralValue::String(pattern)) = &args[1] {
+                        if pattern.starts_with('%') {
+                            self.findings.push(SubqueryFinding {
+                                message: "LIKE patterns starting with % prevent index usage and may cause performance issues".to_string(),
+                                subquery_type: None,
+                            });
+                        }
+                    }
+                } else if name.to_lowercase() == "regexp" {
+                    self.findings.push(SubqueryFinding {
+                        message: "Regular expressions can be expensive operations in streaming contexts".to_string(),
+                        subquery_type: None,
+                    });
+                } else if name.to_lowercase() == "substring" {
+                    self.findings.push(SubqueryFinding {
+                        message: "String functions in WHERE clauses may prevent index usage".to_string(),
+                        subquery_type: None,
+                    });
+                }
+
+                // Recursively analyze function arguments
+                for arg in args {
+                    self.analyze_performance_patterns(arg);
+                }
+            }
+            Expr::Case { when_clauses, else_clause, .. } => {
+                self.findings.push(SubqueryFinding {
+                    message: "Complex CASE expressions in subqueries may impact performance".to_string(),
+                    subquery_type: None,
+                });
+
+                // Analyze all clauses
+                for (condition, result) in when_clauses {
+                    self.analyze_performance_patterns(condition);
+                    self.analyze_performance_patterns(result);
+                }
+                if let Some(else_expr) = else_clause {
+                    self.analyze_performance_patterns(else_expr);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.analyze_performance_patterns(left);
+                self.analyze_performance_patterns(right);
+            }
+            Expr::UnaryOp { expr, .. } => {
+                self.analyze_performance_patterns(expr);
+            }
+            Expr::Subquery { query, .. } => {
+                // Recursively analyze nested subqueries
+                let mut nested_analyzer = SubqueryAnalyzer::new();
+                nested_analyzer.analyze_query(query);
+                self.findings.extend(nested_analyzer.findings);
+            }
+            _ => {}
+        }
+    }
+
     /// Heuristic to detect correlation patterns in subqueries
-    fn has_correlation_patterns(&self, _query: &StreamingQuery) -> bool {
-        // For now, use a simple heuristic - could be enhanced with proper symbol table analysis
-        // This would require analyzing if the subquery references columns from outer query
-        // For demonstration, we'll return false and rely on the outer table.column pattern detection
-        false
+    fn has_correlation_patterns(&self, query: &StreamingQuery) -> bool {
+        // Analyze if the subquery references columns that could be from outer query
+        // Get the subquery's own table aliases to distinguish from outer references
+        match query {
+            StreamingQuery::Select { where_clause, from_alias, from, .. } => {
+                if let Some(expr) = where_clause {
+                    // Collect this subquery's table identifiers
+                    let mut local_tables = Vec::new();
+                    if let Some(alias) = from_alias {
+                        local_tables.push(alias.as_str());
+                    }
+                    // Add the actual table name as fallback
+                    if let crate::velostream::sql::ast::StreamSource::Stream(table_name) = from {
+                        local_tables.push(table_name.as_str());
+                    }
+                    if let crate::velostream::sql::ast::StreamSource::Table(table_name) = from {
+                        local_tables.push(table_name.as_str());
+                    }
+
+                    self.has_correlation_in_expr(expr, &local_tables)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if expression contains correlation patterns (outer table references)
+    fn has_correlation_in_expr(&self, expr: &Expr, local_tables: &[&str]) -> bool {
+        match expr {
+            Expr::Column(col_name) => {
+                // Check if this column reference uses a table alias not from this subquery
+                if col_name.contains('.') {
+                    let table_part = col_name.split('.').next().unwrap();
+                    // If table part is NOT in local_tables, it's likely from outer query
+                    !local_tables.contains(&table_part)
+                } else {
+                    false
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.has_correlation_in_expr(left, local_tables) || self.has_correlation_in_expr(right, local_tables)
+            }
+            Expr::UnaryOp { expr, .. } => self.has_correlation_in_expr(expr, local_tables),
+            Expr::Function { args, .. } => {
+                args.iter().any(|arg| self.has_correlation_in_expr(arg, local_tables))
+            }
+            Expr::Case { when_clauses, else_clause, .. } => {
+                when_clauses.iter().any(|(condition, result)| {
+                    self.has_correlation_in_expr(condition, local_tables) || self.has_correlation_in_expr(result, local_tables)
+                }) || else_clause.as_ref().map_or(false, |expr| self.has_correlation_in_expr(expr, local_tables))
+            }
+            Expr::Subquery { query, .. } => self.has_correlation_patterns(query),
+            _ => false,
+        }
     }
 
     /// Split SQL content into individual queries with line tracking (from working binary implementation)
