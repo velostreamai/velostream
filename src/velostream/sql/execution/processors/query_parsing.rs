@@ -383,6 +383,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("users".to_string()),
+            from_alias: None,
             where_clause: None,
             group_by: None,
             having: None,
@@ -403,6 +404,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Table("products".to_string()),
+            from_alias: None,
             where_clause: None,
             group_by: None,
             having: None,
@@ -429,6 +431,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Table("users".to_string()),
+            from_alias: None,
             where_clause: Some(where_expr),
             group_by: None,
             having: None,
@@ -449,6 +452,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Table("users".to_string()),
+            from_alias: None,
             where_clause: None,
             group_by: None,
             having: None,
@@ -474,6 +478,7 @@ mod tests {
         let query = StreamingQuery::Select {
             fields: vec![select_field],
             from: StreamSource::Table("users".to_string()),
+            from_alias: None,
             where_clause: None,
             group_by: None,
             having: None,

@@ -883,6 +883,7 @@ impl<'a> TokenParser<'a> {
         let fields = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let mut from_alias = None;
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
@@ -908,7 +909,7 @@ impl<'a> TokenParser<'a> {
             };
 
             // Parse optional alias for FROM clause (e.g., "FROM events s" or "FROM 'file://data.csv' f")
-            let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+            from_alias = if self.current_token().token_type == TokenType::Identifier {
                 let alias = self.current_token().value.clone();
                 self.advance();
                 Some(alias)
@@ -1039,6 +1040,7 @@ impl<'a> TokenParser<'a> {
             let select_query = StreamingQuery::Select {
                 fields,
                 from: from_source,
+                from_alias,
                 joins,
                 where_clause,
                 group_by,
@@ -1083,6 +1085,7 @@ impl<'a> TokenParser<'a> {
         let select_query = StreamingQuery::Select {
             fields,
             from: from_source,
+            from_alias,
             joins,
             where_clause,
             group_by,
@@ -1125,6 +1128,7 @@ impl<'a> TokenParser<'a> {
         let fields = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let mut from_alias = None;
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
@@ -1150,7 +1154,7 @@ impl<'a> TokenParser<'a> {
             };
 
             // Parse optional alias for FROM clause (e.g., "FROM events s" or "FROM 'file://data.csv' f")
-            let _from_alias = if self.current_token().token_type == TokenType::Identifier {
+            from_alias = if self.current_token().token_type == TokenType::Identifier {
                 let alias = self.current_token().value.clone();
                 self.advance();
                 Some(alias)
@@ -1252,6 +1256,7 @@ impl<'a> TokenParser<'a> {
         let select_query = StreamingQuery::Select {
             fields,
             from: from_source,
+            from_alias,
             joins,
             where_clause,
             group_by,

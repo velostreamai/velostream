@@ -319,6 +319,7 @@ impl SelectProcessor {
         if let StreamingQuery::Select {
             fields,
             from,
+            from_alias,
             where_clause,
             joins,
             having,
@@ -383,7 +384,7 @@ impl SelectProcessor {
             }
 
             // Set correlation context for subquery resolution
-            let table_ref = extract_table_reference_from_stream_source(from);
+            let table_ref = extract_table_reference_from_stream_source(from, from_alias.as_ref());
             let original_context = context.correlation_context.clone();
             context.correlation_context = Some(table_ref);
 
@@ -1728,12 +1729,20 @@ impl TableReference {
 }
 
 /// Extract table reference from StreamSource for proper correlation resolution
-fn extract_table_reference_from_stream_source(source: &StreamSource) -> TableReference {
-    match source {
-        StreamSource::Stream(name) => TableReference::new(name.clone()),
-        StreamSource::Table(name) => TableReference::new(name.clone()),
-        StreamSource::Uri(uri) => TableReference::new(uri.clone()),
-        StreamSource::Subquery(_) => TableReference::new("subquery".to_string()),
+fn extract_table_reference_from_stream_source(
+    source: &StreamSource,
+    alias: Option<&String>,
+) -> TableReference {
+    let name = match source {
+        StreamSource::Stream(name) => name.clone(),
+        StreamSource::Table(name) => name.clone(),
+        StreamSource::Uri(uri) => uri.clone(),
+        StreamSource::Subquery(_) => "subquery".to_string(),
+    };
+
+    match alias {
+        Some(alias_str) => TableReference::with_alias(name, alias_str.clone()),
+        None => TableReference::new(name),
     }
 }
 

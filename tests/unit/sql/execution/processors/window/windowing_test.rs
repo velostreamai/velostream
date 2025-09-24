@@ -80,6 +80,7 @@ async fn test_windowed_execution_tumbling() {
             alias: Some("total_amount".to_string()),
         }],
         from: StreamSource::Stream("orders".to_string()),
+        from_alias: None,
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Tumbling {
@@ -185,6 +186,7 @@ async fn test_sliding_window_execution() {
             alias: Some("avg_amount".to_string()),
         }],
         from: StreamSource::Stream("orders".to_string()),
+        from_alias: None,
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Sliding {
@@ -242,6 +244,7 @@ async fn test_session_window_execution() {
             alias: Some("session_count".to_string()),
         }],
         from: StreamSource::Stream("orders".to_string()),
+        from_alias: None,
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Session {
@@ -326,6 +329,7 @@ async fn test_aggregation_functions() {
             },
         ],
         from: StreamSource::Stream("orders".to_string()),
+        from_alias: None,
         joins: None,
         where_clause: None,
         window: Some(WindowSpec::Tumbling {

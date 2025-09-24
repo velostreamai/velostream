@@ -278,6 +278,7 @@ async fn test_window_processor_watermark_aware_processing() {
 
     let query = StreamingQuery::Select {
         fields: vec![], // Simplified for test
+        from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,
         where_clause: None,
@@ -350,6 +351,7 @@ async fn test_backward_compatibility() {
 
     let query = StreamingQuery::Select {
         fields: vec![],
+        from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,
         where_clause: None,

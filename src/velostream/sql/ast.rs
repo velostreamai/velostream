@@ -83,6 +83,7 @@ pub enum EmitMode {
 ///     // SELECT query
 ///     let select_query = StreamingQuery::Select {
 ///         fields: vec![SelectField::Wildcard],
+///         from_alias: None,
 ///         from: StreamSource::Stream("orders".to_string()),
 ///         joins: None,
 ///         where_clause: None,
@@ -113,6 +114,8 @@ pub enum StreamingQuery {
         fields: Vec<SelectField>,
         /// Source stream or table
         from: StreamSource,
+        /// Optional alias for the FROM source (e.g., "c" in "FROM customers c")
+        from_alias: Option<String>,
         /// Optional JOIN clauses
         joins: Option<Vec<JoinClause>>,
         /// Optional WHERE clause for filtering
