@@ -2562,7 +2562,8 @@ impl<'a> TokenParser<'a> {
         };
 
         self.expect(TokenType::As)?;
-        let as_select = Box::new(self.parse_select()?);
+        // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE STREAM
+        let as_select = Box::new(self.parse_select_no_with()?);
 
         // Check for INTO clause (new syntax)
         if self.current_token().token_type == TokenType::Into {
@@ -2625,7 +2626,8 @@ impl<'a> TokenParser<'a> {
         };
 
         self.expect(TokenType::As)?;
-        let as_select = Box::new(self.parse_select()?);
+        // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
+        let as_select = Box::new(self.parse_select_no_with()?);
 
         // Check for INTO clause (new syntax)
         if self.current_token().token_type == TokenType::Into {
