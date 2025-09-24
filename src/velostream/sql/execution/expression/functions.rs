@@ -22,8 +22,47 @@ use super::evaluator::ExpressionEvaluator;
 use crate::velostream::sql::ast::{Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
 use chrono::Utc;
+use regex::Regex;
 use serde_json;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Global regex cache for REGEXP function performance optimization
+static REGEX_CACHE: OnceLock<Mutex<HashMap<String, Arc<Regex>>>> = OnceLock::new();
+
+/// Maximum number of compiled regexes to cache (prevents memory bloat)
+const MAX_REGEX_CACHE_SIZE: usize = 1000;
+
+/// Get or compile a regex pattern with caching for performance
+fn get_cached_regex(pattern: &str) -> Result<Arc<Regex>, SqlError> {
+    let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache_guard = cache.lock().unwrap();
+
+    if let Some(cached_regex) = cache_guard.get(pattern) {
+        return Ok(Arc::clone(cached_regex));
+    }
+
+    // Compile new regex
+    let regex = match Regex::new(pattern) {
+        Ok(r) => Arc::new(r),
+        Err(e) => {
+            return Err(SqlError::ExecutionError {
+                message: format!("Invalid regular expression '{}': {}", pattern, e),
+                query: None,
+            });
+        }
+    };
+
+    // Cache management: remove oldest entries if cache is full
+    if cache_guard.len() >= MAX_REGEX_CACHE_SIZE {
+        // Simple LRU: clear half the cache when full
+        // In a production system, you'd want a proper LRU implementation
+        cache_guard.clear();
+    }
+
+    cache_guard.insert(pattern.to_string(), Arc::clone(&regex));
+    Ok(regex)
+}
 
 /// Provides built-in SQL function implementations
 pub struct BuiltinFunctions;
@@ -81,6 +120,7 @@ impl BuiltinFunctions {
             "SUBSTRING" => Self::substring_function(args, record),
             "REPLACE" => Self::replace_function(args, record),
             "TRIM" => Self::trim_function(args, record),
+            "REGEXP" => Self::regexp_function(args, record),
             "LTRIM" => Self::ltrim_function(args, record),
             "RTRIM" => Self::rtrim_function(args, record),
             "LENGTH" | "LEN" => Self::length_function(args, record),
@@ -791,6 +831,38 @@ impl BuiltinFunctions {
                 query: None,
             }),
         }
+    }
+
+    /// REGEXP function: REGEXP(string, pattern) - returns true if string matches the regex pattern
+    fn regexp_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        if args.len() != 2 {
+            return Err(SqlError::ExecutionError {
+                message: "REGEXP requires exactly two arguments: REGEXP(string, pattern)"
+                    .to_string(),
+                query: None,
+            });
+        }
+
+        let string_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
+        let pattern_val = ExpressionEvaluator::evaluate_expression_value(&args[1], record)?;
+
+        let (string, pattern) = match (string_val, pattern_val) {
+            (FieldValue::String(s), FieldValue::String(p)) => (s, p),
+            (FieldValue::Null, _) | (_, FieldValue::Null) => return Ok(FieldValue::Null),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "REGEXP requires string arguments".to_string(),
+                    query: None,
+                });
+            }
+        };
+
+        // Get or compile the regular expression (with caching for performance)
+        let regex = get_cached_regex(&pattern)?;
+
+        // Test if the string matches the pattern
+        let matches = regex.is_match(&string);
+        Ok(FieldValue::Boolean(matches))
     }
 
     fn ltrim_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {

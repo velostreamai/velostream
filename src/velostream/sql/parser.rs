@@ -248,6 +248,7 @@ enum TokenType {
     In,      // IN (for IN operator)
     Not,     // NOT (for NOT IN, IS NOT NULL, etc.)
     Between, // BETWEEN (for range queries)
+    Like,    // LIKE (for pattern matching)
     Exists,  // EXISTS (for EXISTS subqueries)
     Any,     // ANY (for ANY subqueries)
     All,     // ALL (for ALL subqueries)
@@ -369,6 +370,7 @@ impl StreamingSqlParser {
         keywords.insert("IN".to_string(), TokenType::In);
         keywords.insert("NOT".to_string(), TokenType::Not);
         keywords.insert("BETWEEN".to_string(), TokenType::Between);
+        keywords.insert("LIKE".to_string(), TokenType::Like);
         keywords.insert("EXISTS".to_string(), TokenType::Exists);
         keywords.insert("UNION".to_string(), TokenType::Union);
         keywords.insert("ANY".to_string(), TokenType::Any);
@@ -1479,6 +1481,7 @@ impl<'a> TokenParser<'a> {
                 | TokenType::In
                 | TokenType::Not
                 | TokenType::Between
+                | TokenType::Like
         ) {
             let op_token = self.current_token().clone();
             self.advance();
@@ -1558,9 +1561,26 @@ impl<'a> TokenParser<'a> {
                         right: Box::new(Expr::List(list_items)),
                     };
                 }
+            } else if op_token.token_type == TokenType::Like {
+                // Handle LIKE operator: expr LIKE 'pattern'
+                let pattern = self.parse_additive()?;
+                left = Expr::BinaryOp {
+                    left: Box::new(left),
+                    op: BinaryOperator::Like,
+                    right: Box::new(pattern),
+                };
             } else if op_token.token_type == TokenType::Not {
-                // Handle NOT IN or NOT BETWEEN operators
-                if self.current_token().token_type == TokenType::In {
+                // Handle NOT IN, NOT BETWEEN, or NOT LIKE operators
+                if self.current_token().token_type == TokenType::Like {
+                    // Handle NOT LIKE operator: expr NOT LIKE 'pattern'
+                    self.advance(); // consume 'LIKE'
+                    let pattern = self.parse_additive()?;
+                    left = Expr::BinaryOp {
+                        left: Box::new(left),
+                        op: BinaryOperator::NotLike,
+                        right: Box::new(pattern),
+                    };
+                } else if self.current_token().token_type == TokenType::In {
                     // Handle NOT IN operator: expr NOT IN (val1, val2, val3) or expr NOT IN (SELECT ...)
                     self.advance(); // consume 'IN'
 
@@ -1633,7 +1653,7 @@ impl<'a> TokenParser<'a> {
                     };
                 } else {
                     return Err(SqlError::ParseError {
-                        message: "Expected 'IN' or 'BETWEEN' after 'NOT'".to_string(),
+                        message: "Expected 'IN', 'BETWEEN', or 'LIKE' after 'NOT'".to_string(),
                         position: Some(self.current_token().position),
                     });
                 }

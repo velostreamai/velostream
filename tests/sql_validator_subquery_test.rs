@@ -122,7 +122,7 @@ fn test_subquery_where_clause_performance_warnings() {
 
     let queries_and_patterns = vec![
         ("SELECT * FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.name LIKE '%pattern')", "LIKE patterns starting with %"),
-        ("SELECT * FROM t1 WHERE id IN (SELECT id FROM t2 WHERE t2.desc REGEXP 'pattern')", "Regular expressions"),
+        ("SELECT * FROM t1 WHERE id IN (SELECT id FROM t2 WHERE REGEXP(t2.description, 'pattern'))", "Regular expressions"),
         ("SELECT * FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE SUBSTRING(t2.name, 1, 5) = 'test')", "String functions"),
         ("SELECT * FROM t1 WHERE id IN (SELECT id FROM t2 WHERE CASE WHEN t2.status = 'A' THEN 1 ELSE 0 END = 1)", "Complex CASE expressions"),
     ];

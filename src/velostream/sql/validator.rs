@@ -1088,7 +1088,10 @@ impl SubqueryAnalyzer {
                 // Detect performance-problematic patterns
                 if name.to_lowercase() == "like" && args.len() == 2 {
                     // Check for leading wildcard pattern: LIKE '%...'
-                    if let Expr::Literal(crate::velostream::sql::ast::LiteralValue::String(pattern)) = &args[1] {
+                    if let Expr::Literal(crate::velostream::sql::ast::LiteralValue::String(
+                        pattern,
+                    )) = &args[1]
+                    {
                         if pattern.starts_with('%') {
                             self.findings.push(SubqueryFinding {
                                 message: "LIKE patterns starting with % prevent index usage and may cause performance issues".to_string(),
@@ -1098,12 +1101,15 @@ impl SubqueryAnalyzer {
                     }
                 } else if name.to_lowercase() == "regexp" {
                     self.findings.push(SubqueryFinding {
-                        message: "Regular expressions can be expensive operations in streaming contexts".to_string(),
+                        message:
+                            "Regular expressions can be expensive operations in streaming contexts"
+                                .to_string(),
                         subquery_type: None,
                     });
                 } else if name.to_lowercase() == "substring" {
                     self.findings.push(SubqueryFinding {
-                        message: "String functions in WHERE clauses may prevent index usage".to_string(),
+                        message: "String functions in WHERE clauses may prevent index usage"
+                            .to_string(),
                         subquery_type: None,
                     });
                 }
@@ -1113,9 +1119,14 @@ impl SubqueryAnalyzer {
                     self.analyze_performance_patterns(arg);
                 }
             }
-            Expr::Case { when_clauses, else_clause, .. } => {
+            Expr::Case {
+                when_clauses,
+                else_clause,
+                ..
+            } => {
                 self.findings.push(SubqueryFinding {
-                    message: "Complex CASE expressions in subqueries may impact performance".to_string(),
+                    message: "Complex CASE expressions in subqueries may impact performance"
+                        .to_string(),
                     subquery_type: None,
                 });
 
@@ -1128,7 +1139,26 @@ impl SubqueryAnalyzer {
                     self.analyze_performance_patterns(else_expr);
                 }
             }
-            Expr::BinaryOp { left, right, .. } => {
+            Expr::BinaryOp { left, right, op } => {
+                // Check for LIKE patterns
+                if matches!(
+                    op,
+                    crate::velostream::sql::ast::BinaryOperator::Like
+                        | crate::velostream::sql::ast::BinaryOperator::NotLike
+                ) {
+                    // Check for leading wildcard pattern: LIKE '%...'
+                    if let Expr::Literal(crate::velostream::sql::ast::LiteralValue::String(
+                        pattern,
+                    )) = &**right
+                    {
+                        if pattern.starts_with('%') {
+                            self.findings.push(SubqueryFinding {
+                                message: "LIKE patterns starting with % prevent index usage and may cause performance issues".to_string(),
+                                subquery_type: None,
+                            });
+                        }
+                    }
+                }
                 self.analyze_performance_patterns(left);
                 self.analyze_performance_patterns(right);
             }
@@ -1150,7 +1180,12 @@ impl SubqueryAnalyzer {
         // Analyze if the subquery references columns that could be from outer query
         // Get the subquery's own table aliases to distinguish from outer references
         match query {
-            StreamingQuery::Select { where_clause, from_alias, from, .. } => {
+            StreamingQuery::Select {
+                where_clause,
+                from_alias,
+                from,
+                ..
+            } => {
                 if let Some(expr) = where_clause {
                     // Collect this subquery's table identifiers
                     let mut local_tables = Vec::new();
@@ -1188,16 +1223,24 @@ impl SubqueryAnalyzer {
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.has_correlation_in_expr(left, local_tables) || self.has_correlation_in_expr(right, local_tables)
+                self.has_correlation_in_expr(left, local_tables)
+                    || self.has_correlation_in_expr(right, local_tables)
             }
             Expr::UnaryOp { expr, .. } => self.has_correlation_in_expr(expr, local_tables),
-            Expr::Function { args, .. } => {
-                args.iter().any(|arg| self.has_correlation_in_expr(arg, local_tables))
-            }
-            Expr::Case { when_clauses, else_clause, .. } => {
+            Expr::Function { args, .. } => args
+                .iter()
+                .any(|arg| self.has_correlation_in_expr(arg, local_tables)),
+            Expr::Case {
+                when_clauses,
+                else_clause,
+                ..
+            } => {
                 when_clauses.iter().any(|(condition, result)| {
-                    self.has_correlation_in_expr(condition, local_tables) || self.has_correlation_in_expr(result, local_tables)
-                }) || else_clause.as_ref().map_or(false, |expr| self.has_correlation_in_expr(expr, local_tables))
+                    self.has_correlation_in_expr(condition, local_tables)
+                        || self.has_correlation_in_expr(result, local_tables)
+                }) || else_clause.as_ref().map_or(false, |expr| {
+                    self.has_correlation_in_expr(expr, local_tables)
+                })
             }
             Expr::Subquery { query, .. } => self.has_correlation_patterns(query),
             _ => false,
