@@ -14,6 +14,7 @@ use crate::velostream::sql::{
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
     SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
 };
+use crate::velostream::table::{SqlQueryable};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,6 +29,10 @@ pub struct StreamJobServer {
     max_jobs: usize,
     job_counter: Arc<Mutex<u64>>,
     performance_monitor: Option<Arc<PerformanceMonitor>>,
+    /// Shared table registry for CTAS-created tables
+    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    /// Background table creation and population jobs
+    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
 }
 
 #[derive(Debug)]
@@ -109,6 +114,8 @@ impl StreamJobServer {
             max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
+            table_registry: Arc::new(RwLock::new(HashMap::new())),
+            table_jobs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -236,6 +243,38 @@ impl StreamJobServer {
         let parser = StreamingSqlParser::new();
         let parsed_query = parser.parse(&query)?;
 
+        // Extract table dependencies and ensure they exist
+        let required_tables = Self::extract_table_references(&parsed_query);
+        if !required_tables.is_empty() {
+            info!("Job '{}' requires tables: {:?}", name, required_tables);
+
+            // Check that all required tables exist in the registry
+            let registry = self.table_registry.read().await;
+            let mut missing_tables = Vec::new();
+
+            for table_name in &required_tables {
+                if !registry.contains_key(table_name) {
+                    missing_tables.push(table_name.clone());
+                }
+            }
+            drop(registry);
+
+            if !missing_tables.is_empty() {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Job '{}' cannot be deployed: missing required tables: {:?}\n\
+                        Create them first using: CREATE TABLE <name> AS SELECT ...",
+                        name, missing_tables
+                    ),
+                    query: Some(query),
+                });
+            }
+
+            info!("Job '{}': All required tables exist in registry", name);
+        } else {
+            info!("Job '{}' has no table dependencies", name);
+        }
+
         // Analyze query to determine required resources
         let analyzer = QueryAnalyzer::new(self.base_group_id.clone());
         let analysis = analyzer.analyze(&parsed_query)?;
@@ -259,6 +298,24 @@ impl StreamJobServer {
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
             execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
+        }
+
+        // Inject shared tables into execution context if any required
+        if !required_tables.is_empty() {
+            let table_registry = Arc::clone(&self.table_registry);
+            let required_tables_clone = required_tables.clone();
+
+            execution_engine.context_customizer = Some(Arc::new(move |context| {
+                let registry = table_registry.blocking_read();
+                for table_name in &required_tables_clone {
+                    if let Some(table) = registry.get(table_name) {
+                        context.load_reference_table(table_name, Arc::clone(table));
+                        info!("Injected table '{}' into job execution context", table_name);
+                    }
+                }
+            }));
+
+            info!("Job '{}': Configured table injection for {} tables", name, required_tables.len());
         }
 
         let execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
@@ -495,6 +552,73 @@ impl StreamJobServer {
             name, version, topic
         );
         Ok(())
+    }
+
+    /// Create a shared table via CREATE TABLE AS SELECT
+    /// This table will be available for all future SQL jobs to reference
+    pub async fn create_table(&self, ctas_query: String) -> Result<String, SqlError> {
+        info!("Creating shared table via CTAS: {}", ctas_query);
+
+        // Parse the CTAS query
+        let parser = StreamingSqlParser::new();
+        let parsed_query = parser.parse(&ctas_query)?;
+
+        match parsed_query {
+            StreamingQuery::CreateTable { name, as_select, .. } => {
+                // Check if table already exists
+                let registry = self.table_registry.read().await;
+                if registry.contains_key(&name) {
+                    return Err(SqlError::ExecutionError {
+                        message: format!("Table '{}' already exists", name),
+                        query: Some(ctas_query),
+                    });
+                }
+                drop(registry);
+
+                // TODO: Create the actual table instance based on the SELECT query
+                // This needs to be implemented based on the data source type
+                // For now, return an error indicating this is not yet implemented
+                Err(SqlError::ExecutionError {
+                    message: format!(
+                        "CTAS table creation not yet implemented. Table '{}' creation requires:\n\
+                        1. Parse SELECT source (kafka://, file://, etc.)\n\
+                        2. Create appropriate Table/KTable instance\n\
+                        3. Start background population job\n\
+                        4. Register in table_registry for sharing",
+                        name
+                    ),
+                    query: Some(ctas_query),
+                })
+            }
+            _ => Err(SqlError::ExecutionError {
+                message: "Not a CREATE TABLE AS SELECT query".to_string(),
+                query: Some(ctas_query),
+            }),
+        }
+    }
+
+    /// Get list of all available tables
+    pub async fn list_tables(&self) -> Vec<String> {
+        let registry = self.table_registry.read().await;
+        registry.keys().cloned().collect()
+    }
+
+    /// Check if a table exists in the registry
+    pub async fn table_exists(&self, table_name: &str) -> bool {
+        let registry = self.table_registry.read().await;
+        registry.contains_key(table_name)
+    }
+
+    /// Get a reference to a table (for internal use)
+    pub async fn get_table(&self, table_name: &str) -> Result<Arc<dyn SqlQueryable + Send + Sync>, SqlError> {
+        let registry = self.table_registry.read().await;
+        match registry.get(table_name) {
+            Some(table) => Ok(Arc::clone(table)),
+            None => Err(SqlError::ExecutionError {
+                message: format!("Table '{}' not found. Create it first using: CREATE TABLE {} AS SELECT...", table_name, table_name),
+                query: None,
+            }),
+        }
     }
 
     pub async fn stop_job(&self, name: &str) -> Result<(), SqlError> {
@@ -916,6 +1040,97 @@ impl StreamJobServer {
                 // Don't fail the job, just log and continue without batch config
                 Ok(None)
             }
+        }
+    }
+
+    /// Extract table references from a SQL query for dependency checking
+    fn extract_table_references(query: &StreamingQuery) -> Vec<String> {
+        let mut tables = Vec::new();
+        Self::extract_tables_recursive(query, &mut tables);
+
+        // Remove duplicates and return
+        tables.sort();
+        tables.dedup();
+        tables
+    }
+
+    /// Recursively extract table names from any SQL query structure
+    fn extract_tables_recursive(query: &StreamingQuery, tables: &mut Vec<String>) {
+        match query {
+            StreamingQuery::Select { from, joins, where_clause, .. } => {
+                // Extract main FROM table
+                Self::extract_tables_from_stream_source(from, tables);
+
+                // Extract JOIN tables
+                if let Some(join_clauses) = joins {
+                    for join in join_clauses {
+                        Self::extract_tables_from_stream_source(&join.right_source, tables);
+                    }
+                }
+
+                // Extract tables from WHERE clause subqueries
+                if let Some(where_expr) = where_clause {
+                    Self::extract_tables_from_expression(where_expr, tables);
+                }
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                // For CREATE TABLE AS SELECT, extract from the SELECT part
+                Self::extract_tables_recursive(as_select, tables);
+            }
+            // Add other query types as needed
+            _ => {}
+        }
+    }
+
+    /// Extract table names from stream sources
+    fn extract_tables_from_stream_source(source: &crate::velostream::sql::ast::StreamSource, tables: &mut Vec<String>) {
+        match source {
+            crate::velostream::sql::ast::StreamSource::Table(name) => {
+                tables.push(name.clone());
+            }
+            crate::velostream::sql::ast::StreamSource::Uri(_) => {
+                // URI sources (kafka://, file://) are not tables in the registry
+            }
+            crate::velostream::sql::ast::StreamSource::Stream(_) => {
+                // Stream sources are not tables in the registry
+            }
+            crate::velostream::sql::ast::StreamSource::Subquery(subquery) => {
+                // Extract tables from subquery
+                Self::extract_tables_recursive(subquery, tables);
+            }
+        }
+    }
+
+    /// Extract table names from expressions (subqueries in WHERE, etc.)
+    fn extract_tables_from_expression(expr: &crate::velostream::sql::ast::Expr, tables: &mut Vec<String>) {
+        match expr {
+            crate::velostream::sql::ast::Expr::Subquery { query, .. } => {
+                Self::extract_tables_recursive(query, tables);
+            }
+            crate::velostream::sql::ast::Expr::BinaryOp { left, right, .. } => {
+                Self::extract_tables_from_expression(left, tables);
+                Self::extract_tables_from_expression(right, tables);
+            }
+            crate::velostream::sql::ast::Expr::Function { args, .. } => {
+                for arg in args {
+                    Self::extract_tables_from_expression(arg, tables);
+                }
+            }
+            crate::velostream::sql::ast::Expr::UnaryOp { expr, .. } => {
+                Self::extract_tables_from_expression(expr, tables);
+            }
+            crate::velostream::sql::ast::Expr::Between { expr, low, high, .. } => {
+                Self::extract_tables_from_expression(expr, tables);
+                Self::extract_tables_from_expression(low, tables);
+                Self::extract_tables_from_expression(high, tables);
+            }
+            crate::velostream::sql::ast::Expr::List(exprs) => {
+                for expr in exprs {
+                    Self::extract_tables_from_expression(expr, tables);
+                }
+            }
+            // Add other expression types as needed
+            _ => {}
         }
     }
 }
