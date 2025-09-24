@@ -633,7 +633,7 @@ mod tests {
         let query = result.unwrap();
 
         match query {
-            // The parser currently produces CreateTable when GROUP BY clause is present with INTO
+            // The parser correctly produces CreateTable when GROUP BY clause is present with INTO
             StreamingQuery::CreateTable {
                 name, as_select, ..
             } => {
@@ -656,7 +656,7 @@ mod tests {
                     _ => panic!("Expected Select query in CreateTable"),
                 }
             }
-            _ => panic!("Expected CreateTable query (parser limitation with GROUP BY + INTO)"),
+            _ => panic!("Expected CreateTable query (GROUP BY makes it a table)"),
         }
     }
 
@@ -735,7 +735,7 @@ mod tests {
         let query = result.unwrap();
 
         match query {
-            // The parser currently produces CreateStream when WINDOW clause is present
+            // The parser correctly produces CreateStream when WINDOW clause is present
             StreamingQuery::CreateStream {
                 name, as_select, ..
             } => {
@@ -753,7 +753,7 @@ mod tests {
                     _ => panic!("Expected Select query"),
                 }
             }
-            _ => panic!("Expected CreateStream query (parser limitation with WINDOW + INTO)"),
+            _ => panic!("Expected CreateStream query (WINDOW clause present)"),
         }
     }
 
