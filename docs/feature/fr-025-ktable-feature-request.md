@@ -2167,6 +2167,105 @@ This Table/SQL wildcard implementation is very close to production readiness wit
 
 ---
 
+## 📅 **CTAS Implementation Progress - December 2024**
+
+### **Phase 2 Completed: Architecture & Testing Framework**
+
+#### **Completed Components**
+1. **CTAS Executor Module** (`src/velostream/table/ctas.rs` - 434 lines)
+   - ✅ SQL parsing and validation with AST integration
+   - ✅ Source type detection (Kafka, File, Stream, Table, Config)
+   - ✅ WITH clause property extraction and validation
+   - ✅ Mock data source infrastructure for testing
+   - ✅ Configuration file pattern recognition
+
+2. **Test Coverage** (`tests/unit/server/ctas_table_sharing_test.rs` - 136 lines)
+   - ✅ 25 comprehensive tests all passing
+   - ✅ Table creation and registry tests
+   - ✅ Dependency detection validation
+   - ✅ Invalid query rejection tests
+   - ✅ WITH clause edge cases
+
+3. **Architecture Refactoring**
+   - ✅ Separated CTAS logic from StreamJobServer (user feedback incorporated)
+   - ✅ Modular design with dedicated ctas.rs module
+   - ✅ Clean separation of concerns
+
+#### **Current Gaps - Phase 3 Requirements**
+
+**Core Functionality Missing:**
+1. **Actual Table Creation** ❌
+   - Currently returns placeholder CtasResult
+   - No KTable instantiation
+   - No table registration in global registry
+
+2. **Background Job System** ❌
+   - `background_job_id` always None
+   - No continuous data ingestion
+   - No job lifecycle management
+
+3. **Data Source Connections** ❌
+   - Mock sources defined but not connected
+   - No Kafka consumer creation
+   - No file reader implementation
+
+4. **Table Population Logic** ❌
+   - No data flow from source to table
+   - No SELECT transformation application
+   - No watermark/late data handling
+
+5. **Query Integration** ❌
+   - Tables not accessible to SQL queries
+   - No JOIN support with created tables
+   - No subquery access to table data
+
+#### **Phase 3 Implementation Plan**
+
+**Priority 1: Core Table Creation (Week 1)**
+```rust
+// Required implementation in ctas.rs
+async fn create_table_instance(
+    &self,
+    table_name: String,
+    source_info: SourceInfo,
+    properties: HashMap<String, String>
+) -> Result<Arc<Table>, SqlError> {
+    // 1. Create Table instance
+    let table = Table::new(table_name.clone(), ...);
+
+    // 2. Apply configuration from properties
+    table.configure(properties);
+
+    // 3. Register in global registry
+    self.register_table(table_name, Arc::new(table));
+
+    // 4. Start background population job
+    let job_id = self.spawn_population_job(table, source_info).await?;
+
+    // 5. Return table reference
+    Ok(Arc::new(table))
+}
+```
+
+**Priority 2: Background Job Management (Week 1-2)**
+- Tokio task spawning for continuous ingestion
+- Error recovery and retry logic
+- Progress tracking and checkpointing
+
+**Priority 3: Data Source Integration (Week 2)**
+- Kafka consumer creation and management
+- File reader implementation
+- Stream-to-table data flow
+
+**Success Metrics for Phase 3:**
+- [ ] `CREATE TABLE orders AS SELECT * FROM kafka_topic` creates real KTable
+- [ ] Background job continuously populates table from source
+- [ ] Created tables accessible in SQL queries
+- [ ] Multiple jobs can share same table instance
+- [ ] Resource management and cleanup working
+
+---
+
 ## ✅ **COMPLETED: PARAMETERIZED QUERY IMPLEMENTATION**
 
 ### **📋 Implementation Summary**

@@ -2,15 +2,16 @@
 
 
 ## Behaviour
-Dont make assumptions about the behaviour of the project.
-Always run all of the tests, demos, examples and /bin' and check the documentation.
-Always check the code formatting.
-Always check the code for errors.
-Always check the code for bugs.
-Always check the code for security issues.
-Always check the code for performance issues.
-Always check the code for correctness.
-Always look for opportunities to improve the code. (refactoring, code restructuring, etc.)
+- Dont make assumptions about the behaviour of the project.
+- Always run all of the tests, demos, examples and /bin' and check the documentation.
+- Always check the code formatting.
+- Always check the code for errors.
+- Always check the code for bugs.
+- Always check the code for security issues.
+- Always check the code for performance issues.
+- Always check the code for correctness.
+- Never assume that it is ok to perform a 'workaround' with consent first
+- Always look for opportunities to improve the code. (refactoring, code restructuring, etc.)
 
 
 ## Project Overview
