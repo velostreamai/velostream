@@ -299,7 +299,7 @@ Generated: {}
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
     );
 
-    std::fs::write("table_benchmark_results.md", report)
+    std::fs::write("../../docs/architecture/table_benchmark_results.md", report)
         .expect("Failed to write benchmark results");
 
     println!("📝 Benchmark results written to table_benchmark_results.md");
