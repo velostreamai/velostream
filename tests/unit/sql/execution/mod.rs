@@ -25,3 +25,6 @@ pub mod phase_2_error_resource_test;
 
 // Common test utilities for all SQL execution tests
 pub mod common_test_utils;
+
+// CTAS with EMIT CHANGES tests
+pub mod ctas_emit_changes_test;

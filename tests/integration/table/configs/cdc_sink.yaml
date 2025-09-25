@@ -1,0 +1,56 @@
+# CDC output sink configuration for CTAS testing
+sink:
+  type: kafka
+  brokers: "localhost:9092"
+  topic: "cdc_output_topic"
+
+  # Producer configuration for CDC output
+  producer:
+    acks: "all"
+    retries: "2147483647"
+    batch.size: "16384"
+    linger.ms: "0"  # Immediate delivery for CDC
+    compression.type: "lz4"
+    max.in.flight.requests.per.connection: "1"  # Maintain order
+    enable.idempotence: "true"
+
+  # Serialization for CDC output
+  serialization:
+    key: "string"
+    value: "json"
+
+  # CDC-specific configuration
+  cdc:
+    # Include change metadata
+    include_metadata: true
+    change_type_field: "_change_type"
+    timestamp_field: "_cdc_timestamp"
+
+    # Key generation for CDC records
+    key_fields: ["metric_name"]
+
+    # Compaction settings for CDC topic
+    topic_config:
+      cleanup.policy: "compact"
+      compression.type: "lz4"
+      min.cleanable.dirty.ratio: "0.1"
+      segment.ms: "86400000"  # 24 hours
+
+# Delivery guarantees
+delivery:
+  guarantee: "exactly_once"
+  duplicate_detection: true
+  ordering: "per_partition"
+
+# Error handling
+error_handling:
+  strategy: "retry_with_dlq"
+  max_retries: 5
+  retry_backoff: "exponential"
+  dead_letter_queue: "cdc_errors_topic"
+
+# Monitoring
+monitoring:
+  emit_metrics: true
+  track_latency: true
+  alert_on_failure: true

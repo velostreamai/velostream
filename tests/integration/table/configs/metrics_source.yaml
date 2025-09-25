@@ -1,0 +1,47 @@
+# Metrics data source configuration for CTAS CDC testing
+source:
+  type: kafka
+  brokers: "localhost:9092"
+  topic: "metrics_stream"
+  group_id: "ctas_test_consumer"
+
+  # Consumer configuration
+  consumer:
+    auto.offset.reset: "earliest"
+    enable.auto.commit: "true"
+    session.timeout.ms: "30000"
+    max.poll.records: "500"
+
+  # Deserialization settings
+  serialization:
+    key: "string"
+    value: "json"
+
+  # Schema configuration for structured data
+  schema:
+    fields:
+      - name: metric_name
+        type: string
+        nullable: false
+      - name: value
+        type: double
+        nullable: false
+      - name: timestamp
+        type: timestamp
+        nullable: false
+      - name: tags
+        type: map<string, string>
+        nullable: true
+
+# Performance and reliability settings
+performance:
+  batch_size: 1000
+  flush_interval: "5s"
+  retry_attempts: 3
+  timeout: "30s"
+
+# Monitoring and observability
+monitoring:
+  metrics_enabled: true
+  health_check_interval: "10s"
+  log_level: "INFO"
