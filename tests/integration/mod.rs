@@ -11,6 +11,7 @@ pub mod sql_integration_test;
 pub mod table;
 pub mod timeout_config_test;
 pub mod transactions_test;
+mod ctas_end_to_end_integration_test;
 
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

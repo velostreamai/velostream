@@ -1,5 +1,5 @@
 /*!
-# CTAS Phase 3 End-to-End Integration Test
+# FR-025 - CTAS Phase 3 End-to-End Integration Test
 
 This integration test verifies the complete CTAS (CREATE TABLE AS SELECT) implementation
 including table creation, global registry integration, background jobs, and SQL query support.
@@ -61,7 +61,7 @@ async fn test_ctas_end_to_end_integration() {
         WITH ("config_file" = "mock_users.yaml", "retention" = "24 hours")
     "#;
 
-    match server.create_shared_table(users_query).await {
+    match server.create_table(users_query.to_string()).await {
         Ok(table_name) => {
             assert_eq!(table_name, "users_table");
             println!("✅ Created users table: {}", table_name);
@@ -81,7 +81,7 @@ async fn test_ctas_end_to_end_integration() {
         WITH ("config_file" = "kafka_orders.yaml", "kafka.batch.size" = "1000")
     "#;
 
-    match server.create_shared_table(orders_query).await {
+    match server.create_table(orders_query.to_string()).await {
         Ok(table_name) => {
             assert_eq!(table_name, "orders_table");
             println!("✅ Created orders table: {}", table_name);
@@ -170,7 +170,7 @@ async fn test_ctas_end_to_end_integration() {
         AS SELECT * FROM another_stream
     "#;
 
-    match server.create_shared_table(duplicate_query).await {
+    match server.create_table(duplicate_query.to_string()).await {
         Ok(_) => panic!("❌ Should have rejected duplicate table name"),
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(message.contains("already exists"));
@@ -181,7 +181,7 @@ async fn test_ctas_end_to_end_integration() {
 
     // Test invalid query
     let invalid_query = "SELECT * FROM nowhere";
-    match server.create_shared_table(invalid_query).await {
+    match server.create_table(invalid_query.to_string()).await {
         Ok(_) => panic!("❌ Should have rejected non-CTAS query"),
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(message.contains("Not a CREATE TABLE"));
@@ -206,7 +206,7 @@ async fn test_ctas_end_to_end_integration() {
             let query_owned = query.to_string();
             let name_owned = name.to_string();
             tokio::spawn(async move {
-                let result = server_clone.create_shared_table(&query_owned).await;
+                let result = server_clone.create_table(query_owned).await;
                 (name_owned, result)
             })
         })
@@ -242,7 +242,7 @@ async fn test_ctas_end_to_end_integration() {
 
     // Test dropping tables that exist
     for table_name in &final_tables {
-        match server.drop_shared_table(table_name).await {
+        match server.drop_table(table_name).await {
             Ok(()) => {
                 println!("✅ Successfully dropped table: {}", table_name);
             }
@@ -257,7 +257,7 @@ async fn test_ctas_end_to_end_integration() {
     println!("📋 Remaining tables after cleanup: {:?}", remaining_tables);
 
     // Test dropping non-existent table
-    match server.drop_shared_table("nonexistent").await {
+    match server.drop_table("nonexistent").await {
         Ok(()) => panic!("❌ Should have failed to drop nonexistent table"),
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(message.contains("not found"));
@@ -309,7 +309,7 @@ async fn test_ctas_configuration_integration() {
     for (table_name, query, description) in config_scenarios {
         println!("\n🧪 Testing: {}", description);
 
-        match server.create_shared_table(query).await {
+        match server.create_table(query.to_string()).await {
             Ok(created_name) => {
                 assert_eq!(created_name, table_name);
                 println!("✅ Configuration test passed: {}", table_name);
@@ -343,7 +343,7 @@ async fn test_ctas_configuration_integration() {
     ];
 
     for (query, expected_error) in invalid_configs {
-        match server.create_shared_table(query).await {
+        match server.create_table(query.to_string()).await {
             Ok(_) => panic!("❌ Should have rejected invalid config: {}", query),
             Err(SqlError::ExecutionError { message, .. }) => {
                 assert!(message.contains(expected_error));
@@ -373,7 +373,7 @@ async fn test_ctas_lifecycle_management() {
         WITH ("config_file" = "mock_lifecycle.yaml")
     "#;
 
-    let table_name = match server.create_shared_table(query).await {
+    let table_name = match server.create_table(query.to_string()).await {
         Ok(name) => {
             println!("✅ Table created: {}", name);
             name
@@ -422,7 +422,7 @@ async fn test_ctas_lifecycle_management() {
     }
 
     // Drop table
-    match server.drop_shared_table(&table_name).await {
+    match server.drop_table(&table_name).await {
         Ok(()) => {
             println!("✅ Table dropped successfully");
 
@@ -461,7 +461,7 @@ async fn test_ctas_performance_and_stability() {
 
         let creation_start = std::time::Instant::now();
 
-        match server.create_shared_table(&query).await {
+        match server.create_table(query).await {
             Ok(name) => {
                 assert_eq!(name, table_name);
                 creation_times.push(creation_start.elapsed());
@@ -513,7 +513,7 @@ async fn test_ctas_performance_and_stability() {
     // Cleanup
     for i in 0..5 {
         let table_name = format!("perf_table_{}", i);
-        let _ = server.drop_shared_table(&table_name).await;
+        let _ = server.drop_table(&table_name).await;
     }
 
     println!("🎉 Performance and Stability Test PASSED!");

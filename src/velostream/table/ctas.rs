@@ -413,7 +413,7 @@ impl CtasExecutor {
     }
 
     /// Validate WITH clause properties
-    fn validate_properties(&self, properties: &HashMap<String, String>) -> Result<(), SqlError> {
+    pub fn validate_properties(&self, properties: &HashMap<String, String>) -> Result<(), SqlError> {
         for (key, value) in properties.iter() {
             match key.as_str() {
                 "config_file" => {
@@ -502,7 +502,7 @@ impl CtasExecutor {
     /// - Extra microseconds for field access
     /// - Schema inference complexity
     /// - Less efficient for frequent random access
-    pub(crate) fn should_use_compact_table(&self, properties: &HashMap<String, String>) -> bool {
+    pub fn should_use_compact_table(&self, properties: &HashMap<String, String>) -> bool {
         // Check explicit table_model configuration
         if let Some(table_model) = properties.get("table_model") {
             match table_model.to_lowercase().as_str() {

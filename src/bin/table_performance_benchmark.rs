@@ -75,14 +75,14 @@ fn main() {
         // Large datasets (reduced for performance)
         BenchmarkConfig {
             name: "Large Dataset - IoT".to_string(),
-            record_count: 100_000,
+            record_count: 270_000,
             field_count: 8,
             string_field_ratio: 0.25,
             query_iterations: 50,
         },
         BenchmarkConfig {
             name: "Large Dataset - User Analytics".to_string(),
-            record_count: 250_000,
+            record_count: 1_000_000,
             field_count: 12,
             string_field_ratio: 0.6,
             query_iterations: 25,
