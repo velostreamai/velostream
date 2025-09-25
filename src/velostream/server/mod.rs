@@ -29,6 +29,7 @@ pub mod config;
 pub mod job_manager;
 pub mod metrics;
 pub mod stream_job_server;
+pub mod table_registry;
 
 pub mod processors;
 

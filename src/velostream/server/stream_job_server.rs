@@ -9,12 +9,12 @@ use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
 };
+use crate::velostream::server::table_registry::{TableRegistry, TableRegistryConfig, TableMetadata as TableStatsInfo};
 use crate::velostream::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
     SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
 };
-use crate::velostream::table::{CtasExecutor, SqlQueryable};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,14 +22,6 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
-/// Table statistics information
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TableStatsInfo {
-    pub name: String,
-    pub status: String,
-    pub record_count: usize,
-    pub last_updated: std::time::SystemTime,
-}
 
 #[derive(Clone)]
 pub struct StreamJobServer {
@@ -38,12 +30,8 @@ pub struct StreamJobServer {
     max_jobs: usize,
     job_counter: Arc<Mutex<u64>>,
     performance_monitor: Option<Arc<PerformanceMonitor>>,
-    /// Shared table registry for CTAS-created tables
-    table_registry: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
-    /// Background table creation and population jobs
-    table_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
-    /// CTAS executor for creating tables
-    ctas_executor: CtasExecutor,
+    /// Shared table registry for managing CTAS-created tables
+    table_registry: TableRegistry,
 }
 
 #[derive(Debug)]
@@ -119,15 +107,21 @@ impl StreamJobServer {
             None
         };
 
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id: base_group_id.clone(),
+            base_group_id,
             max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
-            table_registry: Arc::new(RwLock::new(HashMap::new())),
-            table_jobs: Arc::new(RwLock::new(HashMap::new())),
-            ctas_executor: CtasExecutor::new("localhost:9092".to_string(), base_group_id),
+            table_registry: TableRegistry::with_config(table_registry_config),
         }
     }
 
@@ -256,20 +250,18 @@ impl StreamJobServer {
         let parsed_query = parser.parse(&query)?;
 
         // Extract table dependencies and ensure they exist
-        let required_tables = Self::extract_table_references(&parsed_query);
+        let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
         if !required_tables.is_empty() {
             info!("Job '{}' requires tables: {:?}", name, required_tables);
 
             // Check that all required tables exist in the registry
-            let registry = self.table_registry.read().await;
             let mut missing_tables = Vec::new();
 
             for table_name in &required_tables {
-                if !registry.contains_key(table_name) {
+                if !self.table_registry.exists(table_name).await {
                     missing_tables.push(table_name.clone());
                 }
             }
-            drop(registry);
 
             if !missing_tables.is_empty() {
                 return Err(SqlError::ExecutionError {
@@ -314,16 +306,27 @@ impl StreamJobServer {
 
         // Inject shared tables into execution context if any required
         if !required_tables.is_empty() {
-            let table_registry = Arc::clone(&self.table_registry);
+            let table_registry = self.table_registry.clone();
             let required_tables_clone = required_tables.clone();
 
             execution_engine.context_customizer = Some(Arc::new(move |context| {
-                let registry = table_registry.blocking_read();
-                for table_name in &required_tables_clone {
-                    if let Some(table) = registry.get(table_name) {
-                        context.load_reference_table(table_name, Arc::clone(table));
-                        info!("Injected table '{}' into job execution context", table_name);
-                    }
+                // Use blocking task to get tables
+                let tables_to_inject = tokio::task::block_in_place(|| {
+                    let runtime = tokio::runtime::Handle::current();
+                    runtime.block_on(async {
+                        let mut tables = HashMap::new();
+                        for table_name in &required_tables_clone {
+                            if let Ok(table) = table_registry.get_table(table_name).await {
+                                tables.insert(table_name.clone(), table);
+                                info!("Injected table '{}' into job execution context", table_name);
+                            }
+                        }
+                        tables
+                    })
+                });
+
+                for (table_name, table) in tables_to_inject {
+                    context.load_reference_table(&table_name, table);
                 }
             }));
 
@@ -573,150 +576,50 @@ impl StreamJobServer {
     /// Create a shared table via CREATE TABLE AS SELECT
     /// This table will be available for all future SQL jobs to reference
     pub async fn create_table(&self, ctas_query: String) -> Result<String, SqlError> {
-        info!("Creating shared table via CTAS: {}", ctas_query);
-
-        // Check if table already exists (extract name from query)
-        let parser = StreamingSqlParser::new();
-        let parsed_query = parser.parse(&ctas_query)?;
-
-        if let StreamingQuery::CreateTable { name, .. } = &parsed_query {
-            let registry = self.table_registry.read().await;
-            if registry.contains_key(name) {
-                return Err(SqlError::ExecutionError {
-                    message: format!("Table '{}' already exists", name),
-                    query: Some(ctas_query),
-                });
-            }
-            drop(registry);
-        }
-
-        // Execute CTAS using the dedicated executor
-        let result = self.ctas_executor.execute(&ctas_query).await?;
-
-        // Register the created table and background job
-        let mut registry = self.table_registry.write().await;
-        registry.insert(result.table_name.clone(), result.table);
-        drop(registry);
-
-        let mut jobs = self.table_jobs.write().await;
-        jobs.insert(result.table_name.clone(), result.background_job);
-        drop(jobs);
-
-        info!(
-            "Successfully created and registered shared table '{}'",
-            result.table_name
-        );
-        Ok(result.table_name)
+        self.table_registry.create_table(ctas_query).await
     }
 
     /// Get list of all available tables
     pub async fn list_tables(&self) -> Vec<String> {
-        let registry = self.table_registry.read().await;
-        registry.keys().cloned().collect()
+        self.table_registry.list_tables().await
     }
 
     /// Check if a table exists in the registry
     pub async fn table_exists(&self, table_name: &str) -> bool {
-        let registry = self.table_registry.read().await;
-        registry.contains_key(table_name)
+        self.table_registry.exists(table_name).await
     }
 
     /// Get a reference to a table (for internal use)
     pub async fn get_table(
         &self,
         table_name: &str,
-    ) -> Result<Arc<dyn SqlQueryable + Send + Sync>, SqlError> {
-        let registry = self.table_registry.read().await;
-        match registry.get(table_name) {
-            Some(table) => Ok(Arc::clone(table)),
-            None => Err(SqlError::ExecutionError {
-                message: format!(
-                    "Table '{}' not found. Create it first using: CREATE TABLE {} AS SELECT...",
-                    table_name, table_name
-                ),
-                query: None,
-            }),
-        }
+    ) -> Result<Arc<dyn crate::velostream::table::SqlQueryable + Send + Sync>, SqlError> {
+        self.table_registry.get_table(table_name).await
     }
 
     /// Drop a table and stop its background population job
     pub async fn drop_table(&self, table_name: &str) -> Result<(), SqlError> {
-        info!("Dropping table '{}'", table_name);
-
-        // Remove from table registry
-        let mut registry = self.table_registry.write().await;
-        let removed = registry.remove(table_name);
-        drop(registry);
-
-        if removed.is_none() {
-            return Err(SqlError::ExecutionError {
-                message: format!("Table '{}' not found", table_name),
-                query: None,
-            });
-        }
-
-        // Stop background job if it exists
-        let mut jobs = self.table_jobs.write().await;
-        if let Some(job_handle) = jobs.remove(table_name) {
-            job_handle.abort();
-            info!(
-                "Stopped background population job for table '{}'",
-                table_name
-            );
-        }
-        drop(jobs);
-
-        info!("Successfully dropped table '{}'", table_name);
-        Ok(())
+        self.table_registry.drop_table(table_name).await
     }
 
     /// Get statistics about all tables
     pub async fn get_table_stats(&self) -> HashMap<String, TableStatsInfo> {
-        let registry = self.table_registry.read().await;
-        let mut stats = HashMap::new();
-
-        for (table_name, _table) in registry.iter() {
-            // Basic stats - could be enhanced with actual table metrics
-            stats.insert(
-                table_name.clone(),
-                TableStatsInfo {
-                    name: table_name.clone(),
-                    status: "active".to_string(),
-                    record_count: 0, // TODO: Get actual count from table
-                    last_updated: std::time::SystemTime::now(),
-                },
-            );
-        }
-
-        stats
+        self.table_registry.get_all_table_stats().await
     }
 
-    /// Clean up inactive tables (placeholder for future TTL implementation)
+    /// Clean up inactive tables based on TTL
     pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
-        // TODO: Implement TTL-based cleanup
-        // This is a placeholder for future implementation
-        info!("Table cleanup initiated (TTL-based cleanup not yet implemented)");
-        Ok(Vec::new())
+        self.table_registry.cleanup_inactive_tables().await
     }
 
     /// Get health status of all tables
     pub async fn get_tables_health(&self) -> HashMap<String, String> {
-        let registry = self.table_registry.read().await;
-        let jobs = self.table_jobs.read().await;
+        let health_reports = self.table_registry.get_health_status().await;
         let mut health = HashMap::new();
 
-        for table_name in registry.keys() {
-            let job_status = if let Some(job) = jobs.get(table_name) {
-                if job.is_finished() {
-                    "background_job_finished"
-                } else {
-                    "active"
-                }
-            } else {
-                "no_background_job"
-            };
-
-            health.insert(table_name.clone(), job_status.to_string());
+        for report in health_reports {
+            let status_str = format!("{:?}", report.status);
+            health.insert(report.table_name, status_str);
         }
 
         health
@@ -1144,107 +1047,4 @@ impl StreamJobServer {
         }
     }
 
-    /// Extract table references from a SQL query for dependency checking
-    fn extract_table_references(query: &StreamingQuery) -> Vec<String> {
-        let mut tables = Vec::new();
-        Self::extract_tables_recursive(query, &mut tables);
-
-        // Remove duplicates and return
-        tables.sort();
-        tables.dedup();
-        tables
-    }
-
-    /// Recursively extract table names from any SQL query structure
-    fn extract_tables_recursive(query: &StreamingQuery, tables: &mut Vec<String>) {
-        match query {
-            StreamingQuery::Select {
-                from,
-                joins,
-                where_clause,
-                ..
-            } => {
-                // Extract main FROM table
-                Self::extract_tables_from_stream_source(from, tables);
-
-                // Extract JOIN tables
-                if let Some(join_clauses) = joins {
-                    for join in join_clauses {
-                        Self::extract_tables_from_stream_source(&join.right_source, tables);
-                    }
-                }
-
-                // Extract tables from WHERE clause subqueries
-                if let Some(where_expr) = where_clause {
-                    Self::extract_tables_from_expression(where_expr, tables);
-                }
-            }
-            StreamingQuery::CreateTable { as_select, .. } => {
-                // For CREATE TABLE AS SELECT, extract from the SELECT part
-                Self::extract_tables_recursive(as_select, tables);
-            }
-            // Add other query types as needed
-            _ => {}
-        }
-    }
-
-    /// Extract table names from stream sources
-    fn extract_tables_from_stream_source(
-        source: &crate::velostream::sql::ast::StreamSource,
-        tables: &mut Vec<String>,
-    ) {
-        match source {
-            crate::velostream::sql::ast::StreamSource::Table(name) => {
-                tables.push(name.clone());
-            }
-            crate::velostream::sql::ast::StreamSource::Uri(_) => {
-                // URI sources (kafka://, file://) are not tables in the registry
-            }
-            crate::velostream::sql::ast::StreamSource::Stream(_) => {
-                // Stream sources are not tables in the registry
-            }
-            crate::velostream::sql::ast::StreamSource::Subquery(subquery) => {
-                // Extract tables from subquery
-                Self::extract_tables_recursive(subquery, tables);
-            }
-        }
-    }
-
-    /// Extract table names from expressions (subqueries in WHERE, etc.)
-    fn extract_tables_from_expression(
-        expr: &crate::velostream::sql::ast::Expr,
-        tables: &mut Vec<String>,
-    ) {
-        match expr {
-            crate::velostream::sql::ast::Expr::Subquery { query, .. } => {
-                Self::extract_tables_recursive(query, tables);
-            }
-            crate::velostream::sql::ast::Expr::BinaryOp { left, right, .. } => {
-                Self::extract_tables_from_expression(left, tables);
-                Self::extract_tables_from_expression(right, tables);
-            }
-            crate::velostream::sql::ast::Expr::Function { args, .. } => {
-                for arg in args {
-                    Self::extract_tables_from_expression(arg, tables);
-                }
-            }
-            crate::velostream::sql::ast::Expr::UnaryOp { expr, .. } => {
-                Self::extract_tables_from_expression(expr, tables);
-            }
-            crate::velostream::sql::ast::Expr::Between {
-                expr, low, high, ..
-            } => {
-                Self::extract_tables_from_expression(expr, tables);
-                Self::extract_tables_from_expression(low, tables);
-                Self::extract_tables_from_expression(high, tables);
-            }
-            crate::velostream::sql::ast::Expr::List(exprs) => {
-                for expr in exprs {
-                    Self::extract_tables_from_expression(expr, tables);
-                }
-            }
-            // Add other expression types as needed
-            _ => {}
-        }
-    }
 }
