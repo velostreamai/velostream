@@ -18,11 +18,13 @@ Public interface for Table functionality.
 
 pub mod compact_table;
 pub mod ctas;
+pub mod error;
 pub mod sql;
 pub mod table;
 
 // Re-export public types
 pub use compact_table::{CompactTable, MemoryStats};
 pub use ctas::{CtasExecutor, CtasResult};
+pub use error::{CtasError, CtasResult as CtasErrorResult, TableError, TableResult};
 pub use sql::{KafkaDataSource, SqlDataSource, SqlQueryable, TableDataSource};
 pub use table::{ChangeEvent, Table, TableStats};

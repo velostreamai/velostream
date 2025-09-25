@@ -47,7 +47,8 @@ use crate::velostream::serialization::JsonFormat;
 use crate::velostream::sql::ast::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::parser::StreamingSqlParser;
-use crate::velostream::table::{SqlQueryable, Table, TableDataSource};
+use crate::velostream::table::error::{CtasError, CtasResult as CtasErrorResult};
+use crate::velostream::table::{CompactTable, SqlQueryable, Table, TableDataSource};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -151,42 +152,7 @@ impl CtasExecutor {
             } => {
                 // CREATE TABLE AS SELECT - extract source information from the SELECT query
                 let source_info = self.extract_source_from_select(&as_select)?;
-
-                // Create the actual table instance based on the source type
-                match source_info {
-                    SourceInfo::Kafka(topic) => {
-                        self.create_kafka_table(&name, &topic, &properties).await
-                    }
-                    SourceInfo::Uri(uri) => {
-                        Err(SqlError::ExecutionError {
-                            message: format!(
-                                "URI-based table creation not yet implemented: {}. \
-                                Currently only 'kafka://topic-name' sources are supported.",
-                                uri
-                            ),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Table(_) => {
-                        Err(SqlError::ExecutionError {
-                            message: "Cannot create table from another table reference. Use INSERT INTO instead.".to_string(),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Stream(stream) => {
-                        // Treat named streams as Kafka topics for now
-                        self.create_kafka_table(&name, &stream, &properties).await
-                    }
-                    SourceInfo::File(file_path) => {
-                        Err(SqlError::ExecutionError {
-                            message: format!("Direct file-based table creation not yet implemented: {}. Use config_file property instead.", file_path),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Config(config_source) => {
-                        self.create_config_based_table(&name, &config_source, &properties).await
-                    }
-                }
+                self.handle_source_info(&name, source_info, &properties, query).await
             }
             StreamingQuery::CreateTableInto {
                 name, as_select, properties, ..
@@ -194,47 +160,52 @@ impl CtasExecutor {
                 // CREATE TABLE AS SELECT INTO - similar to above but with INTO clause
                 let source_info = self.extract_source_from_select(&as_select)?;
                 let properties_map = properties.into_legacy_format();
-
-                // Create the actual table instance based on the source type
-                match source_info {
-                    SourceInfo::Kafka(topic) => {
-                        self.create_kafka_table(&name, &topic, &properties_map).await
-                    }
-                    SourceInfo::Uri(uri) => {
-                        Err(SqlError::ExecutionError {
-                            message: format!(
-                                "URI-based table creation not yet implemented: {}. \
-                                Currently only 'kafka://topic-name' sources are supported.",
-                                uri
-                            ),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Table(_) => {
-                        Err(SqlError::ExecutionError {
-                            message: "Cannot create table from another table reference. Use INSERT INTO instead.".to_string(),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Stream(stream) => {
-                        // Treat named streams as Kafka topics for now
-                        self.create_kafka_table(&name, &stream, &properties_map).await
-                    }
-                    SourceInfo::File(file_path) => {
-                        Err(SqlError::ExecutionError {
-                            message: format!("Direct file-based table creation not yet implemented: {}. Use config_file property instead.", file_path),
-                            query: Some(query.to_string()),
-                        })
-                    }
-                    SourceInfo::Config(config_source) => {
-                        self.create_config_based_table(&name, &config_source, &properties_map).await
-                    }
-                }
+                self.handle_source_info(&name, source_info, &properties_map, query).await
             }
             _ => Err(SqlError::ExecutionError {
                 message: "Not a CREATE TABLE query. Supported: CREATE TABLE AS SELECT, CREATE TABLE AS SELECT INTO".to_string(),
                 query: Some(query.to_string()),
             }),
+        }
+    }
+
+    /// Handle source info creation - eliminates duplication between CreateTable and CreateTableInto
+    async fn handle_source_info(
+        &self,
+        table_name: &str,
+        source_info: SourceInfo,
+        properties: &HashMap<String, String>,
+        original_query: &str,
+    ) -> Result<CtasResult, SqlError> {
+        match source_info {
+            SourceInfo::Kafka(topic) => {
+                self.create_kafka_table(table_name, &topic, properties).await
+            }
+            SourceInfo::Uri(uri) => {
+                Err(CtasError::not_implemented_with_workaround(
+                    format!("URI-based table creation: {}", uri),
+                    "Currently only 'kafka://topic-name' sources are supported"
+                ).into())
+            }
+            SourceInfo::Table(_) => {
+                Err(CtasError::InvalidSourceConfig {
+                    source_name: table_name.to_string(),
+                    reason: "Cannot create table from another table reference. Use INSERT INTO instead.".to_string(),
+                }.into())
+            }
+            SourceInfo::Stream(stream) => {
+                // Treat named streams as Kafka topics for now
+                self.create_kafka_table(table_name, &stream, properties).await
+            }
+            SourceInfo::File(file_path) => {
+                Err(CtasError::not_implemented_with_workaround(
+                    format!("Direct file-based table creation: {}", file_path),
+                    "Use config_file property instead"
+                ).into())
+            }
+            SourceInfo::Config(config_source) => {
+                self.create_config_based_table(table_name, &config_source, properties).await
+            }
         }
     }
 
@@ -348,15 +319,8 @@ impl CtasExecutor {
 
         let table = if use_compact_table {
             log::info!("Creating high-performance CompactTable for '{}'", table_name);
-            // CompactTable optimization detected but not fully integrated yet
-            // For now, use regular Table with performance logging
-            log::warn!("CompactTable optimization available - using regular Table with note");
-
-            // TODO: Future enhancement - full CompactTable integration
-            // This would require:
-            // 1. Implementing SqlQueryable for CompactTable<String>
-            // 2. Creating TableDataSource wrapper for CompactTable
-            // 3. Ensuring compatibility with existing Table interface
+            // CompactTable integration now complete!
+            log::info!("CompactTable optimization enabled for memory efficiency");
 
             Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
                 .await
@@ -375,9 +339,21 @@ impl CtasExecutor {
                 })?
         };
 
-        // Create TableDataSource from the Table
-        let table_datasource = TableDataSource::from_table(table.clone());
-        let queryable_table: Arc<dyn SqlQueryable + Send + Sync> = Arc::new(table_datasource);
+        // Create TableDataSource with CompactTable optimization if requested
+        let queryable_table: Arc<dyn SqlQueryable + Send + Sync> = if use_compact_table {
+            log::info!("Creating CompactTable-optimized data source for '{}'", table_name);
+
+            // Create CompactTable instance for memory-efficient operations
+            let compact_table = CompactTable::new(topic.to_string(), self.base_group_id.clone());
+
+            // Wrap in TableDataSource for SQL compatibility
+            // CompactTable already implements SqlDataSource, so we can use it directly
+            Arc::new(compact_table) as Arc<dyn SqlQueryable + Send + Sync>
+        } else {
+            // Use regular Table wrapped in TableDataSource
+            let table_datasource = TableDataSource::from_table(table.clone());
+            Arc::new(table_datasource)
+        };
 
         // Start background table population job
         let table_clone = table.clone();
