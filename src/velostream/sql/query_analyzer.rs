@@ -15,6 +15,13 @@ use crate::velostream::sql::{
     SqlError,
 };
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+
+/// Trait for checking if tables exist in a table registry
+pub trait TableLookup {
+    fn table_exists(&self, table_name: &str) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+}
 
 /// Analysis result containing required datasources for SQL execution
 #[derive(Debug, Clone)]
@@ -82,6 +89,8 @@ pub struct QueryAnalyzer {
     default_group_id: String,
     /// Schema registry for property validation
     schema_registry: HierarchicalSchemaRegistry,
+    /// Known table names (from table registry) that should not be validated as external sources
+    known_tables: std::collections::HashSet<String>,
 }
 
 impl QueryAnalyzer {
@@ -98,6 +107,19 @@ impl QueryAnalyzer {
         Self {
             default_group_id,
             schema_registry,
+            known_tables: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Register a table as known (from table registry) to skip external source validation
+    pub fn add_known_table(&mut self, table_name: String) {
+        self.known_tables.insert(table_name);
+    }
+
+    /// Register multiple tables as known (from table registry)
+    pub fn add_known_tables(&mut self, table_names: Vec<String>) {
+        for table_name in table_names {
+            self.known_tables.insert(table_name);
         }
     }
 
@@ -301,6 +323,10 @@ impl QueryAnalyzer {
         _serialization_config: &SerializationConfig,
         analysis: &mut QueryAnalysis,
     ) -> Result<(), SqlError> {
+        // Skip external source validation for known tables (from table registry)
+        if self.known_tables.contains(table_name) {
+            return Ok(());
+        }
         // Determine source type - EXPLICIT ONLY (no autodetection)
         // Uses simple compound type format: {name}.type = '{type}_source'
         // Examples: 'kafka_source', 'file_source', 's3_source'

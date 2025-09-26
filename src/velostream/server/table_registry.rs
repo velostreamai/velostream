@@ -536,14 +536,14 @@ impl TableRegistry {
         use crate::velostream::sql::ast::StreamSource;
 
         match source {
-            StreamSource::Table(name) => {
+            StreamSource::Table(name) | StreamSource::Stream(name) => {
                 tables.push(name.clone());
             }
             StreamSource::Subquery(subquery) => {
                 Self::extract_tables_recursive(subquery, tables);
             }
             _ => {
-                // URI and Stream sources are not tables in the registry
+                // URI sources are not tables in the registry
             }
         }
     }

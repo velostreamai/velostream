@@ -281,7 +281,11 @@ impl StreamJobServer {
         }
 
         // Analyze query to determine required resources
-        let analyzer = QueryAnalyzer::new(self.base_group_id.clone());
+        let mut analyzer = QueryAnalyzer::new(self.base_group_id.clone());
+
+        // Register known tables to skip external source validation
+        analyzer.add_known_tables(required_tables.clone());
+
         let analysis = analyzer.analyze(&parsed_query)?;
 
         // Extract batch configuration from WITH clauses
