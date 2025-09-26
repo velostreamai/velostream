@@ -203,62 +203,8 @@ fn test_wildcard_without_comparison() {
     }
 }
 
-// Test-specific wildcard methods implementation
-impl TestWildcardSource {
-    fn sql_wildcard_values(
-        &self,
-        wildcard_expr: &str,
-    ) -> Result<Vec<FieldValue>, velostream::velostream::sql::error::SqlError> {
-        // Mock wildcard functionality for testing
-        if wildcard_expr.contains("positions.*.shares") {
-            let mut results = Vec::new();
-
-            if let Some(FieldValue::Struct(portfolio)) = self.records.get("portfolio-1") {
-                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
-                    for (_, position) in positions {
-                        if let FieldValue::Struct(pos_fields) = position {
-                            if let Some(shares) = pos_fields.get("shares") {
-                                // Apply condition if present
-                                if wildcard_expr.contains("> 100") {
-                                    if let FieldValue::Integer(s) = shares {
-                                        if *s > 100 {
-                                            results.push(shares.clone());
-                                        }
-                                    }
-                                } else {
-                                    results.push(shares.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return Ok(results);
-        }
-
-        // Handle other wildcard patterns as needed
-        Ok(Vec::new())
-    }
-
-    fn sql_wildcard_aggregate(
-        &self,
-        aggregate_expr: &str,
-    ) -> Result<FieldValue, velostream::velostream::sql::error::SqlError> {
-        // Basic aggregate support for testing
-        if aggregate_expr.contains("COUNT(positions.*.shares)") {
-            return Ok(FieldValue::Integer(3));
-        } else if aggregate_expr.contains("SUM(positions.*.shares)") {
-            return Ok(FieldValue::Float(250.0));
-        } else if aggregate_expr.contains("MAX(positions.*.shares)") {
-            return Ok(FieldValue::Float(150.0));
-        } else if aggregate_expr.contains("MIN(positions.*.shares)") {
-            return Ok(FieldValue::Float(25.0));
-        } else if aggregate_expr.contains("AVG(positions.*.shares)") {
-            return Ok(FieldValue::Float(83.333));
-        }
-        Ok(FieldValue::Null)
-    }
-}
+// Custom wildcard methods removed - now using UnifiedTable trait defaults
+// which provide comprehensive wildcard functionality automatically
 
 #[test]
 fn test_wildcard_edge_cases() {

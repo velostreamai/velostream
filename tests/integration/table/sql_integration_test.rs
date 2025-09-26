@@ -187,8 +187,15 @@ impl UnifiedTable for MockTableDataSource {
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         let data = self.data.read().unwrap();
         if let Some(value) = data.get(key) {
-            let mut record = HashMap::new();
-            record.insert("value".to_string(), json_to_field_value(value));
+            // Flatten JSON object fields to top level for SQL access
+            let record = match json_to_field_value(value) {
+                FieldValue::Struct(fields) => fields,
+                other_value => {
+                    let mut record = HashMap::new();
+                    record.insert("value".to_string(), other_value);
+                    record
+                }
+            };
             Ok(Some(record))
         } else {
             Ok(None)
@@ -208,8 +215,15 @@ impl UnifiedTable for MockTableDataSource {
         let records: Vec<_> = data
             .iter()
             .map(|(key, value)| {
-                let mut record = HashMap::new();
-                record.insert("value".to_string(), json_to_field_value(value));
+                // Flatten JSON object fields to top level for SQL access
+                let record = match json_to_field_value(value) {
+                    FieldValue::Struct(fields) => fields,
+                    other_value => {
+                        let mut record = HashMap::new();
+                        record.insert("value".to_string(), other_value);
+                        record
+                    }
+                };
                 (key.clone(), record)
             })
             .collect();

@@ -282,63 +282,8 @@ impl FinancialDataSource {
         parts
     }
 
-    // Wildcard methods for testing (not part of UnifiedTable trait)
-    fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
-        // Mock wildcard functionality for testing
-        if wildcard_expr.contains("positions.*.shares") {
-            let mut results = Vec::new();
-
-            if let Some(FieldValue::Struct(portfolio)) = self.records.get("user_001") {
-                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
-                    for (_, position) in positions {
-                        if let FieldValue::Struct(pos_fields) = position {
-                            if let Some(shares) = pos_fields.get("shares") {
-                                // Apply condition if present
-                                if wildcard_expr.contains("> 50") {
-                                    if let FieldValue::Integer(s) = shares {
-                                        if *s > 50 {
-                                            results.push(shares.clone());
-                                        }
-                                    }
-                                } else {
-                                    results.push(shares.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return Ok(results);
-        }
-
-        if wildcard_expr.contains("transaction_history[*].type") {
-            // Mock transaction types
-            return Ok(vec![
-                FieldValue::String("buy".to_string()),
-                FieldValue::String("sell".to_string()),
-                FieldValue::String("dividend".to_string()),
-            ]);
-        }
-
-        // Handle other wildcard patterns as needed
-        Ok(Vec::new())
-    }
-
-    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError> {
-        // Basic aggregate support for testing
-        if aggregate_expr.contains("COUNT(positions.*)") {
-            return Ok(FieldValue::Integer(3));
-        } else if aggregate_expr.contains("SUM(positions.*.shares)") {
-            return Ok(FieldValue::Integer(250)); // 150 + 75 + 25
-        } else if aggregate_expr.contains("MAX(positions.*.shares)") {
-            return Ok(FieldValue::Integer(150));
-        } else if aggregate_expr.contains("MIN(positions.*.shares)") {
-            return Ok(FieldValue::Integer(25));
-        } else if aggregate_expr.contains("AVG(positions.*.shares)") {
-            return Ok(FieldValue::Float(83.333));
-        }
-        Ok(FieldValue::Null)
-    }
+    // Custom wildcard methods removed - now using UnifiedTable trait defaults
+    // which provide comprehensive wildcard functionality automatically
 }
 
 #[async_trait]

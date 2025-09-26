@@ -94,8 +94,16 @@ impl UnifiedTable for MockWildcardDataSource {
 
     fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
         Box::new(self.records.iter().map(|(key, value)| {
-            let mut record = HashMap::new();
-            record.insert(key.clone(), value.clone());
+            let record = match value {
+                // If the value is a Struct, promote its fields to the top level
+                FieldValue::Struct(fields) => fields.clone(),
+                // Otherwise, use the key-value pair
+                _ => {
+                    let mut record = HashMap::new();
+                    record.insert(key.clone(), value.clone());
+                    record
+                }
+            };
             (key.clone(), record)
         }))
     }
@@ -166,88 +174,8 @@ impl UnifiedTable for MockWildcardDataSource {
     }
 }
 
-impl MockWildcardDataSource {
-    pub fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
-        // Mock wildcard functionality for testing
-        if wildcard_expr.contains("positions.*.shares") {
-            let mut results = Vec::new();
-
-            if let Some(FieldValue::Struct(portfolio)) = self.records.get("portfolio-001") {
-                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
-                    for (_, position) in positions {
-                        if let FieldValue::Struct(pos_fields) = position {
-                            if let Some(shares) = pos_fields.get("shares") {
-                                // Apply condition if present
-                                if wildcard_expr.contains("> 100") {
-                                    if let FieldValue::Integer(s) = shares {
-                                        if *s > 100 {
-                                            results.push(shares.clone());
-                                        }
-                                    }
-                                } else if wildcard_expr.contains("< 100") {
-                                    if let FieldValue::Integer(s) = shares {
-                                        if *s < 100 {
-                                            results.push(shares.clone());
-                                        }
-                                    }
-                                } else if wildcard_expr.contains("> 50") {
-                                    if let FieldValue::Integer(s) = shares {
-                                        if *s > 50 {
-                                            results.push(shares.clone());
-                                        }
-                                    }
-                                } else {
-                                    results.push(shares.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return Ok(results);
-        }
-
-        if wildcard_expr.contains("positions.*.price") {
-            let mut results = Vec::new();
-
-            if let Some(FieldValue::Struct(portfolio)) = self.records.get("portfolio-001") {
-                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
-                    for (_, position) in positions {
-                        if let FieldValue::Struct(pos_fields) = position {
-                            if let Some(price) = pos_fields.get("price") {
-                                // Apply condition if present
-                                if wildcard_expr.contains("> 300") {
-                                    if let FieldValue::ScaledInteger(p, _) = price {
-                                        if *p > 30000 {
-                                            // 300.00 in scaled format
-                                            results.push(price.clone());
-                                        }
-                                    }
-                                } else if wildcard_expr.contains("> 200") {
-                                    if let FieldValue::ScaledInteger(p, _) = price {
-                                        if *p > 20000 {
-                                            // 200.00 in scaled format
-                                            results.push(price.clone());
-                                        }
-                                    }
-                                } else {
-                                    results.push(price.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return Ok(results);
-        }
-
-        Ok(Vec::new())
-    }
-
-    fn sql_wildcard_aggregate(&self, _aggregate_expr: &str) -> Result<FieldValue, SqlError> {
-        Ok(FieldValue::Null)
-    }
-}
+// Custom wildcard methods removed - now using UnifiedTable trait defaults
+// which provide comprehensive wildcard functionality automatically
 
 #[test]
 fn test_expression_evaluator_comparison_operators() {
@@ -903,10 +831,7 @@ impl UnifiedTable for MockDataSource {
         }))
     }
 
-    fn sql_filter(
-        &self,
-        where_clause: &str,
-    ) -> Result<HashMap<String, FieldValue>, SqlError> {
+    fn sql_filter(&self, where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
         let mut filtered_records = HashMap::new();
 
         for (key, value) in &self.records {

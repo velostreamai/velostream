@@ -39,6 +39,8 @@ use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamResult};
 use async_trait::async_trait;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -46,6 +48,68 @@ use std::sync::{Arc, RwLock};
 
 /// Result type for table operations
 pub type TableResult<T> = Result<T, SqlError>;
+
+// ============================================================================
+// PERFORMANCE-OPTIMIZED PARSING
+// ============================================================================
+
+lazy_static! {
+    /// Pre-compiled regex for table.column pattern matching (performance optimization)
+    static ref TABLE_COLUMN_REGEX: Regex =
+        Regex::new(r"^(\w+)\.(\w+)$").expect("Invalid table.column regex");
+
+    /// Pre-compiled regex for equality expressions: "field = 'value'" or "field = value"
+    static ref EQUALITY_REGEX: Regex =
+        Regex::new(r"^\s*([^=\s]+)\s*=\s*(.+)\s*$").expect("Invalid equality regex");
+
+    /// Pre-compiled regex for quoted strings
+    static ref QUOTED_STRING_REGEX: Regex =
+        Regex::new(r#"^["'](.+)["']$"#).expect("Invalid quoted string regex");
+}
+
+// ============================================================================
+// CACHED PREDICATE SYSTEM
+// ============================================================================
+
+/// Cached predicate for WHERE clause evaluation
+#[derive(Debug, Clone)]
+pub enum CachedPredicate {
+    /// Always true
+    AlwaysTrue,
+    /// Always false
+    AlwaysFalse,
+    /// Field equals string value
+    FieldEqualsString { field: String, value: String },
+    /// Field equals integer value
+    FieldEqualsInteger { field: String, value: i64 },
+    /// Field equals float value
+    FieldEqualsFloat { field: String, value: f64 },
+    /// Field equals boolean value
+    FieldEqualsBoolean { field: String, value: bool },
+}
+
+impl CachedPredicate {
+    /// Evaluate the predicate against a record
+    #[inline]
+    pub fn evaluate(&self, _key: &str, record: &HashMap<String, FieldValue>) -> bool {
+        match self {
+            CachedPredicate::AlwaysTrue => true,
+            CachedPredicate::AlwaysFalse => false,
+            CachedPredicate::FieldEqualsString { field, value } => {
+                matches!(record.get(field), Some(FieldValue::String(s)) if s == value)
+            }
+            CachedPredicate::FieldEqualsInteger { field, value } => {
+                matches!(record.get(field), Some(FieldValue::Integer(i)) if i == value)
+            }
+            CachedPredicate::FieldEqualsFloat { field, value } => {
+                matches!(record.get(field), Some(FieldValue::Float(f)) if (f - value).abs() < f64::EPSILON)
+            }
+            CachedPredicate::FieldEqualsBoolean { field, value } => {
+                matches!(record.get(field), Some(FieldValue::Boolean(b)) if b == value)
+            }
+        }
+    }
+}
 
 /// Unified table interface combining all table operations
 ///
@@ -377,20 +441,95 @@ pub fn parse_key_lookup(where_clause: &str) -> Option<String> {
     None
 }
 
-/// Parse WHERE clause into a predicate function
+/// Parse WHERE clause into a cached predicate (performance optimized)
 ///
-/// This is a simplified parser - real implementations should use
-/// the full SQL parser for complex expressions.
+/// **Performance Benefits**:
+/// - Pre-compiles predicates to avoid runtime parsing
+/// - Uses enum dispatch instead of closure boxing
+/// - Inlined evaluation for maximum performance
+pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredicate> {
+    let clause = where_clause.trim();
+
+    // Handle simple equality comparisons: "field = 'value'"
+    if let Some((field, value)) = parse_simple_equality(clause) {
+        // Try to parse as different types for optimal evaluation
+        if let Ok(int_val) = value.parse::<i64>() {
+            return Ok(CachedPredicate::FieldEqualsInteger {
+                field,
+                value: int_val,
+            });
+        }
+        if let Ok(float_val) = value.parse::<f64>() {
+            return Ok(CachedPredicate::FieldEqualsFloat {
+                field,
+                value: float_val,
+            });
+        }
+        if let Ok(bool_val) = value.parse::<bool>() {
+            return Ok(CachedPredicate::FieldEqualsBoolean {
+                field,
+                value: bool_val,
+            });
+        }
+        // Default to string comparison
+        return Ok(CachedPredicate::FieldEqualsString { field, value });
+    }
+
+    // Handle 'true' literal
+    if clause == "true" {
+        return Ok(CachedPredicate::AlwaysTrue);
+    }
+
+    // Handle 'false' literal
+    if clause == "false" {
+        return Ok(CachedPredicate::AlwaysFalse);
+    }
+
+    // For unimplemented patterns, return false (safer default)
+    Ok(CachedPredicate::AlwaysFalse)
+}
+
+/// Legacy parse WHERE clause into a predicate function (backwards compatibility)
+///
+/// **Deprecated**: Use `parse_where_clause_cached` for better performance
 fn parse_where_clause(
     where_clause: &str,
 ) -> TableResult<Box<dyn Fn(&str, &HashMap<String, FieldValue>) -> bool>> {
-    // Simplified implementation - real version would use SQL parser
-    let clause = where_clause.to_string();
-    Ok(Box::new(move |_key, _record| {
-        // TODO: Implement full SQL expression evaluation
-        // For now, return true to maintain compatibility
-        !clause.is_empty()
-    }))
+    let predicate = parse_where_clause_cached(where_clause)?;
+    Ok(Box::new(move |key, record| predicate.evaluate(key, record)))
+}
+
+/// Parse simple equality expressions like "field = 'value'" or "field = value"
+///
+/// **Performance Optimized**:
+/// - Uses pre-compiled regex patterns
+/// - Minimizes string allocations
+/// - Handles table.column prefixes efficiently
+fn parse_simple_equality(clause: &str) -> Option<(String, String)> {
+    let captures = EQUALITY_REGEX.captures(clause)?;
+
+    let field_raw = captures.get(1)?.as_str();
+    let value_part = captures.get(2)?.as_str();
+
+    // Extract field name efficiently (handle table.column -> column)
+    let field = if let Some(table_captures) = TABLE_COLUMN_REGEX.captures(field_raw) {
+        // Extract column name from table.column pattern
+        table_captures.get(2)?.as_str().to_string()
+    } else {
+        // No table prefix, use field as-is
+        field_raw.to_string()
+    };
+
+    // Extract value efficiently (remove quotes if present)
+    let value = if let Some(quoted_captures) = QUOTED_STRING_REGEX.captures(value_part) {
+        // Extract content from quoted string
+        quoted_captures.get(1)?.as_str().to_string()
+    } else {
+        // Unquoted value
+        value_part.to_string()
+    };
+
+    Some((field, value))
 }
 
 // Legacy adapter removed - OptimizedTableImpl is the preferred implementation
@@ -425,12 +564,14 @@ pub struct OptimizedTableImpl {
     column_indexes: Arc<RwLock<HashMap<String, HashMap<String, Vec<String>>>>>,
 }
 
-/// Cached query plan for performance
+/// Cached query plan for performance (optimized)
 #[derive(Clone)]
 struct CachedQuery {
     /// Parsed query type
     query_type: QueryType,
-    /// Pre-compiled regex if needed
+    /// Pre-compiled predicate for WHERE clauses (performance optimized)
+    predicate: Option<CachedPredicate>,
+    /// Legacy filter function for backward compatibility
     filter_fn: Option<Arc<dyn Fn(&HashMap<String, FieldValue>) -> bool + Send + Sync>>,
     /// Target column for column queries
     target_column: Option<String>,
@@ -582,6 +723,7 @@ impl OptimizedTableImpl {
         if let Some(key_value) = parse_key_lookup(clause) {
             return CachedQuery {
                 query_type: QueryType::KeyLookup(key_value),
+                predicate: None,
                 filter_fn: None,
                 target_column: None,
                 last_used: std::time::Instant::now(),
@@ -592,6 +734,7 @@ impl OptimizedTableImpl {
         if let Some((column, value)) = self.parse_column_filter(clause) {
             return CachedQuery {
                 query_type: QueryType::ColumnFilter { column, value },
+                predicate: None,
                 filter_fn: None,
                 target_column: None,
                 last_used: std::time::Instant::now(),
@@ -601,6 +744,7 @@ impl OptimizedTableImpl {
         // Fallback to full scan
         CachedQuery {
             query_type: QueryType::FullScan,
+            predicate: None,
             filter_fn: None,
             target_column: None,
             last_used: std::time::Instant::now(),
@@ -1005,7 +1149,6 @@ struct WildcardCondition {
     value: f64,
 }
 
-
 /// Parse a wildcard expression into components and optional condition
 fn parse_wildcard_expression(expr: &str) -> TableResult<WildcardQuery> {
     // Check for conditional operators
@@ -1216,9 +1359,7 @@ fn extract_numeric_value(value: &FieldValue) -> Option<f64> {
     match value {
         FieldValue::Integer(i) => Some(*i as f64),
         FieldValue::Float(f) => Some(*f),
-        FieldValue::ScaledInteger(value, scale) => {
-            Some(*value as f64 / 10_f64.powi(*scale as i32))
-        }
+        FieldValue::ScaledInteger(value, scale) => Some(*value as f64 / 10_f64.powi(*scale as i32)),
         _ => None,
     }
 }
