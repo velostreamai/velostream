@@ -86,6 +86,14 @@ pub enum CachedPredicate {
     FieldEqualsFloat { field: String, value: f64 },
     /// Field equals boolean value
     FieldEqualsBoolean { field: String, value: bool },
+    /// Field greater than numeric value
+    FieldGreaterThan { field: String, value: f64 },
+    /// Field less than numeric value
+    FieldLessThan { field: String, value: f64 },
+    /// Field greater than or equal to numeric value
+    FieldGreaterThanOrEqual { field: String, value: f64 },
+    /// Field less than or equal to numeric value
+    FieldLessThanOrEqual { field: String, value: f64 },
 }
 
 impl CachedPredicate {
@@ -107,6 +115,39 @@ impl CachedPredicate {
             CachedPredicate::FieldEqualsBoolean { field, value } => {
                 matches!(record.get(field), Some(FieldValue::Boolean(b)) if b == value)
             }
+            CachedPredicate::FieldGreaterThan { field, value } => {
+                Self::compare_numeric_field(record, field, |field_val| field_val > *value)
+            }
+            CachedPredicate::FieldLessThan { field, value } => {
+                Self::compare_numeric_field(record, field, |field_val| field_val < *value)
+            }
+            CachedPredicate::FieldGreaterThanOrEqual { field, value } => {
+                Self::compare_numeric_field(record, field, |field_val| field_val >= *value)
+            }
+            CachedPredicate::FieldLessThanOrEqual { field, value } => {
+                Self::compare_numeric_field(record, field, |field_val| field_val <= *value)
+            }
+        }
+    }
+
+    /// Helper method to compare numeric fields with type coercion
+    #[inline]
+    fn compare_numeric_field<F>(
+        record: &HashMap<String, FieldValue>,
+        field: &str,
+        comparator: F,
+    ) -> bool
+    where
+        F: Fn(f64) -> bool,
+    {
+        match record.get(field) {
+            Some(FieldValue::Float(f)) => comparator(*f),
+            Some(FieldValue::Integer(i)) => comparator(*i as f64),
+            Some(FieldValue::ScaledInteger(value, scale)) => {
+                let float_val = *value as f64 / 10_f64.powi(*scale as i32);
+                comparator(float_val)
+            }
+            _ => false,
         }
     }
 }
@@ -441,6 +482,34 @@ pub fn parse_key_lookup(where_clause: &str) -> Option<String> {
     None
 }
 
+/// Parse comparison operator expressions like "field > 123" or "field <= 45.67"
+///
+/// Returns (field_name, operator, value) if pattern matches
+fn parse_comparison_operator(clause: &str) -> Option<(String, String, String)> {
+    let clause = clause.trim();
+
+    // Try different comparison operators in order of specificity
+    for op in &[">=", "<=", ">", "<"] {
+        if let Some(pos) = clause.find(op) {
+            let field_part = clause[..pos].trim();
+            let value_part = clause[pos + op.len()..].trim();
+
+            if !field_part.is_empty() && !value_part.is_empty() {
+                // Handle table.column prefixes in field names
+                let field = if let Some(dot_pos) = field_part.rfind('.') {
+                    field_part[dot_pos + 1..].to_string()
+                } else {
+                    field_part.to_string()
+                };
+
+                return Some((field, op.to_string(), value_part.to_string()));
+            }
+        }
+    }
+
+    None
+}
+
 /// Parse WHERE clause into a cached predicate (performance optimized)
 ///
 /// **Performance Benefits**:
@@ -483,6 +552,31 @@ pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredic
     // Handle 'false' literal
     if clause == "false" {
         return Ok(CachedPredicate::AlwaysFalse);
+    }
+
+    // Handle comparison operators: "field > value", "field < value", etc.
+    if let Some((field, operator, value)) = parse_comparison_operator(clause) {
+        if let Ok(numeric_val) = value.parse::<f64>() {
+            return Ok(match operator.as_str() {
+                ">" => CachedPredicate::FieldGreaterThan {
+                    field,
+                    value: numeric_val,
+                },
+                "<" => CachedPredicate::FieldLessThan {
+                    field,
+                    value: numeric_val,
+                },
+                ">=" => CachedPredicate::FieldGreaterThanOrEqual {
+                    field,
+                    value: numeric_val,
+                },
+                "<=" => CachedPredicate::FieldLessThanOrEqual {
+                    field,
+                    value: numeric_val,
+                },
+                _ => return Ok(CachedPredicate::AlwaysFalse),
+            });
+        }
     }
 
     // For unimplemented patterns, return false (safer default)
