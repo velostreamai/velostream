@@ -3,6 +3,8 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
+use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamRecord, StreamResult};
+use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -321,6 +323,153 @@ where
             .into_iter()
             .filter(|(k, v)| predicate(k, v))
             .collect()
+    }
+}
+
+/// UnifiedTable implementation for Table
+/// Provides fast HashMap-based table operations
+#[async_trait::async_trait]
+impl<K, KS, VS> UnifiedTable for Table<K, KS, VS>
+where
+    K: Clone + std::hash::Hash + Eq + ToString + Send + Sync + 'static + std::fmt::Debug,
+    KS: Serializer<K> + Send + Sync + 'static,
+    VS: SerializationFormat + Send + Sync + 'static,
+{
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        // For simplicity, assume K is String (most common case)
+        // A real implementation would need proper key type conversion
+        if std::any::type_name::<K>() == std::any::type_name::<String>() {
+            let key_string = key.to_string();
+            // Safe transmute since we verified the type
+            let key_k = unsafe { std::ptr::read(&key_string as *const _ as *const K) };
+            std::mem::forget(key_string);
+            Ok(self.get(&key_k))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn contains_key(&self, key: &str) -> bool {
+        if std::any::type_name::<K>() == std::any::type_name::<String>() {
+            let key_string = key.to_string();
+            let key_k = unsafe { std::ptr::read(&key_string as *const _ as *const K) };
+            let result = self.contains_key(&key_k);
+            std::mem::forget(key_string);
+            std::mem::forget(key_k);
+            result
+        } else {
+            false
+        }
+    }
+
+    fn record_count(&self) -> usize {
+        self.len()
+    }
+
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        let state = self.state.read().unwrap();
+        let records: Vec<_> = state
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        Box::new(records.into_iter())
+    }
+
+    // Note: iter_filtered removed from trait for dyn compatibility
+
+    fn sql_column_values(&self, column: &str, where_clause: &str) -> TableResult<Vec<FieldValue>> {
+        let filtered = self.sql_filter(where_clause)?;
+        let mut values = Vec::new();
+
+        for (_key, record) in filtered {
+            if let FieldValue::Struct(map) = record {
+                if let Some(value) = map.get(column) {
+                    values.push(value.clone());
+                }
+            }
+        }
+
+        Ok(values)
+    }
+
+    fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> TableResult<FieldValue> {
+        let filtered = self.sql_filter(where_clause)?;
+
+        if filtered.is_empty() {
+            return Ok(FieldValue::Null);
+        }
+
+        // For simple field selection, return the field from the first record
+        if !select_expr.contains('(') {
+            if let Some((_key, FieldValue::Struct(record))) = filtered.into_iter().next() {
+                return Ok(record.get(select_expr).cloned().unwrap_or(FieldValue::Null));
+            }
+        }
+
+        // Handle aggregates - simplified for now
+        Ok(FieldValue::Null)
+    }
+
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        // Create a simple stream from the current state
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let state = self.state.clone();
+
+        tokio::spawn(async move {
+            let state_guard = state.read().unwrap();
+            for (key, record) in state_guard.iter() {
+                let stream_record = StreamRecord {
+                    key: key.to_string(),
+                    fields: record.clone(),
+                };
+                if tx.send(Ok(stream_record)).is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(RecordStream { receiver: rx })
+    }
+
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        // Simplified implementation - delegates to stream_all
+        self.stream_all().await
+    }
+
+    async fn query_batch(
+        &self,
+        batch_size: usize,
+        offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
+        let state = self.state.read().unwrap();
+        let offset = offset.unwrap_or(0);
+
+        let records: Vec<StreamRecord> = state
+            .iter()
+            .skip(offset)
+            .take(batch_size)
+            .map(|(key, fields)| StreamRecord {
+                key: key.to_string(),
+                fields: fields.clone(),
+            })
+            .collect();
+
+        let has_more = offset + records.len() < state.len();
+
+        Ok(RecordBatch { records, has_more })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(self.record_count())
+    }
+
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
+        // Simplified implementation
+        Ok(FieldValue::Null)
     }
 }
 

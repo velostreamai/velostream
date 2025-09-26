@@ -21,10 +21,7 @@ pub enum CtasError {
 
     /// Source configuration is invalid
     #[error("Invalid source configuration for '{source_name}': {reason}")]
-    InvalidSourceConfig {
-        source_name: String,
-        reason: String,
-    },
+    InvalidSourceConfig { source_name: String, reason: String },
 
     /// Property combination is invalid
     #[error("Invalid property combination: {details}")]
@@ -91,7 +88,9 @@ pub enum CtasError {
     },
 
     /// Memory limit exceeded
-    #[error("Memory limit exceeded for table '{table_name}': used {used_mb}MB, limit {limit_mb}MB")]
+    #[error(
+        "Memory limit exceeded for table '{table_name}': used {used_mb}MB, limit {limit_mb}MB"
+    )]
     MemoryLimitExceeded {
         table_name: String,
         used_mb: usize,
@@ -110,7 +109,11 @@ pub enum CtasError {
 
 impl CtasError {
     /// Create a table creation failed error with source
-    pub fn table_creation<E>(table_name: impl Into<String>, message: impl Into<String>, source: E) -> Self
+    pub fn table_creation<E>(
+        table_name: impl Into<String>,
+        message: impl Into<String>,
+        source: E,
+    ) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
     {
@@ -141,11 +144,7 @@ impl CtasError {
     }
 
     /// Create a memory limit exceeded error
-    pub fn memory_limit(
-        table_name: impl Into<String>,
-        used_mb: usize,
-        limit_mb: usize,
-    ) -> Self {
+    pub fn memory_limit(table_name: impl Into<String>, used_mb: usize, limit_mb: usize) -> Self {
         Self::MemoryLimitExceeded {
             table_name: table_name.into(),
             used_mb,
@@ -183,7 +182,9 @@ pub enum TableError {
     },
 
     /// Field not found in table
-    #[error("Field '{field_name}' not found in table '{table_name}'. Available fields: {available:?}")]
+    #[error(
+        "Field '{field_name}' not found in table '{table_name}'. Available fields: {available:?}"
+    )]
     FieldNotFound {
         table_name: String,
         field_name: String,
@@ -191,7 +192,9 @@ pub enum TableError {
     },
 
     /// Type conversion failed
-    #[error("Type conversion failed for field '{field_name}': cannot convert {from_type} to {to_type}")]
+    #[error(
+        "Type conversion failed for field '{field_name}': cannot convert {from_type} to {to_type}"
+    )]
     TypeConversionFailed {
         field_name: String,
         from_type: String,

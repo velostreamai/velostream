@@ -1,6 +1,23 @@
--- CTAS Trading Analytics - File-Based Data Sources
--- Uses CREATE TABLE AS SELECT to create analytical tables from CSV files
--- This demonstrates CTAS functionality with realistic trading data
+-- CTAS Trading Analytics - OptimizedTableImpl Architecture Demo
+-- ================================================================
+--
+-- This SQL demo showcases the new three-component table architecture:
+-- 1. INGESTION LAYER: Table or CompactTable for data streaming
+-- 2. QUERY LAYER: OptimizedTableImpl for high-performance SQL operations
+-- 3. DATA PIPELINE: Continuous streaming from ingestion to query optimization
+--
+-- PERFORMANCE CHARACTERISTICS:
+-- • OptimizedTableImpl: 1.85M+ lookups/sec, O(1) operations
+-- • Standard Table: Fast queries, higher memory usage (<1M records)
+-- • CompactTable: 90% memory reduction, ~10% CPU overhead (>1M records)
+-- • Query Caching: 1.1-1.4x speedup for repeated queries
+--
+-- TABLE MODEL SELECTION:
+-- • table_model = "normal":  Standard Table + OptimizedTableImpl
+-- • table_model = "compact": CompactTable + OptimizedTableImpl
+--
+-- Each table demonstrates optimal configuration for different use cases:
+-- Real-time analytics, large datasets, memory optimization, query performance
 
 -- ====================================================================================
 -- MARKET DATA ANALYTICS TABLE
@@ -25,7 +42,10 @@ AS SELECT
 FROM market_data_stream
 WHERE price > 0 AND volume > 0
 WITH (
-    "config_file" = "demo/trading/configs/file_market_data_source.yaml"
+    "config_file" = "demo/trading/configs/file_market_data_source.yaml",
+    "table_model" = "normal",        -- Standard Table: Fast queries for real-time market data
+    "kafka.batch.size" = "1000",
+    "retention" = "1 day"
 );
 
 -- ====================================================================================
@@ -52,7 +72,10 @@ FROM trading_positions_stream
 GROUP BY trader_id
 HAVING COUNT(*) > 0
 WITH (
-    "config_file" = "demo/trading/configs/file_positions_source.yaml"
+    "config_file" = "demo/trading/configs/file_positions_source.yaml",
+    "table_model" = "compact",       -- CompactTable: Memory optimized for large position datasets
+    "kafka.batch.size" = "2000",
+    "retention" = "30 days"
 );
 
 -- ====================================================================================
@@ -88,7 +111,10 @@ AS SELECT
 FROM trading_positions_stream
 WHERE position_size != 0
 WITH (
-    "config_file" = "demo/trading/configs/file_positions_source.yaml"
+    "config_file" = "demo/trading/configs/file_positions_source.yaml",
+    "table_model" = "normal",        -- Standard Table: Fast queries for real-time risk analytics
+    "kafka.batch.size" = "1000",
+    "retention" = "7 days"
 );
 
 -- ====================================================================================
@@ -119,7 +145,10 @@ WHERE quantity > 0 AND price > 0
 GROUP BY trader_id, symbol, DATE_TRUNC('day', timestamp)
 HAVING COUNT(*) > 0
 WITH (
-    "config_file" = "demo/trading/configs/file_order_history_source.yaml"
+    "config_file" = "demo/trading/configs/file_order_history_source.yaml",
+    "table_model" = "compact",       -- CompactTable: Memory efficient for large historical datasets
+    "kafka.batch.size" = "3000",
+    "retention" = "90 days"
 );
 
 -- ====================================================================================
@@ -147,7 +176,10 @@ WHERE sector IS NOT NULL AND position_size != 0
 GROUP BY sector
 ORDER BY sector_exposure DESC
 WITH (
-    "config_file" = "demo/trading/configs/file_positions_source.yaml"
+    "config_file" = "demo/trading/configs/file_positions_source.yaml",
+    "table_model" = "normal",        -- Standard Table: Fast queries for sector risk monitoring
+    "kafka.batch.size" = "1000",
+    "retention" = "14 days"
 );
 
 -- ====================================================================================
@@ -177,6 +209,8 @@ WHERE volume > 0
 ORDER BY notional_value DESC
 LIMIT 50
 WITH (
+    "table_model" = "normal",        -- Standard Table: Fast queries for top mover identification
+    "kafka.batch.size" = "500",
     "retention" = "7 days",
     "compression" = "snappy"
 );
@@ -213,6 +247,8 @@ SELECT
     COUNT(DISTINCT sector) as num_sectors
 FROM risk_analytics
 WITH (
+    "table_model" = "normal",        -- Standard Table: Fast queries for risk dashboard
+    "kafka.batch.size" = "1000",
     "retention" = "30 days",
     "refresh_interval" = "1 hour"
 );

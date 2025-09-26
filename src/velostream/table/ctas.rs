@@ -48,7 +48,9 @@ use crate::velostream::sql::ast::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::table::error::{CtasError, CtasResult as CtasErrorResult};
-use crate::velostream::table::{CompactTable, SqlQueryable, Table, TableDataSource};
+use crate::velostream::table::{
+    CompactTable, OptimizedTableImpl, Table, TableDataSource, UnifiedTable,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -111,7 +113,7 @@ pub struct CtasResult {
     /// Name of the created table
     pub table_name: String,
     /// Table instance that can be queried
-    pub table: Arc<dyn SqlQueryable + Send + Sync>,
+    pub table: Arc<dyn UnifiedTable>,
     /// Background population job handle
     pub background_job: JoinHandle<()>,
 }
@@ -179,32 +181,34 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         match source_info {
             SourceInfo::Kafka(topic) => {
-                self.create_kafka_table(table_name, &topic, properties).await
+                self.create_kafka_table(table_name, &topic, properties)
+                    .await
             }
-            SourceInfo::Uri(uri) => {
-                Err(CtasError::not_implemented_with_workaround(
-                    format!("URI-based table creation: {}", uri),
-                    "Currently only 'kafka://topic-name' sources are supported"
-                ).into())
+            SourceInfo::Uri(uri) => Err(CtasError::not_implemented_with_workaround(
+                format!("URI-based table creation: {}", uri),
+                "Currently only 'kafka://topic-name' sources are supported",
+            )
+            .into()),
+            SourceInfo::Table(_) => Err(CtasError::InvalidSourceConfig {
+                source_name: table_name.to_string(),
+                reason:
+                    "Cannot create table from another table reference. Use INSERT INTO instead."
+                        .to_string(),
             }
-            SourceInfo::Table(_) => {
-                Err(CtasError::InvalidSourceConfig {
-                    source_name: table_name.to_string(),
-                    reason: "Cannot create table from another table reference. Use INSERT INTO instead.".to_string(),
-                }.into())
-            }
+            .into()),
             SourceInfo::Stream(stream) => {
                 // Treat named streams as Kafka topics for now
-                self.create_kafka_table(table_name, &stream, properties).await
+                self.create_kafka_table(table_name, &stream, properties)
+                    .await
             }
-            SourceInfo::File(file_path) => {
-                Err(CtasError::not_implemented_with_workaround(
-                    format!("Direct file-based table creation: {}", file_path),
-                    "Use config_file property instead"
-                ).into())
-            }
+            SourceInfo::File(file_path) => Err(CtasError::not_implemented_with_workaround(
+                format!("Direct file-based table creation: {}", file_path),
+                "Use config_file property instead",
+            )
+            .into()),
             SourceInfo::Config(config_source) => {
-                self.create_config_based_table(table_name, &config_source, properties).await
+                self.create_config_based_table(table_name, &config_source, properties)
+                    .await
             }
         }
     }
@@ -318,14 +322,20 @@ impl CtasExecutor {
         let use_compact_table = self.should_use_compact_table(&properties);
 
         let table = if use_compact_table {
-            log::info!("Creating high-performance CompactTable for '{}'", table_name);
+            log::info!(
+                "Creating high-performance CompactTable for '{}'",
+                table_name
+            );
             // CompactTable integration now complete!
             log::info!("CompactTable optimization enabled for memory efficiency");
 
             Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
                 .await
                 .map_err(|e| SqlError::ExecutionError {
-                    message: format!("Failed to create high-performance table '{}': {}", table_name, e),
+                    message: format!(
+                        "Failed to create high-performance table '{}': {}",
+                        table_name, e
+                    ),
                     query: None,
                 })?
         } else {
@@ -339,41 +349,99 @@ impl CtasExecutor {
                 })?
         };
 
-        // Create TableDataSource with CompactTable optimization if requested
-        let queryable_table: Arc<dyn SqlQueryable + Send + Sync> = if use_compact_table {
-            log::info!("Creating CompactTable-optimized data source for '{}'", table_name);
+        // Create OptimizedTableImpl for high-performance SQL queries
+        let optimized_table = OptimizedTableImpl::new();
+        log::info!(
+            "Created OptimizedTableImpl for high-performance SQL operations on table '{}'",
+            table_name
+        );
 
-            // Create CompactTable instance for memory-efficient operations
-            let compact_table = CompactTable::new(topic.to_string(), self.base_group_id.clone());
-
-            // Wrap in TableDataSource for SQL compatibility
-            // CompactTable already implements SqlDataSource, so we can use it directly
-            Arc::new(compact_table) as Arc<dyn SqlQueryable + Send + Sync>
+        // Create the ingestion layer table for data streaming
+        let ingestion_table: Arc<dyn UnifiedTable> = if use_compact_table {
+            log::info!(
+                "Creating CompactTable for memory-efficient ingestion into '{}'",
+                table_name
+            );
+            Arc::new(CompactTable::new(
+                topic.to_string(),
+                self.base_group_id.clone(),
+            ))
         } else {
-            // Use regular Table wrapped in TableDataSource
-            let table_datasource = TableDataSource::from_table(table.clone());
-            Arc::new(table_datasource)
+            log::info!("Using standard Table for ingestion into '{}'", table_name);
+            Arc::new(table.clone()) as Arc<dyn UnifiedTable>
         };
 
-        // Start background table population job
-        let table_clone = table.clone();
+        // The query-optimized table for high-performance operations
+        let queryable_table: Arc<dyn UnifiedTable> = Arc::new(optimized_table.clone());
+
+        // Start background data pipeline job: ingestion → OptimizedTableImpl
+        let ingestion_clone = ingestion_table.clone();
+        let optimized_clone = optimized_table.clone();
         let table_name_clone = table_name.to_string();
+
         let background_job = tokio::spawn(async move {
             log::info!(
-                "Starting background population job for table '{}'",
+                "Starting background data pipeline for table '{}': ingestion → OptimizedTableImpl",
                 table_name_clone
             );
 
-            match table_clone.start().await {
-                Ok(()) => {
+            // Start the ingestion table (Table or CompactTable)
+            if let Err(e) = table.start().await {
+                log::error!(
+                    "Failed to start ingestion table '{}': {}",
+                    table_name_clone,
+                    e
+                );
+                return;
+            }
+
+            // Stream data from ingestion table into OptimizedTableImpl
+            match ingestion_clone.stream_all().await {
+                Ok(mut stream) => {
+                    use futures::StreamExt;
+                    let mut records_processed = 0;
+
+                    while let Some(record_result) = stream.next().await {
+                        match record_result {
+                            Ok(stream_record) => {
+                                if let Err(e) =
+                                    optimized_clone.insert(stream_record.key, stream_record.fields)
+                                {
+                                    log::error!(
+                                        "Failed to insert record into OptimizedTableImpl '{}': {}",
+                                        table_name_clone,
+                                        e
+                                    );
+                                } else {
+                                    records_processed += 1;
+                                    if records_processed % 1000 == 0 {
+                                        log::debug!(
+                                            "Processed {} records for table '{}'",
+                                            records_processed,
+                                            table_name_clone
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "Error streaming record for table '{}': {}",
+                                    table_name_clone,
+                                    e
+                                );
+                            }
+                        }
+                    }
+
                     log::info!(
-                        "Background population job for table '{}' completed successfully",
-                        table_name_clone
+                        "Data pipeline for table '{}' completed. Total records processed: {}",
+                        table_name_clone,
+                        records_processed
                     );
                 }
                 Err(e) => {
                     log::error!(
-                        "Background population job for table '{}' failed: {}",
+                        "Failed to start data pipeline streaming for table '{}': {}",
                         table_name_clone,
                         e
                     );
@@ -389,7 +457,10 @@ impl CtasExecutor {
     }
 
     /// Validate WITH clause properties
-    pub fn validate_properties(&self, properties: &HashMap<String, String>) -> Result<(), SqlError> {
+    pub fn validate_properties(
+        &self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), SqlError> {
         for (key, value) in properties.iter() {
             match key.as_str() {
                 "config_file" => {
@@ -487,7 +558,10 @@ impl CtasExecutor {
                     return true;
                 }
                 "normal" | "standard" => {
-                    log::info!("Using standard Table due to table_model = '{}'", table_model);
+                    log::info!(
+                        "Using standard Table due to table_model = '{}'",
+                        table_model
+                    );
                     return false;
                 }
                 _ => {
@@ -755,11 +829,10 @@ impl CtasExecutor {
         table: Table<String, StringSerializer, JsonFormat>,
     ) -> Result<CtasResult, SqlError> {
         // Create TableDataSource from the Table
-        let table_datasource = TableDataSource::from_table(table.clone());
-        let queryable_table: Arc<dyn SqlQueryable + Send + Sync> = Arc::new(table_datasource);
+        let queryable_table: Arc<dyn UnifiedTable> = Arc::new(table.clone());
 
         // Start background table population job
-        let table_clone = table.clone();
+        let table_clone = table;
         let table_name_clone = table_name.to_string();
         let background_job = tokio::spawn(async move {
             log::info!(
@@ -789,612 +862,5 @@ impl CtasExecutor {
             table: queryable_table,
             background_job,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_ctas_parsing() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test valid CTAS query parsing
-        let valid_queries = vec![
-            "CREATE TABLE orders AS SELECT * FROM orders_topic",
-            "CREATE TABLE users AS SELECT id, name FROM user_stream",
-        ];
-
-        for query in valid_queries {
-            let result = executor.execute(query).await;
-            match result {
-                Ok(_) => {
-                    // Expected to fail due to no actual Kafka, but parsing should work
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    // Should be Kafka connection error, not parsing error
-                    assert!(
-                        !message.contains("Not a CREATE TABLE"),
-                        "Query should parse correctly: {}",
-                        query
-                    );
-                }
-                Err(e) => {
-                    panic!("Unexpected error for valid query '{}': {}", query, e);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_source_extraction() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-        let parser = StreamingSqlParser::new();
-
-        // Test stream extraction
-        let stream_query = parser.parse("SELECT * FROM test_topic").unwrap();
-        let source = executor.extract_source_from_select(&stream_query).unwrap();
-        match source {
-            SourceInfo::Stream(topic) => assert_eq!(topic, "test_topic"),
-            _ => panic!("Expected Stream source"),
-        }
-
-        // Test another stream extraction
-        let another_stream_query = parser.parse("SELECT * FROM my_stream").unwrap();
-        let source2 = executor
-            .extract_source_from_select(&another_stream_query)
-            .unwrap();
-        match source2 {
-            SourceInfo::Stream(name) => assert_eq!(name, "my_stream"),
-            _ => panic!("Expected Stream source"),
-        }
-    }
-
-    #[test]
-    fn test_properties_handling() {
-        use std::collections::HashMap;
-
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test that the implementation can handle properties
-        let mut properties = HashMap::new();
-        properties.insert("config_file".to_string(), "base_analytics.yaml".to_string());
-        properties.insert("retention".to_string(), "30 days".to_string());
-        properties.insert("kafka.batch.size".to_string(), "1000".to_string());
-
-        // This test verifies that our implementation correctly processes properties
-        // The actual CTAS parsing would populate these properties from the WITH clause
-        assert_eq!(
-            properties.get("config_file"),
-            Some(&"base_analytics.yaml".to_string())
-        );
-        assert_eq!(properties.get("retention"), Some(&"30 days".to_string()));
-        assert_eq!(
-            properties.get("kafka.batch.size"),
-            Some(&"1000".to_string())
-        );
-    }
-
-    #[test]
-    fn test_property_validation() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test valid properties
-        let mut valid_props = HashMap::new();
-        valid_props.insert("config_file".to_string(), "analytics.yaml".to_string());
-        valid_props.insert("retention".to_string(), "7 days".to_string());
-        valid_props.insert("kafka.batch.size".to_string(), "1000".to_string());
-
-        assert!(executor.validate_properties(&valid_props).is_ok());
-
-        // Test invalid config_file
-        let mut invalid_props = HashMap::new();
-        invalid_props.insert("config_file".to_string(), "".to_string());
-        assert!(executor.validate_properties(&invalid_props).is_err());
-
-        // Test invalid retention
-        let mut invalid_props = HashMap::new();
-        invalid_props.insert("retention".to_string(), "".to_string());
-        assert!(executor.validate_properties(&invalid_props).is_err());
-
-        // Test invalid kafka.batch.size
-        let mut invalid_props = HashMap::new();
-        invalid_props.insert("kafka.batch.size".to_string(), "not_a_number".to_string());
-        assert!(executor.validate_properties(&invalid_props).is_err());
-    }
-
-    #[tokio::test]
-    async fn test_create_table_into_queries() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test CREATE TABLE AS SELECT INTO
-        let create_table_into = r#"
-            CREATE TABLE analytics_summary
-            AS SELECT customer_id, COUNT(*), AVG(amount)
-            FROM kafka_stream
-            WITH ("source_config" = "configs/kafka.yaml")
-            INTO clickhouse_sink
-        "#;
-
-        let result = executor.execute(create_table_into).await;
-        match result {
-            Ok(_) => {
-                // Expected to fail due to no actual Kafka, but parsing should work
-            }
-            Err(SqlError::ExecutionError { message, .. }) => {
-                // Should be Kafka connection error, not parsing error
-                assert!(
-                    !message.contains("Not a CREATE TABLE"),
-                    "CREATE TABLE INTO query should parse correctly"
-                );
-            }
-            Err(e) => {
-                panic!("Unexpected error for CREATE TABLE INTO query: {}", e);
-            }
-        }
-    }
-
-    #[test]
-    fn test_data_source_types() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-        let parser = StreamingSqlParser::new();
-
-        // Test different source types
-        let test_cases = vec![
-            (
-                "CREATE TABLE test AS SELECT * FROM kafka_topic",
-                SourceInfo::Stream("kafka_topic".to_string()),
-            ),
-            (
-                "CREATE TABLE test AS SELECT * FROM file_stream",
-                SourceInfo::Stream("file_stream".to_string()),
-            ),
-            (
-                "CREATE TABLE test AS SELECT * FROM my_stream",
-                SourceInfo::Stream("my_stream".to_string()),
-            ),
-        ];
-
-        for (query, expected_source) in test_cases {
-            match parser.parse(query) {
-                Ok(StreamingQuery::CreateTable { .. }) => {
-                    // Parser successfully parsed - would extract correct source in real execution
-                    println!("✅ Successfully parsed: {}", query);
-                }
-                Ok(_) => panic!("Expected CreateTable query for: {}", query),
-                Err(e) => panic!("Failed to parse query '{}': {}", query, e),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_with_clause_edge_cases() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test WITH clause with various edge cases
-        let edge_case_queries = vec![
-            // Empty config file should fail validation
-            ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"\")", false),
-            // Empty retention should fail validation
-            ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"retention\" = \"\")", false),
-            // Invalid batch size should fail validation
-            ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"kafka.batch.size\" = \"not_a_number\")", false),
-            // Valid properties should pass validation
-            ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"valid.yaml\")", true),
-            // Multiple valid properties
-            ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"test.yaml\", \"retention\" = \"7 days\")", true),
-        ];
-
-        for (query, should_pass_validation) in edge_case_queries {
-            let result = executor.execute(query).await;
-            match result {
-                Ok(_) => {
-                    if !should_pass_validation {
-                        panic!("Query should have failed validation: {}", query);
-                    }
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    if should_pass_validation
-                        && (message.contains("cannot be empty")
-                            || message.contains("must be a number"))
-                    {
-                        panic!(
-                            "Query should have passed validation: {} - Error: {}",
-                            query, message
-                        );
-                    }
-                    // Other execution errors (like Kafka connection) are expected
-                }
-                Err(e) => {
-                    // Parsing errors might occur for some edge cases
-                    println!("Parse/other error for '{}': {}", query, e);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_error_message_quality() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test that error messages are informative
-        let invalid_properties = vec![
-            ("config_file", "", "config_file property cannot be empty"),
-            ("retention", "", "retention property cannot be empty"),
-            (
-                "kafka.batch.size",
-                "invalid",
-                "kafka.batch.size must be a number",
-            ),
-            (
-                "kafka.linger.ms",
-                "not_numeric",
-                "kafka.linger.ms must be a number",
-            ),
-        ];
-
-        for (key, value, expected_error) in invalid_properties {
-            let mut props = HashMap::new();
-            props.insert(key.to_string(), value.to_string());
-
-            match executor.validate_properties(&props) {
-                Ok(_) => panic!("Should have failed validation for {}={}", key, value),
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    assert!(
-                        message.contains(expected_error),
-                        "Expected error message '{}' for {}={}, got: {}",
-                        expected_error,
-                        key,
-                        value,
-                        message
-                    );
-                }
-                Err(e) => panic!("Unexpected error type: {}", e),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_table_lifecycle_integration() {
-        let executor =
-            CtasExecutor::new("localhost:9092".to_string(), "test-lifecycle".to_string());
-
-        // Test multiple table creation with different configurations
-        let tables_to_create = vec![
-            ("orders_table", "CREATE TABLE orders_table AS SELECT * FROM orders_stream"),
-            ("users_table", "CREATE TABLE users_table AS SELECT * FROM users_stream WITH (\"retention\" = \"30 days\")"),
-            ("analytics_table", "CREATE TABLE analytics_table AS SELECT * FROM events_stream WITH (\"config_file\" = \"analytics.yaml\", \"kafka.batch.size\" = \"2000\")"),
-        ];
-
-        for (expected_name, query) in tables_to_create {
-            let result = executor.execute(query).await;
-            match result {
-                Ok(ctas_result) => {
-                    assert_eq!(ctas_result.name(), expected_name);
-                    println!("✅ Successfully created table: {}", expected_name);
-                    // In real scenarios, would verify table is in registry
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    // Expected due to no real Kafka - ensure it's connection error, not parsing
-                    assert!(
-                        !message.contains("Not a CREATE TABLE"),
-                        "Should parse correctly for table '{}': {}",
-                        expected_name,
-                        message
-                    );
-                    println!(
-                        "⚠️ Expected Kafka connection error for table '{}': {}",
-                        expected_name, message
-                    );
-                }
-                Err(e) => {
-                    panic!("Unexpected error creating table '{}': {}", expected_name, e);
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_table_creation() {
-        let executor =
-            CtasExecutor::new("localhost:9092".to_string(), "test-concurrent".to_string());
-
-        // Test that multiple concurrent table creations work
-        let concurrent_queries = vec![
-            "CREATE TABLE concurrent_1 AS SELECT * FROM stream_1",
-            "CREATE TABLE concurrent_2 AS SELECT * FROM stream_2 WITH (\"retention\" = \"1 hour\")",
-            "CREATE TABLE concurrent_3 AS SELECT * FROM stream_3 WITH (\"kafka.batch.size\" = \"500\")",
-        ];
-
-        let handles: Vec<_> = concurrent_queries
-            .into_iter()
-            .map(|query| {
-                let executor_clone = executor.clone();
-                let query_owned = query.to_string();
-                tokio::spawn(async move { executor_clone.execute(&query_owned).await })
-            })
-            .collect();
-
-        // Wait for all tasks to complete
-        for (i, handle) in handles.into_iter().enumerate() {
-            match handle.await.unwrap() {
-                Ok(result) => {
-                    println!("✅ Concurrent table {} created: {}", i + 1, result.name());
-                }
-                Err(SqlError::ExecutionError { .. }) => {
-                    // Expected due to no real Kafka
-                    println!(
-                        "⚠️ Expected connection error for concurrent table {}",
-                        i + 1
-                    );
-                }
-                Err(e) => {
-                    panic!(
-                        "Unexpected error in concurrent table creation {}: {}",
-                        i + 1,
-                        e
-                    );
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_config_file_data_sources() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test-config".to_string());
-
-        // Test different config file types
-        let config_test_cases = vec![
-            (
-                "CREATE TABLE mock_table AS SELECT * FROM source_stream WITH (\"config_file\" = \"mock_test.yaml\")",
-                "mock_table",
-                "Mock"
-            ),
-            (
-                "CREATE TABLE kafka_table AS SELECT * FROM source_stream WITH (\"config_file\" = \"kafka_analytics.yaml\")",
-                "kafka_table",
-                "Kafka"
-            ),
-            (
-                "CREATE TABLE file_table AS SELECT * FROM source_stream WITH (\"config_file\" = \"file_source.json\")",
-                "file_table",
-                "File"
-            ),
-        ];
-
-        for (query, expected_name, source_type) in config_test_cases {
-            println!("\n🧪 Testing {} source: {}", source_type, query);
-
-            let result = executor.execute(query).await;
-            match result {
-                Ok(ctas_result) => {
-                    assert_eq!(ctas_result.name(), expected_name);
-                    println!(
-                        "✅ Successfully created {} table: {}",
-                        source_type, expected_name
-                    );
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    // Expected connection errors for certain source types
-                    println!(
-                        "⚠️ Expected connection error for {} table '{}': {}",
-                        source_type, expected_name, message
-                    );
-                    assert!(
-                        !message.contains("Not a CREATE TABLE"),
-                        "Should parse correctly"
-                    );
-                }
-                Err(e) => {
-                    panic!(
-                        "Unexpected error creating {} table '{}': {}",
-                        source_type, expected_name, e
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_config_file_loading() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        // Test config file pattern recognition
-        let config_test_cases = vec![
-            (
-                "mock_test.yaml",
-                DataSourceType::Mock {
-                    records_count: 1000,
-                    schema: "test_schema".to_string(),
-                },
-            ),
-            (
-                "kafka_analytics.yaml",
-                DataSourceType::Kafka {
-                    brokers: "localhost:9092".to_string(),
-                    topic: "configured_topic".to_string(),
-                },
-            ),
-            (
-                "file_source.json",
-                DataSourceType::File {
-                    path: "/mock/data/file.json".to_string(),
-                    format: FileFormat::Json,
-                },
-            ),
-        ];
-
-        for (config_file, expected_type) in config_test_cases {
-            match executor.load_data_source_config(config_file) {
-                Ok(config_source) => match (&config_source.source_type, &expected_type) {
-                    (DataSourceType::Mock { .. }, DataSourceType::Mock { .. }) => {
-                        println!("✅ Correctly identified mock config: {}", config_file);
-                    }
-                    (DataSourceType::Kafka { .. }, DataSourceType::Kafka { .. }) => {
-                        println!("✅ Correctly identified Kafka config: {}", config_file);
-                    }
-                    (DataSourceType::File { .. }, DataSourceType::File { .. }) => {
-                        println!("✅ Correctly identified file config: {}", config_file);
-                    }
-                    _ => {
-                        panic!(
-                            "Config type mismatch for {}: expected {:?}, got {:?}",
-                            config_file, expected_type, config_source.source_type
-                        );
-                    }
-                },
-                Err(e) => {
-                    panic!("Failed to load config file '{}': {}", config_file, e);
-                }
-            }
-        }
-
-        // Test unknown config file
-        match executor.load_data_source_config("unknown_config.yaml") {
-            Ok(_) => panic!("Should have failed for unknown config"),
-            Err(SqlError::ExecutionError { message, .. }) => {
-                assert!(message.contains("Unable to determine data source type"));
-                println!("✅ Correctly rejected unknown config file");
-            }
-            Err(e) => panic!("Unexpected error type: {}", e),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_mixed_configuration_scenarios() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test-mixed".to_string());
-
-        // Test combinations of config files and inline properties
-        let mixed_scenarios = vec![
-            (
-                "CREATE TABLE combined_table AS SELECT * FROM source_stream WITH (\"config_file\" = \"mock_test.yaml\", \"retention\" = \"24 hours\")",
-                "combined_table"
-            ),
-            (
-                "CREATE TABLE kafka_combined AS SELECT * FROM source_stream WITH (\"config_file\" = \"kafka_stream.yaml\", \"kafka.batch.size\" = \"2048\")",
-                "kafka_combined"
-            ),
-        ];
-
-        for (query, expected_name) in mixed_scenarios {
-            println!("\n🔀 Testing mixed configuration: {}", query);
-
-            let result = executor.execute(query).await;
-            match result {
-                Ok(ctas_result) => {
-                    assert_eq!(ctas_result.name(), expected_name);
-                    println!(
-                        "✅ Successfully created mixed config table: {}",
-                        expected_name
-                    );
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    // Expected for mock sources that can't actually connect
-                    println!(
-                        "⚠️ Expected error for mixed config table '{}': {}",
-                        expected_name, message
-                    );
-                    assert!(
-                        !message.contains("Not a CREATE TABLE"),
-                        "Should parse correctly"
-                    );
-                }
-                Err(e) => {
-                    panic!(
-                        "Unexpected error creating mixed config table '{}': {}",
-                        expected_name, e
-                    );
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_data_source_type_coverage() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test-coverage".to_string());
-
-        // Test all supported data source types through config files
-        let source_type_tests = vec![
-            // Mock sources
-            ("mock_source_test.yaml", "mock_table_1"),
-            ("analytics_mock.yaml", "mock_table_2"),
-            // Kafka sources
-            ("kafka_realtime.yaml", "kafka_table_1"),
-            ("stream_processor.yaml", "kafka_table_2"),
-            // File sources
-            ("data_file.csv", "file_table_1"),
-            ("logs_file.json", "file_table_2"),
-        ];
-
-        for (config_file, table_name) in source_type_tests {
-            let query = format!(
-                "CREATE TABLE {} AS SELECT * FROM source WITH (\"config_file\" = \"{}\")",
-                table_name, config_file
-            );
-
-            println!("\n📊 Testing data source coverage: {}", config_file);
-
-            let result = executor.execute(&query).await;
-            match result {
-                Ok(ctas_result) => {
-                    assert_eq!(ctas_result.name(), table_name);
-                    println!(
-                        "✅ Successfully created table from {}: {}",
-                        config_file, table_name
-                    );
-                }
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    // Expected for sources that can't connect in test environment
-                    println!(
-                        "⚠️ Expected connection error for {}: {}",
-                        config_file, message
-                    );
-                    assert!(
-                        !message.contains("Not a CREATE TABLE"),
-                        "Should parse correctly"
-                    );
-                }
-                Err(e) => {
-                    panic!("Unexpected error for config '{}': {}", config_file, e);
-                }
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_invalid_ctas_queries() {
-        let executor = CtasExecutor::new("localhost:9092".to_string(), "test".to_string());
-
-        let invalid_queries = vec![
-            ("SELECT * FROM orders", "Not a CREATE TABLE query"),
-            (
-                "CREATE TABLE test AS INSERT INTO orders VALUES (1, 2)",
-                "Only SELECT queries are supported",
-            ),
-        ];
-
-        for (query, expected_error) in invalid_queries {
-            let result = executor.execute(query).await;
-            match result {
-                Err(SqlError::ExecutionError { message, .. }) => {
-                    assert!(
-                        message.contains(expected_error),
-                        "Expected '{}' in error message, got: {}",
-                        expected_error,
-                        message
-                    );
-                }
-                Err(SqlError::ParseError { .. }) => {
-                    // ParseError is also acceptable for invalid syntax
-                }
-                Err(e) => {
-                    panic!("Unexpected error for invalid query '{}': {}", query, e);
-                }
-                Ok(_) => {
-                    panic!("Should have rejected invalid query: {}", query);
-                }
-            }
-        }
     }
 }

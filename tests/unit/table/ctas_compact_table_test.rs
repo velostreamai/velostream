@@ -8,29 +8,43 @@ fn test_should_use_compact_table_explicit_config() {
     // Test explicit compact model
     let mut properties = HashMap::new();
     properties.insert("table_model".to_string(), "compact".to_string());
-    assert!(executor.should_use_compact_table(&properties), "Should use CompactTable for table_model = 'compact'");
+    assert!(
+        executor.should_use_compact_table(&properties),
+        "Should use CompactTable for table_model = 'compact'"
+    );
 
     // Test explicit normal model
     let mut properties = HashMap::new();
     properties.insert("table_model".to_string(), "normal".to_string());
-    assert!(!executor.should_use_compact_table(&properties), "Should use standard Table for table_model = 'normal'");
+    assert!(
+        !executor.should_use_compact_table(&properties),
+        "Should use standard Table for table_model = 'normal'"
+    );
 
     // Test explicit standard model (alternative name)
     let mut properties = HashMap::new();
     properties.insert("table_model".to_string(), "standard".to_string());
-    assert!(!executor.should_use_compact_table(&properties), "Should use standard Table for table_model = 'standard'");
+    assert!(
+        !executor.should_use_compact_table(&properties),
+        "Should use standard Table for table_model = 'standard'"
+    );
 
     // Test case insensitive
     let mut properties = HashMap::new();
     properties.insert("table_model".to_string(), "COMPACT".to_string());
-    assert!(executor.should_use_compact_table(&properties), "Should use CompactTable for table_model = 'COMPACT' (case insensitive)");
+    assert!(
+        executor.should_use_compact_table(&properties),
+        "Should use CompactTable for table_model = 'COMPACT' (case insensitive)"
+    );
 
     // Test invalid model (should default to normal)
     let mut properties = HashMap::new();
     properties.insert("table_model".to_string(), "invalid".to_string());
-    assert!(!executor.should_use_compact_table(&properties), "Should use standard Table for invalid table_model");
+    assert!(
+        !executor.should_use_compact_table(&properties),
+        "Should use standard Table for invalid table_model"
+    );
 }
-
 
 #[test]
 fn test_compact_table_scenarios_documentation() {

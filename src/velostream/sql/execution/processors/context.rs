@@ -7,7 +7,7 @@ use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::SqlError;
-use crate::velostream::table::sql::SqlQueryable;
+use crate::velostream::table::unified_table::UnifiedTable;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -76,7 +76,7 @@ pub struct ProcessorContext {
     // === KTable/Table STATE MANAGEMENT ===
     /// State tables for SQL subquery execution
     /// Maps table name to SQL-queryable Table data source for subquery operations
-    pub state_tables: HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>,
+    pub state_tables: HashMap<String, Arc<dyn UnifiedTable>>,
 
     // === CORRELATION CONTEXT FOR SUBQUERIES ===
     /// Current correlation context for correlated subqueries
@@ -706,10 +706,7 @@ impl ProcessorContext {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get_table(
-        &self,
-        table_name: &str,
-    ) -> Result<Arc<dyn SqlQueryable + Send + Sync>, SqlError> {
+    pub fn get_table(&self, table_name: &str) -> Result<Arc<dyn UnifiedTable>, SqlError> {
         self.state_tables
             .get(table_name)
             .cloned()
@@ -734,15 +731,12 @@ impl ProcessorContext {
     /// # Examples
     /// ```rust,no_run
     /// # use std::sync::Arc;
-    /// # use velostream::velostream::kafka::consumer_config::ConsumerConfig;
-    /// # use velostream::velostream::kafka::serialization::StringSerializer;
-    /// # use velostream::velostream::serialization::JsonFormat;
-    /// # use velostream::velostream::table::Table;
+    /// # use velostream::velostream::table::unified_table::OptimizedTableImpl;
     /// # use velostream::velostream::table::sql::TableDataSource;
     /// # use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-    /// # async fn example(mut context: ProcessorContext, config: ConsumerConfig) -> Result<(), Box<dyn std::error::Error>> {
-    /// // Create a Table for user reference data
-    /// let user_table = Table::new(config, "users".to_string(), StringSerializer, JsonFormat).await?;
+    /// # async fn example(mut context: ProcessorContext) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Create an OptimizedTableImpl for user reference data
+    /// let user_table = OptimizedTableImpl::new();
     /// let user_datasource = Arc::new(TableDataSource::from_table(user_table));
     ///
     /// // Register it in the processor context
@@ -756,7 +750,7 @@ impl ProcessorContext {
     pub fn load_reference_table(
         &mut self,
         table_name: &str,
-        table: Arc<dyn SqlQueryable + Send + Sync>,
+        table: Arc<dyn crate::velostream::table::unified_table::UnifiedTable>,
     ) {
         self.state_tables.insert(table_name.to_string(), table);
     }
@@ -795,10 +789,7 @@ impl ProcessorContext {
     /// # Returns
     /// * `Some(Arc<dyn SqlQueryable + Send + Sync>)` - The removed table
     /// * `None` - Table was not found
-    pub fn remove_table(
-        &mut self,
-        table_name: &str,
-    ) -> Option<Arc<dyn SqlQueryable + Send + Sync>> {
+    pub fn remove_table(&mut self, table_name: &str) -> Option<Arc<dyn UnifiedTable>> {
         self.state_tables.remove(table_name)
     }
 
@@ -809,10 +800,7 @@ impl ProcessorContext {
     ///
     /// # Arguments
     /// * `tables` - HashMap mapping table names to SQL-queryable data sources
-    pub fn load_reference_tables(
-        &mut self,
-        tables: HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>,
-    ) {
+    pub fn load_reference_tables(&mut self, tables: HashMap<String, Arc<dyn UnifiedTable>>) {
         self.state_tables.extend(tables);
     }
 

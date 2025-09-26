@@ -70,9 +70,18 @@ impl MockDataSource {
         // Create test data for metrics streaming
         for i in 1..=5 {
             let mut fields = HashMap::new();
-            fields.insert("metric_name".to_string(), FieldValue::String(format!("cpu_usage_{}", i % 3)));
-            fields.insert("value".to_string(), FieldValue::Float(50.0 + (i as f64) * 10.0));
-            fields.insert("timestamp".to_string(), FieldValue::Integer(1640000000 + (i as i64) * 60));
+            fields.insert(
+                "metric_name".to_string(),
+                FieldValue::String(format!("cpu_usage_{}", i % 3)),
+            );
+            fields.insert(
+                "value".to_string(),
+                FieldValue::Float(50.0 + (i as f64) * 10.0),
+            );
+            fields.insert(
+                "timestamp".to_string(),
+                FieldValue::Integer(1640000000 + (i as i64) * 60),
+            );
 
             records.push(StreamRecord {
                 fields,
@@ -114,7 +123,7 @@ async fn test_ctas_emit_changes_with_sink_integration() {
     // Create CTAS executor
     let executor = CtasExecutor::new(
         "localhost:9092".to_string(),
-        "test-ctas-emit-integration".to_string()
+        "test-ctas-emit-integration".to_string(),
     );
 
     // SQL for CREATE TABLE with EMIT CHANGES (simplified for testing)
@@ -135,7 +144,10 @@ async fn test_ctas_emit_changes_with_sink_integration() {
     let parser = StreamingSqlParser::new();
     let parsed_result = parser.parse(sql);
 
-    assert!(parsed_result.is_ok(), "Failed to parse CTAS with EMIT CHANGES and INTO");
+    assert!(
+        parsed_result.is_ok(),
+        "Failed to parse CTAS with EMIT CHANGES and INTO"
+    );
 
     // Verify parsed query structure
     match parsed_result.unwrap() {
@@ -148,7 +160,10 @@ async fn test_ctas_emit_changes_with_sink_integration() {
             assert_eq!(name, "live_metrics");
 
             // No WITH clause in this test, so properties should be empty
-            assert!(properties.is_empty(), "Properties should be empty without WITH clause");
+            assert!(
+                properties.is_empty(),
+                "Properties should be empty without WITH clause"
+            );
 
             // Verify nested SELECT has EMIT CHANGES
             match *as_select {
@@ -158,15 +173,18 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                     fields,
                     ..
                 } => {
-                    assert_eq!(emit_mode, Some(EmitMode::Changes),
-                        "SELECT should have EMIT CHANGES for CDC");
+                    assert_eq!(
+                        emit_mode,
+                        Some(EmitMode::Changes),
+                        "SELECT should have EMIT CHANGES for CDC"
+                    );
                     assert!(group_by.is_some(), "Should have GROUP BY clause");
                     assert_eq!(fields.len(), 5, "Should have 5 SELECT fields");
                 }
-                _ => panic!("Expected SELECT query in CTAS")
+                _ => panic!("Expected SELECT query in CTAS"),
             }
         }
-        other => panic!("Expected CreateTable, got: {:?}", other)
+        other => panic!("Expected CreateTable, got: {:?}", other),
     }
 
     // Note: Full execution would require:
@@ -187,7 +205,7 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
     let mock_sink = MockDataSink::new("cdc_output_sink".to_string());
     mock_sink.start();
 
-    // SQL for CREATE TABLE with EMIT CHANGES and INTO clause using config files
+    // SQL for CREATE TABLE with EMIT CHANGES and INTO clause using named sources/sinks
     let sql = r#"
         CREATE TABLE live_metrics_cdc AS
         SELECT
@@ -197,12 +215,12 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
             MAX(value) as max_value,
             MIN(value) as min_value,
             CURRENT_TIMESTAMP() as last_updated
-        FROM metrics_stream
+        FROM metrics_source
         WITH ('config_file' = 'tests/integration/table/configs/metrics_source.yaml')
         GROUP BY metric_name
         EMIT CHANGES
         INTO cdc_output_sink
-        WITH ('config_file' = 'tests/integration/table/configs/cdc_sink.yaml')
+        WITH ('cdc_output_sink.config_file' = 'tests/integration/table/configs/cdc_sink.yaml')
     "#;
 
     println!("📋 CTAS CDC SQL Query:");
@@ -233,26 +251,50 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
     while let Some(input_record) = mock_source.next_record() {
         println!("📥 Processing: {:?}", input_record.fields);
 
-        if let (Some(FieldValue::String(metric_name)), Some(FieldValue::Float(value))) =
-            (input_record.fields.get("metric_name"), input_record.fields.get("value")) {
-
+        if let (Some(FieldValue::String(metric_name)), Some(FieldValue::Float(value))) = (
+            input_record.fields.get("metric_name"),
+            input_record.fields.get("value"),
+        ) {
             // Update CDC state (GROUP BY metric_name)
-            let metrics = cdc_state.entry(metric_name.clone()).or_insert(CDCMetrics::new());
+            let metrics = cdc_state
+                .entry(metric_name.clone())
+                .or_insert(CDCMetrics::new());
             metrics.update(*value, input_record.timestamp);
 
             // EMIT CHANGES: Create CDC record immediately
             let mut cdc_fields = HashMap::new();
-            cdc_fields.insert("metric_name".to_string(), FieldValue::String(metric_name.clone()));
-            cdc_fields.insert("event_count".to_string(), FieldValue::Integer(metrics.count));
-            cdc_fields.insert("avg_value".to_string(), FieldValue::Float(metrics.sum / metrics.count as f64));
+            cdc_fields.insert(
+                "metric_name".to_string(),
+                FieldValue::String(metric_name.clone()),
+            );
+            cdc_fields.insert(
+                "event_count".to_string(),
+                FieldValue::Integer(metrics.count),
+            );
+            cdc_fields.insert(
+                "avg_value".to_string(),
+                FieldValue::Float(metrics.sum / metrics.count as f64),
+            );
             cdc_fields.insert("max_value".to_string(), FieldValue::Float(metrics.max));
             cdc_fields.insert("min_value".to_string(), FieldValue::Float(metrics.min));
-            cdc_fields.insert("last_updated".to_string(), FieldValue::Integer(input_record.timestamp));
+            cdc_fields.insert(
+                "last_updated".to_string(),
+                FieldValue::Integer(input_record.timestamp),
+            );
 
             // Add CDC metadata
-            cdc_fields.insert("_change_type".to_string(), FieldValue::String("UPDATE".to_string()));
-            cdc_fields.insert("_cdc_timestamp".to_string(), FieldValue::Integer(input_record.timestamp));
-            cdc_fields.insert("_table_name".to_string(), FieldValue::String("live_metrics_cdc".to_string()));
+            cdc_fields.insert(
+                "_change_type".to_string(),
+                FieldValue::String("UPDATE".to_string()),
+            );
+            cdc_fields.insert(
+                "_cdc_timestamp".to_string(),
+                FieldValue::Integer(input_record.timestamp),
+            );
+            cdc_fields.insert(
+                "_table_name".to_string(),
+                FieldValue::String("live_metrics_cdc".to_string()),
+            );
 
             let cdc_record = StreamRecord {
                 fields: cdc_fields,
@@ -274,13 +316,19 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
     let cdc_count = mock_sink.get_received_count();
 
     println!("\n📊 CDC Test Results:");
-    println!("  📈 Input records processed: {}", mock_source.records.len());
+    println!(
+        "  📈 Input records processed: {}",
+        mock_source.records.len()
+    );
     println!("  📤 CDC records emitted: {}", cdc_count);
     println!("  🎯 Unique metrics tracked: {}", cdc_state.len());
 
     // Validate CDC behavior
     assert!(cdc_count > 0, "CDC sink should have received records");
-    assert_eq!(cdc_count, 5, "Should emit CDC record for each input (real-time updates)");
+    assert_eq!(
+        cdc_count, 5,
+        "Should emit CDC record for each input (real-time updates)"
+    );
 
     // Verify CDC record structure
     for (i, record) in cdc_records.iter().enumerate() {
@@ -295,8 +343,14 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
         assert!(record.fields.contains_key("_table_name"));
 
         // Verify CDC metadata
-        assert_eq!(record.fields.get("_change_type"), Some(&FieldValue::String("UPDATE".to_string())));
-        assert_eq!(record.fields.get("_table_name"), Some(&FieldValue::String("live_metrics_cdc".to_string())));
+        assert_eq!(
+            record.fields.get("_change_type"),
+            Some(&FieldValue::String("UPDATE".to_string()))
+        );
+        assert_eq!(
+            record.fields.get("_table_name"),
+            Some(&FieldValue::String("live_metrics_cdc".to_string()))
+        );
     }
 
     println!("\n🎉 CTAS CDC Test Summary:");
@@ -356,11 +410,18 @@ async fn test_ctas_emit_changes_data_flow() {
         println!("📥 Processing input record: {:?}", input_record.fields);
 
         // Extract metric data
-        if let (Some(FieldValue::String(metric_name)), Some(FieldValue::Float(value))) =
-            (input_record.fields.get("metric_name"), input_record.fields.get("value")) {
-
+        if let (Some(FieldValue::String(metric_name)), Some(FieldValue::Float(value))) = (
+            input_record.fields.get("metric_name"),
+            input_record.fields.get("value"),
+        ) {
             // Update aggregation state (GROUP BY metric_name)
-            let entry = aggregation_state.entry(metric_name.clone()).or_insert((0, 0.0, f64::INFINITY, f64::NEG_INFINITY, 0));
+            let entry = aggregation_state.entry(metric_name.clone()).or_insert((
+                0,
+                0.0,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                0,
+            ));
             entry.0 += 1; // count
             entry.1 += value; // sum for avg
             entry.2 = entry.2.min(*value); // min
@@ -369,9 +430,15 @@ async fn test_ctas_emit_changes_data_flow() {
 
             // EMIT CHANGES: Create output record immediately (CDC behavior)
             let mut output_fields = HashMap::new();
-            output_fields.insert("metric_name".to_string(), FieldValue::String(metric_name.clone()));
+            output_fields.insert(
+                "metric_name".to_string(),
+                FieldValue::String(metric_name.clone()),
+            );
             output_fields.insert("event_count".to_string(), FieldValue::Integer(entry.0));
-            output_fields.insert("avg_value".to_string(), FieldValue::Float(entry.1 / entry.4 as f64));
+            output_fields.insert(
+                "avg_value".to_string(),
+                FieldValue::Float(entry.1 / entry.4 as f64),
+            );
             output_fields.insert("max_value".to_string(), FieldValue::Float(entry.3));
             output_fields.insert("min_value".to_string(), FieldValue::Float(entry.2));
 
@@ -386,7 +453,10 @@ async fn test_ctas_emit_changes_data_flow() {
 
             // Send to sink (INTO clause behavior)
             mock_sink.send_record(output_record.clone()).await.unwrap();
-            println!("📤 EMIT CHANGES: Sent aggregated record to sink: {:?}", output_record.fields);
+            println!(
+                "📤 EMIT CHANGES: Sent aggregated record to sink: {:?}",
+                output_record.fields
+            );
         }
     }
 
@@ -395,13 +465,22 @@ async fn test_ctas_emit_changes_data_flow() {
     let received_count = mock_sink.get_received_count();
 
     println!("🎉 Test Results:");
-    println!("  📊 Total input records processed: {}", mock_source.records.len());
-    println!("  📈 Total output records (EMIT CHANGES): {}", received_count);
+    println!(
+        "  📊 Total input records processed: {}",
+        mock_source.records.len()
+    );
+    println!(
+        "  📈 Total output records (EMIT CHANGES): {}",
+        received_count
+    );
     println!("  🎯 Unique metrics processed: {}", aggregation_state.len());
 
     // Assertions
     assert!(received_count > 0, "Sink should have received records");
-    assert_eq!(received_count, 5, "Should have 5 CDC output records (one per input)");
+    assert_eq!(
+        received_count, 5,
+        "Should have 5 CDC output records (one per input)"
+    );
 
     // Verify CDC behavior - each record should show incremental state
     println!("📋 CDC Output Records:");
@@ -409,18 +488,39 @@ async fn test_ctas_emit_changes_data_flow() {
         println!("  [{}]: {:?}", i, record.fields);
 
         // Verify required fields
-        assert!(record.fields.contains_key("metric_name"), "Should have metric_name");
-        assert!(record.fields.contains_key("event_count"), "Should have event_count");
-        assert!(record.fields.contains_key("avg_value"), "Should have avg_value");
-        assert!(record.fields.contains_key("max_value"), "Should have max_value");
-        assert!(record.fields.contains_key("min_value"), "Should have min_value");
+        assert!(
+            record.fields.contains_key("metric_name"),
+            "Should have metric_name"
+        );
+        assert!(
+            record.fields.contains_key("event_count"),
+            "Should have event_count"
+        );
+        assert!(
+            record.fields.contains_key("avg_value"),
+            "Should have avg_value"
+        );
+        assert!(
+            record.fields.contains_key("max_value"),
+            "Should have max_value"
+        );
+        assert!(
+            record.fields.contains_key("min_value"),
+            "Should have min_value"
+        );
     }
 
     // Verify final aggregation state
     println!("🔍 Final Aggregation State:");
     for (metric, (count, sum, min, max, _)) in aggregation_state.iter() {
-        println!("  {}: count={}, avg={:.2}, min={:.2}, max={:.2}",
-            metric, count, sum / *count as f64, min, max);
+        println!(
+            "  {}: count={}, avg={:.2}, min={:.2}, max={:.2}",
+            metric,
+            count,
+            sum / *count as f64,
+            min,
+            max
+        );
     }
 
     mock_sink.stop();
@@ -447,10 +547,14 @@ async fn test_ctas_emit_final_vs_emit_changes_behavior() {
     while let Some(input_record) = mock_source.next_record() {
         // Each input record triggers output (CDC behavior)
         let mut output_fields = HashMap::new();
-        output_fields.insert("metric_name".to_string(),
-            input_record.fields.get("metric_name").unwrap().clone());
-        output_fields.insert("value".to_string(),
-            input_record.fields.get("value").unwrap().clone());
+        output_fields.insert(
+            "metric_name".to_string(),
+            input_record.fields.get("metric_name").unwrap().clone(),
+        );
+        output_fields.insert(
+            "value".to_string(),
+            input_record.fields.get("value").unwrap().clone(),
+        );
 
         let output_record = StreamRecord {
             fields: output_fields,
@@ -487,8 +591,14 @@ async fn test_ctas_emit_final_vs_emit_changes_behavior() {
     println!("  EMIT CHANGES received: {} records", changes_received);
     println!("  EMIT FINAL received: {} records", final_received);
 
-    assert_eq!(changes_received, 5, "EMIT CHANGES should emit for each input record");
-    assert_eq!(final_received, 1, "EMIT FINAL should emit only at batch end");
+    assert_eq!(
+        changes_received, 5,
+        "EMIT CHANGES should emit for each input record"
+    );
+    assert_eq!(
+        final_received, 1,
+        "EMIT FINAL should emit only at batch end"
+    );
 
     println!("✅ EMIT mode behavior verification completed");
 }
@@ -504,14 +614,15 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
     for i in 1..=10 {
         let mut fields = HashMap::new();
         fields.insert("user_id".to_string(), FieldValue::Integer((i % 3) + 1)); // 3 users
-        fields.insert("action".to_string(), FieldValue::String(
-            match i % 4 {
+        fields.insert(
+            "action".to_string(),
+            FieldValue::String(match i % 4 {
                 0 => "login".to_string(),
                 1 => "view".to_string(),
                 2 => "click".to_string(),
                 _ => "purchase".to_string(),
-            }
-        ));
+            }),
+        );
         fields.insert("value".to_string(), FieldValue::Float(i as f64 * 10.0));
 
         source_records.push(StreamRecord {
@@ -537,13 +648,25 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
     // EMIT CHANGES
     // INTO complex_metrics_sink
 
-    let mut user_aggregations: HashMap<i64, (i64, std::collections::HashSet<String>, f64, f64)> = HashMap::new();
+    let mut user_aggregations: HashMap<i64, (i64, std::collections::HashSet<String>, f64, f64)> =
+        HashMap::new();
 
     for (i, record) in source_records.iter().enumerate() {
-        if let (Some(FieldValue::Integer(user_id)), Some(FieldValue::String(action)), Some(FieldValue::Float(value))) =
-            (record.fields.get("user_id"), record.fields.get("action"), record.fields.get("value")) {
-
-            let entry = user_aggregations.entry(*user_id).or_insert((0, std::collections::HashSet::new(), 0.0, 0.0));
+        if let (
+            Some(FieldValue::Integer(user_id)),
+            Some(FieldValue::String(action)),
+            Some(FieldValue::Float(value)),
+        ) = (
+            record.fields.get("user_id"),
+            record.fields.get("action"),
+            record.fields.get("value"),
+        ) {
+            let entry = user_aggregations.entry(*user_id).or_insert((
+                0,
+                std::collections::HashSet::new(),
+                0.0,
+                0.0,
+            ));
             entry.0 += 1; // total_actions
             entry.1.insert(action.clone()); // unique_actions set
             entry.2 += value; // sum for avg
@@ -553,8 +676,14 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
             let mut output_fields = HashMap::new();
             output_fields.insert("user_id".to_string(), FieldValue::Integer(*user_id));
             output_fields.insert("total_actions".to_string(), FieldValue::Integer(entry.0));
-            output_fields.insert("unique_actions".to_string(), FieldValue::Integer(entry.1.len() as i64));
-            output_fields.insert("avg_value".to_string(), FieldValue::Float(entry.2 / entry.0 as f64));
+            output_fields.insert(
+                "unique_actions".to_string(),
+                FieldValue::Integer(entry.1.len() as i64),
+            );
+            output_fields.insert(
+                "avg_value".to_string(),
+                FieldValue::Float(entry.2 / entry.0 as f64),
+            );
             output_fields.insert("total_value".to_string(), FieldValue::Float(entry.3));
 
             let cdc_record = StreamRecord {
@@ -568,8 +697,14 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
 
             sink.send_record(cdc_record).await.unwrap();
 
-            println!("CDC Update #{}: User {} - {} actions, {} unique, avg: {:.2}",
-                i + 1, user_id, entry.0, entry.1.len(), entry.2 / entry.0 as f64);
+            println!(
+                "CDC Update #{}: User {} - {} actions, {} unique, avg: {:.2}",
+                i + 1,
+                user_id,
+                entry.0,
+                entry.1.len(),
+                entry.2 / entry.0 as f64
+            );
         }
     }
 
@@ -586,26 +721,35 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
                 Some(FieldValue::Integer(total_actions)),
                 Some(FieldValue::Integer(unique_actions)),
                 Some(FieldValue::Float(avg_value)),
-                Some(FieldValue::Float(total_value))
+                Some(FieldValue::Float(total_value)),
             ) = (
                 record.fields.get("total_actions"),
                 record.fields.get("unique_actions"),
                 record.fields.get("avg_value"),
-                record.fields.get("total_value")
+                record.fields.get("total_value"),
             ) {
-                final_user_states.insert(*user_id, (*total_actions, *unique_actions, *avg_value, *total_value));
+                final_user_states.insert(
+                    *user_id,
+                    (*total_actions, *unique_actions, *avg_value, *total_value),
+                );
             }
         }
     }
 
     println!("🎯 Final User Activity Summary (via EMIT CHANGES):");
     for (user_id, (total, unique, avg, sum)) in final_user_states.iter() {
-        println!("  User {}: {} total actions, {} unique, avg={:.2}, total={:.2}",
-            user_id, total, unique, avg, sum);
+        println!(
+            "  User {}: {} total actions, {} unique, avg={:.2}, total={:.2}",
+            user_id, total, unique, avg, sum
+        );
     }
 
     // Verify we tracked all 3 users
-    assert_eq!(final_user_states.len(), 3, "Should have aggregations for 3 users");
+    assert_eq!(
+        final_user_states.len(),
+        3,
+        "Should have aggregations for 3 users"
+    );
 
     sink.stop();
     println!("✅ Complex CTAS aggregations with CDC output completed");

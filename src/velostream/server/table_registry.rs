@@ -4,8 +4,8 @@
 //! that can be referenced by multiple streaming SQL jobs. It handles table lifecycle,
 //! background population jobs, and health monitoring.
 
-use crate::velostream::sql::{SqlError, ast::StreamingQuery};
-use crate::velostream::table::{CtasExecutor, SqlQueryable};
+use crate::velostream::sql::{ast::StreamingQuery, SqlError};
+use crate::velostream::table::{CtasExecutor, UnifiedTable};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,6 +32,18 @@ pub enum TableStatus {
     BackgroundJobFinished,
     NoBackgroundJob,
     Error(String),
+}
+
+impl std::fmt::Display for TableStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TableStatus::Active => write!(f, "Active"),
+            TableStatus::Populating => write!(f, "Populating"),
+            TableStatus::BackgroundJobFinished => write!(f, "BackgroundJobFinished"),
+            TableStatus::NoBackgroundJob => write!(f, "NoBackgroundJob"),
+            TableStatus::Error(msg) => write!(f, "Error({})", msg),
+        }
+    }
 }
 
 /// Health information for a table
@@ -68,7 +80,7 @@ impl Default for TableRegistryConfig {
 /// Object-oriented table registry for managing shared SQL tables
 pub struct TableRegistry {
     /// Core table storage
-    tables: Arc<RwLock<HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>>>,
+    tables: Arc<RwLock<HashMap<String, Arc<dyn UnifiedTable>>>>,
 
     /// Background table population jobs
     background_jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
@@ -91,10 +103,8 @@ impl TableRegistry {
 
     /// Create a new table registry with custom configuration
     pub fn with_config(config: TableRegistryConfig) -> Self {
-        let ctas_executor = CtasExecutor::new(
-            config.kafka_brokers.clone(),
-            config.base_group_id.clone(),
-        );
+        let ctas_executor =
+            CtasExecutor::new(config.kafka_brokers.clone(), config.base_group_id.clone());
 
         Self {
             tables: Arc::new(RwLock::new(HashMap::new())),
@@ -109,7 +119,7 @@ impl TableRegistry {
     pub async fn register_table(
         &self,
         name: String,
-        table: Arc<dyn SqlQueryable + Send + Sync>,
+        table: Arc<dyn UnifiedTable>,
     ) -> Result<(), SqlError> {
         info!("Registering table '{}' directly", name);
 
@@ -227,15 +237,15 @@ impl TableRegistry {
         );
         drop(metadata);
 
-        info!("Successfully created and registered table '{}'", result.table_name);
+        info!(
+            "Successfully created and registered table '{}'",
+            result.table_name
+        );
         Ok(result.table_name)
     }
 
     /// Get a reference to a table
-    pub async fn get_table(
-        &self,
-        table_name: &str,
-    ) -> Result<Arc<dyn SqlQueryable + Send + Sync>, SqlError> {
+    pub async fn get_table(&self, table_name: &str) -> Result<Arc<dyn UnifiedTable>, SqlError> {
         let tables = self.tables.read().await;
         match tables.get(table_name) {
             Some(table) => Ok(Arc::clone(table)),
@@ -297,7 +307,10 @@ impl TableRegistry {
         let mut jobs = self.background_jobs.write().await;
         if let Some(job_handle) = jobs.remove(table_name) {
             job_handle.abort();
-            info!("Stopped background population job for table '{}'", table_name);
+            info!(
+                "Stopped background population job for table '{}'",
+                table_name
+            );
         }
         drop(jobs);
 
@@ -348,7 +361,9 @@ impl TableRegistry {
             let meta = metadata.get(table_name);
             let is_healthy = matches!(
                 status,
-                TableStatus::Active | TableStatus::BackgroundJobFinished | TableStatus::NoBackgroundJob
+                TableStatus::Active
+                    | TableStatus::BackgroundJobFinished
+                    | TableStatus::NoBackgroundJob
             );
 
             if meta.is_none() {
@@ -418,7 +433,10 @@ impl TableRegistry {
         // Drop identified tables
         for table_name in &tables_to_drop {
             if let Err(e) = self.drop_table(table_name).await {
-                warn!("Failed to drop table '{}' during cleanup: {:?}", table_name, e);
+                warn!(
+                    "Failed to drop table '{}' during cleanup: {:?}",
+                    table_name, e
+                );
             } else {
                 info!("Dropped inactive table '{}' (exceeded TTL)", table_name);
             }
@@ -450,7 +468,7 @@ impl TableRegistry {
         required_tables: &[String],
         context_customizer: F,
     ) where
-        F: Fn(&HashMap<String, Arc<dyn SqlQueryable + Send + Sync>>),
+        F: Fn(&HashMap<String, Arc<dyn UnifiedTable>>),
     {
         let tables = self.tables.read().await;
         let mut available_tables = HashMap::new();
@@ -531,10 +549,7 @@ impl TableRegistry {
     }
 
     /// Extract table names from expressions
-    fn extract_from_expression(
-        expr: &crate::velostream::sql::ast::Expr,
-        tables: &mut Vec<String>,
-    ) {
+    fn extract_from_expression(expr: &crate::velostream::sql::ast::Expr, tables: &mut Vec<String>) {
         use crate::velostream::sql::ast::Expr;
 
         match expr {
@@ -553,7 +568,9 @@ impl TableRegistry {
             Expr::UnaryOp { expr, .. } => {
                 Self::extract_from_expression(expr, tables);
             }
-            Expr::Between { expr, low, high, .. } => {
+            Expr::Between {
+                expr, low, high, ..
+            } => {
                 Self::extract_from_expression(expr, tables);
                 Self::extract_from_expression(low, tables);
                 Self::extract_from_expression(high, tables);

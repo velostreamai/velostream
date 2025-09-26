@@ -14,6 +14,7 @@ use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::compact_table::CompactTable;
 use velostream::velostream::table::sql::TableDataSource;
+use velostream::velostream::table::unified_table::OptimizedTableImpl;
 use velostream::velostream::table::Table;
 
 #[tokio::main]
@@ -64,8 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // This would normally come from Kafka, but we'll simulate it
             println!("   Portfolio data structure created");
 
+            // Create OptimizedTableImpl for high-performance SQL operations
+            let sql_table = OptimizedTableImpl::new();
+            sql_table.insert("portfolio_001".to_string(), portfolio_record)?;
+
             // Create SQL data source
-            let sql_source = TableDataSource::from_table(table);
+            let sql_source = TableDataSource::from_table(sql_table);
 
             // Example wildcard queries (would work if data was in table):
             println!("   Available wildcard query patterns:");

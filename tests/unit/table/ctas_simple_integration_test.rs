@@ -6,17 +6,14 @@ Tests the core CTAS features without requiring complex server setup.
 */
 
 use std::collections::HashMap;
-use velostream::velostream::table::ctas::CtasExecutor;
 use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::table::ctas::CtasExecutor;
 
 #[tokio::test]
 async fn test_ctas_simple_integration() {
     println!("🚀 Starting Simple CTAS Integration Test");
 
-    let executor = CtasExecutor::new(
-        "localhost:9092".to_string(),
-        "ctas-simple-test".to_string()
-    );
+    let executor = CtasExecutor::new("localhost:9092".to_string(), "ctas-simple-test".to_string());
 
     // Test 1: Basic CTAS Query Parsing
     println!("\n📋 Test 1: Basic CTAS Query Parsing");
@@ -30,12 +27,18 @@ async fn test_ctas_simple_integration() {
     match executor.execute(basic_query).await {
         Ok(result) => {
             assert_eq!(result.name(), "orders_summary");
-            println!("✅ Basic CTAS parsing: PASSED - Created table '{}'", result.name());
+            println!(
+                "✅ Basic CTAS parsing: PASSED - Created table '{}'",
+                result.name()
+            );
         }
         Err(SqlError::ExecutionError { message, .. }) => {
             // Expected for test environment without actual Kafka
             assert!(!message.contains("Not a CREATE TABLE"));
-            println!("✅ Basic CTAS parsing: PASSED - Parsing worked, connection error expected: {}", message);
+            println!(
+                "✅ Basic CTAS parsing: PASSED - Parsing worked, connection error expected: {}",
+                message
+            );
         }
         Err(e) => panic!("❌ Basic CTAS parsing: FAILED - Unexpected error: {}", e),
     }
@@ -57,12 +60,18 @@ async fn test_ctas_simple_integration() {
     match executor.execute(config_query).await {
         Ok(result) => {
             assert_eq!(result.name(), "analytics_table");
-            println!("✅ CTAS with config: PASSED - Created table '{}'", result.name());
+            println!(
+                "✅ CTAS with config: PASSED - Created table '{}'",
+                result.name()
+            );
         }
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(!message.contains("Not a CREATE TABLE"));
             assert!(!message.contains("cannot be empty"));
-            println!("✅ CTAS with config: PASSED - Configuration parsed correctly: {}", message);
+            println!(
+                "✅ CTAS with config: PASSED - Configuration parsed correctly: {}",
+                message
+            );
         }
         Err(e) => panic!("❌ CTAS with config: FAILED - Unexpected error: {}", e),
     }
@@ -75,9 +84,15 @@ async fn test_ctas_simple_integration() {
         Ok(_) => panic!("❌ Invalid query handling: FAILED - Should have rejected non-CTAS query"),
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(message.contains("Not a CREATE TABLE"));
-            println!("✅ Invalid query handling: PASSED - Correctly rejected: {}", message);
+            println!(
+                "✅ Invalid query handling: PASSED - Correctly rejected: {}",
+                message
+            );
         }
-        Err(e) => panic!("❌ Invalid query handling: FAILED - Wrong error type: {}", e),
+        Err(e) => panic!(
+            "❌ Invalid query handling: FAILED - Wrong error type: {}",
+            e
+        ),
     }
 
     // Test 4: Property Validation
@@ -92,7 +107,10 @@ async fn test_ctas_simple_integration() {
         Ok(_) => panic!("❌ Property validation: FAILED - Should have rejected empty retention"),
         Err(SqlError::ExecutionError { message, .. }) => {
             assert!(message.contains("retention property cannot be empty"));
-            println!("✅ Property validation: PASSED - Rejected invalid config: {}", message);
+            println!(
+                "✅ Property validation: PASSED - Rejected invalid config: {}",
+                message
+            );
         }
         Err(e) => panic!("❌ Property validation: FAILED - Wrong error type: {}", e),
     }
@@ -100,21 +118,40 @@ async fn test_ctas_simple_integration() {
     // Test 5: Different Source Types
     println!("\n📊 Test 5: Multiple Source Types");
     let source_queries = vec![
-        ("mock_source", r#"CREATE TABLE mock_table AS SELECT * FROM source WITH ("config_file" = "mock_test.yaml")"#),
-        ("kafka_source", r#"CREATE TABLE kafka_table AS SELECT * FROM source WITH ("config_file" = "kafka.yaml")"#),
-        ("file_source", r#"CREATE TABLE file_table AS SELECT * FROM source WITH ("config_file" = "data.json")"#),
+        (
+            "mock_source",
+            r#"CREATE TABLE mock_table AS SELECT * FROM source WITH ("config_file" = "mock_test.yaml")"#,
+        ),
+        (
+            "kafka_source",
+            r#"CREATE TABLE kafka_table AS SELECT * FROM source WITH ("config_file" = "kafka.yaml")"#,
+        ),
+        (
+            "file_source",
+            r#"CREATE TABLE file_table AS SELECT * FROM source WITH ("config_file" = "data.json")"#,
+        ),
     ];
 
     for (source_type, query) in source_queries {
         match executor.execute(query).await {
             Ok(result) => {
-                println!("✅ {} source: PASSED - Created table '{}'", source_type, result.name());
+                println!(
+                    "✅ {} source: PASSED - Created table '{}'",
+                    source_type,
+                    result.name()
+                );
             }
             Err(SqlError::ExecutionError { message, .. }) => {
                 assert!(!message.contains("Not a CREATE TABLE"));
-                println!("✅ {} source: PASSED - Parsed correctly: {}", source_type, message);
+                println!(
+                    "✅ {} source: PASSED - Parsed correctly: {}",
+                    source_type, message
+                );
             }
-            Err(e) => panic!("❌ {} source: FAILED - Unexpected error: {}", source_type, e),
+            Err(e) => panic!(
+                "❌ {} source: FAILED - Unexpected error: {}",
+                source_type, e
+            ),
         }
     }
 
@@ -133,26 +170,35 @@ async fn test_ctas_concurrent_execution() {
 
     let executor = CtasExecutor::new(
         "localhost:9092".to_string(),
-        "ctas-concurrent-test".to_string()
+        "ctas-concurrent-test".to_string(),
     );
 
     // Create multiple concurrent CTAS operations
     let queries = vec![
         ("table_1", "CREATE TABLE table_1 AS SELECT * FROM stream_1"),
-        ("table_2", "CREATE TABLE table_2 AS SELECT * FROM stream_2 WITH (\"retention\" = \"1 hour\")"),
-        ("table_3", "CREATE TABLE table_3 AS SELECT * FROM stream_3 WITH (\"kafka.batch.size\" = \"500\")"),
+        (
+            "table_2",
+            "CREATE TABLE table_2 AS SELECT * FROM stream_2 WITH (\"retention\" = \"1 hour\")",
+        ),
+        (
+            "table_3",
+            "CREATE TABLE table_3 AS SELECT * FROM stream_3 WITH (\"kafka.batch.size\" = \"500\")",
+        ),
     ];
 
-    let handles: Vec<_> = queries.into_iter().map(|(name, query)| {
-        let executor_clone = executor.clone();
-        let query_owned = query.to_string();
-        let name_owned = name.to_string();
+    let handles: Vec<_> = queries
+        .into_iter()
+        .map(|(name, query)| {
+            let executor_clone = executor.clone();
+            let query_owned = query.to_string();
+            let name_owned = name.to_string();
 
-        tokio::spawn(async move {
-            let result = executor_clone.execute(&query_owned).await;
-            (name_owned, result)
+            tokio::spawn(async move {
+                let result = executor_clone.execute(&query_owned).await;
+                (name_owned, result)
+            })
         })
-    }).collect();
+        .collect();
 
     let mut success_count = 0;
     for handle in handles {
@@ -166,24 +212,27 @@ async fn test_ctas_concurrent_execution() {
             Err(SqlError::ExecutionError { message, .. }) => {
                 // Expected for mock connections
                 assert!(!message.contains("Not a CREATE TABLE"));
-                println!("⚠️ Concurrent execution: {} parsed correctly (connection error expected)", name);
+                println!(
+                    "⚠️ Concurrent execution: {} parsed correctly (connection error expected)",
+                    name
+                );
             }
             Err(e) => panic!("❌ Concurrent execution failed for {}: {}", name, e),
         }
     }
 
     println!("🎉 Concurrent Execution Test: PASSED!");
-    println!("   Processed {} operations successfully", if success_count > 0 { success_count } else { 3 });
+    println!(
+        "   Processed {} operations successfully",
+        if success_count > 0 { success_count } else { 3 }
+    );
 }
 
 #[test]
 fn test_ctas_configuration_validation() {
     println!("🔧 Testing CTAS Configuration Validation");
 
-    let executor = CtasExecutor::new(
-        "localhost:9092".to_string(),
-        "validation-test".to_string()
-    );
+    let executor = CtasExecutor::new("localhost:9092".to_string(), "validation-test".to_string());
 
     // Test valid properties
     let mut valid_props = HashMap::new();
@@ -201,8 +250,14 @@ fn test_ctas_configuration_validation() {
     let invalid_cases = vec![
         (("config_file", ""), "config_file property cannot be empty"),
         (("retention", ""), "retention property cannot be empty"),
-        (("kafka.batch.size", "invalid"), "kafka.batch.size must be a number"),
-        (("kafka.linger.ms", "not_numeric"), "kafka.linger.ms must be a number"),
+        (
+            ("kafka.batch.size", "invalid"),
+            "kafka.batch.size must be a number",
+        ),
+        (
+            ("kafka.linger.ms", "not_numeric"),
+            "kafka.linger.ms must be a number",
+        ),
     ];
 
     for ((key, value), expected_error) in invalid_cases {
@@ -213,7 +268,10 @@ fn test_ctas_configuration_validation() {
             Ok(()) => panic!("❌ Should have rejected invalid {} = {}", key, value),
             Err(SqlError::ExecutionError { message, .. }) => {
                 assert!(message.contains(expected_error));
-                println!("✅ Invalid {}: Correctly rejected - {}", key, expected_error);
+                println!(
+                    "✅ Invalid {}: Correctly rejected - {}",
+                    key, expected_error
+                );
             }
             Err(e) => panic!("❌ Unexpected error type for {}: {}", key, e),
         }

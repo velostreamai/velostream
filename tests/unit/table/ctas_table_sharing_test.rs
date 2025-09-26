@@ -63,24 +63,37 @@ async fn test_table_dependency_detection() {
     // Test SQL queries with different table dependencies
     let test_queries = vec![
         ("SELECT * FROM orders", vec!["orders"]),
-        ("SELECT * FROM orders WHERE user_id IN (SELECT id FROM users)", vec!["orders", "users"]),
-        ("SELECT o.*, u.name FROM orders o JOIN users u ON o.user_id = u.id", vec!["orders", "users"]),
-        ("SELECT user_id, (SELECT COUNT(*) FROM orders WHERE user_id = u.id) FROM users u", vec!["orders", "users"]),
+        (
+            "SELECT * FROM orders WHERE user_id IN (SELECT id FROM users)",
+            vec!["orders", "users"],
+        ),
+        (
+            "SELECT o.*, u.name FROM orders o JOIN users u ON o.user_id = u.id",
+            vec!["orders", "users"],
+        ),
+        (
+            "SELECT user_id, (SELECT COUNT(*) FROM orders WHERE user_id = u.id) FROM users u",
+            vec!["orders", "users"],
+        ),
     ];
 
     for (query, expected_tables) in test_queries {
         println!("\n🔍 Testing query: {}", query);
 
         // Try to deploy the job (should fail due to missing tables)
-        let result = server.deploy_job(
-            format!("test-job-{}", expected_tables.join("-")),
-            "v1.0".to_string(),
-            query.to_string(),
-            "test-topic".to_string(),
-        ).await;
+        let result = server
+            .deploy_job(
+                format!("test-job-{}", expected_tables.join("-")),
+                "v1.0".to_string(),
+                query.to_string(),
+                "test-topic".to_string(),
+            )
+            .await;
 
         match result {
-            Err(SqlError::ExecutionError { message, .. }) if message.contains("missing required tables") => {
+            Err(SqlError::ExecutionError { message, .. })
+                if message.contains("missing required tables") =>
+            {
                 println!("✅ Correctly detected missing tables");
                 // Extract table names from error message
                 for table in &expected_tables {
@@ -110,8 +123,14 @@ async fn test_invalid_ctas_queries() {
 
     let invalid_queries = vec![
         ("SELECT * FROM orders", "Not a CREATE TABLE AS SELECT query"),
-        ("CREATE TABLE test AS INSERT INTO orders VALUES (1, 2)", "Only SELECT queries are supported"),
-        ("CREATE TABLE test AS SELECT * FROM (SELECT * FROM orders)", "Subqueries in FROM clause are not supported"),
+        (
+            "CREATE TABLE test AS INSERT INTO orders VALUES (1, 2)",
+            "Only SELECT queries are supported",
+        ),
+        (
+            "CREATE TABLE test AS SELECT * FROM (SELECT * FROM orders)",
+            "Subqueries in FROM clause are not supported",
+        ),
     ];
 
     for (query, expected_error) in invalid_queries {
@@ -123,7 +142,10 @@ async fn test_invalid_ctas_queries() {
                 if message.contains(expected_error) || expected_error.is_empty() {
                     println!("✅ Correctly rejected invalid query: {}", message);
                 } else {
-                    println!("❌ Wrong error message. Expected: {}, Got: {}", expected_error, message);
+                    println!(
+                        "❌ Wrong error message. Expected: {}, Got: {}",
+                        expected_error, message
+                    );
                 }
             }
             Err(e) => {

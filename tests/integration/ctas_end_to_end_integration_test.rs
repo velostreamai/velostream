@@ -34,7 +34,10 @@ use velostream::velostream::sql::error::SqlError;
 /// Integration test helper for creating test records
 fn create_test_properties() -> HashMap<String, String> {
     let mut props = HashMap::new();
-    props.insert("config_file".to_string(), "test_integration.yaml".to_string());
+    props.insert(
+        "config_file".to_string(),
+        "test_integration.yaml".to_string(),
+    );
     props.insert("retention".to_string(), "1 hour".to_string());
     props.insert("kafka.batch.size".to_string(), "500".to_string());
     props
@@ -117,7 +120,10 @@ async fn test_ctas_end_to_end_integration() {
     let stats = server.get_table_stats().await;
     println!("📊 Table statistics:");
     for (name, stat) in &stats {
-        println!("   {}: status={}, records={}", name, stat.status, stat.record_count);
+        println!(
+            "   {}: status={}, records={}",
+            name, stat.status, stat.record_count
+        );
     }
 
     let health = server.get_tables_health().await;
@@ -137,12 +143,15 @@ async fn test_ctas_end_to_end_integration() {
         WHERE o.amount > 100
     "#;
 
-    match server.deploy_job(
-        "user-order-join".to_string(),
-        "v1.0".to_string(),
-        join_query.to_string(),
-        "enriched-orders".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "user-order-join".to_string(),
+            "v1.0".to_string(),
+            join_query.to_string(),
+            "enriched-orders".to_string(),
+        )
+        .await
+    {
         Ok(()) => {
             println!("✅ Successfully deployed job using CTAS tables");
 
@@ -194,9 +203,18 @@ async fn test_ctas_end_to_end_integration() {
     println!("\n⚡ Phase 6: Concurrent Operations");
 
     let concurrent_queries = vec![
-        ("analytics_1", "CREATE TABLE analytics_1 AS SELECT * FROM stream_1"),
-        ("analytics_2", "CREATE TABLE analytics_2 AS SELECT * FROM stream_2"),
-        ("analytics_3", "CREATE TABLE analytics_3 AS SELECT * FROM stream_3"),
+        (
+            "analytics_1",
+            "CREATE TABLE analytics_1 AS SELECT * FROM stream_1",
+        ),
+        (
+            "analytics_2",
+            "CREATE TABLE analytics_2 AS SELECT * FROM stream_2",
+        ),
+        (
+            "analytics_3",
+            "CREATE TABLE analytics_3 AS SELECT * FROM stream_3",
+        ),
     ];
 
     let handles: Vec<_> = concurrent_queries
@@ -226,13 +244,22 @@ async fn test_ctas_end_to_end_integration() {
                 println!("⚠️  Expected connection error for {}: {}", name, message);
             }
             (name, Err(e)) => {
-                panic!("❌ Unexpected error in concurrent creation for {}: {}", name, e);
+                panic!(
+                    "❌ Unexpected error in concurrent creation for {}: {}",
+                    name, e
+                );
             }
         }
     }
 
-    println!("📊 Concurrent operations summary: {} parsing successes",
-             if concurrent_successes > 0 { concurrent_successes } else { 3 });
+    println!(
+        "📊 Concurrent operations summary: {} parsing successes",
+        if concurrent_successes > 0 {
+            concurrent_successes
+        } else {
+            3
+        }
+    );
 
     // === PHASE 7: Resource Cleanup ===
     println!("\n🧹 Phase 7: Resource Cleanup");
@@ -247,7 +274,10 @@ async fn test_ctas_end_to_end_integration() {
                 println!("✅ Successfully dropped table: {}", table_name);
             }
             Err(e) => {
-                println!("⚠️  Error dropping table {} (may be expected): {}", table_name, e);
+                println!(
+                    "⚠️  Error dropping table {} (may be expected): {}",
+                    table_name, e
+                );
             }
         }
     }
@@ -292,17 +322,17 @@ async fn test_ctas_configuration_integration() {
         (
             "mock_table",
             r#"CREATE TABLE mock_table AS SELECT * FROM source WITH ("config_file" = "mock_test.yaml")"#,
-            "Mock source configuration"
+            "Mock source configuration",
         ),
         (
             "kafka_table",
             r#"CREATE TABLE kafka_table AS SELECT * FROM source WITH ("config_file" = "kafka_stream.yaml", "retention" = "7 days")"#,
-            "Kafka source with retention"
+            "Kafka source with retention",
         ),
         (
             "file_table",
             r#"CREATE TABLE file_table AS SELECT * FROM source WITH ("config_file" = "data_file.json", "kafka.batch.size" = "2000")"#,
-            "File source with Kafka properties"
+            "File source with Kafka properties",
         ),
     ];
 
@@ -318,7 +348,10 @@ async fn test_ctas_configuration_integration() {
                 // Expected for mock connections - verify parsing worked
                 assert!(!message.contains("Not a CREATE TABLE"));
                 assert!(!message.contains("cannot be empty"));
-                println!("⚠️  Expected connection error for {}: {}", table_name, message);
+                println!(
+                    "⚠️  Expected connection error for {}: {}",
+                    table_name, message
+                );
             }
             Err(e) => {
                 panic!("❌ Configuration test failed for {}: {}", table_name, e);
@@ -330,15 +363,15 @@ async fn test_ctas_configuration_integration() {
     let invalid_configs = vec![
         (
             r#"CREATE TABLE bad1 AS SELECT * FROM source WITH ("config_file" = "")"#,
-            "config_file property cannot be empty"
+            "config_file property cannot be empty",
         ),
         (
             r#"CREATE TABLE bad2 AS SELECT * FROM source WITH ("retention" = "")"#,
-            "retention property cannot be empty"
+            "retention property cannot be empty",
         ),
         (
             r#"CREATE TABLE bad3 AS SELECT * FROM source WITH ("kafka.batch.size" = "not_a_number")"#,
-            "kafka.batch.size must be a number"
+            "kafka.batch.size must be a number",
         ),
     ];
 
@@ -470,7 +503,11 @@ async fn test_ctas_performance_and_stability() {
             Err(SqlError::ExecutionError { message, .. }) => {
                 // Expected for mock sources
                 creation_times.push(creation_start.elapsed());
-                println!("⚠️  Mock error for {} in {:?}", table_name, creation_start.elapsed());
+                println!(
+                    "⚠️  Mock error for {} in {:?}",
+                    table_name,
+                    creation_start.elapsed()
+                );
             }
             Err(e) => panic!("❌ Unexpected error creating {}: {}", table_name, e),
         }
@@ -482,7 +519,10 @@ async fn test_ctas_performance_and_stability() {
     println!("📊 Performance Results:");
     println!("   Total time: {:?}", total_time);
     println!("   Average creation time: {:?}", avg_creation_time);
-    println!("   Tables per second: {:.2}", 5.0 / total_time.as_secs_f64());
+    println!(
+        "   Tables per second: {:.2}",
+        5.0 / total_time.as_secs_f64()
+    );
 
     // Verify all tables are accessible
     let tables = server.list_tables().await;

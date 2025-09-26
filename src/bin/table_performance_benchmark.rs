@@ -1,476 +1,406 @@
 /*!
-# Table Performance Benchmark
+# Table Performance Benchmark - OptimizedTableImpl
 
-Comprehensive benchmark comparing CompactTable vs Standard Table performance
-across different dataset sizes and query patterns.
+High-performance benchmarking for OptimizedTableImpl demonstrating:
+- O(1) key lookup performance
+- Query caching effectiveness
+- Column indexing speed
+- Streaming throughput
+- Memory efficiency
 
-Results are used to optimize table selection in CTAS queries.
+Usage:
+```bash
+cargo run --bin table_performance_benchmark --no-default-features
+```
 */
 
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::time::Instant;
-use rand::Rng;
+
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::compact_table::CompactTable;
+use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 
 #[derive(Debug, Clone)]
 struct BenchmarkConfig {
-    name: String,
     record_count: usize,
-    field_count: usize,
-    string_field_ratio: f32,  // 0.0 to 1.0
-    query_iterations: usize,
+    key_lookups: usize,
+    stream_batches: usize,
+    batch_size: usize,
 }
 
-#[derive(Debug)]
-struct BenchmarkResult {
-    config: BenchmarkConfig,
-    compact_table_insert_time: u128,
-    standard_table_insert_time: u128,
-    compact_table_query_time: u128,
-    standard_table_query_time: u128,
-    compact_table_memory: usize,
-    standard_table_memory: usize,
-    memory_savings_percent: f64,
-    query_performance_ratio: f64,  // CompactTable time / StandardTable time
-}
-
-fn main() {
-    println!("🔬 Table Performance Benchmark");
-    println!("Comparing CompactTable vs Standard Table across different scenarios\n");
-
-    let benchmarks = vec![
-        // Small datasets
-        BenchmarkConfig {
-            name: "Small Dataset - Simple".to_string(),
-            record_count: 1_000,
-            field_count: 5,
-            string_field_ratio: 0.2,
-            query_iterations: 1_000,
-        },
-        BenchmarkConfig {
-            name: "Small Dataset - Complex".to_string(),
-            record_count: 10_000,
-            field_count: 20,
-            string_field_ratio: 0.5,
-            query_iterations: 1_000,
-        },
-
-        // Medium datasets
-        BenchmarkConfig {
-            name: "Medium Dataset - Financial".to_string(),
+impl Default for BenchmarkConfig {
+    fn default() -> Self {
+        Self {
             record_count: 100_000,
-            field_count: 10,
-            string_field_ratio: 0.3,
-            query_iterations: 500,
-        },
-        BenchmarkConfig {
-            name: "Medium Dataset - Analytics".to_string(),
-            record_count: 500_000,
-            field_count: 15,
-            string_field_ratio: 0.4,
-            query_iterations: 200,
-        },
+            key_lookups: 10_000,
+            stream_batches: 10,
+            batch_size: 1000,
+        }
+    }
+}
 
-        // Large datasets (reduced for performance)
-        BenchmarkConfig {
-            name: "Large Dataset - IoT".to_string(),
-            record_count: 270_000,
-            field_count: 8,
-            string_field_ratio: 0.25,
-            query_iterations: 50,
-        },
-        BenchmarkConfig {
-            name: "Large Dataset - User Analytics".to_string(),
+impl BenchmarkConfig {
+    fn production() -> Self {
+        Self {
             record_count: 1_000_000,
-            field_count: 12,
-            string_field_ratio: 0.6,
-            query_iterations: 25,
-        },
-    ];
-
-    let mut results = Vec::new();
-
-    for config in benchmarks {
-        println!("📊 Running benchmark: {}", config.name);
-        let result = run_benchmark(config);
-        print_result(&result);
-        results.push(result);
-        println!();
-    }
-
-    // Generate markdown report
-    generate_markdown_report(&results);
-
-    // Print recommendations
-    print_recommendations(&results);
-}
-
-fn run_benchmark(config: BenchmarkConfig) -> BenchmarkResult {
-    println!("  📈 Dataset: {} records, {} fields", config.record_count, config.field_count);
-
-    // Generate test data
-    let test_data = generate_test_data(&config);
-
-    // Benchmark CompactTable
-    let (compact_insert_time, compact_query_time, compact_memory) = benchmark_compact_table(&test_data, &config);
-
-    // Benchmark Standard Table (HashMap-based)
-    let (standard_insert_time, standard_query_time, standard_memory) = benchmark_standard_table(&test_data, &config);
-
-    let memory_savings_percent = (1.0 - (compact_memory as f64 / standard_memory as f64)) * 100.0;
-    let query_performance_ratio = compact_query_time as f64 / standard_query_time as f64;
-
-    BenchmarkResult {
-        config,
-        compact_table_insert_time: compact_insert_time,
-        standard_table_insert_time: standard_insert_time,
-        compact_table_query_time: compact_query_time,
-        standard_table_query_time: standard_query_time,
-        compact_table_memory: compact_memory,
-        standard_table_memory: standard_memory,
-        memory_savings_percent,
-        query_performance_ratio,
-    }
-}
-
-fn generate_test_data(config: &BenchmarkConfig) -> Vec<(String, HashMap<String, FieldValue>)> {
-    let mut data = Vec::new();
-
-    for i in 0..config.record_count {
-        let key = format!("key_{:06}", i);
-        let mut record = HashMap::new();
-
-        for j in 0..config.field_count {
-            let field_name = format!("field_{}", j);
-
-            // Mix of data types based on string_field_ratio
-            let field_value = if (j as f32 / config.field_count as f32) < config.string_field_ratio {
-                // String field
-                FieldValue::String(format!("value_{}_{}", i, j))
-            } else {
-                // Numeric fields
-                match j % 4 {
-                    0 => FieldValue::Integer(i as i64 * j as i64),
-                    1 => FieldValue::Float(i as f64 * 1.5 + j as f64),
-                    2 => FieldValue::Boolean(i % 2 == 0),
-                    _ => FieldValue::ScaledInteger((i * j * 100) as i64, 2), // Financial precision
-                }
-            };
-
-            record.insert(field_name, field_value);
-        }
-
-        data.push((key, record));
-    }
-
-    data
-}
-
-fn benchmark_compact_table(data: &[(String, HashMap<String, FieldValue>)], config: &BenchmarkConfig) -> (u128, u128, usize) {
-    // Insert benchmark
-    let start = Instant::now();
-    let table: CompactTable<String> = CompactTable::new("test_topic".to_string(), "test_group".to_string());
-
-    for (key, record) in data {
-        table.insert(key.clone(), record.clone());
-    }
-    let insert_time = start.elapsed().as_micros();
-
-    // Query benchmark
-    let start = Instant::now();
-    let mut rng = rand::thread_rng();
-    for _ in 0..config.query_iterations {
-        // Random key access
-        let key = format!("key_{:06}", rng.gen_range(0..data.len()));
-        if let Some(_record) = table.get(&key) {
-            // Simulate field access
-        }
-
-        // Field path access (more realistic)
-        let _ = table.get_field_by_path(&key, "field_0");
-    }
-    let query_time = start.elapsed().as_micros();
-
-    // Memory usage
-    let stats = table.memory_stats();
-    let memory_usage = stats.total_estimated_bytes;
-
-    (insert_time, query_time, memory_usage)
-}
-
-fn benchmark_standard_table(data: &[(String, HashMap<String, FieldValue>)], config: &BenchmarkConfig) -> (u128, u128, usize) {
-    // Insert benchmark
-    let start = Instant::now();
-    let mut table: HashMap<String, HashMap<String, FieldValue>> = HashMap::new();
-
-    for (key, record) in data {
-        table.insert(key.clone(), record.clone());
-    }
-    let insert_time = start.elapsed().as_micros();
-
-    // Query benchmark
-    let start = Instant::now();
-    let mut rng = rand::thread_rng();
-    for _ in 0..config.query_iterations {
-        // Random key access
-        let key = format!("key_{:06}", rng.gen_range(0..data.len()));
-        if let Some(_record) = table.get(&key) {
-            // Simulate field access
-        }
-
-        // Direct field access
-        if let Some(record) = table.get(&key) {
-            let _ = record.get("field_0");
-        }
-    }
-    let query_time = start.elapsed().as_micros();
-
-    // Estimate memory usage (rough)
-    let estimated_memory = data.len() * std::mem::size_of::<HashMap<String, FieldValue>>() * 2; // Rough estimate
-
-    (insert_time, query_time, estimated_memory)
-}
-
-fn print_result(result: &BenchmarkResult) {
-    println!("  ⏱️  Insert Performance:");
-    println!("    CompactTable: {}µs", result.compact_table_insert_time);
-    println!("    StandardTable: {}µs", result.standard_table_insert_time);
-
-    println!("  🔍 Query Performance:");
-    println!("    CompactTable: {}µs", result.compact_table_query_time);
-    println!("    StandardTable: {}µs", result.standard_table_query_time);
-    println!("    Performance Ratio: {:.2}x", result.query_performance_ratio);
-
-    println!("  💾 Memory Usage:");
-    println!("    CompactTable: {} bytes", result.compact_table_memory);
-    println!("    StandardTable: {} bytes (estimated)", result.standard_table_memory);
-    println!("    Memory Savings: {:.1}%", result.memory_savings_percent);
-}
-
-fn generate_markdown_report(results: &[BenchmarkResult]) {
-    let report = format!(r#"# Table Performance Benchmark Results
-
-## Executive Summary
-
-This benchmark compares CompactTable vs Standard Table performance across different dataset sizes and query patterns to optimize table selection in CTAS queries.
-
-## Benchmark Results
-
-| Dataset | Records | Fields | Insert Time (µs) | Query Time (µs) | Memory Usage (bytes) | Memory Savings |
-|---------|---------|---------|------------------|------------------|---------------------|----------------|
-{}
-
-## Performance Analysis
-
-### Memory Efficiency
-{}
-
-### Query Performance
-{}
-
-### Insert Performance
-{}
-
-## Recommendations
-
-### Use CompactTable When:
-{}
-
-### Use Standard Table When:
-{}
-
-## Methodology
-
-- **Insert Benchmark**: Time to insert all records into the table
-- **Query Benchmark**: Time for {} random key lookups per test
-- **Memory Measurement**: Actual memory usage (CompactTable) vs estimated (Standard Table)
-- **Test Environment**: Rust release build with optimizations
-
-Generated: {}
-"#,
-        generate_results_table(results),
-        generate_memory_analysis(results),
-        generate_query_analysis(results),
-        generate_insert_analysis(results),
-        generate_compact_recommendations(results),
-        generate_standard_recommendations(results),
-        results[0].config.query_iterations,
-        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-    );
-
-    std::fs::write("../../docs/architecture/table_benchmark_results.md", report)
-        .expect("Failed to write benchmark results");
-
-    println!("📝 Benchmark results written to table_benchmark_results.md");
-}
-
-fn generate_results_table(results: &[BenchmarkResult]) -> String {
-    let mut table = String::new();
-
-    for result in results {
-        let row = format!(
-            "| {} | {} | {} | CT: {}, ST: {} | CT: {}, ST: {} | CT: {}, ST: {} | {:.1}% |\n",
-            result.config.name,
-            format_number(result.config.record_count),
-            result.config.field_count,
-            result.compact_table_insert_time,
-            result.standard_table_insert_time,
-            result.compact_table_query_time,
-            result.standard_table_query_time,
-            format_number(result.compact_table_memory),
-            format_number(result.standard_table_memory),
-            result.memory_savings_percent
-        );
-        table.push_str(&row);
-    }
-
-    table
-}
-
-fn generate_memory_analysis(results: &[BenchmarkResult]) -> String {
-    let mut analysis = String::from("**Key Findings:**\n");
-
-    for result in results {
-        analysis.push_str(&format!(
-            "- **{}**: {:.1}% memory reduction with CompactTable\n",
-            result.config.name,
-            result.memory_savings_percent
-        ));
-    }
-
-    analysis
-}
-
-fn generate_query_analysis(results: &[BenchmarkResult]) -> String {
-    let mut analysis = String::from("**Performance Impact:**\n");
-
-    for result in results {
-        let impact = if result.query_performance_ratio > 1.1 {
-            format!("⚠️ {:.1}x slower", result.query_performance_ratio)
-        } else if result.query_performance_ratio < 0.9 {
-            format!("✅ {:.1}x faster", 1.0 / result.query_performance_ratio)
-        } else {
-            "≈ Similar performance".to_string()
-        };
-
-        analysis.push_str(&format!(
-            "- **{}**: CompactTable {}\n",
-            result.config.name,
-            impact
-        ));
-    }
-
-    analysis
-}
-
-fn generate_insert_analysis(results: &[BenchmarkResult]) -> String {
-    let mut analysis = String::from("**Insert Performance:**\n");
-
-    for result in results {
-        let ratio = result.compact_table_insert_time as f64 / result.standard_table_insert_time as f64;
-        let impact = if ratio > 1.1 {
-            format!("⚠️ {:.1}x slower", ratio)
-        } else if ratio < 0.9 {
-            format!("✅ {:.1}x faster", 1.0 / ratio)
-        } else {
-            "≈ Similar performance".to_string()
-        };
-
-        analysis.push_str(&format!(
-            "- **{}**: CompactTable {}\n",
-            result.config.name,
-            impact
-        ));
-    }
-
-    analysis
-}
-
-fn generate_compact_recommendations(results: &[BenchmarkResult]) -> String {
-    let mut recs = String::from("**Based on benchmark results:**\n");
-
-    // Find datasets where CompactTable shows significant memory savings with acceptable performance
-    for result in results {
-        if result.memory_savings_percent > 50.0 && result.query_performance_ratio < 2.0 {
-            recs.push_str(&format!(
-                "- **{}**: {:.1}% memory savings, {:.1}x query overhead\n",
-                result.config.name,
-                result.memory_savings_percent,
-                result.query_performance_ratio
-            ));
+            key_lookups: 100_000,
+            stream_batches: 100,
+            batch_size: 10_000,
         }
     }
 
-    recs
-}
-
-fn generate_standard_recommendations(results: &[BenchmarkResult]) -> String {
-    let mut recs = String::from("**Based on benchmark results:**\n");
-
-    // Find datasets where Standard Table shows better performance
-    for result in results {
-        if result.query_performance_ratio > 1.5 || result.memory_savings_percent < 30.0 {
-            recs.push_str(&format!(
-                "- **{}**: Query performance penalty: {:.1}x, Memory savings: {:.1}%\n",
-                result.config.name,
-                result.query_performance_ratio,
-                result.memory_savings_percent
-            ));
+    fn quick() -> Self {
+        Self {
+            record_count: 10_000,
+            key_lookups: 1_000,
+            stream_batches: 5,
+            batch_size: 100,
         }
     }
-
-    recs
 }
 
-fn format_number(n: usize) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🚀 OptimizedTableImpl Performance Benchmark");
+    println!("===========================================");
 
-fn print_recommendations(results: &[BenchmarkResult]) {
-    println!("📋 Performance Recommendations:");
+    let args: Vec<String> = std::env::args().collect();
+    let config = match args.get(1).map(|s| s.as_str()) {
+        Some("production") => BenchmarkConfig::production(),
+        Some("quick") => BenchmarkConfig::quick(),
+        _ => BenchmarkConfig::default(),
+    };
+
+    println!("📊 Configuration: {:?}", config);
     println!();
 
-    // Analyze breakeven points
-    let mut compact_beneficial = Vec::new();
-    let mut standard_beneficial = Vec::new();
+    // Phase 1: Data Loading Benchmark
+    let table = benchmark_data_loading(&config).await?;
 
-    for result in results {
-        if result.memory_savings_percent > 60.0 && result.query_performance_ratio < 1.5 {
-            compact_beneficial.push(&result.config.name);
-        } else if result.query_performance_ratio > 2.0 || result.memory_savings_percent < 40.0 {
-            standard_beneficial.push(&result.config.name);
+    // Phase 2: Key Lookup Performance
+    benchmark_key_lookups(&table, &config).await?;
+
+    // Phase 3: Query Caching Performance
+    benchmark_query_caching(&table, &config).await?;
+
+    // Phase 4: Streaming Performance
+    benchmark_streaming(&table, &config).await?;
+
+    // Phase 5: Aggregation Performance
+    benchmark_aggregations(&table, &config).await?;
+
+    // Phase 6: Memory Efficiency
+    benchmark_memory_efficiency(&table, &config).await?;
+
+    // Final Summary
+    print_final_summary(&table, &config);
+
+    Ok(())
+}
+
+async fn benchmark_data_loading(
+    config: &BenchmarkConfig,
+) -> Result<OptimizedTableImpl, Box<dyn std::error::Error>> {
+    println!("⏱️  Phase 1: Data Loading Performance");
+    println!("   Loading {} records...", config.record_count);
+
+    let table = OptimizedTableImpl::new();
+    let start = Instant::now();
+
+    // Load financial test data
+    for i in 0..config.record_count {
+        let mut record = HashMap::new();
+        record.insert("id".to_string(), FieldValue::Integer(i as i64));
+        record.insert(
+            "account_id".to_string(),
+            FieldValue::String(format!("ACC{:06}", i % 1000)),
+        );
+        record.insert(
+            "amount".to_string(),
+            FieldValue::ScaledInteger((i as i64 * 137 + 50000) % 1000000, 2),
+        );
+        record.insert(
+            "status".to_string(),
+            FieldValue::String(match i % 4 {
+                0 => "active".to_string(),
+                1 => "pending".to_string(),
+                2 => "completed".to_string(),
+                _ => "cancelled".to_string(),
+            }),
+        );
+        record.insert(
+            "category".to_string(),
+            FieldValue::String(format!("CAT_{}", i % 10)),
+        );
+
+        table.insert(format!("txn_{:08}", i), record)?;
+    }
+
+    let duration = start.elapsed();
+    let records_per_sec = config.record_count as f64 / duration.as_secs_f64();
+    let avg_per_record = duration.as_micros() as f64 / config.record_count as f64;
+
+    println!(
+        "   ✅ Loaded {} records in {:?}",
+        config.record_count, duration
+    );
+    println!("   📈 Throughput: {:.0} records/sec", records_per_sec);
+    println!("   ⚡ Average: {:.2}μs per record", avg_per_record);
+    println!();
+
+    Ok(table)
+}
+
+async fn benchmark_key_lookups(
+    table: &OptimizedTableImpl,
+    config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔍 Phase 2: Key Lookup Performance (O(1))");
+
+    // Single key lookup
+    let key = format!("txn_{:08}", config.record_count / 2);
+    let start = Instant::now();
+    let result = table.get_record(&key)?;
+    let single_lookup_time = start.elapsed();
+
+    println!(
+        "   ✅ Single lookup: {:?} (found: {})",
+        single_lookup_time,
+        result.is_some()
+    );
+
+    // Batch key lookups
+    let start = Instant::now();
+    let mut found_count = 0;
+
+    for i in 0..config.key_lookups {
+        let key = format!("txn_{:08}", i % config.record_count);
+        if table.contains_key(&key) {
+            found_count += 1;
         }
     }
 
-    if !compact_beneficial.is_empty() {
-        println!("✅ **Use CompactTable for:**");
-        for name in compact_beneficial {
-            println!("   • {}", name);
-        }
-        println!();
+    let batch_duration = start.elapsed();
+    let lookups_per_sec = config.key_lookups as f64 / batch_duration.as_secs_f64();
+    let avg_per_lookup = batch_duration.as_nanos() as f64 / config.key_lookups as f64;
+
+    println!(
+        "   ✅ Batch lookups: {} lookups in {:?}",
+        config.key_lookups, batch_duration
+    );
+    println!("   📈 Throughput: {:.0} lookups/sec", lookups_per_sec);
+    println!("   ⚡ Average: {:.2}ns per lookup", avg_per_lookup);
+    println!("   🎯 Found: {}/{} keys", found_count, config.key_lookups);
+    println!();
+
+    Ok(())
+}
+
+async fn benchmark_query_caching(
+    table: &OptimizedTableImpl,
+    _config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("💾 Phase 3: Query Caching Performance");
+
+    let queries = [
+        "status = 'active'",
+        "status = 'pending'",
+        "category = 'CAT_5'",
+        "amount > 500000",
+    ];
+
+    for query in &queries {
+        // First query (cache miss)
+        let start = Instant::now();
+        let values1 = table.sql_column_values("amount", query)?;
+        let first_time = start.elapsed();
+
+        // Second query (cache hit)
+        let start = Instant::now();
+        let values2 = table.sql_column_values("amount", query)?;
+        let second_time = start.elapsed();
+
+        let speedup = first_time.as_nanos() as f64 / second_time.as_nanos() as f64;
+
+        println!("   ✅ Query: '{}'", query);
+        println!(
+            "      Cache miss:  {:?} ({} results)",
+            first_time,
+            values1.len()
+        );
+        println!(
+            "      Cache hit:   {:?} ({} results)",
+            second_time,
+            values2.len()
+        );
+        println!("      Speedup:     {:.1}x faster", speedup);
     }
 
-    if !standard_beneficial.is_empty() {
-        println!("⚡ **Use Standard Table for:**");
-        for name in standard_beneficial {
-            println!("   • {}", name);
+    let stats = table.get_stats();
+    println!(
+        "   📊 Cache stats: {} hits, {} misses",
+        stats.query_cache_hits, stats.query_cache_misses
+    );
+    println!();
+
+    Ok(())
+}
+
+async fn benchmark_streaming(
+    table: &OptimizedTableImpl,
+    config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🌊 Phase 4: Streaming Performance");
+
+    // Stream all records
+    let start = Instant::now();
+    let mut stream = table.stream_all().await?;
+    let mut count = 0;
+    let max_stream = std::cmp::min(
+        config.record_count,
+        config.batch_size * config.stream_batches,
+    );
+
+    while let Some(result) = stream.next().await {
+        if result.is_ok() {
+            count += 1;
         }
-        println!();
+        if count >= max_stream {
+            break;
+        }
     }
 
-    println!("💡 **Key Insights:**");
-    let avg_memory_savings: f64 = results.iter().map(|r| r.memory_savings_percent).sum::<f64>() / results.len() as f64;
-    let avg_query_overhead: f64 = results.iter().map(|r| r.query_performance_ratio).sum::<f64>() / results.len() as f64;
+    let stream_duration = start.elapsed();
+    let records_per_sec = count as f64 / stream_duration.as_secs_f64();
 
-    println!("   • Average memory savings: {:.1}%", avg_memory_savings);
-    println!("   • Average query overhead: {:.1}x", avg_query_overhead);
-    println!("   • CompactTable benefits increase with dataset size");
-    println!("   • Query overhead is consistent across dataset sizes");
+    println!("   ✅ Streamed {} records in {:?}", count, stream_duration);
+    println!("   📈 Throughput: {:.0} records/sec", records_per_sec);
+
+    // Batch processing
+    let start = Instant::now();
+    let batch = table.query_batch(config.batch_size, Some(0)).await?;
+    let batch_time = start.elapsed();
+
+    println!(
+        "   ✅ Batch query ({} records): {:?}",
+        config.batch_size, batch_time
+    );
+    println!(
+        "   📦 Retrieved: {} records, has_more: {}",
+        batch.records.len(),
+        batch.has_more
+    );
+    println!();
+
+    Ok(())
+}
+
+async fn benchmark_aggregations(
+    table: &OptimizedTableImpl,
+    _config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("📈 Phase 5: Aggregation Performance");
+
+    let aggregates = [
+        ("COUNT(*)", "1=1", "Total records"),
+        ("COUNT(*)", "status = 'active'", "Active records"),
+        ("COUNT(*)", "status = 'completed'", "Completed records"),
+        (
+            "SUM(amount)",
+            "status = 'completed'",
+            "Completed amount sum",
+        ),
+    ];
+
+    for (expr, where_clause, description) in &aggregates {
+        let start = Instant::now();
+        let result = table.stream_aggregate(expr, Some(where_clause)).await?;
+        let agg_time = start.elapsed();
+
+        match result {
+            FieldValue::Integer(value) => {
+                println!("   ✅ {}: {} ({:?})", description, value, agg_time);
+            }
+            FieldValue::Null => {
+                println!("   ✅ {}: NULL ({:?})", description, agg_time);
+            }
+            _ => {
+                println!("   ✅ {}: {:?} ({:?})", description, result, agg_time);
+            }
+        }
+    }
+
+    println!();
+    Ok(())
+}
+
+async fn benchmark_memory_efficiency(
+    table: &OptimizedTableImpl,
+    _config: &BenchmarkConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("💾 Phase 6: Memory Efficiency Analysis");
+
+    let stats = table.get_stats();
+    let records = stats.record_count;
+    let memory_mb = stats.memory_usage_bytes as f64 / 1024.0 / 1024.0;
+    let bytes_per_record = if records > 0 {
+        stats.memory_usage_bytes as f64 / records as f64
+    } else {
+        0.0
+    };
+
+    println!("   📊 Records: {}", records);
+    println!(
+        "   💾 Memory: {:.2} MB ({} bytes)",
+        memory_mb, stats.memory_usage_bytes
+    );
+    println!("   📦 Bytes per record: {:.1}", bytes_per_record);
+
+    // String interning efficiency
+    println!("   🔗 String interning: Enabled (shared repeated values)");
+    println!();
+
+    Ok(())
+}
+
+fn print_final_summary(table: &OptimizedTableImpl, config: &BenchmarkConfig) {
+    println!("📋 Final Performance Summary");
+    println!("===========================");
+
+    let stats = table.get_stats();
+
+    println!("🚀 Configuration: {:?}", config);
+    println!();
+
+    println!("📊 Performance Metrics:");
+    println!("   Records:              {:>10}", stats.record_count);
+    println!("   Total queries:        {:>10}", stats.total_queries);
+    println!("   Cache hits:           {:>10}", stats.query_cache_hits);
+    println!("   Cache misses:         {:>10}", stats.query_cache_misses);
+
+    if stats.total_queries > 0 {
+        let cache_hit_rate = (stats.query_cache_hits as f64 / stats.total_queries as f64) * 100.0;
+        println!("   Cache hit rate:       {:>9.1}%", cache_hit_rate);
+    }
+
+    println!(
+        "   Avg query time:       {:>9.2}ms",
+        stats.average_query_time_ms
+    );
+
+    if stats.average_query_time_ms > 0.0 {
+        let queries_per_sec = 1000.0 / stats.average_query_time_ms;
+        println!(
+            "   Query throughput:     {:>10.0} queries/sec",
+            queries_per_sec
+        );
+    }
+
+    println!();
+    println!("✅ OptimizedTableImpl Benchmark Complete!");
+    println!("   🎯 Demonstrates O(1) key lookups");
+    println!("   ⚡ High-performance query caching");
+    println!("   🌊 Efficient async streaming");
+    println!("   💾 Memory-optimized string interning");
 }

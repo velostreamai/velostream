@@ -9,7 +9,9 @@ use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
 };
-use crate::velostream::server::table_registry::{TableRegistry, TableRegistryConfig, TableMetadata as TableStatsInfo};
+use crate::velostream::server::table_registry::{
+    TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
+};
 use crate::velostream::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
@@ -21,7 +23,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
-
 
 #[derive(Clone)]
 pub struct StreamJobServer {
@@ -593,7 +594,7 @@ impl StreamJobServer {
     pub async fn get_table(
         &self,
         table_name: &str,
-    ) -> Result<Arc<dyn crate::velostream::table::SqlQueryable + Send + Sync>, SqlError> {
+    ) -> Result<Arc<dyn crate::velostream::table::unified_table::UnifiedTable>, SqlError> {
         self.table_registry.get_table(table_name).await
     }
 
@@ -1046,5 +1047,4 @@ impl StreamJobServer {
             }
         }
     }
-
 }
