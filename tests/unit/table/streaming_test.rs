@@ -21,7 +21,10 @@ fn test_query_builder() {
         .batch_size(500)
         .limit(1000);
 
-    assert_eq!(builder.where_clause, Some("active = true".to_string()));
-    assert_eq!(builder.batch_size, 500);
-    assert_eq!(builder.limit, Some(1000));
+    assert_eq!(
+        builder.get_where_clause(),
+        &Some("active = true".to_string())
+    );
+    assert_eq!(builder.get_batch_size(), 500);
+    assert_eq!(builder.get_limit(), &Some(1000));
 }

@@ -57,11 +57,7 @@ fn create_minimal_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
         ];
 
         let orders_table = MockTable::new("orders".to_string(), orders_data);
-        context.load_reference_table(
-            "orders",
-            Arc::new(orders_table)
-                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
-        );
+        context.load_reference_table("orders", Arc::new(orders_table));
 
         println!("🎯 Minimal correlation context: orders table loaded with user_ids [999, 888]");
     })

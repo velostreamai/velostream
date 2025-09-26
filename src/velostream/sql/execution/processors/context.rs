@@ -694,7 +694,7 @@ impl ProcessorContext {
     /// * `table_name` - Name of the reference table
     ///
     /// # Returns
-    /// * `Ok(Arc<dyn SqlQueryable + Send + Sync>)` - Reference to the queryable table
+    /// * `Ok(Arc<dyn UnifiedTable>)` - Reference to the queryable table
     /// * `Err(SqlError)` - Table not found or access error
     ///
     /// # Examples
@@ -787,7 +787,7 @@ impl ProcessorContext {
     /// * `table_name` - Name of the table to remove
     ///
     /// # Returns
-    /// * `Some(Arc<dyn SqlQueryable + Send + Sync>)` - The removed table
+    /// * `Some(Arc<dyn UnifiedTable>)` - The removed table
     /// * `None` - Table was not found
     pub fn remove_table(&mut self, table_name: &str) -> Option<Arc<dyn UnifiedTable>> {
         self.state_tables.remove(table_name)

@@ -16,7 +16,12 @@ use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::SqlError;
-use velostream::velostream::table::sql::SqlQueryable;
+// SqlQueryable removed - using UnifiedTable only
+use async_trait::async_trait;
+use velostream::velostream::table::streaming::{
+    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+};
+use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -41,7 +46,7 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-// Mock SqlQueryable implementation for testing
+// Mock UnifiedTable implementation for testing
 #[derive(Debug)]
 struct MockTable {
     name: String,
@@ -99,22 +104,41 @@ impl MockTable {
     }
 }
 
-impl SqlQueryable for MockTable {
-    fn sql_filter(&self, _where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
-        // Return mock data
-        Ok(self.data.clone())
+// SqlQueryable implementation removed - using UnifiedTable methods directly
+
+#[async_trait]
+impl UnifiedTable for MockTable {
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        if let Some(value) = self.data.get(key) {
+            let mut record = HashMap::new();
+            record.insert(key.to_string(), value.clone());
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn sql_exists(&self, _where_clause: &str) -> Result<bool, SqlError> {
-        // EXISTS should return true for these tests to pass
-        Ok(true)
+    fn contains_key(&self, key: &str) -> bool {
+        self.data.contains_key(key)
     }
 
-    fn sql_column_values(
-        &self,
-        column: &str,
-        _where_clause: &str,
-    ) -> Result<Vec<FieldValue>, SqlError> {
+    fn record_count(&self) -> usize {
+        self.data.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        Box::new(self.data.iter().map(move |(key, value)| {
+            let mut record = HashMap::new();
+            record.insert(key.clone(), value.clone());
+            (format!("{}_{}", self.name, key), record)
+        }))
+    }
+
+    fn sql_column_values(&self, column: &str, _where_clause: &str) -> TableResult<Vec<FieldValue>> {
         // Return mock column values
         if let Some(value) = self.data.get(column) {
             Ok(vec![value.clone()])
@@ -123,21 +147,62 @@ impl SqlQueryable for MockTable {
         }
     }
 
-    fn sql_scalar(&self, _select_expr: &str, _where_clause: &str) -> Result<FieldValue, SqlError> {
+    fn sql_scalar(&self, _select_expr: &str, _where_clause: &str) -> TableResult<FieldValue> {
         // Return mock values based on what subquery tests expect
         Ok(FieldValue::Integer(1))
     }
 
-    fn sql_wildcard_values(&self, _wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
-        // Return mock wildcard values
-        Ok(vec![
-            FieldValue::Integer(1),
-            FieldValue::String("mock".to_string()),
-        ])
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        // Convert data to streaming records
+        for (key, value) in &self.data {
+            let mut fields = HashMap::new();
+            fields.insert(key.clone(), value.clone());
+            let record = StreamingRecord {
+                key: format!("{}_{}", self.name, key),
+                fields,
+            };
+            let _ = tx.send(Ok(record));
+        }
+
+        Ok(RecordStream { receiver: rx })
     }
 
-    fn sql_wildcard_aggregate(&self, _aggregate_expr: &str) -> Result<FieldValue, SqlError> {
-        // Return mock aggregate value
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        self.stream_all().await
+    }
+
+    async fn query_batch(
+        &self,
+        _batch_size: usize,
+        _offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
+        let mut records = Vec::new();
+        for (key, value) in &self.data {
+            let mut fields = HashMap::new();
+            fields.insert(key.clone(), value.clone());
+            records.push(StreamingRecord {
+                key: format!("{}_{}", self.name, key),
+                fields,
+            });
+        }
+
+        Ok(RecordBatch {
+            records,
+            has_more: false,
+        })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(self.record_count())
+    }
+
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
         Ok(FieldValue::Integer(1))
     }
 }

@@ -214,7 +214,7 @@ impl CtasExecutor {
     }
 
     /// Extract source information from a SELECT query
-    fn extract_source_from_select(
+    pub fn extract_source_from_select(
         &self,
         select_query: &StreamingQuery,
     ) -> Result<SourceInfo, SqlError> {

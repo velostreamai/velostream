@@ -8,7 +8,7 @@ unified interface that provides all table operations in a cohesive, performant w
 
 The previous design had confusing overlapping traits:
 - `SqlDataSource` - Basic data access
-- `SqlQueryable` - SQL query operations
+- Legacy SqlQueryable - SQL query operations (now unified)
 - `StreamingQueryable` - Async streaming operations
 
 This led to:
@@ -49,7 +49,7 @@ pub type TableResult<T> = Result<T, SqlError>;
 
 /// Unified table interface combining all table operations
 ///
-/// This trait consolidates SqlDataSource, SqlQueryable, and StreamingQueryable
+/// This trait consolidates SqlDataSource, legacy SqlQueryable, and StreamingQueryable
 /// into a single, cohesive interface with optimized implementations.
 #[async_trait]
 pub trait UnifiedTable: Send + Sync {
@@ -65,7 +65,7 @@ pub trait UnifiedTable: Send + Sync {
 
     /// Check if a key exists - O(1) optimized
     ///
-    /// Often faster than get_record() for existence checks.
+    /// Often faster than get_record(222) for existence checks.
     fn contains_key(&self, key: &str) -> bool;
 
     /// Get record count - O(1) if possible
@@ -121,6 +121,114 @@ pub trait UnifiedTable: Send + Sync {
     ///
     /// Handles aggregates (COUNT, MAX, MIN, etc.) and single-row selects.
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> TableResult<FieldValue>;
+
+    // =========================================================================
+    // ADVANCED WILDCARD QUERY INTERFACE - For complex nested data structures
+    // =========================================================================
+
+    /// Extract values using wildcard patterns in field paths
+    ///
+    /// Supports sophisticated wildcard queries for nested JSON/struct data:
+    /// - Single-level wildcard: `portfolio.positions.*.shares`
+    /// - Deep recursive wildcard: `portfolio.positions.**.shares`
+    /// - Array wildcard: `orders[*].amount`
+    /// - Array indexing: `orders[1].amount`
+    /// - Conditional queries: `portfolio.positions.*.shares > 100`
+    ///
+    /// # Arguments
+    /// * `wildcard_expr` - Expression with wildcards and optional conditions
+    ///
+    /// # Returns
+    /// * `Ok(Vec<FieldValue>)` - Values matching the wildcard pattern
+    /// * `Err(SqlError)` - Parse or execution error
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use velostream::velostream::table::unified_table::UnifiedTable;
+    /// # fn example(table: &dyn UnifiedTable) -> Result<(), velostream::velostream::sql::error::SqlError> {
+    /// // Find all positions with shares > 100
+    /// let large_positions = table.sql_wildcard_values("portfolio.positions.*.shares > 100")?;
+    ///
+    /// // Get all user emails regardless of user ID
+    /// let all_emails = table.sql_wildcard_values("users.*.email")?;
+    ///
+    /// // Extract all order amounts from arrays
+    /// let order_amounts = table.sql_wildcard_values("orders[*].amount")?;
+    ///
+    /// // Deep recursive search for any field named 'price'
+    /// let all_prices = table.sql_wildcard_values("**.price")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sql_wildcard_values(&self, wildcard_expr: &str) -> TableResult<Vec<FieldValue>> {
+        // Default implementation with comprehensive wildcard support
+        // Validate input
+        if wildcard_expr.is_empty() {
+            return Err(SqlError::ParseError {
+                message: "Empty wildcard expression".to_string(),
+                position: Some(0),
+            });
+        }
+
+        // Parse the wildcard expression
+        let query = parse_wildcard_expression(wildcard_expr)?;
+        let mut matching_values = Vec::new();
+
+        // Iterate through all records and collect matching values
+        for (_key, record) in self.iter_records() {
+            let record_value = FieldValue::Struct(record);
+            collect_wildcard_matches(&record_value, &query, &mut matching_values);
+        }
+
+        Ok(matching_values)
+    }
+
+    /// Execute aggregate functions on wildcard query results
+    ///
+    /// Supports all standard SQL aggregate functions on wildcard-matched values:
+    /// - COUNT: Count matching values
+    /// - MAX/MIN: Maximum/minimum numeric values
+    /// - AVG: Average of numeric values
+    /// - SUM: Sum of numeric values
+    ///
+    /// # Arguments
+    /// * `aggregate_expr` - Aggregate function with wildcard path
+    ///
+    /// # Returns
+    /// * `Ok(FieldValue)` - Computed aggregate value
+    /// * `Err(SqlError)` - Parse or execution error
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use velostream::velostream::table::unified_table::UnifiedTable;
+    /// # fn example(table: &dyn UnifiedTable) -> Result<(), velostream::velostream::sql::error::SqlError> {
+    /// // Count all positions
+    /// let count = table.sql_wildcard_aggregate("COUNT(portfolio.positions.*)")?;
+    ///
+    /// // Maximum market value across all positions
+    /// let max_value = table.sql_wildcard_aggregate("MAX(portfolio.positions.*.market_value)")?;
+    ///
+    /// // Average balance across all users
+    /// let avg_balance = table.sql_wildcard_aggregate("AVG(users.*.balance)")?;
+    ///
+    /// // Sum of all order amounts
+    /// let total_orders = table.sql_wildcard_aggregate("SUM(orders[*].amount)")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> TableResult<FieldValue> {
+        // Default implementation with full aggregate support
+        let expr = aggregate_expr.trim();
+
+        // Extract function name and field path
+        let (func_name, field_path) = parse_aggregate_expression(expr)?;
+
+        // Get all matching values
+        let values = self.sql_wildcard_values(&field_path)?;
+
+        // Apply the aggregate function
+        apply_aggregate_function(&func_name, &values, aggregate_expr)
+    }
 
     // =========================================================================
     // ASYNC STREAMING INTERFACE - For large datasets
@@ -855,5 +963,352 @@ impl UnifiedTable for OptimizedTableImpl {
             // Other aggregates not implemented yet
             Ok(FieldValue::Null)
         }
+    }
+}
+
+// =========================================================================
+// ADVANCED WILDCARD QUERY IMPLEMENTATION
+// =========================================================================
+
+/// Path component for wildcard queries
+#[derive(Debug, Clone, PartialEq)]
+enum PathPart {
+    /// Regular field name: "field"
+    Field(String),
+    /// Single-level wildcard: "*"
+    Wildcard,
+    /// Deep recursive wildcard: "**"
+    DeepWildcard,
+    /// Array wildcard: "[*]"
+    ArrayWildcard,
+    /// Specific array index: "[5]"
+    ArrayIndex(usize),
+    /// Predicate filter: "[field > 100]"
+    Predicate(String),
+}
+
+/// Parsed wildcard query with optional condition
+#[derive(Debug, Clone)]
+struct WildcardQuery {
+    /// Parsed path components
+    path_parts: Vec<PathPart>,
+    /// Optional comparison operator and value
+    condition: Option<WildcardCondition>,
+}
+
+/// Condition for wildcard filtering
+#[derive(Debug, Clone)]
+struct WildcardCondition {
+    /// Comparison operator: ">", "<", ">=", "<=", "=", "!="
+    operator: String,
+    /// Comparison value (parsed as f64)
+    value: f64,
+}
+
+
+/// Parse a wildcard expression into components and optional condition
+fn parse_wildcard_expression(expr: &str) -> TableResult<WildcardQuery> {
+    // Check for conditional operators
+    let condition_operators = [" >= ", " <= ", " > ", " < ", " = ", " != "];
+    let mut condition = None;
+    let mut path_expr = expr;
+
+    for op in &condition_operators {
+        if let Some(pos) = expr.find(op) {
+            let field_path = &expr[..pos];
+            let value_str = &expr[pos + op.len()..].trim();
+
+            let value = value_str.parse::<f64>().map_err(|_| SqlError::ParseError {
+                message: format!("Invalid numeric value in condition: {}", value_str),
+                position: Some(pos + op.len()),
+            })?;
+
+            condition = Some(WildcardCondition {
+                operator: op.trim().to_string(),
+                value,
+            });
+            path_expr = field_path;
+            break;
+        }
+    }
+
+    // Parse the path components
+    let path_parts = parse_path_components(path_expr)?;
+
+    Ok(WildcardQuery {
+        path_parts,
+        condition,
+    })
+}
+
+/// Parse a path string into path components with array notation support
+fn parse_path_components(path: &str) -> TableResult<Vec<PathPart>> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = path.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '.' => {
+                if !current.is_empty() {
+                    parts.push(parse_single_component(&current)?);
+                    current.clear();
+                }
+            }
+            '[' => {
+                // Handle field name before bracket
+                if !current.is_empty() {
+                    parts.push(parse_single_component(&current)?);
+                    current.clear();
+                }
+
+                // Parse bracket content
+                let mut bracket_content = String::new();
+                let mut bracket_depth = 1;
+
+                while let Some(bracket_ch) = chars.next() {
+                    if bracket_ch == '[' {
+                        bracket_depth += 1;
+                    } else if bracket_ch == ']' {
+                        bracket_depth -= 1;
+                        if bracket_depth == 0 {
+                            break;
+                        }
+                    }
+                    bracket_content.push(bracket_ch);
+                }
+
+                if bracket_depth != 0 {
+                    return Err(SqlError::ParseError {
+                        message: "Unmatched brackets in path".to_string(),
+                        position: Some(path.len()),
+                    });
+                }
+
+                // Parse bracket content
+                let bracket_content = bracket_content.trim();
+                if bracket_content == "*" {
+                    parts.push(PathPart::ArrayWildcard);
+                } else if let Ok(index) = bracket_content.parse::<usize>() {
+                    parts.push(PathPart::ArrayIndex(index));
+                } else {
+                    parts.push(PathPart::Predicate(bracket_content.to_string()));
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    // Handle final component
+    if !current.is_empty() {
+        parts.push(parse_single_component(&current)?);
+    }
+
+    Ok(parts)
+}
+
+/// Parse a single path component (field name or wildcard)
+fn parse_single_component(component: &str) -> TableResult<PathPart> {
+    match component {
+        "*" => Ok(PathPart::Wildcard),
+        "**" => Ok(PathPart::DeepWildcard),
+        _ => Ok(PathPart::Field(component.to_string())),
+    }
+}
+
+/// Recursively collect values matching the wildcard pattern
+fn collect_wildcard_matches(
+    current: &FieldValue,
+    query: &WildcardQuery,
+    results: &mut Vec<FieldValue>,
+) {
+    collect_wildcard_recursive(current, &query.path_parts, 0, &query.condition, results);
+}
+
+/// Recursive helper for wildcard pattern matching
+fn collect_wildcard_recursive(
+    current: &FieldValue,
+    parts: &[PathPart],
+    index: usize,
+    condition: &Option<WildcardCondition>,
+    results: &mut Vec<FieldValue>,
+) {
+    if index >= parts.len() {
+        // Reached the end of the path - check condition and collect value
+        if let Some(cond) = condition {
+            if evaluate_condition(current, cond) {
+                results.push(current.clone());
+            }
+        } else {
+            results.push(current.clone());
+        }
+        return;
+    }
+
+    match (&parts[index], current) {
+        (PathPart::Field(field_name), FieldValue::Struct(fields)) => {
+            if let Some(value) = fields.get(field_name) {
+                collect_wildcard_recursive(value, parts, index + 1, condition, results);
+            }
+        }
+        (PathPart::Wildcard, FieldValue::Struct(fields)) => {
+            // Single-level wildcard - match all fields at this level
+            for (_, value) in fields {
+                collect_wildcard_recursive(value, parts, index + 1, condition, results);
+            }
+        }
+        (PathPart::DeepWildcard, FieldValue::Struct(fields)) => {
+            // Deep recursive wildcard - search at any depth
+            for (_, value) in fields {
+                // Try continuing from next part
+                if index + 1 < parts.len() {
+                    collect_wildcard_recursive(value, parts, index + 1, condition, results);
+                }
+                // Also recurse deeper with same pattern
+                collect_wildcard_recursive(value, parts, index, condition, results);
+            }
+        }
+        (PathPart::ArrayWildcard, FieldValue::Array(arr)) => {
+            // Process all array elements
+            for element in arr {
+                collect_wildcard_recursive(element, parts, index + 1, condition, results);
+            }
+        }
+        (PathPart::ArrayIndex(idx), FieldValue::Array(arr)) => {
+            // Access specific array index
+            if let Some(element) = arr.get(*idx) {
+                collect_wildcard_recursive(element, parts, index + 1, condition, results);
+            }
+        }
+        (PathPart::Predicate(_predicate), _) => {
+            // TODO: Implement predicate filtering
+            // For now, treat as passthrough
+            collect_wildcard_recursive(current, parts, index + 1, condition, results);
+        }
+        _ => {
+            // Type mismatch or unsupported pattern - skip
+        }
+    }
+}
+
+/// Evaluate a condition against a field value
+fn evaluate_condition(value: &FieldValue, condition: &WildcardCondition) -> bool {
+    let numeric_value = match extract_numeric_value(value) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    match condition.operator.as_str() {
+        ">" => numeric_value > condition.value,
+        "<" => numeric_value < condition.value,
+        ">=" => numeric_value >= condition.value,
+        "<=" => numeric_value <= condition.value,
+        "=" => (numeric_value - condition.value).abs() < f64::EPSILON,
+        "!=" => (numeric_value - condition.value).abs() >= f64::EPSILON,
+        _ => false,
+    }
+}
+
+/// Extract numeric value from a FieldValue for comparisons
+fn extract_numeric_value(value: &FieldValue) -> Option<f64> {
+    match value {
+        FieldValue::Integer(i) => Some(*i as f64),
+        FieldValue::Float(f) => Some(*f),
+        FieldValue::ScaledInteger(value, scale) => {
+            Some(*value as f64 / 10_f64.powi(*scale as i32))
+        }
+        _ => None,
+    }
+}
+
+/// Parse an aggregate expression to extract function and path
+fn parse_aggregate_expression(expr: &str) -> TableResult<(String, String)> {
+    let expr = expr.trim();
+
+    let start_pos = expr.find('(').ok_or_else(|| SqlError::ParseError {
+        message: "Invalid aggregate expression: missing opening parenthesis".to_string(),
+        position: Some(0),
+    })?;
+
+    let end_pos = expr.rfind(')').ok_or_else(|| SqlError::ParseError {
+        message: "Invalid aggregate expression: missing closing parenthesis".to_string(),
+        position: Some(expr.len()),
+    })?;
+
+    let func_name = expr[..start_pos].trim().to_uppercase();
+    let field_path = expr[start_pos + 1..end_pos].trim().to_string();
+
+    Ok((func_name, field_path))
+}
+
+/// Apply an aggregate function to a list of values
+fn apply_aggregate_function(
+    func_name: &str,
+    values: &[FieldValue],
+    aggregate_expr: &str,
+) -> TableResult<FieldValue> {
+    match func_name {
+        "COUNT" => Ok(FieldValue::Integer(values.len() as i64)),
+        "MAX" => {
+            let mut max_val: Option<f64> = None;
+            for value in values {
+                if let Some(num) = extract_numeric_value(value) {
+                    max_val = Some(max_val.map_or(num, |m| m.max(num)));
+                }
+            }
+            max_val
+                .map(FieldValue::Float)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: "No numeric values found for MAX".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+        }
+        "MIN" => {
+            let mut min_val: Option<f64> = None;
+            for value in values {
+                if let Some(num) = extract_numeric_value(value) {
+                    min_val = Some(min_val.map_or(num, |m| m.min(num)));
+                }
+            }
+            min_val
+                .map(FieldValue::Float)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: "No numeric values found for MIN".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+        }
+        "AVG" => {
+            let mut sum = 0.0;
+            let mut count = 0;
+            for value in values {
+                if let Some(num) = extract_numeric_value(value) {
+                    sum += num;
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                Ok(FieldValue::Float(sum / count as f64))
+            } else {
+                Err(SqlError::ExecutionError {
+                    message: "No numeric values found for AVG".to_string(),
+                    query: Some(aggregate_expr.to_string()),
+                })
+            }
+        }
+        "SUM" => {
+            let mut sum = 0.0;
+            for value in values {
+                if let Some(num) = extract_numeric_value(value) {
+                    sum += num;
+                }
+            }
+            Ok(FieldValue::Float(sum))
+        }
+        _ => Err(SqlError::ExecutionError {
+            message: format!("Unsupported aggregate function: {}", func_name),
+            query: Some(aggregate_expr.to_string()),
+        }),
     }
 }

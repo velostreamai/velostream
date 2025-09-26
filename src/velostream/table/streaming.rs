@@ -43,7 +43,7 @@ impl Stream for RecordStream {
 
 /// Trait for memory-efficient streaming queries
 ///
-/// This trait provides streaming alternatives to SqlQueryable operations,
+/// This trait provides streaming alternatives to legacy SqlQueryable operations,
 /// processing records in batches to minimize memory usage.
 pub trait StreamingQueryable: Send + Sync {
     /// Stream all records without loading them into memory at once
@@ -246,6 +246,21 @@ impl StreamQueryBuilder {
         } else {
             table.stream_all().await
         }
+    }
+
+    /// Get the where clause (for testing)
+    pub fn get_where_clause(&self) -> &Option<String> {
+        &self.where_clause
+    }
+
+    /// Get the batch size (for testing)
+    pub fn get_batch_size(&self) -> usize {
+        self.batch_size
+    }
+
+    /// Get the limit (for testing)
+    pub fn get_limit(&self) -> &Option<usize> {
+        &self.limit
     }
 }
 

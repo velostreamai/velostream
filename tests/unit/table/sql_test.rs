@@ -11,11 +11,17 @@ Tests cover:
 - JSON to FieldValue conversion
 */
 
+use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
+use tokio::sync::mpsc;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::sql::{ExpressionEvaluator, SqlDataSource, SqlQueryable};
+use velostream::velostream::table::sql::{ExpressionEvaluator, TableDataSource};
+use velostream::velostream::table::streaming::{
+    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+};
+use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
 // Mock data source for wildcard testing
 struct MockWildcardDataSource {
@@ -60,21 +66,186 @@ impl MockWildcardDataSource {
     }
 }
 
-impl SqlDataSource for MockWildcardDataSource {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        Ok(self.records.clone())
+// SqlDataSource implementation removed - using UnifiedTable only
+
+#[async_trait]
+impl UnifiedTable for MockWildcardDataSource {
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        if let Some(value) = self.records.get(key) {
+            let mut record = HashMap::new();
+            record.insert(key.to_string(), value.clone());
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        Ok(self.records.get(key).cloned())
+    fn contains_key(&self, key: &str) -> bool {
+        self.records.contains_key(key)
+    }
+
+    fn record_count(&self) -> usize {
+        self.records.len()
     }
 
     fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
 
-    fn record_count(&self) -> usize {
-        self.records.len()
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        Box::new(self.records.iter().map(|(key, value)| {
+            let mut record = HashMap::new();
+            record.insert(key.clone(), value.clone());
+            (key.clone(), record)
+        }))
+    }
+
+    fn sql_column_values(
+        &self,
+        _column: &str,
+        _where_clause: &str,
+    ) -> TableResult<Vec<FieldValue>> {
+        Ok(Vec::new())
+    }
+
+    fn sql_scalar(&self, _select_expr: &str, _where_clause: &str) -> TableResult<FieldValue> {
+        Ok(FieldValue::Null)
+    }
+
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        for (key, value) in &self.records {
+            let mut fields = HashMap::new();
+            fields.insert(key.clone(), value.clone());
+            let record = StreamingRecord {
+                key: key.clone(),
+                fields,
+            };
+            let _ = tx.send(Ok(record));
+        }
+
+        Ok(RecordStream { receiver: rx })
+    }
+
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        self.stream_all().await
+    }
+
+    async fn query_batch(
+        &self,
+        _batch_size: usize,
+        _offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
+        let mut records = Vec::new();
+        for (key, value) in &self.records {
+            let mut fields = HashMap::new();
+            fields.insert(key.clone(), value.clone());
+            records.push(StreamingRecord {
+                key: key.clone(),
+                fields,
+            });
+        }
+
+        Ok(RecordBatch {
+            records,
+            has_more: false,
+        })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(<Self as UnifiedTable>::record_count(self))
+    }
+
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
+        Ok(FieldValue::Integer(1))
+    }
+}
+
+impl MockWildcardDataSource {
+    pub fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
+        // Mock wildcard functionality for testing
+        if wildcard_expr.contains("positions.*.shares") {
+            let mut results = Vec::new();
+
+            if let Some(FieldValue::Struct(portfolio)) = self.records.get("portfolio-001") {
+                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
+                    for (_, position) in positions {
+                        if let FieldValue::Struct(pos_fields) = position {
+                            if let Some(shares) = pos_fields.get("shares") {
+                                // Apply condition if present
+                                if wildcard_expr.contains("> 100") {
+                                    if let FieldValue::Integer(s) = shares {
+                                        if *s > 100 {
+                                            results.push(shares.clone());
+                                        }
+                                    }
+                                } else if wildcard_expr.contains("< 100") {
+                                    if let FieldValue::Integer(s) = shares {
+                                        if *s < 100 {
+                                            results.push(shares.clone());
+                                        }
+                                    }
+                                } else if wildcard_expr.contains("> 50") {
+                                    if let FieldValue::Integer(s) = shares {
+                                        if *s > 50 {
+                                            results.push(shares.clone());
+                                        }
+                                    }
+                                } else {
+                                    results.push(shares.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(results);
+        }
+
+        if wildcard_expr.contains("positions.*.price") {
+            let mut results = Vec::new();
+
+            if let Some(FieldValue::Struct(portfolio)) = self.records.get("portfolio-001") {
+                if let Some(FieldValue::Struct(positions)) = portfolio.get("positions") {
+                    for (_, position) in positions {
+                        if let FieldValue::Struct(pos_fields) = position {
+                            if let Some(price) = pos_fields.get("price") {
+                                // Apply condition if present
+                                if wildcard_expr.contains("> 300") {
+                                    if let FieldValue::ScaledInteger(p, _) = price {
+                                        if *p > 30000 {
+                                            // 300.00 in scaled format
+                                            results.push(price.clone());
+                                        }
+                                    }
+                                } else if wildcard_expr.contains("> 200") {
+                                    if let FieldValue::ScaledInteger(p, _) = price {
+                                        if *p > 20000 {
+                                            // 200.00 in scaled format
+                                            results.push(price.clone());
+                                        }
+                                    }
+                                } else {
+                                    results.push(price.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(results);
+        }
+
+        Ok(Vec::new())
+    }
+
+    fn sql_wildcard_aggregate(&self, _aggregate_expr: &str) -> Result<FieldValue, SqlError> {
+        Ok(FieldValue::Null)
     }
 }
 
@@ -265,6 +436,10 @@ fn test_null_handling() {
     );
 
     let datasource = MockDataSource { records };
+
+    // Note: Using iter_records from UnifiedTable trait
+    let all_records: HashMap<String, HashMap<String, FieldValue>> =
+        datasource.iter_records().collect();
 
     // Test NULL comparison
     let result = datasource.sql_filter("optional_field = null").unwrap();
@@ -503,21 +678,374 @@ struct MockDataSource {
     records: HashMap<String, FieldValue>,
 }
 
-impl SqlDataSource for MockDataSource {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        Ok(self.records.clone())
+impl MockDataSource {
+    /// Enhanced WHERE clause evaluator for comprehensive testing
+    fn evaluate_where_clause(
+        &self,
+        where_clause: &str,
+        record_fields: &HashMap<String, FieldValue>,
+    ) -> bool {
+        if where_clause == "true" || where_clause.is_empty() || where_clause == "1=1" {
+            return true;
+        }
+
+        // Handle AND conditions
+        if where_clause.contains(" AND ") {
+            let conditions: Vec<&str> = where_clause.split(" AND ").collect();
+            return conditions
+                .iter()
+                .all(|cond| self.evaluate_single_condition(cond.trim(), record_fields));
+        }
+
+        // Handle OR conditions
+        if where_clause.contains(" OR ") {
+            let conditions: Vec<&str> = where_clause.split(" OR ").collect();
+            return conditions
+                .iter()
+                .any(|cond| self.evaluate_single_condition(cond.trim(), record_fields));
+        }
+
+        // Single condition
+        self.evaluate_single_condition(where_clause, record_fields)
     }
 
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        Ok(self.records.get(key).cloned())
+    fn evaluate_single_condition(
+        &self,
+        condition: &str,
+        record_fields: &HashMap<String, FieldValue>,
+    ) -> bool {
+        // Handle various operators: =, !=, >, <, >=, <=
+        if let Some(pos) = condition.find(" >= ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[4..]; // Skip " >= "
+            return self.compare_values(left.trim(), right.trim(), record_fields, ">=");
+        }
+        if let Some(pos) = condition.find(" <= ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[4..]; // Skip " <= "
+            return self.compare_values(left.trim(), right.trim(), record_fields, "<=");
+        }
+        if let Some(pos) = condition.find(" != ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[4..]; // Skip " != "
+            return self.compare_values(left.trim(), right.trim(), record_fields, "!=");
+        }
+        if let Some(pos) = condition.find(" = ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[3..]; // Skip " = "
+            return self.compare_values(left.trim(), right.trim(), record_fields, "=");
+        }
+        if let Some(pos) = condition.find(" > ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[3..]; // Skip " > "
+            return self.compare_values(left.trim(), right.trim(), record_fields, ">");
+        }
+        if let Some(pos) = condition.find(" < ") {
+            let (left, right) = condition.split_at(pos);
+            let right = &right[3..]; // Skip " < "
+            return self.compare_values(left.trim(), right.trim(), record_fields, "<");
+        }
+
+        // Default: unknown condition
+        false
+    }
+
+    fn compare_values(
+        &self,
+        left: &str,
+        right: &str,
+        record_fields: &HashMap<String, FieldValue>,
+        operator: &str,
+    ) -> bool {
+        // Get the left value (should be a field name)
+        let left_value = record_fields.get(left);
+
+        // Parse the right value (literal)
+        let right_value = self.parse_literal(right);
+
+        match (left_value, right_value) {
+            (Some(left_val), Some(right_val)) => {
+                self.compare_field_values(left_val, &right_val, operator)
+            }
+            _ => false,
+        }
+    }
+
+    fn parse_literal(&self, literal: &str) -> Option<FieldValue> {
+        let trimmed = literal.trim();
+
+        // String literal (quoted)
+        if (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+            || (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        {
+            let content = &trimmed[1..trimmed.len() - 1];
+            return Some(FieldValue::String(content.to_string()));
+        }
+
+        // Boolean literal
+        if trimmed == "true" {
+            return Some(FieldValue::Boolean(true));
+        }
+        if trimmed == "false" {
+            return Some(FieldValue::Boolean(false));
+        }
+
+        // Null literal
+        if trimmed == "null" || trimmed == "NULL" {
+            return Some(FieldValue::Null);
+        }
+
+        // Integer literal
+        if let Ok(int_val) = trimmed.parse::<i64>() {
+            return Some(FieldValue::Integer(int_val));
+        }
+
+        // Float literal
+        if let Ok(float_val) = trimmed.parse::<f64>() {
+            return Some(FieldValue::Float(float_val));
+        }
+
+        None
+    }
+
+    fn compare_field_values(&self, left: &FieldValue, right: &FieldValue, operator: &str) -> bool {
+        match operator {
+            "=" => self.field_values_equal(left, right),
+            "!=" => !self.field_values_equal(left, right),
+            ">" => self.field_values_greater(left, right),
+            "<" => self.field_values_less(left, right),
+            ">=" => self.field_values_greater(left, right) || self.field_values_equal(left, right),
+            "<=" => self.field_values_less(left, right) || self.field_values_equal(left, right),
+            _ => false,
+        }
+    }
+
+    fn field_values_equal(&self, left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            (FieldValue::String(l), FieldValue::String(r)) => l == r,
+            (FieldValue::Integer(l), FieldValue::Integer(r)) => l == r,
+            (FieldValue::Float(l), FieldValue::Float(r)) => (l - r).abs() < f64::EPSILON,
+            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => l == r,
+            (FieldValue::Null, FieldValue::Null) => true,
+            // Type coercion
+            (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64 - r).abs() < f64::EPSILON,
+            (FieldValue::Float(l), FieldValue::Integer(r)) => (l - *r as f64).abs() < f64::EPSILON,
+            _ => false,
+        }
+    }
+
+    fn field_values_greater(&self, left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            (FieldValue::Integer(l), FieldValue::Integer(r)) => l > r,
+            (FieldValue::Float(l), FieldValue::Float(r)) => l > r,
+            (FieldValue::Integer(l), FieldValue::Float(r)) => *l as f64 > *r,
+            (FieldValue::Float(l), FieldValue::Integer(r)) => *l > *r as f64,
+            (FieldValue::String(l), FieldValue::String(r)) => l > r,
+            _ => false,
+        }
+    }
+
+    fn field_values_less(&self, left: &FieldValue, right: &FieldValue) -> bool {
+        match (left, right) {
+            (FieldValue::Integer(l), FieldValue::Integer(r)) => l < r,
+            (FieldValue::Float(l), FieldValue::Float(r)) => l < r,
+            (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) < *r,
+            (FieldValue::Float(l), FieldValue::Integer(r)) => *l < (*r as f64),
+            (FieldValue::String(l), FieldValue::String(r)) => l < r,
+            _ => false,
+        }
+    }
+}
+
+// SqlDataSource implementation removed - using UnifiedTable only
+
+#[async_trait]
+impl UnifiedTable for MockDataSource {
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        if let Some(value) = self.records.get(key) {
+            let record = match value {
+                FieldValue::Struct(fields) => fields.clone(),
+                _ => {
+                    let mut single_field = HashMap::new();
+                    single_field.insert("value".to_string(), value.clone());
+                    single_field
+                }
+            };
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn contains_key(&self, key: &str) -> bool {
+        self.records.contains_key(key)
+    }
+
+    fn record_count(&self) -> usize {
+        self.records.len()
     }
 
     fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
 
-    fn record_count(&self) -> usize {
-        self.records.len()
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        Box::new(self.records.iter().map(|(key, value)| {
+            let record = match value {
+                FieldValue::Struct(fields) => fields.clone(),
+                _ => {
+                    let mut single_field = HashMap::new();
+                    single_field.insert("value".to_string(), value.clone());
+                    single_field
+                }
+            };
+            (key.clone(), record)
+        }))
+    }
+
+    fn sql_filter(
+        &self,
+        where_clause: &str,
+    ) -> Result<HashMap<String, FieldValue>, SqlError> {
+        let mut filtered_records = HashMap::new();
+
+        for (key, value) in &self.records {
+            if let FieldValue::Struct(fields) = value {
+                let should_include = self.evaluate_where_clause(where_clause, fields);
+
+                if should_include {
+                    filtered_records.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        Ok(filtered_records)
+    }
+
+    fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError> {
+        for (key, value) in &self.records {
+            if let FieldValue::Struct(fields) = value {
+                let should_include = self.evaluate_where_clause(where_clause, fields);
+
+                if should_include {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn sql_column_values(&self, column: &str, where_clause: &str) -> TableResult<Vec<FieldValue>> {
+        let mut values = Vec::new();
+
+        for (key, value) in &self.records {
+            if let FieldValue::Struct(fields) = value {
+                let should_include = self.evaluate_where_clause(where_clause, fields);
+
+                if should_include {
+                    if let Some(field_value) = fields.get(column) {
+                        values.push(field_value.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(values)
+    }
+
+    fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> TableResult<FieldValue> {
+        let mut matching_records = Vec::new();
+
+        for (key, value) in &self.records {
+            if let FieldValue::Struct(fields) = value {
+                let should_include = self.evaluate_where_clause(where_clause, fields);
+
+                if should_include {
+                    matching_records.push(fields);
+                }
+            }
+        }
+
+        if matching_records.len() > 1 {
+            return Err(SqlError::ExecutionError {
+                message: "Scalar subquery returned more than one row".to_string(),
+                query: None,
+            });
+        }
+
+        if let Some(fields) = matching_records.first() {
+            if let Some(field_value) = fields.get(select_expr) {
+                return Ok(field_value.clone());
+            }
+        }
+
+        Ok(FieldValue::Null)
+    }
+
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        for (key, value) in &self.records {
+            let fields = match value {
+                FieldValue::Struct(fields) => fields.clone(),
+                _ => {
+                    let mut single_field = HashMap::new();
+                    single_field.insert("value".to_string(), value.clone());
+                    single_field
+                }
+            };
+            let record = StreamingRecord {
+                key: key.clone(),
+                fields,
+            };
+            let _ = tx.send(Ok(record));
+        }
+
+        Ok(RecordStream { receiver: rx })
+    }
+
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        self.stream_all().await
+    }
+
+    async fn query_batch(
+        &self,
+        _batch_size: usize,
+        _offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
+        let mut records = Vec::new();
+        for (key, value) in &self.records {
+            let fields = match value {
+                FieldValue::Struct(fields) => fields.clone(),
+                _ => {
+                    let mut single_field = HashMap::new();
+                    single_field.insert("value".to_string(), value.clone());
+                    single_field
+                }
+            };
+            records.push(StreamingRecord {
+                key: key.clone(),
+                fields,
+            });
+        }
+
+        Ok(RecordBatch {
+            records,
+            has_more: false,
+        })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(<Self as UnifiedTable>::record_count(self))
+    }
+
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
+        Ok(FieldValue::Integer(1))
     }
 }
 

@@ -1,4 +1,4 @@
-use velostream::velostream::sql::ast::{EmitMode, StreamingQuery};
+use velostream::velostream::sql::ast::{EmitMode, StreamSource, StreamingQuery};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
@@ -340,7 +340,12 @@ fn test_ctas_with_named_sources_and_sinks() {
                     ..
                 } => {
                     // Should use named source
-                    assert!(from.is_some(), "Should have FROM clause with named source");
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) => {
+                            // Good - using named source
+                        }
+                        _ => panic!("Should have FROM clause with named source"),
+                    }
 
                     // Should have EMIT CHANGES
                     assert_eq!(

@@ -5,7 +5,7 @@
 //! - FROM named_source WITH ('config_file' = 'path')
 //! - EMIT CHANGES INTO named_sink WITH ('named_sink.config_file' = 'path')
 
-use velostream::velostream::sql::ast::{EmitMode, StreamingQuery};
+use velostream::velostream::sql::ast::{EmitMode, StreamSource, StreamingQuery};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
@@ -35,9 +35,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
 
     match result.unwrap() {
         StreamingQuery::CreateTable {
-            name,
-            as_select,
-            ..
+            name, as_select, ..
         } => {
             assert_eq!(name, "user_analytics");
 
@@ -54,7 +52,12 @@ fn test_basic_ctas_with_named_source_and_sink() {
                         "Should have EMIT CHANGES"
                     );
                     assert!(group_by.is_some(), "Should have GROUP BY");
-                    assert!(from.is_some(), "Should have FROM clause");
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
+                            // Good - have FROM clause
+                        }
+                        _ => panic!("Should have FROM clause"),
+                    }
                 }
                 _ => panic!("Expected SELECT query"),
             }
@@ -95,9 +98,7 @@ fn test_complex_financial_ctas_with_named_sources() {
 
     match result.unwrap() {
         StreamingQuery::CreateTable {
-            name,
-            as_select,
-            ..
+            name, as_select, ..
         } => {
             assert_eq!(name, "real_time_positions");
 
@@ -111,7 +112,12 @@ fn test_complex_financial_ctas_with_named_sources() {
                     ..
                 } => {
                     assert_eq!(emit_mode, Some(EmitMode::Changes));
-                    assert!(from.is_some(), "Should have named source");
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) => {
+                            // Good - have named source
+                        }
+                        _ => panic!("Should have named source"),
+                    }
                     assert!(where_clause.is_some(), "Should have WHERE clause");
                     assert!(group_by.is_some(), "Should have GROUP BY");
 
@@ -159,9 +165,7 @@ fn test_market_data_aggregation_ctas() {
 
     match result.unwrap() {
         StreamingQuery::CreateTable {
-            name,
-            as_select,
-            ..
+            name, as_select, ..
         } => {
             assert_eq!(name, "market_summary");
 
@@ -175,7 +179,12 @@ fn test_market_data_aggregation_ctas() {
                     ..
                 } => {
                     assert_eq!(emit_mode, Some(EmitMode::Changes));
-                    assert!(from.is_some());
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) => {
+                            // Good - have source
+                        }
+                        _ => panic!("Should have source"),
+                    }
                     assert!(where_clause.is_some());
                     assert!(group_by.is_some());
                     assert_eq!(fields.len(), 4, "Should have 4 SELECT fields");
@@ -217,9 +226,7 @@ fn test_file_source_to_kafka_sink_ctas() {
 
     match result.unwrap() {
         StreamingQuery::CreateTable {
-            name,
-            as_select,
-            ..
+            name, as_select, ..
         } => {
             assert_eq!(name, "processed_logs");
 
@@ -232,7 +239,12 @@ fn test_file_source_to_kafka_sink_ctas() {
                     ..
                 } => {
                     assert_eq!(emit_mode, Some(EmitMode::Changes));
-                    assert!(from.is_some(), "Should have file source");
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
+                            // Good - have file source
+                        }
+                        _ => panic!("Should have file source"),
+                    }
                     assert!(where_clause.is_some(), "Should filter log levels");
                     assert!(group_by.is_some(), "Should group by time window");
                 }
@@ -251,15 +263,15 @@ fn test_multiple_named_sink_config_pattern() {
     let test_cases = vec![
         (
             "primary_sink",
-            "WITH ('primary_sink.config_file' = 'configs/primary.yaml')"
+            "WITH ('primary_sink.config_file' = 'configs/primary.yaml')",
         ),
         (
             "backup_data_sink",
-            "WITH ('backup_data_sink.config_file' = 'configs/backup.yaml')"
+            "WITH ('backup_data_sink.config_file' = 'configs/backup.yaml')",
         ),
         (
             "alerts_notification_sink",
-            "WITH ('alerts_notification_sink.config_file' = 'configs/alerts_notifications.yaml')"
+            "WITH ('alerts_notification_sink.config_file' = 'configs/alerts_notifications.yaml')",
         ),
     ];
 
@@ -370,9 +382,7 @@ async fn test_ctas_named_sources_integration_ready() {
     // Verify the structure is ready for execution
     match parsed.unwrap() {
         StreamingQuery::CreateTable {
-            name,
-            as_select,
-            ..
+            name, as_select, ..
         } => {
             assert_eq!(name, "integration_test");
 
@@ -388,7 +398,12 @@ async fn test_ctas_named_sources_integration_ready() {
                         Some(EmitMode::Changes),
                         "Should be ready for real-time execution"
                     );
-                    assert!(from.is_some(), "Should have configured source");
+                    match from {
+                        StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
+                            // Good - have configured source
+                        }
+                        _ => panic!("Should have configured source"),
+                    }
                     assert!(where_clause.is_some(), "Should have filtering");
                 }
                 _ => panic!("Expected SELECT query"),

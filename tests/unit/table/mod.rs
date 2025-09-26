@@ -11,3 +11,6 @@ pub mod sql_test;
 pub mod streaming_test;
 pub mod unified_table_test;
 pub mod wildcard_standalone_test;
+// CTAS with EMIT CHANGES tests
+pub mod ctas_emit_changes_test;
+mod ctas_named_sources_sinks_test;

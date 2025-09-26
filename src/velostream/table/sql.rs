@@ -138,12 +138,12 @@ impl TableDataSource {
         column: &str,
         where_clause: &str,
     ) -> Result<Vec<FieldValue>, SqlError> {
-        self.table.sql_column_values(column, where_clause)
+        <OptimizedTableImpl as UnifiedTable>::sql_column_values(&self.table, column, where_clause)
     }
 
     /// Execute SQL scalar query (COUNT, SUM, etc.)
     pub fn sql_scalar(&self, expression: &str, where_clause: &str) -> Result<FieldValue, SqlError> {
-        self.table.sql_scalar(expression, where_clause)
+        <OptimizedTableImpl as UnifiedTable>::sql_scalar(&self.table, expression, where_clause)
     }
 
     /// Check if records exist matching WHERE clause
@@ -217,11 +217,11 @@ impl UnifiedTable for TableDataSource {
         column: &str,
         where_clause: &str,
     ) -> Result<Vec<FieldValue>, SqlError> {
-        self.table.sql_column_values(column, where_clause)
+        <OptimizedTableImpl as UnifiedTable>::sql_column_values(&self.table, column, where_clause)
     }
 
     fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError> {
-        self.table.sql_scalar(select_expr, where_clause)
+        <OptimizedTableImpl as UnifiedTable>::sql_scalar(&self.table, select_expr, where_clause)
     }
 
     async fn stream_all(&self) -> Result<RecordStream, SqlError> {
@@ -257,3 +257,13 @@ impl UnifiedTable for TableDataSource {
 
 // Re-export key types for compatibility
 pub use crate::velostream::table::unified_table::TableStats;
+
+// SqlQueryable trait removed - use UnifiedTable instead
+
+// SqlDataSource trait removed - use TableDataSource struct instead
+
+// Legacy compatibility - re-export ExpressionEvaluator functionality
+// This was part of the old SQL system, now integrated into OptimizedTableImpl
+pub use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+
+// KafkaDataSource removed - use TableDataSource struct directly
