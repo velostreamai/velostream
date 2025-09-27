@@ -1230,6 +1230,7 @@ impl<'a> TokenParser<'a> {
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
+        let mut _from_with_options: Option<std::collections::HashMap<String, String>> = None;
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
@@ -1262,6 +1263,90 @@ impl<'a> TokenParser<'a> {
                         position: Some(self.current_token().position),
                     });
                 }
+            };
+
+            // Parse WITH clause for FROM source (e.g., "FROM kafka_source WITH (...)")
+            _from_with_options = if self.current_token().token_type == TokenType::With {
+                self.advance(); // consume WITH
+                self.expect(TokenType::LeftParen)?;
+
+                let mut options = std::collections::HashMap::new();
+
+                // Parse key-value pairs
+                loop {
+                    if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    }
+
+                    // Parse key
+                    let key = match self.current_token().token_type {
+                        TokenType::String => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        TokenType::Identifier => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    self.expect(TokenType::Equal)?;
+
+                    // Parse value
+                    let value = match self.current_token().token_type {
+                        TokenType::String => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Identifier => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Number => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    options.insert(key, value);
+
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance();
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        // End of options
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected ',' or ')' in WITH options".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                self.expect(TokenType::RightParen)?;
+                Some(options)
+            } else {
+                None
             };
 
             stream_name
@@ -1332,7 +1417,7 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode: None,
-            properties: Some(std::collections::HashMap::new()),
+            properties: _from_with_options, // WITH clause options from FROM source
         })
     }
 
