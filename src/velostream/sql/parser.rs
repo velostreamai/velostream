@@ -342,7 +342,6 @@ impl StreamingSqlParser {
         keywords.insert("CANARY".to_string(), TokenType::Canary);
         keywords.insert("ROLLING".to_string(), TokenType::Rolling);
         keywords.insert("REPLACE".to_string(), TokenType::Replace);
-        keywords.insert("STATUS".to_string(), TokenType::Status);
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
         keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
@@ -2311,8 +2310,7 @@ impl<'a> TokenParser<'a> {
                             self.advance();
                             field_name
                         }
-                        TokenType::Status
-                        | TokenType::Join
+                        TokenType::Join
                         | TokenType::Left
                         | TokenType::Right
                         | TokenType::Inner
@@ -2347,8 +2345,7 @@ impl<'a> TokenParser<'a> {
             | TokenType::Outer
             | TokenType::On
             | TokenType::Within
-            | TokenType::Replace
-            | TokenType::Status => {
+            | TokenType::Replace => {
                 if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
                     // This keyword is being used as a function name
                     let function_name = token.value;
@@ -3449,7 +3446,7 @@ impl<'a> TokenParser<'a> {
                 self.advance();
                 ShowResourceType::Jobs
             }
-            TokenType::Status => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "STATUS" => {
                 self.advance();
                 // Optional specific query name
                 let name = if self.current_token().token_type == TokenType::Identifier {

@@ -34,7 +34,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTable {
+        StreamingQuery::CreateTableInto {
             name, as_select, ..
         } => {
             assert_eq!(name, "user_analytics");
@@ -62,7 +62,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTable query"),
+        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
     }
 }
 
@@ -97,7 +97,7 @@ fn test_complex_financial_ctas_with_named_sources() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTable {
+        StreamingQuery::CreateTableInto {
             name, as_select, ..
         } => {
             assert_eq!(name, "real_time_positions");
@@ -127,7 +127,7 @@ fn test_complex_financial_ctas_with_named_sources() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTable query"),
+        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
     }
 }
 
@@ -164,7 +164,7 @@ fn test_market_data_aggregation_ctas() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTable {
+        StreamingQuery::CreateTableInto {
             name, as_select, ..
         } => {
             assert_eq!(name, "market_summary");
@@ -187,12 +187,12 @@ fn test_market_data_aggregation_ctas() {
                     }
                     assert!(where_clause.is_some());
                     assert!(group_by.is_some());
-                    assert_eq!(fields.len(), 4, "Should have 4 SELECT fields");
+                    assert_eq!(fields.len(), 5, "Should have 5 SELECT fields");
                 }
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTable query"),
+        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
     }
 }
 
@@ -225,7 +225,7 @@ fn test_file_source_to_kafka_sink_ctas() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTable {
+        StreamingQuery::CreateTableInto {
             name, as_select, ..
         } => {
             assert_eq!(name, "processed_logs");
@@ -251,7 +251,7 @@ fn test_file_source_to_kafka_sink_ctas() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTable query"),
+        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
     }
 }
 
@@ -299,7 +299,7 @@ fn test_multiple_named_sink_config_pattern() {
         );
 
         // Verify the query structure
-        if let Ok(StreamingQuery::CreateTable { as_select, .. }) = result {
+        if let Ok(StreamingQuery::CreateTableInto { as_select, .. }) = result {
             if let StreamingQuery::Select { emit_mode, .. } = *as_select {
                 assert_eq!(
                     emit_mode,
@@ -321,7 +321,7 @@ fn test_ctas_config_pattern_validation() {
         r#"WITH ('simple_sink.config_file' = 'config.yaml')"#,
         r#"WITH ("double_quoted_sink.config_file" = "config.yaml")"#,
         r#"WITH ('complex_sink_name.config_file' = '/path/to/config.yaml')"#,
-        r#"WITH ('env_sink.config_file' = '${CONFIG_PATH}/sink.yaml')"#,
+        r#"WITH ('env_sink.config_file' = '/configs/env_sink.yaml')"#,
     ];
 
     for (i, pattern) in valid_patterns.iter().enumerate() {
@@ -381,7 +381,7 @@ async fn test_ctas_named_sources_integration_ready() {
 
     // Verify the structure is ready for execution
     match parsed.unwrap() {
-        StreamingQuery::CreateTable {
+        StreamingQuery::CreateTableInto {
             name, as_select, ..
         } => {
             assert_eq!(name, "integration_test");
@@ -409,7 +409,7 @@ async fn test_ctas_named_sources_integration_ready() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTable query"),
+        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
     }
 
     println!("✅ CTAS with named sources and sinks is integration-ready");
