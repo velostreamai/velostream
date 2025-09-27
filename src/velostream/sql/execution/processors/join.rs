@@ -28,7 +28,7 @@ impl JoinProcessor {
     }
 
     /// Process all JOIN clauses and combine records
-    pub fn process_joins(
+    pub async fn process_joins(
         &self,
         left_record: &StreamRecord,
         join_clauses: &[JoinClause],
@@ -47,7 +47,7 @@ impl JoinProcessor {
                     &result_record,
                     join_clause,
                     context,
-                )?;
+                ).await?;
 
                 // For single record processing, take the first result
                 if let Some(first) = joined_records.into_iter().next() {

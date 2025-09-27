@@ -79,8 +79,8 @@ impl StreamTableJoinProcessor {
         }
     }
 
-    /// Process a stream-table JOIN with optimized table lookup
-    pub fn process_stream_table_join(
+    /// Process a stream-table JOIN with optimized table lookup and graceful degradation
+    pub async fn process_stream_table_join(
         &self,
         stream_record: &StreamRecord,
         join_clause: &JoinClause,
@@ -103,9 +103,16 @@ impl StreamTableJoinProcessor {
         // Extract join key from the stream record based on JOIN condition
         let join_keys = self.extract_join_keys(&join_clause.condition, stream_record)?;
 
-        // Perform optimized table lookup(s)
-        let table_records =
-            self.lookup_table_records(&table, &join_keys, &join_clause.condition)?;
+        // Perform optimized table lookup(s) with graceful degradation
+        let expected_fields = self.extract_expected_table_fields(&join_clause.condition);
+        let table_records = self.lookup_table_records_with_degradation(
+            &table_name,
+            &table,
+            &join_keys,
+            &join_clause.condition,
+            stream_record,
+            &expected_fields,
+        ).await?;
 
         // Combine stream record with matching table records
         self.combine_stream_table_records(
@@ -120,7 +127,7 @@ impl StreamTableJoinProcessor {
     ///
     /// **PERFORMANCE OPTIMIZATION**: Uses bulk table operations for 5-10x efficiency improvement
     /// Expected improvement: Fix 0.92x batch efficiency → 5-10x faster than individual processing
-    pub fn process_batch_stream_table_join(
+    pub async fn process_batch_stream_table_join(
         &self,
         stream_records: Vec<StreamRecord>,
         join_clause: &JoinClause,
@@ -157,7 +164,7 @@ impl StreamTableJoinProcessor {
                 all_join_keys,
                 optimized_table,
                 join_clause,
-            );
+            ).await;
         }
 
         // Fallback to individual lookups for non-OptimizedTableImpl tables
@@ -167,24 +174,49 @@ impl StreamTableJoinProcessor {
             all_join_keys,
             &table,
             join_clause,
-        )
+        ).await
     }
 
     /// Process batch using optimized bulk operations - SIMD VECTORIZED
-    fn process_batch_with_bulk_operations(
+    async fn process_batch_with_bulk_operations(
         &self,
         stream_records: Vec<StreamRecord>,
         all_join_keys: Vec<HashMap<String, FieldValue>>,
         optimized_table: &crate::velostream::table::OptimizedTableImpl,
         join_clause: &JoinClause,
     ) -> Result<Vec<StreamRecord>, SqlError> {
+        // Get table name for graceful degradation
+        let table_name = match &join_clause.right_source {
+            StreamSource::Table(name) => name,
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "Stream-Table join requires a table on the right side".to_string(),
+                    query: None,
+                })
+            }
+        };
+
         // Use bulk lookup for massive efficiency gain
-        let bulk_table_results = optimized_table
+        let mut bulk_table_results = optimized_table
             .bulk_lookup_by_join_keys(&all_join_keys)
             .map_err(|e| SqlError::ExecutionError {
                 message: format!("Bulk table lookup failed: {}", e),
                 query: None,
             })?;
+
+        // Apply graceful degradation for records with no table matches
+        for (i, (stream_record, table_records)) in stream_records.iter().zip(bulk_table_results.iter_mut()).enumerate() {
+            if table_records.is_empty() {
+                // Use graceful degradation for missing table data
+                let expected_fields = self.extract_expected_table_fields(&join_clause.condition);
+                let degraded_records = self.handle_missing_table_data(
+                    table_name,
+                    stream_record,
+                    &expected_fields,
+                ).await?;
+                *table_records = degraded_records;
+            }
+        }
 
         // Pre-allocate results with estimated capacity
         let estimated_result_count: usize = bulk_table_results.iter().map(|r| r.len().max(1)).sum();
@@ -222,8 +254,8 @@ impl StreamTableJoinProcessor {
         Ok(results)
     }
 
-    /// Fallback batch processing with individual lookups
-    fn process_batch_with_individual_lookups(
+    /// Fallback batch processing with individual lookups and graceful degradation
+    async fn process_batch_with_individual_lookups(
         &self,
         stream_records: Vec<StreamRecord>,
         all_join_keys: Vec<HashMap<String, FieldValue>>,
@@ -233,10 +265,28 @@ impl StreamTableJoinProcessor {
         // Pre-allocate results vector
         let mut results = Vec::with_capacity(stream_records.len());
 
-        // Process each record individually (original approach)
+        // Get table name for graceful degradation
+        let table_name = match &join_clause.right_source {
+            StreamSource::Table(name) => name,
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "Stream-Table join requires a table on the right side".to_string(),
+                    query: None,
+                })
+            }
+        };
+
+        // Process each record individually with graceful degradation
+        let expected_fields = self.extract_expected_table_fields(&join_clause.condition);
         for (stream_record, join_keys) in stream_records.iter().zip(all_join_keys.iter()) {
-            let table_records =
-                self.lookup_table_records(table, join_keys, &join_clause.condition)?;
+            let table_records = self.lookup_table_records_with_degradation(
+                table_name,
+                table,
+                join_keys,
+                &join_clause.condition,
+                stream_record,
+                &expected_fields,
+            ).await?;
             let joined = self.combine_stream_table_records(
                 stream_record,
                 table_records,
@@ -265,6 +315,93 @@ impl StreamTableJoinProcessor {
                 ),
                 query: None,
             })
+    }
+
+    /// Lookup table records with graceful degradation for missing data
+    async fn lookup_table_records_with_degradation(
+        &self,
+        table_name: &str,
+        table: &Arc<dyn UnifiedTable>,
+        join_keys: &HashMap<String, FieldValue>,
+        condition: &Expr,
+        stream_record: &StreamRecord,
+        expected_table_fields: &[String],
+    ) -> Result<Vec<HashMap<String, FieldValue>>, SqlError> {
+        // First, try the normal table lookup
+        match self.lookup_table_records(table, join_keys, condition) {
+            Ok(records) if !records.is_empty() => {
+                // Success - table data found
+                Ok(records)
+            }
+            Ok(_empty_records) => {
+                // No matching records found in table - handle gracefully
+                info!("No matching records found in table '{}' for join keys: {:?}", table_name, join_keys);
+                self.handle_missing_table_data(table_name, stream_record, expected_table_fields).await
+            }
+            Err(e) => {
+                // Table lookup failed - handle gracefully
+                warn!("Table lookup failed for '{}': {}", table_name, e);
+                self.handle_missing_table_data(table_name, stream_record, expected_table_fields).await
+            }
+        }
+    }
+
+    /// Handle missing table data using graceful degradation strategies
+    async fn handle_missing_table_data(
+        &self,
+        table_name: &str,
+        stream_record: &StreamRecord,
+        expected_table_fields: &[String],
+    ) -> Result<Vec<HashMap<String, FieldValue>>, SqlError> {
+        match self.degradation_handler
+            .handle_missing_table_data(table_name, stream_record, expected_table_fields)
+            .await?
+        {
+            Some(enriched_record) => {
+                // Extract table fields from the enriched record
+                let mut table_record = HashMap::new();
+                for field_name in expected_table_fields {
+                    if let Some(field_value) = enriched_record.fields.get(field_name) {
+                        table_record.insert(field_name.clone(), field_value.clone());
+                    }
+                }
+                Ok(vec![table_record])
+            }
+            None => {
+                // Record should be skipped - return empty result
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// Extract expected table field names from JOIN condition
+    fn extract_expected_table_fields(&self, condition: &Expr) -> Vec<String> {
+        let mut fields = Vec::new();
+
+        match condition {
+            Expr::BinaryOp { op, left, right } if *op == BinaryOperator::Equal => {
+                if let (Expr::Column(left_field), Expr::Column(right_field)) =
+                    (left.as_ref(), right.as_ref())
+                {
+                    // In stream-table joins, one field is from the stream, one from the table
+                    // For graceful degradation, we want table field names
+                    fields.push(left_field.clone());
+                    fields.push(right_field.clone());
+                }
+            }
+            Expr::BinaryOp { op, left, right } if *op == BinaryOperator::And => {
+                let left_fields = self.extract_expected_table_fields(left);
+                let right_fields = self.extract_expected_table_fields(right);
+                fields.extend(left_fields);
+                fields.extend(right_fields);
+            }
+            _ => {}
+        }
+
+        // Remove duplicates and return
+        fields.sort();
+        fields.dedup();
+        fields
     }
 
     /// Extract join keys from JOIN condition

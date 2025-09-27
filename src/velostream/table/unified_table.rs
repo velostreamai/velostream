@@ -37,7 +37,7 @@ A single trait that provides:
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamResult};
+use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamResult, SimpleStreamRecord};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -1282,7 +1282,7 @@ impl UnifiedTable for OptimizedTableImpl {
 
         tokio::spawn(async move {
             for (key, record) in data {
-                let stream_record = crate::velostream::table::streaming::StreamRecord {
+                let stream_record = SimpleStreamRecord {
                     key,
                     fields: record,
                 };
@@ -1309,7 +1309,7 @@ impl UnifiedTable for OptimizedTableImpl {
                 QueryType::KeyLookup(key) => {
                     // O(1) key lookup
                     if let Some(record) = data.read().unwrap().get(key) {
-                        let stream_record = crate::velostream::table::streaming::StreamRecord {
+                        let stream_record = SimpleStreamRecord {
                             key: key.clone(),
                             fields: record.clone(),
                         };
@@ -1325,7 +1325,7 @@ impl UnifiedTable for OptimizedTableImpl {
                             for key in matching_keys {
                                 if let Some(record) = data_guard.get(key) {
                                     let stream_record =
-                                        crate::velostream::table::streaming::StreamRecord {
+                                        SimpleStreamRecord {
                                             key: key.clone(),
                                             fields: record.clone(),
                                         };
@@ -1341,7 +1341,7 @@ impl UnifiedTable for OptimizedTableImpl {
                     // Fallback to full scan
                     let data_guard = data.read().unwrap();
                     for (key, record) in data_guard.iter() {
-                        let stream_record = crate::velostream::table::streaming::StreamRecord {
+                        let stream_record = SimpleStreamRecord {
                             key: key.clone(),
                             fields: record.clone(),
                         };
@@ -1365,12 +1365,12 @@ impl UnifiedTable for OptimizedTableImpl {
         let offset = offset.unwrap_or(0);
         let data = self.data.read().unwrap();
 
-        let records: Vec<crate::velostream::table::streaming::StreamRecord> = data
+        let records: Vec<SimpleStreamRecord> = data
             .iter()
             .skip(offset)
             .take(batch_size)
             .map(
-                |(key, fields)| crate::velostream::table::streaming::StreamRecord {
+                |(key, fields)| SimpleStreamRecord {
                     key: key.clone(),
                     fields: fields.clone(),
                 },

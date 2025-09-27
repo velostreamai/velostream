@@ -6,7 +6,7 @@ Uses schema-based compact storage to minimize memory overhead.
 */
 
 use crate::velostream::sql::{error::SqlError, execution::types::FieldValue};
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamRecord, StreamResult};
+use crate::velostream::table::streaming::{RecordBatch, RecordStream, SimpleStreamRecord, StreamResult};
 use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -500,7 +500,7 @@ impl UnifiedTable for CompactTable<String> {
                 // For now, use a placeholder - in real impl would convert compact record
                 let fields = HashMap::new();
 
-                let record = StreamRecord {
+                let record = SimpleStreamRecord {
                     key: key.clone(),
                     fields,
                 };
@@ -536,7 +536,7 @@ impl UnifiedTable for CompactTable<String> {
 
         for (key, _compact_record) in state.iter().skip(offset).take(batch_size) {
             let fields = HashMap::new(); // Placeholder
-            records.push(StreamRecord {
+            records.push(SimpleStreamRecord {
                 key: key.clone(),
                 fields,
             });

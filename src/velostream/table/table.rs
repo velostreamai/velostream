@@ -3,7 +3,7 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamRecord, StreamResult};
+use crate::velostream::table::streaming::{RecordBatch, RecordStream, SimpleStreamRecord, StreamResult};
 use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -423,7 +423,7 @@ where
         tokio::spawn(async move {
             let state_guard = state.read().unwrap();
             for (key, record) in state_guard.iter() {
-                let stream_record = StreamRecord {
+                let stream_record = SimpleStreamRecord {
                     key: key.to_string(),
                     fields: record.clone(),
                 };
@@ -449,11 +449,11 @@ where
         let state = self.state.read().unwrap();
         let offset = offset.unwrap_or(0);
 
-        let records: Vec<StreamRecord> = state
+        let records: Vec<SimpleStreamRecord> = state
             .iter()
             .skip(offset)
             .take(batch_size)
-            .map(|(key, fields)| StreamRecord {
+            .map(|(key, fields)| SimpleStreamRecord {
                 key: key.to_string(),
                 fields: fields.clone(),
             })

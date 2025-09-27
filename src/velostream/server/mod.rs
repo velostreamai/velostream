@@ -26,11 +26,11 @@
 //! ```
 
 pub mod config;
+pub mod graceful_degradation;
 pub mod job_manager;
 pub mod metrics;
+pub mod processors;
 pub mod stream_job_server;
 pub mod table_registry;
-
-pub mod processors;
 
 // Re-exports for convenience
