@@ -248,7 +248,7 @@ impl QueryValidator {
     }
 
     fn check_join_performance(&self, query: &StreamingQuery, result: &mut QueryValidationResult) {
-        use crate::velostream::sql::ast::{StreamingQuery as SQ, StreamSource};
+        use crate::velostream::sql::ast::{StreamSource, StreamingQuery as SQ};
 
         match query {
             SQ::Select { from, joins, .. } => {
@@ -263,9 +263,9 @@ impl QueryValidator {
                         // Only warn for stream-to-stream JOINs without time windows
                         if main_is_stream && right_is_stream {
                             // Check if there's a window specification
-                            let has_window = join.window.is_some() ||
-                                           result.query_text.contains("WINDOW") ||
-                                           result.query_text.contains("INTERVAL");
+                            let has_window = join.window.is_some()
+                                || result.query_text.contains("WINDOW")
+                                || result.query_text.contains("INTERVAL");
 
                             if !has_window {
                                 result
@@ -280,9 +280,10 @@ impl QueryValidator {
             _ => {
                 // For non-SELECT queries, fall back to simple string matching
                 if result.query_text.contains("JOIN") && !result.query_text.contains("WINDOW") {
-                    result
-                        .performance_warnings
-                        .push("JOINs without time windows may impact performance in streaming contexts".to_string());
+                    result.performance_warnings.push(
+                        "JOINs without time windows may impact performance in streaming contexts"
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -296,11 +297,11 @@ impl QueryValidator {
             StreamSource::Table(_) => false,
             StreamSource::Uri(uri) => {
                 // For URI sources, use heuristics based on common naming patterns
-                uri.ends_with("_stream") ||
-                uri.ends_with("_events") ||
-                uri.contains("stream") ||
-                uri.ends_with("_feed") ||
-                uri.ends_with("_log")
+                uri.ends_with("_stream")
+                    || uri.ends_with("_events")
+                    || uri.contains("stream")
+                    || uri.ends_with("_feed")
+                    || uri.ends_with("_log")
             }
             StreamSource::Subquery(_) => {
                 // Subqueries could be either stream or table-like,

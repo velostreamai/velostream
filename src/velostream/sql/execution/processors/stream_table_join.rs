@@ -4,11 +4,15 @@
 //! Provides high-performance lookups for enriching streaming data with reference tables.
 
 use super::{ProcessorContext, SelectProcessor};
-use crate::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource};
+use crate::velostream::server::graceful_degradation::{GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy};
+use crate::velostream::sql::ast::{
+    BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource,
+};
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::SqlError;
 use crate::velostream::table::{OptimizedTableImpl, UnifiedTable};
+use log::{debug, warn, info};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,21 +20,58 @@ use std::sync::Arc;
 pub struct StreamTableJoinProcessor {
     /// Expression evaluator for JOIN conditions
     evaluator: ExpressionEvaluator,
+    /// Graceful degradation handler for missing table data
+    degradation_handler: GracefulDegradationHandler,
 }
 
 impl StreamTableJoinProcessor {
-    /// Create a new Stream-Table JOIN processor
+    /// Create a new Stream-Table JOIN processor with default fail-fast behavior
     pub fn new() -> Self {
         Self {
             evaluator: ExpressionEvaluator::new(),
+            degradation_handler: GracefulDegradationHandler::fail_fast(),
         }
     }
 
+    /// Create a new processor with custom graceful degradation configuration
+    pub fn with_degradation_config(config: GracefulDegradationConfig) -> Self {
+        Self {
+            evaluator: ExpressionEvaluator::new(),
+            degradation_handler: GracefulDegradationHandler::new(config),
+        }
+    }
+
+    /// Create a processor that uses default values for missing data
+    pub fn with_defaults(defaults: HashMap<String, FieldValue>) -> Self {
+        Self {
+            evaluator: ExpressionEvaluator::new(),
+            degradation_handler: GracefulDegradationHandler::with_defaults(defaults),
+        }
+    }
+
+    /// Create a processor that emits records with NULL values for missing data
+    pub fn with_nulls() -> Self {
+        Self {
+            evaluator: ExpressionEvaluator::new(),
+            degradation_handler: GracefulDegradationHandler::emit_with_nulls(),
+        }
+    }
+
+    /// Create a processor that skips records with missing data
+    pub fn skip_missing() -> Self {
+        Self {
+            evaluator: ExpressionEvaluator::new(),
+            degradation_handler: GracefulDegradationHandler::skip_records(),
+        }
+    }
+
+    /// Update the graceful degradation configuration
+    pub fn update_degradation_config(&mut self, config: GracefulDegradationConfig) {
+        self.degradation_handler.update_config(config);
+    }
+
     /// Check if a join is a stream-table join pattern
-    pub fn is_stream_table_join(
-        left_source: &StreamSource,
-        right_source: &StreamSource,
-    ) -> bool {
+    pub fn is_stream_table_join(left_source: &StreamSource, right_source: &StreamSource) -> bool {
         match (left_source, right_source) {
             (StreamSource::Stream(_), StreamSource::Table(_)) => true,
             (StreamSource::Table(_), StreamSource::Stream(_)) => true,
@@ -63,7 +104,8 @@ impl StreamTableJoinProcessor {
         let join_keys = self.extract_join_keys(&join_clause.condition, stream_record)?;
 
         // Perform optimized table lookup(s)
-        let table_records = self.lookup_table_records(&table, &join_keys, &join_clause.condition)?;
+        let table_records =
+            self.lookup_table_records(&table, &join_keys, &join_clause.condition)?;
 
         // Combine stream record with matching table records
         self.combine_stream_table_records(
@@ -106,7 +148,10 @@ impl StreamTableJoinProcessor {
         }
 
         // Try optimized bulk lookup for OptimizedTableImpl
-        if let Some(optimized_table) = table.as_any().downcast_ref::<crate::velostream::table::OptimizedTableImpl>() {
+        if let Some(optimized_table) = table
+            .as_any()
+            .downcast_ref::<crate::velostream::table::OptimizedTableImpl>()
+        {
             return self.process_batch_with_bulk_operations(
                 stream_records,
                 all_join_keys,
@@ -149,7 +194,10 @@ impl StreamTableJoinProcessor {
         const SIMD_BATCH_SIZE: usize = 8; // Optimal for most modern CPUs
 
         // Pre-compute alias prefix once for the entire batch (ZERO-COPY optimization)
-        let alias_prefix = join_clause.right_alias.as_ref().map(|alias| format!("{}.", alias));
+        let alias_prefix = join_clause
+            .right_alias
+            .as_ref()
+            .map(|alias| format!("{}.", alias));
 
         // Process in SIMD-optimized batches
         for chunk_start in (0..stream_records.len()).step_by(SIMD_BATCH_SIZE) {
@@ -187,7 +235,8 @@ impl StreamTableJoinProcessor {
 
         // Process each record individually (original approach)
         for (stream_record, join_keys) in stream_records.iter().zip(all_join_keys.iter()) {
-            let table_records = self.lookup_table_records(table, join_keys, &join_clause.condition)?;
+            let table_records =
+                self.lookup_table_records(table, join_keys, &join_clause.condition)?;
             let joined = self.combine_stream_table_records(
                 stream_record,
                 table_records,
@@ -207,15 +256,15 @@ impl StreamTableJoinProcessor {
         context: &ProcessorContext,
     ) -> Result<Arc<dyn UnifiedTable>, SqlError> {
         // Try to get table from context's table registry
-        context.get_table(table_name).map_err(|original_error| {
-            SqlError::ExecutionError {
+        context
+            .get_table(table_name)
+            .map_err(|original_error| SqlError::ExecutionError {
                 message: format!(
                     "Table '{}' not found in context for Stream-Table join. Original error: {}",
                     table_name, original_error
                 ),
                 query: None,
-            }
-        })
+            })
     }
 
     /// Extract join keys from JOIN condition
@@ -314,13 +363,19 @@ impl StreamTableJoinProcessor {
         _condition: &Expr,
     ) -> Result<Vec<HashMap<String, FieldValue>>, SqlError> {
         // Try to cast to OptimizedTableImpl for O(1) lookup
-        if let Some(optimized_table) = table.as_any().downcast_ref::<crate::velostream::table::OptimizedTableImpl>() {
+        if let Some(optimized_table) = table
+            .as_any()
+            .downcast_ref::<crate::velostream::table::OptimizedTableImpl>()
+        {
             // Use O(1) indexed lookup - MASSIVE PERFORMANCE IMPROVEMENT
             match optimized_table.lookup_by_join_keys(join_keys) {
                 Ok(records) => return Ok(records),
                 Err(e) => {
                     // Log warning but fall back to linear search
-                    eprintln!("Warning: O(1) indexed lookup failed, falling back to O(n): {}", e);
+                    eprintln!(
+                        "Warning: O(1) indexed lookup failed, falling back to O(n): {}",
+                        e
+                    );
                 }
             }
         }
@@ -367,7 +422,11 @@ impl StreamTableJoinProcessor {
         table_alias: Option<&str>,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         // Pre-allocate results vector with known capacity
-        let mut results = Vec::with_capacity(if table_records.is_empty() { 1 } else { table_records.len() });
+        let mut results = Vec::with_capacity(if table_records.is_empty() {
+            1
+        } else {
+            table_records.len()
+        });
 
         match join_type {
             JoinType::Inner => {
@@ -402,10 +461,8 @@ impl StreamTableJoinProcessor {
                 // RIGHT JOIN: Less common for stream-table, but optimized
                 if !table_records.is_empty() {
                     for table_record in table_records {
-                        let combined = self.build_right_join_record_efficient(
-                            stream_record,
-                            table_record,
-                        );
+                        let combined =
+                            self.build_right_join_record_efficient(stream_record, table_record);
                         results.push(combined);
                     }
                 }
@@ -445,7 +502,12 @@ impl StreamTableJoinProcessor {
         let mut combined_fields = HashMap::with_capacity(estimated_capacity);
 
         // Copy stream fields first (unavoidable but minimize allocations)
-        combined_fields.extend(stream_record.fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+        combined_fields.extend(
+            stream_record
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         // ZERO-COPY OPTIMIZATION: Add table fields with optimal string handling
         if let Some(alias) = table_alias {
@@ -503,7 +565,12 @@ impl StreamTableJoinProcessor {
         combined_fields.extend(table_record);
 
         // Overlay stream fields (stream fields take precedence in RIGHT JOIN)
-        combined_fields.extend(stream_record.fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+        combined_fields.extend(
+            stream_record
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         StreamRecord {
             timestamp: stream_record.timestamp,
@@ -524,7 +591,11 @@ impl StreamTableJoinProcessor {
         alias_prefix: Option<&str>,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         // Pre-allocate results vector with known capacity
-        let mut results = Vec::with_capacity(if table_records.is_empty() { 1 } else { table_records.len() });
+        let mut results = Vec::with_capacity(if table_records.is_empty() {
+            1
+        } else {
+            table_records.len()
+        });
 
         match join_type {
             JoinType::Inner => {
@@ -559,10 +630,8 @@ impl StreamTableJoinProcessor {
                 // VECTORIZED RIGHT JOIN: Less common but optimized
                 if !table_records.is_empty() {
                     for table_record in table_records {
-                        let combined = self.build_right_join_record_vectorized(
-                            stream_record,
-                            table_record,
-                        );
+                        let combined =
+                            self.build_right_join_record_vectorized(stream_record, table_record);
                         results.push(combined);
                     }
                 }
@@ -602,7 +671,12 @@ impl StreamTableJoinProcessor {
         let mut combined_fields = HashMap::with_capacity(estimated_capacity);
 
         // Copy stream fields first (unavoidable but minimize allocations)
-        combined_fields.extend(stream_record.fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+        combined_fields.extend(
+            stream_record
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         // VECTORIZED FIELD INSERTION: Use pre-computed alias prefix
         if let Some(prefix) = alias_prefix {
@@ -644,7 +718,12 @@ impl StreamTableJoinProcessor {
         combined_fields.extend(table_record);
 
         // Overlay stream fields (stream fields take precedence in RIGHT JOIN)
-        combined_fields.extend(stream_record.fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+        combined_fields.extend(
+            stream_record
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         StreamRecord {
             timestamp: stream_record.timestamp,
@@ -710,7 +789,9 @@ mod tests {
             right: Box::new(Expr::Column("id".to_string())),
         };
 
-        let keys = processor.extract_join_keys(&condition, &stream_record).unwrap();
+        let keys = processor
+            .extract_join_keys(&condition, &stream_record)
+            .unwrap();
         assert_eq!(keys.get("id"), Some(&FieldValue::Integer(123)));
 
         // Test AND condition with multiple keys
@@ -728,7 +809,9 @@ mod tests {
             }),
         };
 
-        let multi_keys = processor.extract_join_keys(&multi_condition, &stream_record).unwrap();
+        let multi_keys = processor
+            .extract_join_keys(&multi_condition, &stream_record)
+            .unwrap();
         assert_eq!(multi_keys.get("id"), Some(&FieldValue::Integer(123)));
         assert_eq!(
             multi_keys.get("stock_symbol"),

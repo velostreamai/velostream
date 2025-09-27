@@ -275,21 +275,35 @@ impl StreamJobServer {
                 });
             }
 
-            info!("Job '{}': All required tables exist, waiting for them to be ready...", name);
+            info!(
+                "Job '{}': All required tables exist, waiting for them to be ready...",
+                name
+            );
 
             // CRITICAL: Wait for ALL tables to be fully loaded before starting the stream
             // This prevents missing enrichment data and ensures data consistency
             let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
 
-            match self.table_registry.wait_for_tables_ready(&required_tables, table_ready_timeout).await {
+            match self
+                .table_registry
+                .wait_for_tables_ready(&required_tables, table_ready_timeout)
+                .await
+            {
                 Ok(table_statuses) => {
-                    info!("Job '{}': All {} tables are ready!", name, table_statuses.len());
+                    info!(
+                        "Job '{}': All {} tables are ready!",
+                        name,
+                        table_statuses.len()
+                    );
                     for (table_name, status) in table_statuses {
                         info!("  Table '{}': {:?}", table_name, status);
                     }
                 }
                 Err(e) => {
-                    error!("Job '{}': Failed waiting for tables to be ready: {}", name, e);
+                    error!(
+                        "Job '{}': Failed waiting for tables to be ready: {}",
+                        name, e
+                    );
                     return Err(SqlError::ExecutionError {
                         message: format!(
                             "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",

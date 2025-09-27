@@ -58,25 +58,42 @@ struct PerformanceBaseline {
 
 /// Create a large reference table for realistic performance testing
 fn create_large_reference_table(record_count: usize) -> Arc<OptimizedTableImpl> {
-    println!("🏗️  Creating large reference table with {} records...", record_count);
+    println!(
+        "🏗️  Creating large reference table with {} records...",
+        record_count
+    );
     let table = Arc::new(OptimizedTableImpl::new());
 
     for i in 0..record_count {
         let mut record = HashMap::new();
         record.insert("user_id".to_string(), FieldValue::Integer(i as i64));
-        record.insert("name".to_string(), FieldValue::String(format!("User_{}", i)));
-        record.insert("tier".to_string(), FieldValue::String(
-            match i % 4 {
-                0 => "PLATINUM",
-                1 => "GOLD",
-                2 => "SILVER",
-                _ => "BRONZE",
-            }.to_string()
-        ));
-        record.insert("risk_score".to_string(), FieldValue::Integer((i % 100) as i64));
-        record.insert("position_limit".to_string(), FieldValue::Float((i as f64) * 1000.0));
+        record.insert(
+            "name".to_string(),
+            FieldValue::String(format!("User_{}", i)),
+        );
+        record.insert(
+            "tier".to_string(),
+            FieldValue::String(
+                match i % 4 {
+                    0 => "PLATINUM",
+                    1 => "GOLD",
+                    2 => "SILVER",
+                    _ => "BRONZE",
+                }
+                .to_string(),
+            ),
+        );
+        record.insert(
+            "risk_score".to_string(),
+            FieldValue::Integer((i % 100) as i64),
+        );
+        record.insert(
+            "position_limit".to_string(),
+            FieldValue::Float((i as f64) * 1000.0),
+        );
 
-        table.insert(format!("user_{}", i), record)
+        table
+            .insert(format!("user_{}", i), record)
             .expect("Failed to insert record");
     }
 
@@ -90,8 +107,14 @@ fn generate_stream_records(count: usize, table_size: usize) -> Vec<StreamRecord>
 
     for i in 0..count {
         let mut fields = HashMap::new();
-        fields.insert("trade_id".to_string(), FieldValue::String(format!("trade_{}", i)));
-        fields.insert("user_id".to_string(), FieldValue::Integer((i % table_size) as i64));
+        fields.insert(
+            "trade_id".to_string(),
+            FieldValue::String(format!("trade_{}", i)),
+        );
+        fields.insert(
+            "user_id".to_string(),
+            FieldValue::Integer((i % table_size) as i64),
+        );
         fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
         fields.insert("quantity".to_string(), FieldValue::Integer(100));
         fields.insert("price".to_string(), FieldValue::Float(150.0));
@@ -151,19 +174,26 @@ fn benchmark_individual_processing(
         let results = processor.process_stream_table_join(
             &stream_records[record_idx],
             join_clause,
-            context
+            context,
         )?;
 
         total_duration += start.elapsed();
         total_results += results.len();
 
         if run % 20 == 0 {
-            println!("  Run {}/{} - {} results", run + 1, config.individual_runs, results.len());
+            println!(
+                "  Run {}/{} - {} results",
+                run + 1,
+                config.individual_runs,
+                results.len()
+            );
         }
     }
 
-    println!("✅ Individual processing: {} runs, {} total results",
-             config.individual_runs, total_results);
+    println!(
+        "✅ Individual processing: {} runs, {} total results",
+        config.individual_runs, total_results
+    );
 
     Ok((total_duration, total_results))
 }
@@ -194,21 +224,25 @@ fn benchmark_batch_processing(
 
         let start = Instant::now();
 
-        let results = processor.process_batch_stream_table_join(
-            batch.clone(),
-            join_clause,
-            context
-        )?;
+        let results =
+            processor.process_batch_stream_table_join(batch.clone(), join_clause, context)?;
 
         total_duration += start.elapsed();
         total_results += results.len();
 
-        println!("  Batch {}/{} - {} records → {} results",
-                 run + 1, config.batch_runs, batch.len(), results.len());
+        println!(
+            "  Batch {}/{} - {} records → {} results",
+            run + 1,
+            config.batch_runs,
+            batch.len(),
+            results.len()
+        );
     }
 
-    println!("✅ Batch processing: {} runs, {} total results",
-             config.batch_runs, total_results);
+    println!(
+        "✅ Batch processing: {} runs, {} total results",
+        config.batch_runs, total_results
+    );
 
     Ok((total_duration, total_results))
 }
@@ -259,7 +293,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create test data
     let table = create_large_reference_table(config.table_record_count);
-    let stream_records = generate_stream_records(config.stream_record_count, config.table_record_count);
+    let stream_records =
+        generate_stream_records(config.stream_record_count, config.table_record_count);
     let join_clause = create_test_join_clause();
 
     // Setup processor and context
@@ -271,38 +306,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Benchmark individual processing
     let (individual_duration, individual_results) = benchmark_individual_processing(
-        &config, &processor, &stream_records, &join_clause, &mut context
+        &config,
+        &processor,
+        &stream_records,
+        &join_clause,
+        &mut context,
     )?;
 
     // Benchmark batch processing
     let (batch_duration, batch_results) = benchmark_batch_processing(
-        &config, &processor, &stream_records, &join_clause, &mut context
+        &config,
+        &processor,
+        &stream_records,
+        &join_clause,
+        &mut context,
     )?;
 
     // Generate baseline report
     let baseline = generate_baseline_report(
-        &config, individual_duration, individual_results,
-        batch_duration, batch_results
+        &config,
+        individual_duration,
+        individual_results,
+        batch_duration,
+        batch_results,
     );
 
     // Print comprehensive baseline report
     println!("\n📊 BASELINE PERFORMANCE REPORT");
     println!("==============================");
     println!("🔍 Table Lookup Performance:");
-    println!("  • Average lookup time: {:.2} μs", baseline.avg_lookup_time_us);
+    println!(
+        "  • Average lookup time: {:.2} μs",
+        baseline.avg_lookup_time_us
+    );
     println!("  • Lookup algorithm: O(n) linear search (BOTTLENECK)");
-    println!("  • Table size impact: {} records = {:.2} μs per lookup",
-             config.table_record_count, baseline.avg_lookup_time_us);
+    println!(
+        "  • Table size impact: {} records = {:.2} μs per lookup",
+        config.table_record_count, baseline.avg_lookup_time_us
+    );
 
     println!("\n💾 Memory Allocation:");
-    println!("  • Allocations per join: {}", baseline.allocations_per_join);
-    println!("  • Estimated memory usage: {:.2} MB", baseline.memory_usage_bytes as f64 / 1024.0 / 1024.0);
+    println!(
+        "  • Allocations per join: {}",
+        baseline.allocations_per_join
+    );
+    println!(
+        "  • Estimated memory usage: {:.2} MB",
+        baseline.memory_usage_bytes as f64 / 1024.0 / 1024.0
+    );
     println!("  • StreamRecord cloning: 3 clones per join (HIGH OVERHEAD)");
 
     println!("\n⚡ Throughput Performance:");
-    println!("  • Individual processing: {:.0} records/sec", baseline.throughput_records_per_sec);
-    println!("  • Batch efficiency ratio: {:.2}x", baseline.batch_efficiency_ratio);
-    println!("  • Current batch advantage: {:.1}% faster", (baseline.batch_efficiency_ratio - 1.0) * 100.0);
+    println!(
+        "  • Individual processing: {:.0} records/sec",
+        baseline.throughput_records_per_sec
+    );
+    println!(
+        "  • Batch efficiency ratio: {:.2}x",
+        baseline.batch_efficiency_ratio
+    );
+    println!(
+        "  • Current batch advantage: {:.1}% faster",
+        (baseline.batch_efficiency_ratio - 1.0) * 100.0
+    );
 
     println!("\n🎯 Optimization Targets:");
     println!("  • Table lookups: O(n) → O(1) = 95%+ improvement potential");

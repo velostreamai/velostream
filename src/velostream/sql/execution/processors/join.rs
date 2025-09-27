@@ -3,8 +3,8 @@
 //! Handles all types of JOIN operations including INNER, LEFT, RIGHT, and FULL OUTER joins.
 //! Includes optimized Stream-Table join support for real-time enrichment.
 
-use super::{ProcessorContext, SelectProcessor};
 use super::stream_table_join::StreamTableJoinProcessor;
+use super::{ProcessorContext, SelectProcessor};
 use crate::velostream::sql::ast::{JoinClause, JoinType, StreamSource};
 use crate::velostream::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy};
 use crate::velostream::sql::execution::{
@@ -43,9 +43,11 @@ impl JoinProcessor {
                 &join_clause.right_source,
             ) {
                 // Use optimized stream-table join
-                let joined_records = self
-                    .stream_table_processor
-                    .process_stream_table_join(&result_record, join_clause, context)?;
+                let joined_records = self.stream_table_processor.process_stream_table_join(
+                    &result_record,
+                    join_clause,
+                    context,
+                )?;
 
                 // For single record processing, take the first result
                 if let Some(first) = joined_records.into_iter().next() {
@@ -81,13 +83,15 @@ impl JoinProcessor {
         // Check if this is a stream-table join
         let join_clause = &join_clauses[0];
         if StreamTableJoinProcessor::is_stream_table_join(
-            &StreamSource::Stream("stream".to_string()),  // Placeholder
+            &StreamSource::Stream("stream".to_string()), // Placeholder
             &join_clause.right_source,
         ) {
             // Use optimized batch stream-table join
-            return self
-                .stream_table_processor
-                .process_batch_stream_table_join(left_records, join_clause, context);
+            return self.stream_table_processor.process_batch_stream_table_join(
+                left_records,
+                join_clause,
+                context,
+            );
         }
 
         // For now, process first join clause with hash join if beneficial

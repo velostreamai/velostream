@@ -533,14 +533,18 @@ impl TableRegistry {
             let status = if let Some(job) = jobs.get(table_name) {
                 if job.is_finished() {
                     // Job completed - table is ready
-                    info!("Table '{}' background job completed, table is ready", table_name);
+                    info!(
+                        "Table '{}' background job completed, table is ready",
+                        table_name
+                    );
                     drop(jobs);
                     drop(metadata);
 
                     // Update metadata status
                     self.update_table_metadata(table_name, |meta| {
                         meta.status = TableStatus::BackgroundJobFinished;
-                    }).await?;
+                    })
+                    .await?;
 
                     return Ok(TableStatus::BackgroundJobFinished);
                 } else {
@@ -555,7 +559,10 @@ impl TableRegistry {
                 }
             } else {
                 // No background job - table is immediately ready
-                info!("Table '{}' has no background job, immediately ready", table_name);
+                info!(
+                    "Table '{}' has no background job, immediately ready",
+                    table_name
+                );
                 drop(jobs);
                 drop(metadata);
                 return Ok(TableStatus::Active);
@@ -596,7 +603,9 @@ impl TableRegistry {
             let remaining_timeout = timeout - elapsed;
 
             // Wait for this table
-            let status = self.wait_for_table_ready(table_name, remaining_timeout).await?;
+            let status = self
+                .wait_for_table_ready(table_name, remaining_timeout)
+                .await?;
             results.push((table_name.clone(), status));
         }
 

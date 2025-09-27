@@ -3,13 +3,13 @@
 //! Verifies that streams wait for tables to be ready before processing,
 //! ensuring data consistency and preventing missing enrichment data.
 
-use velostream::velostream::server::table_registry::{TableRegistry, TableRegistryConfig, TableStatus};
-use velostream::velostream::server::stream_job_server::StreamJobServer;
-use velostream::velostream::sql::SqlError;
-use velostream::velostream::table::OptimizedTableImpl;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep;
+use velostream::velostream::server::table_registry::{
+    TableRegistry, TableRegistryConfig, TableStatus,
+};
+use velostream::velostream::sql::SqlError;
+use velostream::velostream::table::OptimizedTableImpl;
 
 #[tokio::test]
 async fn test_wait_for_table_ready_immediate() {
@@ -18,10 +18,16 @@ async fn test_wait_for_table_ready_immediate() {
 
     // Register a table directly (no background job)
     let table = Arc::new(OptimizedTableImpl::new());
-    registry.register_table("test_table".to_string(), table).await.unwrap();
+    registry
+        .register_table("test_table".to_string(), table)
+        .await
+        .unwrap();
 
     // Should be immediately ready
-    let status = registry.wait_for_table_ready("test_table", Duration::from_secs(1)).await.unwrap();
+    let status = registry
+        .wait_for_table_ready("test_table", Duration::from_secs(1))
+        .await
+        .unwrap();
     assert_eq!(status, TableStatus::Active);
 }
 
@@ -30,7 +36,9 @@ async fn test_wait_for_table_ready_timeout() {
     // Test: Waiting for non-existent table should fail
     let registry = TableRegistry::new();
 
-    let result = registry.wait_for_table_ready("missing_table", Duration::from_millis(100)).await;
+    let result = registry
+        .wait_for_table_ready("missing_table", Duration::from_millis(100))
+        .await;
     assert!(result.is_err());
 
     match result {
@@ -50,12 +58,21 @@ async fn test_wait_for_multiple_tables() {
     let table1 = Arc::new(OptimizedTableImpl::new());
     let table2 = Arc::new(OptimizedTableImpl::new());
 
-    registry.register_table("table1".to_string(), table1).await.unwrap();
-    registry.register_table("table2".to_string(), table2).await.unwrap();
+    registry
+        .register_table("table1".to_string(), table1)
+        .await
+        .unwrap();
+    registry
+        .register_table("table2".to_string(), table2)
+        .await
+        .unwrap();
 
     // Wait for both tables
     let tables = vec!["table1".to_string(), "table2".to_string()];
-    let results = registry.wait_for_tables_ready(&tables, Duration::from_secs(1)).await.unwrap();
+    let results = registry
+        .wait_for_tables_ready(&tables, Duration::from_secs(1))
+        .await
+        .unwrap();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].0, "table1");
@@ -131,21 +148,26 @@ async fn test_exponential_backoff_in_wait() {
 
     // Register a table that's "loading" (would need mock for full test)
     let table = Arc::new(OptimizedTableImpl::new());
-    registry.register_table("loading_table".to_string(), table).await.unwrap();
+    registry
+        .register_table("loading_table".to_string(), table)
+        .await
+        .unwrap();
 
     // Start timing
     let start = std::time::Instant::now();
 
     // This should retry with exponential backoff until timeout
-    let _result = registry.wait_for_table_ready(
-        "loading_table",
-        Duration::from_millis(500)
-    ).await;
+    let _result = registry
+        .wait_for_table_ready("loading_table", Duration::from_millis(500))
+        .await;
 
     // Should have taken at least 400ms (100ms + 200ms initial intervals)
     let elapsed = start.elapsed();
-    assert!(elapsed >= Duration::from_millis(300),
-            "Should have retried with backoff, took {:?}", elapsed);
+    assert!(
+        elapsed >= Duration::from_millis(300),
+        "Should have retried with backoff, took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -184,16 +206,19 @@ async fn test_coordination_prevents_missing_data() {
     // Simulate a table that takes time to load
     // In production, this would be a CTAS operation with background loading
     let table = Arc::new(OptimizedTableImpl::new());
-    registry.register_table("slow_table".to_string(), table).await.unwrap();
+    registry
+        .register_table("slow_table".to_string(), table)
+        .await
+        .unwrap();
 
     // Track timing
     let start = std::time::Instant::now();
 
     // Wait for table (should be immediate since no background job)
-    let status = registry.wait_for_table_ready(
-        "slow_table",
-        Duration::from_secs(5)
-    ).await.unwrap();
+    let status = registry
+        .wait_for_table_ready("slow_table", Duration::from_secs(5))
+        .await
+        .unwrap();
 
     let elapsed = start.elapsed();
 
@@ -201,7 +226,10 @@ async fn test_coordination_prevents_missing_data() {
     assert_eq!(status, TableStatus::Active);
 
     // In production, this ensures stream won't see incomplete data
-    println!("Table ready after {:?}, stream can now start safely", elapsed);
+    println!(
+        "Table ready after {:?}, stream can now start safely",
+        elapsed
+    );
 }
 
 // Additional test cases for Phase 2-4 features would go here:

@@ -948,7 +948,11 @@ impl OptimizedTableImpl {
             FieldValue::Boolean(b) => b.to_string(),
             _ => {
                 // For unsupported field types, fall back to linear search
-                return Ok(Some(self.fallback_linear_search_single(field_name, field_value, &data)));
+                return Ok(Some(self.fallback_linear_search_single(
+                    field_name,
+                    field_value,
+                    &data,
+                )));
             }
         };
 

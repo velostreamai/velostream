@@ -5,7 +5,9 @@
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
-use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource};
+use velostream::velostream::sql::ast::{
+    BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource,
+};
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
@@ -15,7 +17,10 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 /// Create a test stream record representing a trade
 fn create_trade_record(trade_id: &str, user_id: i64, symbol: &str, quantity: i64) -> StreamRecord {
     let mut fields = HashMap::new();
-    fields.insert("trade_id".to_string(), FieldValue::String(trade_id.to_string()));
+    fields.insert(
+        "trade_id".to_string(),
+        FieldValue::String(trade_id.to_string()),
+    );
     fields.insert("user_id".to_string(), FieldValue::Integer(user_id));
     fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
     fields.insert("quantity".to_string(), FieldValue::Integer(quantity));
@@ -49,7 +54,10 @@ fn create_user_profiles_table() -> Arc<OptimizedTableImpl> {
 
     let mut user3 = HashMap::new();
     user3.insert("user_id".to_string(), FieldValue::Integer(3));
-    user3.insert("name".to_string(), FieldValue::String("Charlie".to_string()));
+    user3.insert(
+        "name".to_string(),
+        FieldValue::String("Charlie".to_string()),
+    );
     user3.insert("tier".to_string(), FieldValue::String("BRONZE".to_string()));
     user3.insert("risk_score".to_string(), FieldValue::Integer(25));
 
@@ -72,7 +80,10 @@ fn create_market_data_table() -> Arc<OptimizedTableImpl> {
     aapl.insert("volume".to_string(), FieldValue::Integer(1000000));
 
     let mut googl = HashMap::new();
-    googl.insert("symbol".to_string(), FieldValue::String("GOOGL".to_string()));
+    googl.insert(
+        "symbol".to_string(),
+        FieldValue::String("GOOGL".to_string()),
+    );
     googl.insert("current_price".to_string(), FieldValue::Float(2750.50));
     googl.insert("volume".to_string(), FieldValue::Integer(500000));
 
@@ -123,7 +134,10 @@ fn test_stream_table_inner_join() {
 
     // Create processor context with the table
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create join clause: trades.user_id = user_profiles.user_id
     let join_clause = JoinClause {
@@ -167,7 +181,10 @@ fn test_stream_table_inner_join() {
         joined.fields.get("u.tier"),
         Some(&FieldValue::String("GOLD".to_string()))
     );
-    assert_eq!(joined.fields.get("u.risk_score"), Some(&FieldValue::Integer(75)));
+    assert_eq!(
+        joined.fields.get("u.risk_score"),
+        Some(&FieldValue::Integer(75))
+    );
 }
 
 #[test]
@@ -180,13 +197,16 @@ fn test_stream_table_left_join_with_match() {
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create LEFT JOIN clause
     let join_clause = JoinClause {
         join_type: JoinType::Left,
         right_source: StreamSource::Table("user_profiles".to_string()),
-        right_alias: None,  // No alias
+        right_alias: None, // No alias
         condition: Expr::BinaryOp {
             op: BinaryOperator::Equal,
             left: Box::new(Expr::Column("user_id".to_string())),
@@ -201,7 +221,11 @@ fn test_stream_table_left_join_with_match() {
         .unwrap();
 
     // Verify results
-    assert_eq!(results.len(), 1, "Left join with match should produce one result");
+    assert_eq!(
+        results.len(),
+        1,
+        "Left join with match should produce one result"
+    );
     let joined = &results[0];
 
     // Check both stream and table fields are present
@@ -226,7 +250,10 @@ fn test_stream_table_left_join_without_match() {
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create LEFT JOIN clause
     let join_clause = JoinClause {
@@ -255,7 +282,10 @@ fn test_stream_table_left_join_without_match() {
     let joined = &results[0];
 
     // Check stream fields are present
-    assert_eq!(joined.fields.get("user_id"), Some(&FieldValue::Integer(999)));
+    assert_eq!(
+        joined.fields.get("user_id"),
+        Some(&FieldValue::Integer(999))
+    );
     assert_eq!(
         joined.fields.get("trade_id"),
         Some(&FieldValue::String("T003".to_string()))
@@ -276,14 +306,17 @@ fn test_batch_stream_table_join() {
         create_trade_record("T001", 1, "AAPL", 100),
         create_trade_record("T002", 2, "GOOGL", 50),
         create_trade_record("T003", 3, "MSFT", 75),
-        create_trade_record("T004", 999, "TSLA", 25),  // Non-existent user
+        create_trade_record("T004", 999, "TSLA", 25), // Non-existent user
     ];
 
     let user_table = create_user_profiles_table();
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create INNER JOIN clause
     let join_clause = JoinClause {
@@ -332,7 +365,10 @@ fn test_multi_field_join_condition() {
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("market_data".to_string(), market_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "market_data".to_string(),
+        market_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create join on symbol
     let join_clause = JoinClause {
@@ -373,13 +409,18 @@ fn test_complex_join_condition_with_and() {
 
     // Create a trade with specific fields
     let mut trade = create_trade_record("T001", 1, "AAPL", 100);
-    trade.fields.insert("tier".to_string(), FieldValue::String("GOLD".to_string()));
+    trade
+        .fields
+        .insert("tier".to_string(), FieldValue::String("GOLD".to_string()));
 
     let user_table = create_user_profiles_table();
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create complex join condition: user_id = user_id AND tier = tier
     let join_clause = JoinClause {
@@ -426,7 +467,10 @@ fn test_qualified_identifier_join() {
 
     // Create processor context
     let mut context = ProcessorContext::new("test_query");
-    context.state_tables.insert("user_profiles".to_string(), user_table.clone() as Arc<dyn UnifiedTable>);
+    context.state_tables.insert(
+        "user_profiles".to_string(),
+        user_table.clone() as Arc<dyn UnifiedTable>,
+    );
 
     // Create join with qualified identifiers: t.user_id = u.user_id
     let join_clause = JoinClause {
@@ -612,7 +656,9 @@ fn test_stream_table_join_complex_unsupported_condition() {
     let join_clause = JoinClause {
         join_type: JoinType::Inner,
         right_source: StreamSource::Table("user_profiles".to_string()),
-        condition: Expr::Literal(LiteralValue::String("UNSUPPORTED_COMPLEX_CONDITION".to_string())),
+        condition: Expr::Literal(LiteralValue::String(
+            "UNSUPPORTED_COMPLEX_CONDITION".to_string(),
+        )),
         right_alias: Some("u".to_string()),
         window: None,
     };
@@ -667,7 +713,10 @@ fn test_stream_table_join_empty_keys() {
 
     // Create trade with different field names
     let mut fields = HashMap::new();
-    fields.insert("trade_id".to_string(), FieldValue::String("T001".to_string()));
+    fields.insert(
+        "trade_id".to_string(),
+        FieldValue::String("T001".to_string()),
+    );
     fields.insert("different_field".to_string(), FieldValue::Integer(1));
 
     let trade = StreamRecord {
@@ -704,7 +753,9 @@ fn test_stream_table_join_empty_keys() {
     let error = result.unwrap_err();
     if let SqlError::ExecutionError { message, .. } = error {
         assert!(message.contains("No valid join keys could be extracted"));
-        assert!(message.contains("Ensure the condition references fields present in the stream record"));
+        assert!(
+            message.contains("Ensure the condition references fields present in the stream record")
+        );
     } else {
         panic!("Expected SqlError::ExecutionError");
     }
