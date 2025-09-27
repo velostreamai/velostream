@@ -71,7 +71,7 @@ pub struct OptimizedTableImpl {
 
 ### **4. Table Registry & Job Server Integration**
 
-Centralized table management and background job coordination:
+Centralized table management and background job coordination:there
 
 ```rust
 // From src/velostream/server/table_registry.rs

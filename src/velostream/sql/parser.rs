@@ -947,7 +947,8 @@ impl<'a> TokenParser<'a> {
                         }
                         _ => {
                             return Err(SqlError::ParseError {
-                                message: "Expected string or identifier for WITH option key".to_string(),
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
                                 position: Some(self.current_token().position),
                             });
                         }
@@ -974,7 +975,9 @@ impl<'a> TokenParser<'a> {
                         }
                         _ => {
                             return Err(SqlError::ParseError {
-                                message: "Expected string, identifier, or number for WITH option value".to_string(),
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
                                 position: Some(self.current_token().position),
                             });
                         }
@@ -989,7 +992,8 @@ impl<'a> TokenParser<'a> {
                         break;
                     } else {
                         return Err(SqlError::ParseError {
-                            message: "Expected comma or closing parenthesis in WITH clause".to_string(),
+                            message: "Expected comma or closing parenthesis in WITH clause"
+                                .to_string(),
                             position: Some(self.current_token().position),
                         });
                     }
@@ -1285,7 +1289,8 @@ impl<'a> TokenParser<'a> {
                         }
                         _ => {
                             return Err(SqlError::ParseError {
-                                message: "Expected string or identifier for WITH option key".to_string(),
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
                                 position: Some(self.current_token().position),
                             });
                         }
@@ -1312,7 +1317,9 @@ impl<'a> TokenParser<'a> {
                         }
                         _ => {
                             return Err(SqlError::ParseError {
-                                message: "Expected string, identifier, or number for WITH option value".to_string(),
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
                                 position: Some(self.current_token().position),
                             });
                         }
@@ -1327,7 +1334,8 @@ impl<'a> TokenParser<'a> {
                         break;
                     } else {
                         return Err(SqlError::ParseError {
-                            message: "Expected comma or closing parenthesis in WITH clause".to_string(),
+                            message: "Expected comma or closing parenthesis in WITH clause"
+                                .to_string(),
                             position: Some(self.current_token().position),
                         });
                     }
