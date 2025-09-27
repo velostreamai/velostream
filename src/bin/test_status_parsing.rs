@@ -15,7 +15,8 @@ fn main() {
 
     // Test 2: PARTITION BY status (the original issue)
     println!("\n2️⃣ Testing 'PARTITION BY status'...");
-    let sql_with_partition = "SELECT status, COUNT(*) OVER (PARTITION BY status) as count FROM users";
+    let sql_with_partition =
+        "SELECT status, COUNT(*) OVER (PARTITION BY status) as count FROM users";
     match parser.parse(sql_with_partition) {
         Ok(_) => println!("✅ 'PARTITION BY status': PASSED"),
         Err(e) => println!("❌ 'PARTITION BY status': FAILED - {}", e),
@@ -64,7 +65,8 @@ fn main() {
 
     // Test 7: properties as field name
     println!("\n7️⃣ Testing 'properties' as field name...");
-    let sql_properties_field = "SELECT id, name, properties FROM config WHERE properties IS NOT NULL";
+    let sql_properties_field =
+        "SELECT id, name, properties FROM config WHERE properties IS NOT NULL";
     match parser.parse(sql_properties_field) {
         Ok(_) => println!("✅ 'properties' as field name: PASSED"),
         Err(e) => println!("❌ 'properties' as field name: FAILED - {}", e),

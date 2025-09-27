@@ -144,7 +144,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match executor.execute(invalid_config_query).await {
         Ok(result) => {
-            println!("❌ FAILED - Should have rejected empty retention, but got success: {}", result.name());
+            println!(
+                "❌ FAILED - Should have rejected empty retention, but got success: {}",
+                result.name()
+            );
         }
         Err(SqlError::ExecutionError { message, .. }) => {
             if message.contains("retention") && message.contains("format") {
