@@ -352,12 +352,12 @@ mod tests {
         fields.insert("event_type".to_string(), FieldValue::String("login".to_string()));
 
         StreamRecord {
-            timestamp: SystemTime::now(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
             offset: 0,
             partition: 0,
             fields,
             headers: HashMap::new(),
-            event_time: SystemTime::now(),
+            event_time: Some(chrono::Utc::now()),
         }
     }
 

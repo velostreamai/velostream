@@ -19,7 +19,7 @@ use velostream::velostream::sql::SqlError;
 // SqlQueryable removed - using UnifiedTable only
 use async_trait::async_trait;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 

@@ -10,7 +10,7 @@ use velostream::velostream::sql::execution::types::FieldValue;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
