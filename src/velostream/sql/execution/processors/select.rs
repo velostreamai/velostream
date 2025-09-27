@@ -379,8 +379,9 @@ impl SelectProcessor {
             // Handle JOINs first (if any)
             let mut joined_record = record.clone();
             if let Some(join_clauses) = joins {
+                let join_processor = JoinProcessor::new();
                 joined_record =
-                    JoinProcessor::process_joins(&joined_record, join_clauses, context)?;
+                    join_processor.process_joins(&joined_record, join_clauses, context)?;
             }
 
             // Set correlation context for subquery resolution

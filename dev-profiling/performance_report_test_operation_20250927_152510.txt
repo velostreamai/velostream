@@ -1,0 +1,6 @@
+Performance Report: performance_report_test_operation_20250927_152510.txt
+Generated: 20250927_152510
+Operation: test_operation
+CPU Usage: 20.60%
+Memory Usage: 7108393764 bytes
+Status: OK
