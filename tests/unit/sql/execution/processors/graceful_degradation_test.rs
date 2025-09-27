@@ -9,13 +9,15 @@ use std::sync::Arc;
 use velostream::velostream::server::graceful_degradation::{
     GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy,
 };
-use velostream::velostream::sql::ast::{JoinClause, JoinType, StreamSource, BinaryOperator, Expr};
+use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, StreamSource};
 use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
 use velostream::velostream::sql::execution::processors::ProcessorContext;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::SqlError;
+use velostream::velostream::table::streaming::{
+    RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
+};
 use velostream::velostream::table::UnifiedTable;
-use velostream::velostream::table::streaming::{RecordStream, RecordBatch, SimpleStreamRecord, StreamResult};
 
 /// Mock table that simulates missing data scenarios
 struct MockEmptyTable {
@@ -53,7 +55,11 @@ impl UnifiedTable for MockEmptyTable {
         0
     }
 
-    fn sql_column_values(&self, _column: &str, _where_clause: &str) -> Result<Vec<FieldValue>, SqlError> {
+    fn sql_column_values(
+        &self,
+        _column: &str,
+        _where_clause: &str,
+    ) -> Result<Vec<FieldValue>, SqlError> {
         Ok(vec![]) // Always empty
     }
 
@@ -71,7 +77,11 @@ impl UnifiedTable for MockEmptyTable {
         self.stream_all().await
     }
 
-    async fn query_batch(&self, _batch_size: usize, _offset: Option<usize>) -> StreamResult<RecordBatch> {
+    async fn query_batch(
+        &self,
+        _batch_size: usize,
+        _offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
         Ok(RecordBatch {
             records: vec![],
             has_more: false,
@@ -82,7 +92,11 @@ impl UnifiedTable for MockEmptyTable {
         Ok(0)
     }
 
-    async fn stream_aggregate(&self, _aggregate_expr: &str, _where_clause: Option<&str>) -> StreamResult<FieldValue> {
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
         Ok(FieldValue::Integer(0))
     }
 }
@@ -92,7 +106,10 @@ fn create_test_stream_record(user_id: i64, amount: f64) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("user_id".to_string(), FieldValue::Integer(user_id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
-    fields.insert("timestamp".to_string(), FieldValue::String("2025-09-27T10:00:00Z".to_string()));
+    fields.insert(
+        "timestamp".to_string(),
+        FieldValue::String("2025-09-27T10:00:00Z".to_string()),
+    );
 
     StreamRecord {
         fields,
@@ -100,7 +117,11 @@ fn create_test_stream_record(user_id: i64, amount: f64) -> StreamRecord {
         offset: 0,
         partition: 0,
         headers: HashMap::new(),
-        event_time: Some(chrono::DateTime::parse_from_rfc3339("2025-09-27T10:00:00Z").unwrap().with_timezone(&chrono::Utc)),
+        event_time: Some(
+            chrono::DateTime::parse_from_rfc3339("2025-09-27T10:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        ),
     }
 }
 
@@ -123,7 +144,9 @@ fn create_test_join_clause() -> JoinClause {
 fn create_test_context() -> ProcessorContext {
     let mut context = ProcessorContext::new("test_query");
     let empty_table = Arc::new(MockEmptyTable::new("user_profiles"));
-    context.state_tables.insert("user_profiles".to_string(), empty_table);
+    context
+        .state_tables
+        .insert("user_profiles".to_string(), empty_table);
     context
 }
 
@@ -159,7 +182,10 @@ async fn test_skip_record_strategy() {
 
     assert!(result.is_ok());
     let joined_records = result.unwrap();
-    assert!(joined_records.is_empty(), "SkipRecord should return empty results");
+    assert!(
+        joined_records.is_empty(),
+        "SkipRecord should return empty results"
+    );
 }
 
 #[tokio::test]
@@ -174,12 +200,22 @@ async fn test_emit_with_nulls_strategy() {
 
     assert!(result.is_ok());
     let joined_records = result.unwrap();
-    assert_eq!(joined_records.len(), 1, "EmitWithNulls should return one record");
+    assert_eq!(
+        joined_records.len(),
+        1,
+        "EmitWithNulls should return one record"
+    );
 
     let record = &joined_records[0];
     // Should contain original stream fields
-    assert_eq!(record.fields.get("user_id"), Some(&FieldValue::Integer(123)));
-    assert_eq!(record.fields.get("amount"), Some(&FieldValue::Float(1000.0)));
+    assert_eq!(
+        record.fields.get("user_id"),
+        Some(&FieldValue::Integer(123))
+    );
+    assert_eq!(
+        record.fields.get("amount"),
+        Some(&FieldValue::Float(1000.0))
+    );
 
     // Should contain NULL values for missing table fields
     assert_eq!(record.fields.get("u.id"), Some(&FieldValue::Null));
@@ -192,7 +228,10 @@ async fn test_use_defaults_strategy() {
     // Test that UseDefaults strategy uses provided default values
     let mut defaults = HashMap::new();
     defaults.insert("id".to_string(), FieldValue::Integer(999));
-    defaults.insert("name".to_string(), FieldValue::String("default_user".to_string()));
+    defaults.insert(
+        "name".to_string(),
+        FieldValue::String("default_user".to_string()),
+    );
     defaults.insert("tier".to_string(), FieldValue::String("bronze".to_string()));
 
     let processor = StreamTableJoinProcessor::with_defaults(defaults.clone());
@@ -204,17 +243,33 @@ async fn test_use_defaults_strategy() {
 
     assert!(result.is_ok());
     let joined_records = result.unwrap();
-    assert_eq!(joined_records.len(), 1, "UseDefaults should return one record");
+    assert_eq!(
+        joined_records.len(),
+        1,
+        "UseDefaults should return one record"
+    );
 
     let record = &joined_records[0];
     // Should contain original stream fields
-    assert_eq!(record.fields.get("user_id"), Some(&FieldValue::Integer(123)));
-    assert_eq!(record.fields.get("amount"), Some(&FieldValue::Float(1000.0)));
+    assert_eq!(
+        record.fields.get("user_id"),
+        Some(&FieldValue::Integer(123))
+    );
+    assert_eq!(
+        record.fields.get("amount"),
+        Some(&FieldValue::Float(1000.0))
+    );
 
     // Should contain default values for missing table fields
     assert_eq!(record.fields.get("u.id"), Some(&FieldValue::Integer(999)));
-    assert_eq!(record.fields.get("u.name"), Some(&FieldValue::String("default_user".to_string())));
-    assert_eq!(record.fields.get("u.tier"), Some(&FieldValue::String("bronze".to_string())));
+    assert_eq!(
+        record.fields.get("u.name"),
+        Some(&FieldValue::String("default_user".to_string()))
+    );
+    assert_eq!(
+        record.fields.get("u.tier"),
+        Some(&FieldValue::String("bronze".to_string()))
+    );
 }
 
 #[tokio::test]
@@ -260,11 +315,16 @@ async fn test_batch_processing_with_graceful_degradation() {
     let join_clause = create_test_join_clause();
     let mut context = create_test_context();
 
-    let result = processor.process_batch_stream_table_join(stream_records, &join_clause, &mut context);
+    let result =
+        processor.process_batch_stream_table_join(stream_records, &join_clause, &mut context);
 
     assert!(result.is_ok());
     let joined_records = result.unwrap();
-    assert_eq!(joined_records.len(), 3, "Should process all 3 records with graceful degradation");
+    assert_eq!(
+        joined_records.len(),
+        3,
+        "Should process all 3 records with graceful degradation"
+    );
 
     // Each record should have stream fields + NULL values for missing table fields
     for (i, record) in joined_records.iter().enumerate() {
@@ -275,7 +335,10 @@ async fn test_batch_processing_with_graceful_degradation() {
             _ => panic!("Unexpected record index"),
         };
 
-        assert_eq!(record.fields.get("user_id"), Some(&FieldValue::Integer(expected_user_id)));
+        assert_eq!(
+            record.fields.get("user_id"),
+            Some(&FieldValue::Integer(expected_user_id))
+        );
         assert_eq!(record.fields.get("u.id"), Some(&FieldValue::Null));
         assert_eq!(record.fields.get("u.name"), Some(&FieldValue::Null));
     }
@@ -291,7 +354,10 @@ async fn test_graceful_degradation_config_update() {
 
     // First, verify fail-fast behavior
     let result1 = processor.process_stream_table_join(&stream_record, &join_clause, &mut context);
-    assert!(result1.is_err(), "Should fail with default fail-fast strategy");
+    assert!(
+        result1.is_err(),
+        "Should fail with default fail-fast strategy"
+    );
 
     // Update to skip records
     let new_config = GracefulDegradationConfig {
@@ -306,7 +372,10 @@ async fn test_graceful_degradation_config_update() {
     let result2 = processor.process_stream_table_join(&stream_record, &join_clause, &mut context);
     assert!(result2.is_ok(), "Should succeed with skip strategy");
     let joined_records = result2.unwrap();
-    assert!(joined_records.is_empty(), "Should skip records with missing data");
+    assert!(
+        joined_records.is_empty(),
+        "Should skip records with missing data"
+    );
 }
 
 #[tokio::test]
@@ -324,21 +393,31 @@ async fn test_left_join_with_graceful_degradation() {
 
     assert!(result.is_ok());
     let joined_records = result.unwrap();
-    assert_eq!(joined_records.len(), 1, "LEFT JOIN should always emit a record");
+    assert_eq!(
+        joined_records.len(),
+        1,
+        "LEFT JOIN should always emit a record"
+    );
 
     let record = &joined_records[0];
     // Should preserve stream record data
-    assert_eq!(record.fields.get("user_id"), Some(&FieldValue::Integer(123)));
-    assert_eq!(record.fields.get("amount"), Some(&FieldValue::Float(1000.0)));
+    assert_eq!(
+        record.fields.get("user_id"),
+        Some(&FieldValue::Integer(123))
+    );
+    assert_eq!(
+        record.fields.get("amount"),
+        Some(&FieldValue::Float(1000.0))
+    );
 }
 
 #[tokio::test]
 async fn test_multiple_strategies_performance() {
     // Performance test to ensure graceful degradation doesn't significantly impact throughput
     let processors = vec![
-        StreamTableJoinProcessor::new(),                    // FailFast
-        StreamTableJoinProcessor::skip_missing(),           // SkipRecord
-        StreamTableJoinProcessor::with_nulls(),            // EmitWithNulls
+        StreamTableJoinProcessor::new(),          // FailFast
+        StreamTableJoinProcessor::skip_missing(), // SkipRecord
+        StreamTableJoinProcessor::with_nulls(),   // EmitWithNulls
     ];
 
     let stream_record = create_test_stream_record(123, 1000.0);
@@ -357,7 +436,9 @@ async fn test_multiple_strategies_performance() {
         println!("Strategy {} took {:?} for 100 operations", i, duration);
 
         // Should complete within reasonable time (adjust threshold as needed)
-        assert!(duration < std::time::Duration::from_millis(100),
-                "Graceful degradation should be fast");
+        assert!(
+            duration < std::time::Duration::from_millis(100),
+            "Graceful degradation should be fast"
+        );
     }
 }

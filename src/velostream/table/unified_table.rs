@@ -37,7 +37,9 @@ A single trait that provides:
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::FieldValue;
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, StreamResult, SimpleStreamRecord};
+use crate::velostream::table::streaming::{
+    RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
+};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -1324,11 +1326,10 @@ impl UnifiedTable for OptimizedTableImpl {
                             let data_guard = data.read().unwrap();
                             for key in matching_keys {
                                 if let Some(record) = data_guard.get(key) {
-                                    let stream_record =
-                                        SimpleStreamRecord {
-                                            key: key.clone(),
-                                            fields: record.clone(),
-                                        };
+                                    let stream_record = SimpleStreamRecord {
+                                        key: key.clone(),
+                                        fields: record.clone(),
+                                    };
                                     if tx.send(Ok(stream_record)).is_err() {
                                         break;
                                     }
@@ -1369,12 +1370,10 @@ impl UnifiedTable for OptimizedTableImpl {
             .iter()
             .skip(offset)
             .take(batch_size)
-            .map(
-                |(key, fields)| SimpleStreamRecord {
-                    key: key.clone(),
-                    fields: fields.clone(),
-                },
-            )
+            .map(|(key, fields)| SimpleStreamRecord {
+                key: key.clone(),
+                fields: fields.clone(),
+            })
             .collect();
 
         let has_more = offset + records.len() < data.len();

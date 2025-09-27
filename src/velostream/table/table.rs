@@ -3,7 +3,9 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, SimpleStreamRecord, StreamResult};
+use crate::velostream::table::streaming::{
+    RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
+};
 use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;

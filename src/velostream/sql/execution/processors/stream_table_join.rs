@@ -4,7 +4,9 @@
 //! Provides high-performance lookups for enriching streaming data with reference tables.
 
 use super::{ProcessorContext, SelectProcessor};
-use crate::velostream::server::graceful_degradation::{GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy};
+use crate::velostream::server::graceful_degradation::{
+    GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy,
+};
 use crate::velostream::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource,
 };
@@ -12,7 +14,7 @@ use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::SqlError;
 use crate::velostream::table::{OptimizedTableImpl, UnifiedTable};
-use log::{debug, warn, info};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -203,13 +205,13 @@ impl StreamTableJoinProcessor {
             })?;
 
         // Apply graceful degradation for records with no table matches
-        for (stream_record, table_records) in stream_records.iter().zip(bulk_table_results.iter_mut()) {
+        for (stream_record, table_records) in
+            stream_records.iter().zip(bulk_table_results.iter_mut())
+        {
             if table_records.is_empty() {
                 // Use graceful degradation for missing table data
-                let degraded_records = self.handle_missing_table_data_sync(
-                    table_name,
-                    stream_record,
-                )?;
+                let degraded_records =
+                    self.handle_missing_table_data_sync(table_name, stream_record)?;
                 *table_records = degraded_records;
             }
         }
@@ -328,7 +330,10 @@ impl StreamTableJoinProcessor {
             }
             Ok(_empty_records) => {
                 // No matching records found in table - handle gracefully
-                info!("No matching records found in table '{}' for join keys: {:?}", table_name, join_keys);
+                info!(
+                    "No matching records found in table '{}' for join keys: {:?}",
+                    table_name, join_keys
+                );
                 self.handle_missing_table_data_sync(table_name, stream_record)
             }
             Err(e) => {

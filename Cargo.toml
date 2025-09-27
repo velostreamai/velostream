@@ -32,6 +32,7 @@ hyperloglogplus = "0.4.1"
 rust_decimal = { version = "1.36.0", features = ["serde"] }
 regex = "1.5"
 async-trait = "0.1"
+async-stream = "0.3"
 lazy_static = "1.4"
 
 # Dependencies for additional serialization formats (now always available)

@@ -154,9 +154,13 @@ impl GracefulDegradationHandler {
 
         match strategy {
             TableMissingDataStrategy::UseDefaults(defaults) => {
-                let enriched = self.enrich_with_defaults(stream_record, defaults, expected_table_fields);
+                let enriched =
+                    self.enrich_with_defaults(stream_record, defaults, expected_table_fields);
                 if self.config.enable_logging {
-                    info!("Applied default values for missing table '{}' data", table_name);
+                    info!(
+                        "Applied default values for missing table '{}' data",
+                        table_name
+                    );
                 }
                 Ok(Some(enriched))
             }
@@ -171,30 +175,45 @@ impl GracefulDegradationHandler {
             TableMissingDataStrategy::EmitWithNulls => {
                 let enriched = self.add_null_fields(stream_record, expected_table_fields);
                 if self.config.enable_logging {
-                    debug!("Emitting record with NULL values for missing table '{}' data", table_name);
+                    debug!(
+                        "Emitting record with NULL values for missing table '{}' data",
+                        table_name
+                    );
                 }
                 Ok(Some(enriched))
             }
 
-            TableMissingDataStrategy::WaitAndRetry { max_retries, initial_delay, max_delay, backoff_multiplier } => {
+            TableMissingDataStrategy::WaitAndRetry {
+                max_retries,
+                initial_delay,
+                max_delay,
+                backoff_multiplier,
+            } => {
                 if self.config.enable_logging {
                     warn!(
                         "Table '{}' data missing, will retry up to {} times",
                         table_name, max_retries
                     );
                 }
-                self.retry_with_backoff(table_name, stream_record, expected_table_fields, *max_retries, *initial_delay, *max_delay, *backoff_multiplier).await
+                self.retry_with_backoff(
+                    table_name,
+                    stream_record,
+                    expected_table_fields,
+                    *max_retries,
+                    *initial_delay,
+                    *max_delay,
+                    *backoff_multiplier,
+                )
+                .await
             }
 
-            TableMissingDataStrategy::FailFast => {
-                Err(SqlError::ExecutionError {
-                    message: format!(
-                        "Table '{}' data is missing and fail-fast strategy is configured",
-                        table_name
-                    ),
-                    query: None,
-                })
-            }
+            TableMissingDataStrategy::FailFast => Err(SqlError::ExecutionError {
+                message: format!(
+                    "Table '{}' data is missing and fail-fast strategy is configured",
+                    table_name
+                ),
+                query: None,
+            }),
         }
     }
 
@@ -282,7 +301,7 @@ impl GracefulDegradationHandler {
             // Calculate next delay with exponential backoff
             current_delay = std::cmp::min(
                 Duration::from_millis(
-                    (current_delay.as_millis() as f64 * backoff_multiplier) as u64
+                    (current_delay.as_millis() as f64 * backoff_multiplier) as u64,
                 ),
                 max_delay,
             );
@@ -295,13 +314,18 @@ impl GracefulDegradationHandler {
                         max_retries, table_name
                     );
                 }
-                return Ok(Some(self.add_null_fields(stream_record, expected_table_fields)));
+                return Ok(Some(
+                    self.add_null_fields(stream_record, expected_table_fields),
+                ));
             }
         }
 
         // Should never reach here, but fallback to error
         Err(SqlError::ExecutionError {
-            message: format!("Failed to retry table '{}' lookup after {} attempts", table_name, max_retries),
+            message: format!(
+                "Failed to retry table '{}' lookup after {} attempts",
+                table_name, max_retries
+            ),
             query: None,
         })
     }
@@ -315,10 +339,16 @@ impl GracefulDegradationHandler {
             name if name.contains("rate") || name.contains("percent") || name.contains("ratio") => {
                 FieldValue::Float(0.0)
             }
-            name if name.contains("active") || name.contains("enabled") || name.contains("valid") => {
+            name if name.contains("active")
+                || name.contains("enabled")
+                || name.contains("valid") =>
+            {
                 FieldValue::Boolean(false)
             }
-            name if name.contains("name") || name.contains("description") || name.contains("status") => {
+            name if name.contains("name")
+                || name.contains("description")
+                || name.contains("status") =>
+            {
                 FieldValue::String("UNKNOWN".to_string())
             }
             _ => FieldValue::String("DEFAULT".to_string()),
@@ -337,7 +367,9 @@ impl GracefulDegradationHandler {
 
     /// Add a table-specific strategy
     pub fn add_table_strategy(&mut self, table_name: String, strategy: TableMissingDataStrategy) {
-        self.config.table_specific_strategies.insert(table_name, strategy);
+        self.config
+            .table_specific_strategies
+            .insert(table_name, strategy);
     }
 }
 
@@ -349,7 +381,10 @@ mod tests {
     fn create_test_stream_record() -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("user_id".to_string(), FieldValue::Integer(123));
-        fields.insert("event_type".to_string(), FieldValue::String("login".to_string()));
+        fields.insert(
+            "event_type".to_string(),
+            FieldValue::String("login".to_string()),
+        );
 
         StreamRecord {
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -364,8 +399,14 @@ mod tests {
     #[tokio::test]
     async fn test_use_defaults_strategy() {
         let mut defaults = HashMap::new();
-        defaults.insert("user_name".to_string(), FieldValue::String("Anonymous".to_string()));
-        defaults.insert("user_tier".to_string(), FieldValue::String("Basic".to_string()));
+        defaults.insert(
+            "user_name".to_string(),
+            FieldValue::String("Anonymous".to_string()),
+        );
+        defaults.insert(
+            "user_tier".to_string(),
+            FieldValue::String("Basic".to_string()),
+        );
 
         let handler = GracefulDegradationHandler::with_defaults(defaults);
         let stream_record = create_test_stream_record();
@@ -378,8 +419,14 @@ mod tests {
 
         assert!(result.is_some());
         let enriched = result.unwrap();
-        assert_eq!(enriched.fields.get("user_name"), Some(&FieldValue::String("Anonymous".to_string())));
-        assert_eq!(enriched.fields.get("user_tier"), Some(&FieldValue::String("Basic".to_string())));
+        assert_eq!(
+            enriched.fields.get("user_name"),
+            Some(&FieldValue::String("Anonymous".to_string()))
+        );
+        assert_eq!(
+            enriched.fields.get("user_tier"),
+            Some(&FieldValue::String("Basic".to_string()))
+        );
     }
 
     #[tokio::test]
@@ -409,8 +456,14 @@ mod tests {
 
         assert!(result.is_some());
         let enriched = result.unwrap();
-        assert_eq!(enriched.fields.get("user_name"), Some(&FieldValue::String("NULL".to_string())));
-        assert_eq!(enriched.fields.get("user_tier"), Some(&FieldValue::String("NULL".to_string())));
+        assert_eq!(
+            enriched.fields.get("user_name"),
+            Some(&FieldValue::String("NULL".to_string()))
+        );
+        assert_eq!(
+            enriched.fields.get("user_tier"),
+            Some(&FieldValue::String("NULL".to_string()))
+        );
     }
 
     #[tokio::test]
@@ -446,6 +499,9 @@ mod tests {
         // Should fall back to NULL values after retries
         assert!(result.is_some());
         let enriched = result.unwrap();
-        assert_eq!(enriched.fields.get("user_name"), Some(&FieldValue::String("NULL".to_string())));
+        assert_eq!(
+            enriched.fields.get("user_name"),
+            Some(&FieldValue::String("NULL".to_string()))
+        );
     }
 }

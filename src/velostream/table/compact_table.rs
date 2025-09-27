@@ -6,7 +6,9 @@ Uses schema-based compact storage to minimize memory overhead.
 */
 
 use crate::velostream::sql::{error::SqlError, execution::types::FieldValue};
-use crate::velostream::table::streaming::{RecordBatch, RecordStream, SimpleStreamRecord, StreamResult};
+use crate::velostream::table::streaming::{
+    RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
+};
 use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;

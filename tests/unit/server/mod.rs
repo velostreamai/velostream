@@ -5,3 +5,6 @@
 
 // Stream-Table coordination tests
 pub mod table_coordination_test;
+
+// Progress monitoring integration tests
+pub mod progress_monitoring_integration_test;
