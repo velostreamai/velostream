@@ -99,7 +99,7 @@ async fn test_ctas_simple_integration() {
     println!("\n🔍 Test 4: Property Validation");
     let validation_query = r#"
         CREATE TABLE bad_config
-        AS SELECT * FROM stream
+        AS SELECT * FROM test_stream
         WITH ("retention" = "")
     "#;
 

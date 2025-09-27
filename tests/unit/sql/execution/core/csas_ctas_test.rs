@@ -633,8 +633,8 @@ mod tests {
         let query = result.unwrap();
 
         match query {
-            // The parser correctly produces CreateTable when GROUP BY clause is present with INTO
-            StreamingQuery::CreateTable {
+            // The parser correctly produces CreateTableInto when INTO clause is present
+            StreamingQuery::CreateTableInto {
                 name, as_select, ..
             } => {
                 assert_eq!(name, "aggregated_metrics");
@@ -653,10 +653,10 @@ mod tests {
                             Some(&"configs/kafka_perf.yaml".to_string())
                         );
                     }
-                    _ => panic!("Expected Select query in CreateTable"),
+                    _ => panic!("Expected Select query in CreateTableInto"),
                 }
             }
-            _ => panic!("Expected CreateTable query (GROUP BY makes it a table)"),
+            _ => panic!("Expected CreateTableInto query (INTO clause present)"),
         }
     }
 
@@ -735,8 +735,8 @@ mod tests {
         let query = result.unwrap();
 
         match query {
-            // The parser correctly produces CreateStream when WINDOW clause is present
-            StreamingQuery::CreateStream {
+            // The parser correctly produces CreateStreamInto when INTO clause is present
+            StreamingQuery::CreateStreamInto {
                 name, as_select, ..
             } => {
                 assert_eq!(name, "windowed_analytics");
@@ -753,7 +753,7 @@ mod tests {
                     _ => panic!("Expected Select query"),
                 }
             }
-            _ => panic!("Expected CreateStream query (WINDOW clause present)"),
+            _ => panic!("Expected CreateStreamInto query (INTO clause present)"),
         }
     }
 

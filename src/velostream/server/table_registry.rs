@@ -503,10 +503,14 @@ impl TableRegistry {
                 from,
                 joins,
                 where_clause,
+                properties,
                 ..
             } => {
-                // Extract main FROM table
-                Self::extract_from_stream_source(from, tables);
+                // Extract main FROM table only if it's not a FROM...WITH external data source
+                // If properties are present, this is a FROM...WITH clause defining an external source
+                if properties.is_none() {
+                    Self::extract_from_stream_source(from, tables);
+                }
 
                 // Extract JOIN tables
                 if let Some(join_clauses) = joins {

@@ -1165,10 +1165,21 @@ impl<'a> TokenParser<'a> {
         }
 
         // Parse optional WITH clause for SELECT statements
-        let properties = if self.current_token().token_type == TokenType::With {
+        let with_properties = if self.current_token().token_type == TokenType::With {
             Some(self.parse_with_properties()?)
         } else {
             None
+        };
+
+        // Combine FROM WITH properties with SELECT WITH properties
+        let combined_properties = match (_from_with_options, with_properties) {
+            (Some(mut from_props), Some(select_props)) => {
+                from_props.extend(select_props);
+                Some(from_props)
+            }
+            (Some(from_props), None) => Some(from_props),
+            (None, Some(select_props)) => Some(select_props),
+            (None, None) => None,
         };
 
         // Determine if from_stream is a URI or named stream
@@ -1193,7 +1204,7 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
-            properties,
+            properties: combined_properties,
         };
 
         // Check for UNION after SELECT
@@ -1403,6 +1414,28 @@ impl<'a> TokenParser<'a> {
             StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
+        // Parse optional EMIT clause
+        let mut emit_mode = None;
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+            match self.current_token().token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Changes);
+                }
+                TokenType::Final => {
+                    self.advance();
+                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Final);
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(self.current),
+                    });
+                }
+            }
+        }
+
         // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
 
         Ok(StreamingQuery::Select {
@@ -1416,7 +1449,7 @@ impl<'a> TokenParser<'a> {
             window,
             order_by,
             limit,
-            emit_mode: None,
+            emit_mode,
             properties: _from_with_options, // WITH clause options from FROM source
         })
     }
@@ -2982,8 +3015,13 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
-        // Parse optional EMIT clause for CREATE STREAM
-        let emit_mode = self.parse_emit_clause()?;
+        // For CREATE STREAM AS SELECT, the EMIT clause should be in the SELECT, not at CREATE STREAM level
+        // Only parse EMIT at this level if it exists (which would be unusual)
+        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
 
         // Consume optional semicolon
         self.consume_semicolon();
@@ -3046,8 +3084,13 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
-        // Parse optional EMIT clause for CREATE TABLE
-        let emit_mode = self.parse_emit_clause()?;
+        // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
+        // Only parse EMIT at this level if it exists (which would be unusual)
+        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
 
         // Consume optional semicolon
         self.consume_semicolon();
