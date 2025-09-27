@@ -290,7 +290,7 @@ impl SelectProcessor {
     }
 
     /// Process a SELECT query with correlation context management
-    pub async fn process_with_correlation(
+    pub fn process_with_correlation(
         &mut self,
         query: &StreamingQuery,
         record: &StreamRecord,
@@ -302,7 +302,7 @@ impl SelectProcessor {
         context.correlation_context = Some(table_ref.clone());
 
         // Process query with correlation context
-        let result = Self::process(query, record, context).await;
+        let result = Self::process(query, record, context);
 
         // Always restore original context
         context.correlation_context = original_context;
@@ -311,7 +311,7 @@ impl SelectProcessor {
     }
 
     /// Process a SELECT query
-    pub async fn process(
+    pub fn process(
         query: &StreamingQuery,
         record: &StreamRecord,
         context: &mut ProcessorContext,
@@ -381,7 +381,7 @@ impl SelectProcessor {
             if let Some(join_clauses) = joins {
                 let join_processor = JoinProcessor::new();
                 joined_record =
-                    join_processor.process_joins(&joined_record, join_clauses, context).await?;
+                    join_processor.process_joins(&joined_record, join_clauses, context)?;
             }
 
             // Set correlation context for subquery resolution
