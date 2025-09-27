@@ -156,6 +156,9 @@ impl MockTable {
 
 #[async_trait]
 impl UnifiedTable for MockTable {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         // For testing, try to parse an index from the key
         if let Some(index_str) = key.strip_prefix(&format!("{}_", self.name)) {

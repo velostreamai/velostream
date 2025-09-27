@@ -180,6 +180,9 @@ struct MockTableDataSource {
 
 #[async_trait]
 impl UnifiedTable for MockTableDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     // =========================================================================
     // CORE DATA ACCESS - Required methods
     // =========================================================================

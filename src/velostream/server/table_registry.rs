@@ -25,7 +25,7 @@ pub struct TableMetadata {
 }
 
 /// Status of a table in the registry
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub enum TableStatus {
     Active,
     Populating,
@@ -483,6 +483,125 @@ impl TableRegistry {
         }
 
         context_customizer(&available_tables);
+    }
+
+    /// Wait for a table to be ready for use (fully loaded)
+    ///
+    /// This is CRITICAL for stream-table joins to ensure data consistency.
+    /// Streams MUST wait for tables to be ready before starting processing.
+    pub async fn wait_for_table_ready(
+        &self,
+        table_name: &str,
+        timeout: std::time::Duration,
+    ) -> Result<TableStatus, SqlError> {
+        let start_time = std::time::Instant::now();
+        let mut check_interval = std::time::Duration::from_millis(100); // Start with 100ms
+        let max_interval = std::time::Duration::from_secs(2); // Cap at 2 seconds
+
+        info!(
+            "Waiting for table '{}' to be ready (timeout: {:?})",
+            table_name, timeout
+        );
+
+        loop {
+            // Check if timeout exceeded
+            if start_time.elapsed() > timeout {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Timeout waiting for table '{}' to be ready after {:?}",
+                        table_name, timeout
+                    ),
+                    query: None,
+                });
+            }
+
+            // Check table existence
+            let tables = self.tables.read().await;
+            if !tables.contains_key(table_name) {
+                drop(tables);
+                return Err(SqlError::ExecutionError {
+                    message: format!("Table '{}' does not exist in registry", table_name),
+                    query: None,
+                });
+            }
+            drop(tables);
+
+            // Check table status
+            let jobs = self.background_jobs.read().await;
+            let metadata = self.metadata.read().await;
+
+            let status = if let Some(job) = jobs.get(table_name) {
+                if job.is_finished() {
+                    // Job completed - table is ready
+                    info!("Table '{}' background job completed, table is ready", table_name);
+                    drop(jobs);
+                    drop(metadata);
+
+                    // Update metadata status
+                    self.update_table_metadata(table_name, |meta| {
+                        meta.status = TableStatus::BackgroundJobFinished;
+                    }).await?;
+
+                    return Ok(TableStatus::BackgroundJobFinished);
+                } else {
+                    // Still loading
+                    let meta = metadata.get(table_name);
+                    let record_count = meta.map_or(0, |m| m.record_count);
+                    debug!(
+                        "Table '{}' still loading... ({} records loaded)",
+                        table_name, record_count
+                    );
+                    TableStatus::Populating
+                }
+            } else {
+                // No background job - table is immediately ready
+                info!("Table '{}' has no background job, immediately ready", table_name);
+                drop(jobs);
+                drop(metadata);
+                return Ok(TableStatus::Active);
+            };
+
+            drop(jobs);
+            drop(metadata);
+
+            // Wait with exponential backoff
+            tokio::time::sleep(check_interval).await;
+
+            // Increase interval with exponential backoff (capped)
+            check_interval = std::cmp::min(check_interval * 2, max_interval);
+        }
+    }
+
+    /// Wait for multiple tables to be ready
+    pub async fn wait_for_tables_ready(
+        &self,
+        table_names: &[String],
+        timeout: std::time::Duration,
+    ) -> Result<Vec<(String, TableStatus)>, SqlError> {
+        let start_time = std::time::Instant::now();
+        let mut results = Vec::new();
+
+        for table_name in table_names {
+            // Calculate remaining timeout for each table
+            let elapsed = start_time.elapsed();
+            if elapsed >= timeout {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Timeout waiting for tables - failed at table '{}'",
+                        table_name
+                    ),
+                    query: None,
+                });
+            }
+            let remaining_timeout = timeout - elapsed;
+
+            // Wait for this table
+            let status = self.wait_for_table_ready(table_name, remaining_timeout).await?;
+            results.push((table_name.clone(), status));
+        }
+
+        info!("All {} tables are ready for use", table_names.len());
+        Ok(results)
     }
 
     /// Extract table references from a SQL query

@@ -56,6 +56,9 @@ impl TestWildcardSource {
 
 #[async_trait]
 impl UnifiedTable for TestWildcardSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         if let Some(value) = self.records.get(key) {
             let mut record = HashMap::new();

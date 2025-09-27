@@ -288,6 +288,9 @@ impl FinancialDataSource {
 
 #[async_trait]
 impl UnifiedTable for FinancialDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     // =========================================================================
     // CORE DATA ACCESS - Required methods
     // =========================================================================
