@@ -152,6 +152,9 @@ impl CtasExecutor {
             StreamingQuery::CreateTable {
                 name, as_select, properties, ..
             } => {
+                // Validate properties first, regardless of source type
+                self.validate_properties(&properties)?;
+
                 // CREATE TABLE AS SELECT - extract source information from the SELECT query
                 let source_info = self.extract_source_from_select(&as_select)?;
                 self.handle_source_info(&name, source_info, &properties, query).await
@@ -160,8 +163,12 @@ impl CtasExecutor {
                 name, as_select, properties, ..
             } => {
                 // CREATE TABLE AS SELECT INTO - similar to above but with INTO clause
-                let source_info = self.extract_source_from_select(&as_select)?;
                 let properties_map = properties.into_legacy_format();
+
+                // Validate properties first, regardless of source type
+                self.validate_properties(&properties_map)?;
+
+                let source_info = self.extract_source_from_select(&as_select)?;
                 self.handle_source_info(&name, source_info, &properties_map, query).await
             }
             _ => Err(SqlError::ExecutionError {
@@ -488,7 +495,10 @@ impl CtasExecutor {
                         && !value.contains("hour")
                         && !value.contains("minute")
                     {
-                        log::warn!("retention format '{}' may not be recognized", value);
+                        return Err(SqlError::ExecutionError {
+                            message: format!("retention format '{}' is invalid. Expected format like '7 days', '1 hour', '30 minutes'", value),
+                            query: None,
+                        });
                     }
                 }
                 key if key.starts_with("kafka.") => {

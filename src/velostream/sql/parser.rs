@@ -1221,6 +1221,121 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    fn parse_select_for_create_table(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Similar to parse_select_no_with but without consuming semicolon
+        // to allow CREATE TABLE parser to continue with WITH clause
+        self.expect(TokenType::Select)?;
+
+        let fields = self.parse_select_fields()?;
+
+        // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let mut from_alias = None;
+        let from_stream = if self.current_token().token_type == TokenType::From {
+            self.advance(); // consume FROM
+
+            // Support both identifiers and URI strings (FR-047)
+            let stream_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+
+                    // Check for alias (AS keyword or direct identifier)
+                    if self.current_token().token_type == TokenType::As {
+                        self.advance(); // consume AS
+                        from_alias = Some(self.expect(TokenType::Identifier)?.value);
+                    } else if self.current_token().token_type == TokenType::Identifier {
+                        // Direct alias without AS keyword
+                        from_alias = Some(self.current_token().value.clone());
+                        self.advance();
+                    }
+
+                    name
+                }
+                TokenType::String => {
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected stream name or data source URI after FROM".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            stream_name
+        } else {
+            // No FROM clause - use a dummy stream name for scalar queries
+            "".to_string()
+        };
+
+        // Parse JOIN clauses
+        let joins = self.parse_join_clauses()?;
+
+        let mut where_clause = None;
+        if self.current_token().token_type == TokenType::Where {
+            self.advance();
+            where_clause = Some(self.parse_expression()?);
+        }
+
+        let mut group_by = None;
+        if self.current_token().token_type == TokenType::GroupBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            group_by = Some(self.parse_group_by_list()?);
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
+        }
+
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        let mut order_by = None;
+        if self.current_token().token_type == TokenType::OrderBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            order_by = Some(self.parse_order_by_list()?);
+        }
+
+        let mut limit = None;
+        if self.current_token().token_type == TokenType::Limit {
+            self.advance();
+            limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+        }
+
+        // Determine if from_stream is a URI or named stream
+        let from_source = if from_stream.contains("://") {
+            StreamSource::Uri(from_stream)
+        } else {
+            StreamSource::Stream(from_stream) // Both scalar queries and named streams
+        };
+
+        // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
+
+        Ok(StreamingQuery::Select {
+            fields,
+            from: from_source,
+            from_alias,
+            joins,
+            where_clause,
+            group_by,
+            having,
+            window,
+            order_by,
+            limit,
+            emit_mode: None,
+            properties: Some(std::collections::HashMap::new()),
+        })
+    }
+
     fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
@@ -2810,7 +2925,7 @@ impl<'a> TokenParser<'a> {
 
         self.expect(TokenType::As)?;
         // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
-        let as_select = Box::new(self.parse_select_no_with()?);
+        let as_select = Box::new(self.parse_select_for_create_table()?);
 
         // Check for INTO clause (new syntax)
         if self.current_token().token_type == TokenType::Into {

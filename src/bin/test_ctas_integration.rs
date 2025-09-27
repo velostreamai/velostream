@@ -138,16 +138,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🔍 Test 4: Property Validation");
     let invalid_config_query = r#"
         CREATE TABLE bad_config_table
-        AS SELECT * FROM some_stream
-        WITH ("retention" = "")
+        AS SELECT * FROM kafka_stream
+        WITH ("retention" = "invalid_format")
     "#;
 
     match executor.execute(invalid_config_query).await {
-        Ok(_) => {
-            println!("❌ FAILED - Should have rejected empty retention");
+        Ok(result) => {
+            println!("❌ FAILED - Should have rejected empty retention, but got success: {}", result.name());
         }
         Err(SqlError::ExecutionError { message, .. }) => {
-            if message.contains("retention property cannot be empty") {
+            if message.contains("retention") && message.contains("format") {
                 passed_tests += 1;
                 println!("✅ PASSED - Property validation working correctly");
             } else {
