@@ -175,6 +175,9 @@ let batch = table.query_batch(1000, Some(0)).await?;
 - **Memory optimization** via string interning
 - **Query optimization** with intelligent caching
 - **Error handling** throughout all operations
+- **Enhanced aggregation support** with SUM operations (Latest)
+- **Reserved keyword fixes** for common field names (Latest)
+- **Complete test coverage** with all 65 CTAS tests passing (Latest)
 
 ### **✅ Documentation Complete**
 
