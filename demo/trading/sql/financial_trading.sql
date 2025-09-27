@@ -40,6 +40,30 @@ WITH (
     'market_data_et.config_file' = 'configs/market_data_et_sink.yaml'
 );
 
+CREATE STREAM tick_buckets AS
+SELECT
+    symbol,
+    TUMBLE_START(event_time, INTERVAL '1' SECOND) as bucket_start,
+    TUMBLE_END(event_time, INTERVAL '1' SECOND) as bucket_end,
+    AVG(price) as avg_price,
+    MIN(price) as min_price,
+    MAX(price) as max_price,
+    SUM(volume) as total_volume,
+    COUNT(*) as trade_count,
+    FIRST_VALUE(price) as open_price,
+    LAST_VALUE(price) as close_price
+FROM market_data_et
+         WINDOW TUMBLING (SIZE 1 SECOND)
+GROUP BY symbol, TUMBLING(event_time, INTERVAL '1' SECOND)
+INTO market_data_clean
+WITH (
+    'market_data_clean.type' = 'kafka_sink',
+    'market_data_clean.config_file' = 'configs/market_data_clean_sink.yaml'
+
+    'market_data_et.type' = 'kafka_source',
+    'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
+    );
+
 -- ====================================================================================
 -- PHASE 3: ADVANCED WINDOW FUNCTIONS - Price Movement Detection
 -- ====================================================================================

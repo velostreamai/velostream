@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
+use velostream::velostream::kafka::kafka_error::ProducerError;
+use velostream::velostream::kafka::serialization::Serializer;
 use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -370,10 +372,7 @@ trait ProducerTopicExt<K, V, KS, VS> {
         headers: Headers,
         timestamp: Option<i64>,
     ) -> impl std::future::Future<
-        Output = Result<
-            rdkafka::producer::future_producer::Delivery,
-            velostream::velostream::kafka::ProducerError,
-        >,
+        Output = Result<rdkafka::producer::future_producer::Delivery, ProducerError>,
     >;
 }
 
@@ -381,8 +380,8 @@ impl<K, V, KS, VS> ProducerTopicExt<K, V, KS, VS> for KafkaProducer<K, V, KS, VS
 where
     K: Clone,
     V: Clone,
-    KS: velostream::velostream::kafka::Serializer<K>,
-    VS: velostream::velostream::kafka::Serializer<V>,
+    KS: Serializer<K>,
+    VS: Serializer<V>,
 {
     async fn send_to_topic(
         &self,
@@ -391,10 +390,7 @@ where
         value: &V,
         headers: Headers,
         timestamp: Option<i64>,
-    ) -> Result<
-        rdkafka::producer::future_producer::Delivery,
-        velostream::velostream::kafka::ProducerError,
-    > {
+    ) -> Result<rdkafka::producer::future_producer::Delivery, ProducerError> {
         // For now, use the main producer's send method (this will go to the default topic)
         // In a real implementation, you'd want topic-specific producers
         self.send(key, value, headers, timestamp).await

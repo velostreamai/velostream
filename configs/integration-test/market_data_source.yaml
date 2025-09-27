@@ -1,0 +1,43 @@
+# Market Data Source Configuration
+# Configuration for real-time market data ingestion
+
+data_source:
+  type: file
+  path: "./market_data.csv"
+  format: csv
+  has_headers: true
+
+schema:
+  fields:
+    - name: symbol
+      type: string
+      nullable: false
+    - name: exchange
+      type: string
+      nullable: false
+    - name: price
+      type: decimal
+      precision: 10
+      scale: 2
+    - name: bid_price
+      type: decimal
+      precision: 10
+      scale: 2
+    - name: ask_price
+      type: decimal
+      precision: 10
+      scale: 2
+    - name: volume
+      type: integer
+    - name: timestamp
+      type: timestamp
+      format: "yyyy-MM-dd HH:mm:ss"
+
+processing:
+  mode: streaming
+  window_size: "1 minute"
+  watermark_delay: "5 seconds"
+
+output:
+  format: json
+  compression: gzip

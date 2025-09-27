@@ -16,6 +16,32 @@ use std::str::FromStr;
 pub struct ExpressionEvaluator;
 
 impl ExpressionEvaluator {
+    /// Create a new expression evaluator (for backward compatibility)
+    pub fn new() -> Self {
+        ExpressionEvaluator
+    }
+
+    /// Parse a WHERE clause and return a predicate function
+    ///
+    /// This is a simplified version for testing that returns a closure
+    /// that evaluates the WHERE clause against key-value pairs.
+    pub fn parse_where_clause(
+        &self,
+        where_clause: &str,
+    ) -> Result<Box<dyn Fn(&String, &FieldValue) -> bool>, SqlError> {
+        // This is a simplified implementation for testing
+        // In a real implementation, you'd parse the WHERE clause into an AST
+        let clause = where_clause.to_string();
+
+        Ok(Box::new(
+            move |_key: &String, _value: &FieldValue| -> bool {
+                // Simple default implementation - always return true for now
+                // This should be replaced with actual WHERE clause evaluation
+                true
+            },
+        ))
+    }
+
     /// Evaluates a boolean expression against a record
     ///
     /// Used primarily for WHERE clause evaluation. Returns true/false based on

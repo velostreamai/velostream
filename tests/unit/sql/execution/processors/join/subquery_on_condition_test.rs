@@ -13,7 +13,8 @@ use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::table::sql::{SqlDataSource, SqlQueryable};
+// SqlDataSource removed - using UnifiedTable only
+// SqlQueryable removed - using UnifiedTable instead
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
@@ -78,69 +79,22 @@ impl MockOrdersTable {
     }
 }
 
-impl SqlDataSource for MockOrdersTable {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        Ok(self.records.clone())
-    }
-
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        Ok(self.records.get(key).cloned())
-    }
-
-    fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    fn record_count(&self) -> usize {
-        self.records.len()
-    }
-}
+// Note: SqlDataSource implementation removed - using UnifiedTable only
+// These helper methods would be part of a proper UnifiedTable implementation
 
 // Mock valid_statuses table
 struct MockValidStatusesTable {
     records: HashMap<String, FieldValue>,
 }
 
-impl SqlDataSource for MockValidStatusesTable {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        Ok(self.records.clone())
-    }
-
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        Ok(self.records.get(key).cloned())
-    }
-
-    fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    fn record_count(&self) -> usize {
-        self.records.len()
-    }
-}
+// Note: SqlDataSource implementation removed - using UnifiedTable only
 
 // Mock permissions table
 struct MockPermissionsTable {
     records: HashMap<String, FieldValue>,
 }
 
-impl SqlDataSource for MockPermissionsTable {
-    fn get_all_records(&self) -> Result<HashMap<String, FieldValue>, SqlError> {
-        Ok(self.records.clone())
-    }
-
-    fn get_record(&self, key: &str) -> Result<Option<FieldValue>, SqlError> {
-        Ok(self.records.get(key).cloned())
-    }
-
-    fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    fn record_count(&self) -> usize {
-        self.records.len()
-    }
-}
+// Note: SqlDataSource implementation removed - using UnifiedTable only
 
 /// Create a custom context customizer with additional tables needed for these tests
 fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
@@ -149,10 +103,7 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
         let standard_data = StandardTestData::comprehensive_test_data();
         for (name, records) in standard_data {
             let mock_table = MockTable::new(name.clone(), records);
-            context.load_reference_table(
-                &name,
-                Arc::new(mock_table) as Arc<dyn SqlQueryable + Send + Sync>,
-            );
+            context.load_reference_table(&name, Arc::new(mock_table));
         }
 
         // Add additional tables needed for ON condition tests
@@ -163,10 +114,7 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
             TestDataBuilder::user_record(101, "User 101", "user101@example.com", "active"),
         ];
         let permissions_table = MockTable::new("permissions".to_string(), permissions_data);
-        context.load_reference_table(
-            "permissions",
-            Arc::new(permissions_table) as Arc<dyn SqlQueryable + Send + Sync>,
-        );
+        context.load_reference_table("permissions", Arc::new(permissions_table));
 
         // Create 'valid_statuses' table for IN tests
         let valid_statuses_data = vec![
@@ -176,10 +124,7 @@ fn create_extended_context_customizer() -> Arc<dyn Fn(&mut ProcessorContext) + S
         ];
         let valid_statuses_table =
             MockTable::new("valid_statuses".to_string(), valid_statuses_data);
-        context.load_reference_table(
-            "valid_statuses",
-            Arc::new(valid_statuses_table) as Arc<dyn SqlQueryable + Send + Sync>,
-        );
+        context.load_reference_table("valid_statuses", Arc::new(valid_statuses_table));
 
         println!(
             "DEBUG: Injected {} test tables into context (extended)",

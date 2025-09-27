@@ -1,0 +1,41 @@
+# Trading Positions File Source Configuration
+# Configuration for reading trading positions from CSV file
+
+data_source:
+  type: file
+  path: "./demo/trading/data/trading_positions.csv"
+  format: csv
+  has_headers: true
+
+schema:
+  fields:
+    - name: trader_id
+      type: string
+      nullable: false
+    - name: symbol
+      type: string
+      nullable: false
+    - name: position_size
+      type: integer
+    - name: avg_price
+      type: decimal
+      precision: 10
+      scale: 4
+    - name: current_pnl
+      type: decimal
+      precision: 15
+      scale: 2
+    - name: sector
+      type: string
+    - name: strategy
+      type: string
+
+processing:
+  mode: batch
+  batch_size: 5000
+  refresh_interval: "1 minute"
+
+output:
+  retention: "7 days"
+  partitioning: "hash"
+  partition_key: "trader_id"

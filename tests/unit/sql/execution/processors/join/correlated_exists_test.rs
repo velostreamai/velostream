@@ -31,11 +31,7 @@ fn create_correlation_test_context() -> Arc<dyn Fn(&mut ProcessorContext) + Send
             TestDataBuilder::user_record(300, "Charlie", "charlie@example.com", "inactive"),
         ];
         let users_table = MockTable::new("users".to_string(), users_data);
-        context.load_reference_table(
-            "users",
-            Arc::new(users_table)
-                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
-        );
+        context.load_reference_table("users", Arc::new(users_table));
 
         // Orders table with specific user_id relationships
         let orders_data = vec![
@@ -45,11 +41,7 @@ fn create_correlation_test_context() -> Arc<dyn Fn(&mut ProcessorContext) + Send
                                                                                      // User 300 has NO orders - important for testing
         ];
         let orders_table = MockTable::new("orders".to_string(), orders_data);
-        context.load_reference_table(
-            "orders",
-            Arc::new(orders_table)
-                as Arc<dyn velostream::velostream::table::sql::SqlQueryable + Send + Sync>,
-        );
+        context.load_reference_table("orders", Arc::new(orders_table));
 
         println!(
             "DEBUG: Correlation test context loaded with {} tables",

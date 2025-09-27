@@ -74,7 +74,7 @@ pub fn extract_table_name(query: &StreamingQuery) -> Result<String, SqlError> {
 /// Extract WHERE clause from a SELECT query as a string
 ///
 /// This function converts the WHERE clause expression back to a string format
-/// that can be used with SqlQueryable methods like sql_filter() and sql_exists().
+/// that can be used with UnifiedTable methods like sql_column_values() and sql_scalar().
 ///
 /// # Arguments
 /// * `query` - The SELECT query to extract the WHERE clause from
@@ -229,7 +229,7 @@ pub fn extract_select_column(query: &StreamingQuery) -> Result<String, SqlError>
 /// Convert an AST expression to string representation
 ///
 /// This is a helper function that converts SQL AST expressions back to string format
-/// for use with SqlQueryable methods.
+/// for use with UnifiedTable methods.
 ///
 /// # Arguments
 /// * `expr` - The expression to convert to string

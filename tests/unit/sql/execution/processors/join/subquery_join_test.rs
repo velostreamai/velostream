@@ -8,6 +8,7 @@ Comprehensive test suite for JOIN operations involving subqueries:
 - Complex combinations and error cases
 */
 
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -16,7 +17,10 @@ use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::table::sql::SqlQueryable;
+use velostream::velostream::table::streaming::{
+    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+};
+use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
@@ -347,7 +351,7 @@ fn create_categories_table_data() -> Vec<StreamRecord> {
 
 /// Mock table implementation for testing
 ///
-/// Provides a simple in-memory table that implements SqlQueryable
+/// Provides a simple in-memory table that implements UnifiedTable
 /// for testing subquery execution without needing real data sources.
 pub struct MockTable {
     pub name: String,
@@ -470,34 +474,39 @@ impl MockTable {
     }
 }
 
-impl SqlQueryable for MockTable {
-    fn sql_filter(&self, where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
-        // For testing, return the first matching record's fields
-        for record in &self.records {
-            if self.evaluate_where_clause(record, where_clause) {
-                return Ok(record.fields.clone());
+#[async_trait]
+impl UnifiedTable for MockTable {
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        // For testing, try to parse an index from the key
+        if let Some(index_str) = key.strip_prefix(&format!("{}_", self.name)) {
+            if let Ok(index) = index_str.parse::<usize>() {
+                if let Some(record) = self.records.get(index) {
+                    return Ok(Some(record.fields.clone()));
+                }
             }
         }
-
-        // Return empty if no records match
-        Ok(HashMap::new())
+        Ok(None)
     }
 
-    fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError> {
-        // Check if any record matches the WHERE clause
-        for record in &self.records {
-            if self.evaluate_where_clause(record, where_clause) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    fn contains_key(&self, key: &str) -> bool {
+        self.get_record(key).unwrap_or(None).is_some()
     }
 
-    fn sql_column_values(
-        &self,
-        column: &str,
-        where_clause: &str,
-    ) -> Result<Vec<FieldValue>, SqlError> {
+    fn record_count(&self) -> usize {
+        self.records.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        Box::new(self.records.iter().enumerate().map(|(i, record)| {
+            (format!("{}_{}", self.name, i), record.fields.clone())
+        }))
+    }
+
+    fn sql_column_values(&self, column: &str, where_clause: &str) -> TableResult<Vec<FieldValue>> {
         let mut values = Vec::new();
 
         for record in &self.records {
@@ -511,7 +520,7 @@ impl SqlQueryable for MockTable {
         Ok(values)
     }
 
-    fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> Result<FieldValue, SqlError> {
+    fn sql_scalar(&self, select_expr: &str, where_clause: &str) -> TableResult<FieldValue> {
         // Simple implementation for COUNT(*) and other basic expressions
         if select_expr == "COUNT(*)" {
             let mut count = 0;
@@ -536,14 +545,45 @@ impl SqlQueryable for MockTable {
         Ok(FieldValue::Null)
     }
 
-    fn sql_wildcard_values(&self, wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
-        // For testing, we'll return empty vec as wildcard support is not needed for basic tests
-        Ok(Vec::new())
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        for (i, record) in self.records.iter().enumerate() {
+            let streaming_record = StreamingRecord {
+                key: format!("{}_{}", self.name, i),
+                fields: record.fields.clone(),
+            };
+            let _ = tx.send(Ok(streaming_record));
+        }
+
+        Ok(RecordStream { receiver: rx })
     }
 
-    fn sql_wildcard_aggregate(&self, aggregate_expr: &str) -> Result<FieldValue, SqlError> {
-        // For testing, we'll return NULL as wildcard aggregates are not needed for basic tests
-        Ok(FieldValue::Null)
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        self.stream_all().await
+    }
+
+    async fn query_batch(&self, _batch_size: usize, _offset: Option<usize>) -> StreamResult<RecordBatch> {
+        let mut records = Vec::new();
+        for (i, record) in self.records.iter().enumerate() {
+            records.push(StreamingRecord {
+                key: format!("{}_{}", self.name, i),
+                fields: record.fields.clone(),
+            });
+        }
+
+        Ok(RecordBatch {
+            records,
+            has_more: false,
+        })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(self.record_count())
+    }
+
+    async fn stream_aggregate(&self, _aggregate_expr: &str, _where_clause: Option<&str>) -> StreamResult<FieldValue> {
+        Ok(FieldValue::Integer(1))
     }
 }
 

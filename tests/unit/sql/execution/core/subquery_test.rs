@@ -16,7 +16,12 @@ use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::SqlError;
-use velostream::velostream::table::sql::SqlQueryable;
+// SqlQueryable removed - using UnifiedTable only
+use async_trait::async_trait;
+use velostream::velostream::table::streaming::{
+    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+};
+use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -41,103 +46,210 @@ fn create_test_record() -> StreamRecord {
     }
 }
 
-// Mock SqlQueryable implementation for testing
+// Mock UnifiedTable implementation for testing
 #[derive(Debug)]
 struct MockTable {
     name: String,
-    data: HashMap<String, FieldValue>,
+    records: Vec<HashMap<String, FieldValue>>,
 }
 
 impl MockTable {
     fn new(name: &str) -> Self {
-        let mut data = HashMap::new();
+        let mut records = Vec::new();
 
         // Add mock data based on table name
         match name {
             "config" => {
-                data.insert("valid_id".to_string(), FieldValue::Integer(42));
-                data.insert(
+                // First config record with active = true
+                let mut record1 = HashMap::new();
+                record1.insert("valid_id".to_string(), FieldValue::Integer(42));
+                record1.insert(
                     "valid_name".to_string(),
                     FieldValue::String("test_record".to_string()),
                 );
-                data.insert("enabled".to_string(), FieldValue::Boolean(true));
-                data.insert("max_value".to_string(), FieldValue::Integer(100));
-                data.insert(
+                record1.insert("enabled".to_string(), FieldValue::Boolean(true));
+                record1.insert("active".to_string(), FieldValue::Boolean(true));
+                record1.insert("max_value".to_string(), FieldValue::Integer(100));
+                record1.insert(
                     "config_type".to_string(),
                     FieldValue::String("test".to_string()),
                 );
-                data.insert("max_limit".to_string(), FieldValue::Integer(500));
+                record1.insert("max_limit".to_string(), FieldValue::Integer(500));
+                records.push(record1);
+
+                // Second config record with active = false
+                let mut record2 = HashMap::new();
+                record2.insert("valid_id".to_string(), FieldValue::Integer(43));
+                record2.insert(
+                    "valid_name".to_string(),
+                    FieldValue::String("inactive_record".to_string()),
+                );
+                record2.insert("enabled".to_string(), FieldValue::Boolean(false));
+                record2.insert("active".to_string(), FieldValue::Boolean(false));
+                record2.insert("max_value".to_string(), FieldValue::Integer(50));
+                record2.insert(
+                    "config_type".to_string(),
+                    FieldValue::String("test".to_string()),
+                );
+                record2.insert("max_limit".to_string(), FieldValue::Integer(250));
+                records.push(record2);
             }
             "permissions" => {
-                data.insert("user_id".to_string(), FieldValue::Integer(42));
-                data.insert(
+                let mut record = HashMap::new();
+                record.insert("user_id".to_string(), FieldValue::Integer(42));
+                record.insert(
                     "permission".to_string(),
                     FieldValue::String("read".to_string()),
                 );
+                records.push(record);
             }
             "orders" => {
-                data.insert("order_id".to_string(), FieldValue::Integer(1));
-                data.insert("user_id".to_string(), FieldValue::Integer(42));
+                let mut record = HashMap::new();
+                record.insert("order_id".to_string(), FieldValue::Integer(1));
+                record.insert("user_id".to_string(), FieldValue::Integer(42));
+                records.push(record);
             }
             "valid_statuses" => {
-                data.insert(
+                let mut record = HashMap::new();
+                record.insert(
                     "status".to_string(),
                     FieldValue::String("active".to_string()),
                 );
+                records.push(record);
+            }
+            "active_configs" => {
+                // Add some active configs for NOT EXISTS tests
+                let mut record = HashMap::new();
+                record.insert("config_id".to_string(), FieldValue::Integer(1));
+                record.insert("active".to_string(), FieldValue::Boolean(true));
+                records.push(record);
             }
             _ => {
                 // Default mock data
-                data.insert("id".to_string(), FieldValue::Integer(1));
-                data.insert("value".to_string(), FieldValue::String("mock".to_string()));
+                let mut record = HashMap::new();
+                record.insert("id".to_string(), FieldValue::Integer(1));
+                record.insert("value".to_string(), FieldValue::String("mock".to_string()));
+                records.push(record);
             }
         }
 
         MockTable {
             name: name.to_string(),
-            data,
+            records,
         }
     }
 }
 
-impl SqlQueryable for MockTable {
-    fn sql_filter(&self, _where_clause: &str) -> Result<HashMap<String, FieldValue>, SqlError> {
-        // Return mock data
-        Ok(self.data.clone())
-    }
+// SqlQueryable implementation removed - using UnifiedTable methods directly
 
-    fn sql_exists(&self, _where_clause: &str) -> Result<bool, SqlError> {
-        // EXISTS should return true for these tests to pass
-        Ok(true)
-    }
-
-    fn sql_column_values(
-        &self,
-        column: &str,
-        _where_clause: &str,
-    ) -> Result<Vec<FieldValue>, SqlError> {
-        // Return mock column values
-        if let Some(value) = self.data.get(column) {
-            Ok(vec![value.clone()])
-        } else {
-            Ok(vec![FieldValue::Integer(42)]) // Default mock value
+#[async_trait]
+impl UnifiedTable for MockTable {
+    fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
+        // Parse index from key format like "table_name_0", "table_name_1", etc.
+        if let Some(index_str) = key.strip_prefix(&format!("{}_", self.name)) {
+            if let Ok(index) = index_str.parse::<usize>() {
+                if let Some(record) = self.records.get(index) {
+                    return Ok(Some(record.clone()));
+                }
+            }
         }
+        Ok(None)
     }
 
-    fn sql_scalar(&self, _select_expr: &str, _where_clause: &str) -> Result<FieldValue, SqlError> {
+    fn contains_key(&self, key: &str) -> bool {
+        if let Some(index_str) = key.strip_prefix(&format!("{}_", self.name)) {
+            if let Ok(index) = index_str.parse::<usize>() {
+                return index < self.records.len();
+            }
+        }
+        false
+    }
+
+    fn record_count(&self) -> usize {
+        self.records.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
+        Box::new(
+            self.records
+                .iter()
+                .enumerate()
+                .map(|(i, record)| (format!("{}_{}", self.name, i), record.clone())),
+        )
+    }
+
+    fn sql_column_values(&self, column: &str, _where_clause: &str) -> TableResult<Vec<FieldValue>> {
+        let mut values = Vec::new();
+        for record in &self.records {
+            if let Some(value) = record.get(column) {
+                values.push(value.clone());
+            }
+        }
+        if values.is_empty() {
+            // Fallback for compatibility
+            values.push(FieldValue::Integer(42));
+        }
+        Ok(values)
+    }
+
+    fn sql_scalar(&self, _select_expr: &str, _where_clause: &str) -> TableResult<FieldValue> {
         // Return mock values based on what subquery tests expect
         Ok(FieldValue::Integer(1))
     }
 
-    fn sql_wildcard_values(&self, _wildcard_expr: &str) -> Result<Vec<FieldValue>, SqlError> {
-        // Return mock wildcard values
-        Ok(vec![
-            FieldValue::Integer(1),
-            FieldValue::String("mock".to_string()),
-        ])
+    async fn stream_all(&self) -> StreamResult<RecordStream> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        // Send all records
+        for (i, record) in self.records.iter().enumerate() {
+            let streaming_record = StreamingRecord {
+                key: format!("{}_{}", self.name, i),
+                fields: record.clone(),
+            };
+            let _ = tx.send(Ok(streaming_record));
+        }
+
+        Ok(RecordStream { receiver: rx })
     }
 
-    fn sql_wildcard_aggregate(&self, _aggregate_expr: &str) -> Result<FieldValue, SqlError> {
-        // Return mock aggregate value
+    async fn stream_filter(&self, _where_clause: &str) -> StreamResult<RecordStream> {
+        self.stream_all().await
+    }
+
+    async fn query_batch(
+        &self,
+        _batch_size: usize,
+        _offset: Option<usize>,
+    ) -> StreamResult<RecordBatch> {
+        let mut records = Vec::new();
+
+        // Add all records
+        for (i, record) in self.records.iter().enumerate() {
+            records.push(StreamingRecord {
+                key: format!("{}_{}", self.name, i),
+                fields: record.clone(),
+            });
+        }
+
+        Ok(RecordBatch {
+            records,
+            has_more: false,
+        })
+    }
+
+    async fn stream_count(&self, _where_clause: Option<&str>) -> StreamResult<usize> {
+        Ok(self.record_count())
+    }
+
+    async fn stream_aggregate(
+        &self,
+        _aggregate_expr: &str,
+        _where_clause: Option<&str>,
+    ) -> StreamResult<FieldValue> {
         Ok(FieldValue::Integer(1))
     }
 }

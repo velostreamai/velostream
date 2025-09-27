@@ -1,0 +1,26 @@
+# Kafka Realtime Configuration
+# Configuration for real-time Kafka data processing
+
+data_source:
+  type: kafka
+  brokers: "localhost:9092"
+  topic: "realtime-transactions"
+
+consumer:
+  group_id: "realtime-analytics"
+  auto_offset_reset: "latest"
+  max_poll_records: 1000
+
+serialization:
+  format: avro
+  schema_registry:
+    url: "http://localhost:8081"
+    schema_id: 123
+
+processing:
+  mode: "streaming"
+  checkpoint_interval: "30 seconds"
+
+output:
+  partitioning: "hash"
+  partition_key: "product_id"

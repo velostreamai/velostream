@@ -325,7 +325,6 @@ impl StreamingSqlParser {
         keywords.insert("TOPICS".to_string(), TokenType::Topics);
         keywords.insert("FUNCTIONS".to_string(), TokenType::Functions);
         keywords.insert("SCHEMA".to_string(), TokenType::Schema);
-        keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
         keywords.insert("JOBS".to_string(), TokenType::Jobs);
         keywords.insert("PARTITIONS".to_string(), TokenType::Partitions);
         keywords.insert("START".to_string(), TokenType::Start);
@@ -342,9 +341,7 @@ impl StreamingSqlParser {
         keywords.insert("CANARY".to_string(), TokenType::Canary);
         keywords.insert("ROLLING".to_string(), TokenType::Rolling);
         keywords.insert("REPLACE".to_string(), TokenType::Replace);
-        keywords.insert("STATUS".to_string(), TokenType::Status);
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
-        keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
 
         // Emit Mode Keywords
@@ -886,6 +883,7 @@ impl<'a> TokenParser<'a> {
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
+        let mut _from_with_options: Option<std::collections::HashMap<String, String>> = None;
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
@@ -915,6 +913,91 @@ impl<'a> TokenParser<'a> {
                 let alias = self.current_token().value.clone();
                 self.advance();
                 Some(alias)
+            } else {
+                None
+            };
+
+            // Parse WITH clause for FROM source (e.g., "FROM kafka_source WITH (...)")
+            _from_with_options = if self.current_token().token_type == TokenType::With {
+                self.advance(); // consume WITH
+                self.expect(TokenType::LeftParen)?;
+
+                let mut options = std::collections::HashMap::new();
+
+                // Parse key-value pairs
+                loop {
+                    if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    }
+
+                    // Parse key
+                    let key = match self.current_token().token_type {
+                        TokenType::String => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        TokenType::Identifier => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    self.expect(TokenType::Equal)?;
+
+                    // Parse value
+                    let value = match self.current_token().token_type {
+                        TokenType::String => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Identifier => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Number => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    options.insert(key, value);
+
+                    // Check for comma or end
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance();
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected comma or closing parenthesis in WITH clause"
+                                .to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                self.expect(TokenType::RightParen)?;
+                Some(options)
             } else {
                 None
             };
@@ -1031,6 +1114,17 @@ impl<'a> TokenParser<'a> {
                 None
             };
 
+            // Combine FROM WITH properties with INSERT INTO WITH properties
+            let combined_properties = match (_from_with_options, _properties) {
+                (Some(mut from_props), Some(into_props)) => {
+                    from_props.extend(into_props);
+                    Some(from_props)
+                }
+                (Some(from_props), None) => Some(from_props),
+                (None, Some(into_props)) => Some(into_props),
+                (None, None) => None,
+            };
+
             // Determine if from_stream is a URI or named stream
             let from_source = if from_stream.contains("://") {
                 StreamSource::Uri(from_stream)
@@ -1051,7 +1145,7 @@ impl<'a> TokenParser<'a> {
                 order_by,
                 limit,
                 emit_mode,
-                properties: _properties,
+                properties: combined_properties,
             };
 
             // Consume optional semicolon
@@ -1068,10 +1162,21 @@ impl<'a> TokenParser<'a> {
         }
 
         // Parse optional WITH clause for SELECT statements
-        let properties = if self.current_token().token_type == TokenType::With {
+        let with_properties = if self.current_token().token_type == TokenType::With {
             Some(self.parse_with_properties()?)
         } else {
             None
+        };
+
+        // Combine FROM WITH properties with SELECT WITH properties
+        let combined_properties = match (_from_with_options, with_properties) {
+            (Some(mut from_props), Some(select_props)) => {
+                from_props.extend(select_props);
+                Some(from_props)
+            }
+            (Some(from_props), None) => Some(from_props),
+            (None, Some(select_props)) => Some(select_props),
+            (None, None) => None,
         };
 
         // Determine if from_stream is a URI or named stream
@@ -1096,7 +1201,7 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
-            properties,
+            properties: combined_properties,
         };
 
         // Check for UNION after SELECT
@@ -1124,6 +1229,228 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    fn parse_select_for_create_table(&mut self) -> Result<StreamingQuery, SqlError> {
+        // Similar to parse_select_no_with but without consuming semicolon
+        // to allow CREATE TABLE parser to continue with WITH clause
+        self.expect(TokenType::Select)?;
+
+        let fields = self.parse_select_fields()?;
+
+        // FROM clause is optional (for scalar subqueries like SELECT 1)
+        let mut from_alias = None;
+        let mut _from_with_options: Option<std::collections::HashMap<String, String>> = None;
+        let from_stream = if self.current_token().token_type == TokenType::From {
+            self.advance(); // consume FROM
+
+            // Support both identifiers and URI strings (FR-047)
+            let stream_name = match self.current_token().token_type {
+                TokenType::Identifier => {
+                    let name = self.current_token().value.clone();
+                    self.advance();
+
+                    // Check for alias (AS keyword or direct identifier)
+                    if self.current_token().token_type == TokenType::As {
+                        self.advance(); // consume AS
+                        from_alias = Some(self.expect(TokenType::Identifier)?.value);
+                    } else if self.current_token().token_type == TokenType::Identifier {
+                        // Direct alias without AS keyword
+                        from_alias = Some(self.current_token().value.clone());
+                        self.advance();
+                    }
+
+                    name
+                }
+                TokenType::String => {
+                    let uri = self.current_token().value.clone();
+                    self.advance();
+                    uri
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected stream name or data source URI after FROM".to_string(),
+                        position: Some(self.current_token().position),
+                    });
+                }
+            };
+
+            // Parse WITH clause for FROM source (e.g., "FROM kafka_source WITH (...)")
+            _from_with_options = if self.current_token().token_type == TokenType::With {
+                self.advance(); // consume WITH
+                self.expect(TokenType::LeftParen)?;
+
+                let mut options = std::collections::HashMap::new();
+
+                // Parse key-value pairs
+                loop {
+                    if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    }
+
+                    // Parse key
+                    let key = match self.current_token().token_type {
+                        TokenType::String => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        TokenType::Identifier => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    self.expect(TokenType::Equal)?;
+
+                    // Parse value
+                    let value = match self.current_token().token_type {
+                        TokenType::String => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Identifier => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Number => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    options.insert(key, value);
+
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance();
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        // End of options
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected ',' or ')' in WITH options".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                self.expect(TokenType::RightParen)?;
+                Some(options)
+            } else {
+                None
+            };
+
+            stream_name
+        } else {
+            // No FROM clause - use a dummy stream name for scalar queries
+            "".to_string()
+        };
+
+        // Parse JOIN clauses
+        let joins = self.parse_join_clauses()?;
+
+        let mut where_clause = None;
+        if self.current_token().token_type == TokenType::Where {
+            self.advance();
+            where_clause = Some(self.parse_expression()?);
+        }
+
+        let mut group_by = None;
+        if self.current_token().token_type == TokenType::GroupBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            group_by = Some(self.parse_group_by_list()?);
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
+        }
+
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        let mut order_by = None;
+        if self.current_token().token_type == TokenType::OrderBy {
+            self.advance();
+            self.expect_keyword("BY")?;
+            order_by = Some(self.parse_order_by_list()?);
+        }
+
+        let mut limit = None;
+        if self.current_token().token_type == TokenType::Limit {
+            self.advance();
+            limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+        }
+
+        // Determine if from_stream is a URI or named stream
+        let from_source = if from_stream.contains("://") {
+            StreamSource::Uri(from_stream)
+        } else {
+            StreamSource::Stream(from_stream) // Both scalar queries and named streams
+        };
+
+        // Parse optional EMIT clause
+        let mut emit_mode = None;
+        if self.current_token().token_type == TokenType::Emit {
+            self.advance();
+            match self.current_token().token_type {
+                TokenType::Changes => {
+                    self.advance();
+                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Changes);
+                }
+                TokenType::Final => {
+                    self.advance();
+                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Final);
+                }
+                _ => {
+                    return Err(SqlError::ParseError {
+                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
+                        position: Some(self.current),
+                    });
+                }
+            }
+        }
+
+        // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
+
+        Ok(StreamingQuery::Select {
+            fields,
+            from: from_source,
+            from_alias,
+            joins,
+            where_clause,
+            group_by,
+            having,
+            window,
+            order_by,
+            limit,
+            emit_mode,
+            properties: _from_with_options, // WITH clause options from FROM source
+        })
+    }
+
     fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
@@ -1131,6 +1458,7 @@ impl<'a> TokenParser<'a> {
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
+        let mut _from_with_options: Option<std::collections::HashMap<String, String>> = None;
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
@@ -1160,6 +1488,91 @@ impl<'a> TokenParser<'a> {
                 let alias = self.current_token().value.clone();
                 self.advance();
                 Some(alias)
+            } else {
+                None
+            };
+
+            // Parse WITH clause for FROM source (e.g., "FROM kafka_source WITH (...)")
+            _from_with_options = if self.current_token().token_type == TokenType::With {
+                self.advance(); // consume WITH
+                self.expect(TokenType::LeftParen)?;
+
+                let mut options = std::collections::HashMap::new();
+
+                // Parse key-value pairs
+                loop {
+                    if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    }
+
+                    // Parse key
+                    let key = match self.current_token().token_type {
+                        TokenType::String => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        TokenType::Identifier => {
+                            let k = self.current_token().value.clone();
+                            self.advance();
+                            k
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message: "Expected string or identifier for WITH option key"
+                                    .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    self.expect(TokenType::Equal)?;
+
+                    // Parse value
+                    let value = match self.current_token().token_type {
+                        TokenType::String => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Identifier => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        TokenType::Number => {
+                            let v = self.current_token().value.clone();
+                            self.advance();
+                            v
+                        }
+                        _ => {
+                            return Err(SqlError::ParseError {
+                                message:
+                                    "Expected string, identifier, or number for WITH option value"
+                                        .to_string(),
+                                position: Some(self.current_token().position),
+                            });
+                        }
+                    };
+
+                    options.insert(key, value);
+
+                    // Check for comma or end
+                    if self.current_token().token_type == TokenType::Comma {
+                        self.advance();
+                    } else if self.current_token().token_type == TokenType::RightParen {
+                        break;
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected comma or closing parenthesis in WITH clause"
+                                .to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
+                self.expect(TokenType::RightParen)?;
+                Some(options)
             } else {
                 None
             };
@@ -1267,7 +1680,7 @@ impl<'a> TokenParser<'a> {
             order_by,
             limit,
             emit_mode,
-            properties: None, // No WITH clause parsing in job contexts
+            properties: _from_with_options, // WITH clause options from FROM source
         };
 
         // Check for UNION after SELECT
@@ -1895,8 +2308,7 @@ impl<'a> TokenParser<'a> {
                             self.advance();
                             field_name
                         }
-                        TokenType::Status
-                        | TokenType::Join
+                        TokenType::Join
                         | TokenType::Left
                         | TokenType::Right
                         | TokenType::Inner
@@ -1904,8 +2316,7 @@ impl<'a> TokenParser<'a> {
                         | TokenType::Outer
                         | TokenType::On
                         | TokenType::Within
-                        | TokenType::Versions
-                        | TokenType::Metrics => {
+                        | TokenType::Versions => {
                             let field_name = self.current_token().value.clone();
                             self.advance();
                             field_name
@@ -1931,8 +2342,7 @@ impl<'a> TokenParser<'a> {
             | TokenType::Outer
             | TokenType::On
             | TokenType::Within
-            | TokenType::Replace
-            | TokenType::Status => {
+            | TokenType::Replace => {
                 if self.peek_token(1).map(|t| &t.token_type) == Some(&TokenType::LeftParen) {
                     // This keyword is being used as a function name
                     let function_name = token.value;
@@ -2562,7 +2972,8 @@ impl<'a> TokenParser<'a> {
         };
 
         self.expect(TokenType::As)?;
-        let as_select = Box::new(self.parse_select()?);
+        // Use parse_select_for_create_table to avoid consuming the WITH clause that belongs to CREATE STREAM
+        let as_select = Box::new(self.parse_select_for_create_table()?);
 
         // Check for INTO clause (new syntax)
         if self.current_token().token_type == TokenType::Into {
@@ -2598,8 +3009,13 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
-        // Parse optional EMIT clause for CREATE STREAM
-        let emit_mode = self.parse_emit_clause()?;
+        // For CREATE STREAM AS SELECT, the EMIT clause should be in the SELECT, not at CREATE STREAM level
+        // Only parse EMIT at this level if it exists (which would be unusual)
+        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
 
         // Consume optional semicolon
         self.consume_semicolon();
@@ -2625,7 +3041,8 @@ impl<'a> TokenParser<'a> {
         };
 
         self.expect(TokenType::As)?;
-        let as_select = Box::new(self.parse_select()?);
+        // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
+        let as_select = Box::new(self.parse_select_for_create_table()?);
 
         // Check for INTO clause (new syntax)
         if self.current_token().token_type == TokenType::Into {
@@ -2661,8 +3078,13 @@ impl<'a> TokenParser<'a> {
             HashMap::new()
         };
 
-        // Parse optional EMIT clause for CREATE TABLE
-        let emit_mode = self.parse_emit_clause()?;
+        // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
+        // Only parse EMIT at this level if it exists (which would be unusual)
+        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
 
         // Consume optional semicolon
         self.consume_semicolon();
@@ -3021,7 +3443,7 @@ impl<'a> TokenParser<'a> {
                 self.advance();
                 ShowResourceType::Jobs
             }
-            TokenType::Status => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "STATUS" => {
                 self.advance();
                 // Optional specific query name
                 let name = if self.current_token().token_type == TokenType::Identifier {
@@ -3037,7 +3459,7 @@ impl<'a> TokenParser<'a> {
                 let name = self.expect(TokenType::Identifier)?.value;
                 ShowResourceType::JobVersions { name }
             }
-            TokenType::Metrics => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "METRICS" => {
                 self.advance();
                 // Optional specific job name
                 let name = if self.current_token().token_type == TokenType::Identifier {
@@ -3053,7 +3475,7 @@ impl<'a> TokenParser<'a> {
                 let name = self.expect(TokenType::Identifier)?.value;
                 ShowResourceType::Schema { name }
             }
-            TokenType::Properties => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "PROPERTIES" => {
                 self.advance();
                 // Expect resource type and name: SHOW PROPERTIES STREAM stream_name
                 // Handle both identifier and keyword tokens for resource type

@@ -9,6 +9,9 @@ use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
 };
+use crate::velostream::server::table_registry::{
+    TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
+};
 use crate::velostream::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
@@ -28,6 +31,8 @@ pub struct StreamJobServer {
     max_jobs: usize,
     job_counter: Arc<Mutex<u64>>,
     performance_monitor: Option<Arc<PerformanceMonitor>>,
+    /// Shared table registry for managing CTAS-created tables
+    table_registry: TableRegistry,
 }
 
 #[derive(Debug)]
@@ -103,12 +108,21 @@ impl StreamJobServer {
             None
         };
 
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             base_group_id,
             max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
+            table_registry: TableRegistry::with_config(table_registry_config),
         }
     }
 
@@ -236,8 +250,42 @@ impl StreamJobServer {
         let parser = StreamingSqlParser::new();
         let parsed_query = parser.parse(&query)?;
 
+        // Extract table dependencies and ensure they exist
+        let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
+        if !required_tables.is_empty() {
+            info!("Job '{}' requires tables: {:?}", name, required_tables);
+
+            // Check that all required tables exist in the registry
+            let mut missing_tables = Vec::new();
+
+            for table_name in &required_tables {
+                if !self.table_registry.exists(table_name).await {
+                    missing_tables.push(table_name.clone());
+                }
+            }
+
+            if !missing_tables.is_empty() {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Job '{}' cannot be deployed: missing required tables: {:?}\n\
+                        Create them first using: CREATE TABLE <name> AS SELECT ...",
+                        name, missing_tables
+                    ),
+                    query: Some(query),
+                });
+            }
+
+            info!("Job '{}': All required tables exist in registry", name);
+        } else {
+            info!("Job '{}' has no table dependencies", name);
+        }
+
         // Analyze query to determine required resources
-        let analyzer = QueryAnalyzer::new(self.base_group_id.clone());
+        let mut analyzer = QueryAnalyzer::new(self.base_group_id.clone());
+
+        // Register known tables to skip external source validation
+        analyzer.add_known_tables(required_tables.clone());
+
         let analysis = analyzer.analyze(&parsed_query)?;
 
         // Extract batch configuration from WITH clauses
@@ -259,6 +307,39 @@ impl StreamJobServer {
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
             execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
+        }
+
+        // Inject shared tables into execution context if any required
+        if !required_tables.is_empty() {
+            let table_registry = self.table_registry.clone();
+            let required_tables_clone = required_tables.clone();
+
+            execution_engine.context_customizer = Some(Arc::new(move |context| {
+                // Use blocking task to get tables
+                let tables_to_inject = tokio::task::block_in_place(|| {
+                    let runtime = tokio::runtime::Handle::current();
+                    runtime.block_on(async {
+                        let mut tables = HashMap::new();
+                        for table_name in &required_tables_clone {
+                            if let Ok(table) = table_registry.get_table(table_name).await {
+                                tables.insert(table_name.clone(), table);
+                                info!("Injected table '{}' into job execution context", table_name);
+                            }
+                        }
+                        tables
+                    })
+                });
+
+                for (table_name, table) in tables_to_inject {
+                    context.load_reference_table(&table_name, table);
+                }
+            }));
+
+            info!(
+                "Job '{}': Configured table injection for {} tables",
+                name,
+                required_tables.len()
+            );
         }
 
         let execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
@@ -495,6 +576,58 @@ impl StreamJobServer {
             name, version, topic
         );
         Ok(())
+    }
+
+    /// Create a shared table via CREATE TABLE AS SELECT
+    /// This table will be available for all future SQL jobs to reference
+    pub async fn create_table(&self, ctas_query: String) -> Result<String, SqlError> {
+        self.table_registry.create_table(ctas_query).await
+    }
+
+    /// Get list of all available tables
+    pub async fn list_tables(&self) -> Vec<String> {
+        self.table_registry.list_tables().await
+    }
+
+    /// Check if a table exists in the registry
+    pub async fn table_exists(&self, table_name: &str) -> bool {
+        self.table_registry.exists(table_name).await
+    }
+
+    /// Get a reference to a table (for internal use)
+    pub async fn get_table(
+        &self,
+        table_name: &str,
+    ) -> Result<Arc<dyn crate::velostream::table::unified_table::UnifiedTable>, SqlError> {
+        self.table_registry.get_table(table_name).await
+    }
+
+    /// Drop a table and stop its background population job
+    pub async fn drop_table(&self, table_name: &str) -> Result<(), SqlError> {
+        self.table_registry.drop_table(table_name).await
+    }
+
+    /// Get statistics about all tables
+    pub async fn get_table_stats(&self) -> HashMap<String, TableStatsInfo> {
+        self.table_registry.get_all_table_stats().await
+    }
+
+    /// Clean up inactive tables based on TTL
+    pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
+        self.table_registry.cleanup_inactive_tables().await
+    }
+
+    /// Get health status of all tables
+    pub async fn get_tables_health(&self) -> HashMap<String, String> {
+        let health_reports = self.table_registry.get_health_status().await;
+        let mut health = HashMap::new();
+
+        for report in health_reports {
+            let status_str = format!("{:?}", report.status);
+            health.insert(report.table_name, status_str);
+        }
+
+        health
     }
 
     pub async fn stop_job(&self, name: &str) -> Result<(), SqlError> {

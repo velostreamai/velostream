@@ -1,0 +1,27 @@
+{
+  "data_source": {
+    "type": "file",
+    "path": "/data/reviews.json",
+    "format": "json",
+    "compression": "gzip"
+  },
+  "processing": {
+    "mode": "batch",
+    "batch_size": 10000,
+    "parallel_readers": 4
+  },
+  "schema": {
+    "fields": [
+      {"name": "review_id", "type": "string"},
+      {"name": "product_id", "type": "string"},
+      {"name": "user_id", "type": "string"},
+      {"name": "rating", "type": "integer", "min": 1, "max": 5},
+      {"name": "review_text", "type": "string"},
+      {"name": "created_at", "type": "timestamp"}
+    ]
+  },
+  "output": {
+    "format": "parquet",
+    "compression": "snappy"
+  }
+}

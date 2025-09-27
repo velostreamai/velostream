@@ -2,6 +2,7 @@
 // These tests interact with actual Kafka instances and may be slow
 
 pub mod builder_pattern_test;
+mod ctas_end_to_end_integration_test;
 pub mod emit_functionality_test;
 pub mod execution_engine_test;
 pub mod failure_recovery_test;
