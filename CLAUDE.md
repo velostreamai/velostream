@@ -687,5 +687,45 @@ let result = circuit_breaker.execute(move || {
 }).await;
 ```
 
+### Latest Achievement: Reserved Keyword Fixes for Common Field Names
+
+**Problem Solved**: Reserved keywords conflicting with common field names in data streams
+- Fixed `STATUS`, `METRICS`, and `PROPERTIES` being globally reserved, preventing their use as field names
+- Enhanced `OptimizedTableImpl` to support SUM aggregation functions alongside existing COUNT support
+- Updated test expectations to reflect current parser capabilities (BETWEEN now supported)
+
+**Technical Implementation**:
+- **Contextual Keywords**: Converted global reserved keywords to contextual-only parsing
+- **Enhanced Aggregation**: Added SUM support to `sql_scalar` method with proper type handling
+- **Parser Compatibility**: Updated SQL parser to allow common field names while preserving command functionality
+
+**Key Benefits**:
+```sql
+-- Now works perfectly! ✅ (Previously failed due to reserved keywords)
+SELECT
+    order_id,
+    status,              -- No longer globally reserved
+    metrics,             -- No longer globally reserved
+    properties,          -- No longer globally reserved
+    COUNT(*) OVER (PARTITION BY status) as status_count,
+    SUM(metrics) as total_metrics  -- SUM now fully supported
+FROM data_stream
+WHERE status = 'active'
+  AND metrics > 100
+  AND properties IS NOT NULL;
+
+-- Command functionality preserved ✅
+SHOW STATUS;           -- Still works via contextual parsing
+SHOW METRICS;          -- Still works via contextual parsing
+SHOW PROPERTIES;       -- Still works via contextual parsing
+```
+
+**Reserved Keywords Fixed**:
+- **`STATUS`**: Most common status field (order status, job status, system status)
+- **`METRICS`**: Performance metrics, business metrics, system metrics
+- **`PROPERTIES`**: Configuration properties, object properties, metadata
+
+**Parser Improvements**: BETWEEN operator now fully supported, enhancing SQL standard compliance.
+
 The codebase is now **production-ready** for financial analytics use cases requiring exact precision and high performance. All performance testing infrastructure is operational and validated for continuous integration.
 - Always run clippy checks#

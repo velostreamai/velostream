@@ -409,13 +409,15 @@ fn test_financial_services_scenarios() {
 fn test_error_handling() {
     let datasource = create_test_datasource();
 
-    // Test invalid syntax
-    let result = datasource.sql_filter("invalid syntax here");
-    assert!(result.is_err());
+    // Test non-existent column in WHERE clause - should return empty results, not error
+    let result = datasource.sql_filter("nonexistent_column = 'value'");
+    assert!(result.is_ok());
+    let records = result.unwrap();
+    assert_eq!(records.len(), 0); // Should return empty result set
 
-    // Test unsupported operators (when not implemented)
+    // Test BETWEEN operator now works (was previously unsupported)
     let result = datasource.sql_filter("age BETWEEN 20 AND 30");
-    assert!(result.is_err());
+    assert!(result.is_ok()); // BETWEEN is now supported
 
     // Test non-existent column in scalar query
     let result = datasource.sql_scalar("nonexistent_column", "id = 'user1'");

@@ -1006,6 +1006,28 @@ impl UnifiedTable for OptimizedTableImpl {
                 }
                 _ => FieldValue::Integer(self.record_count() as i64),
             }
+        } else if select_expr.to_uppercase().starts_with("SUM") {
+            // SUM aggregation queries
+            let upper_expr = select_expr.to_uppercase();
+            if let Some(start) = upper_expr.find('(') {
+                if let Some(end) = upper_expr.find(')') {
+                    let column = &select_expr[start + 1..end];
+                    let values = self.sql_column_values(column, where_clause)?;
+
+                    let sum = values.iter().fold(0i64, |acc, val| match val {
+                        FieldValue::Integer(i) => acc + i,
+                        FieldValue::ScaledInteger(value, _) => acc + value,
+                        FieldValue::Float(f) => acc + (*f as i64),
+                        _ => acc,
+                    });
+
+                    FieldValue::Integer(sum)
+                } else {
+                    FieldValue::Null
+                }
+            } else {
+                FieldValue::Null
+            }
         } else {
             // For other scalar queries, get the first matching value
             let column_values = self.sql_column_values(select_expr, where_clause)?;
