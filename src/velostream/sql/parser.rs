@@ -325,7 +325,6 @@ impl StreamingSqlParser {
         keywords.insert("TOPICS".to_string(), TokenType::Topics);
         keywords.insert("FUNCTIONS".to_string(), TokenType::Functions);
         keywords.insert("SCHEMA".to_string(), TokenType::Schema);
-        keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
         keywords.insert("JOBS".to_string(), TokenType::Jobs);
         keywords.insert("PARTITIONS".to_string(), TokenType::Partitions);
         keywords.insert("START".to_string(), TokenType::Start);
@@ -343,7 +342,6 @@ impl StreamingSqlParser {
         keywords.insert("ROLLING".to_string(), TokenType::Rolling);
         keywords.insert("REPLACE".to_string(), TokenType::Replace);
         keywords.insert("VERSIONS".to_string(), TokenType::Versions);
-        keywords.insert("METRICS".to_string(), TokenType::Metrics);
         keywords.insert("DESCRIBE".to_string(), TokenType::Describe);
 
         // Emit Mode Keywords
@@ -2318,8 +2316,7 @@ impl<'a> TokenParser<'a> {
                         | TokenType::Outer
                         | TokenType::On
                         | TokenType::Within
-                        | TokenType::Versions
-                        | TokenType::Metrics => {
+                        | TokenType::Versions => {
                             let field_name = self.current_token().value.clone();
                             self.advance();
                             field_name
@@ -3462,7 +3459,7 @@ impl<'a> TokenParser<'a> {
                 let name = self.expect(TokenType::Identifier)?.value;
                 ShowResourceType::JobVersions { name }
             }
-            TokenType::Metrics => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "METRICS" => {
                 self.advance();
                 // Optional specific job name
                 let name = if self.current_token().token_type == TokenType::Identifier {
@@ -3478,7 +3475,7 @@ impl<'a> TokenParser<'a> {
                 let name = self.expect(TokenType::Identifier)?.value;
                 ShowResourceType::Schema { name }
             }
-            TokenType::Properties => {
+            TokenType::Identifier if self.current_token().value.to_uppercase() == "PROPERTIES" => {
                 self.advance();
                 // Expect resource type and name: SHOW PROPERTIES STREAM stream_name
                 // Handle both identifier and keyword tokens for resource type

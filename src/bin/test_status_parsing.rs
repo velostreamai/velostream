@@ -54,5 +54,56 @@ fn main() {
         Err(e) => println!("❌ Complex query with status: FAILED - {}", e),
     }
 
+    // Test 6: metrics as field name
+    println!("\n6️⃣ Testing 'metrics' as field name...");
+    let sql_metrics_field = "SELECT id, name, metrics FROM performance WHERE metrics > 100";
+    match parser.parse(sql_metrics_field) {
+        Ok(_) => println!("✅ 'metrics' as field name: PASSED"),
+        Err(e) => println!("❌ 'metrics' as field name: FAILED - {}", e),
+    }
+
+    // Test 7: properties as field name
+    println!("\n7️⃣ Testing 'properties' as field name...");
+    let sql_properties_field = "SELECT id, name, properties FROM config WHERE properties IS NOT NULL";
+    match parser.parse(sql_properties_field) {
+        Ok(_) => println!("✅ 'properties' as field name: PASSED"),
+        Err(e) => println!("❌ 'properties' as field name: FAILED - {}", e),
+    }
+
+    // Test 8: SHOW METRICS command (should still work)
+    println!("\n8️⃣ Testing 'SHOW METRICS' command...");
+    let sql_show_metrics = "SHOW METRICS";
+    match parser.parse(sql_show_metrics) {
+        Ok(_) => println!("✅ 'SHOW METRICS': PASSED"),
+        Err(e) => println!("❌ 'SHOW METRICS': FAILED - {}", e),
+    }
+
+    // Test 9: SHOW PROPERTIES command (should still work)
+    println!("\n9️⃣ Testing 'SHOW PROPERTIES' command...");
+    let sql_show_properties = "SHOW PROPERTIES STREAM my_stream";
+    match parser.parse(sql_show_properties) {
+        Ok(_) => println!("✅ 'SHOW PROPERTIES': PASSED"),
+        Err(e) => println!("❌ 'SHOW PROPERTIES': FAILED - {}", e),
+    }
+
+    // Test 10: Complex query with all fixed fields
+    println!("\n🔟 Testing complex query with all fixed fields...");
+    let sql_all_fields = r#"
+        SELECT
+            id,
+            name,
+            status,
+            metrics,
+            properties,
+            COUNT(*) OVER (PARTITION BY status) as status_count,
+            AVG(metrics) OVER (PARTITION BY properties) as avg_metrics
+        FROM data_source
+        WHERE status = 'active' AND metrics > 0 AND properties IS NOT NULL
+    "#;
+    match parser.parse(sql_all_fields) {
+        Ok(_) => println!("✅ Complex query with all fixed fields: PASSED"),
+        Err(e) => println!("❌ Complex query with all fixed fields: FAILED - {}", e),
+    }
+
     println!("\n🎉 All tests completed!");
 }
