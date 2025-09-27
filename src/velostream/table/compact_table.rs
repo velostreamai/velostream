@@ -409,6 +409,11 @@ pub struct MemoryStats {
 /// Provides optimized table operations with memory-efficient storage
 #[async_trait::async_trait]
 impl UnifiedTable for CompactTable<String> {
+    /// Enable downcasting (returns self)
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         Ok(self.get(&key.to_string()))
     }

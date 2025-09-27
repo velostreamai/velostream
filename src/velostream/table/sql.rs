@@ -196,6 +196,11 @@ impl Default for TableDataSource {
 // Implement UnifiedTable trait for TableDataSource for compatibility
 #[async_trait]
 impl UnifiedTable for TableDataSource {
+    /// Enable downcasting (returns self)
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn get_record(&self, key: &str) -> Result<Option<HashMap<String, FieldValue>>, SqlError> {
         self.table.get_record(key)
     }
