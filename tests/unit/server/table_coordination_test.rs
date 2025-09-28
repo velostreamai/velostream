@@ -165,24 +165,24 @@ fn test_extract_table_dependencies_fixed() {
     use velostream::velostream::server::table_registry::TableRegistry;
     use velostream::velostream::sql::StreamingSqlParser;
 
-    // Test: Extract table names from various queries
+    // Test: Extract table names from various queries using proper stream source syntax
     let parser = StreamingSqlParser::new();
 
-    // Query with single table join
-    let query1 = "SELECT * FROM stream JOIN table1 ON stream.id = table1.id";
+    // Query with single table join - using kafka:// URI format that parser expects
+    let query1 = "SELECT * FROM kafka://localhost:9092/stream_topic JOIN table1 ON stream_topic.id = table1.id";
     let parsed1 = parser.parse(query1).unwrap();
     let tables1 = TableRegistry::extract_table_dependencies(&parsed1);
     assert!(tables1.contains(&"table1".to_string()));
 
     // Query with multiple table joins
-    let query2 = "SELECT * FROM stream JOIN table1 ON stream.a = table1.a JOIN table2 ON stream.b = table2.b";
+    let query2 = "SELECT * FROM kafka://localhost:9092/trades JOIN table1 ON trades.a = table1.a JOIN table2 ON trades.b = table2.b";
     let parsed2 = parser.parse(query2).unwrap();
     let tables2 = TableRegistry::extract_table_dependencies(&parsed2);
     assert!(tables2.contains(&"table1".to_string()));
     assert!(tables2.contains(&"table2".to_string()));
 
-    // Query with no table dependencies
-    let query3 = "SELECT * FROM stream1 JOIN stream2 ON stream1.id = stream2.id";
+    // Query with no table dependencies - only streams
+    let query3 = "SELECT * FROM kafka://localhost:9092/stream1 JOIN kafka://localhost:9092/stream2 ON stream1.id = stream2.id";
     let parsed3 = parser.parse(query3).unwrap();
     let tables3 = TableRegistry::extract_table_dependencies(&parsed3);
     assert_eq!(tables3.len(), 0, "Should have no table dependencies");
