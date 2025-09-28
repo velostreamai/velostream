@@ -136,17 +136,28 @@ where
     /// # Examples
     ///
     /// ```rust,no_run
-    /// let mut props = HashMap::new();
-    /// props.insert("auto.offset.reset".to_string(), "latest".to_string());
-    /// props.insert("topic.wait.timeout".to_string(), "30s".to_string());
+    /// use std::collections::HashMap;
+    /// use velostream::velostream::table::Table;
+    /// use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    /// use velostream::velostream::kafka::serialization::JsonSerializer;
+    /// use velostream::velostream::serialization::JsonFormat;
     ///
-    /// let table = Table::new_with_properties(
-    ///     consumer_config,
-    ///     "topic".to_string(),
-    ///     key_serializer,
-    ///     value_format,
-    ///     props,
-    /// ).await?;
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut props = HashMap::new();
+    ///     props.insert("auto.offset.reset".to_string(), "latest".to_string());
+    ///     props.insert("topic.wait.timeout".to_string(), "30s".to_string());
+    ///
+    ///     let consumer_config = ConsumerConfig::new("localhost:9092", "test-group");
+    ///     let table: Table<String, JsonSerializer, JsonFormat> = Table::new_with_properties(
+    ///         consumer_config,
+    ///         "topic".to_string(),
+    ///         JsonSerializer,
+    ///         JsonFormat,
+    ///         props,
+    ///     ).await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn new_with_properties(
         consumer_config: ConsumerConfig,

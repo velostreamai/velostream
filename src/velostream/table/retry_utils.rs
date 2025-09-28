@@ -26,8 +26,8 @@ pub fn parse_duration(duration_str: &str) -> Option<Duration> {
         (duration_str.as_str(), "s")
     };
 
-    // Parse the numeric part
-    let number: f64 = match number_part.parse() {
+    // Parse the numeric part (trim whitespace)
+    let number: f64 = match number_part.trim().parse() {
         Ok(n) => n,
         Err(_) => return None,
     };
@@ -36,8 +36,8 @@ pub fn parse_duration(duration_str: &str) -> Option<Duration> {
         return None;
     }
 
-    // Convert based on unit
-    let duration = match unit_part {
+    // Convert based on unit (trim whitespace)
+    let duration = match unit_part.trim() {
         "ms" | "millis" | "milliseconds" => Duration::from_millis(number as u64),
         "s" | "sec" | "secs" | "second" | "seconds" => Duration::from_secs_f64(number),
         "m" | "min" | "mins" | "minute" | "minutes" => Duration::from_secs_f64(number * 60.0),

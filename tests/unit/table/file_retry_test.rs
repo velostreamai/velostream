@@ -99,6 +99,7 @@ async fn test_wait_for_file_created_during_wait() {
     fs::remove_file(&test_file).ok();
 
     let file_path = test_file.to_str().unwrap().to_string();
+    let test_file_clone = test_file.clone();
 
     // Start waiting for file with a spawn task
     let wait_task = tokio::spawn(async move {
@@ -113,7 +114,7 @@ async fn test_wait_for_file_created_during_wait() {
     // Create the file after a short delay
     tokio::spawn(async move {
         sleep(Duration::from_millis(300)).await;
-        fs::write(&test_file, "delayed content").expect("Failed to create delayed test file");
+        fs::write(&test_file_clone, "delayed content").expect("Failed to create delayed test file");
     });
 
     let result = wait_task.await.expect("Task failed");

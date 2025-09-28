@@ -103,6 +103,7 @@ impl<T: Serialize> KafkaSerialize for T {
 }
 
 /// JSON serializer implementation
+#[derive(Clone)]
 pub struct JsonSerializer;
 
 impl<T> Serializer<T> for JsonSerializer

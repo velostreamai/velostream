@@ -1774,8 +1774,8 @@ impl CorrelationContext {
     }
 }
 
-/// Pre-compiled regex for table.column pattern matching (performance optimization)
 lazy_static::lazy_static! {
+    /// Pre-compiled regex for table.column pattern matching (performance optimization)
     static ref TABLE_COLUMN_PATTERN: regex::Regex = regex::Regex::new(
         r"([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)"
     ).expect("Failed to compile table.column regex pattern");

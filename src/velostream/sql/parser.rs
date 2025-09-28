@@ -3072,11 +3072,21 @@ impl<'a> TokenParser<'a> {
         }
 
         // Fallback to existing CREATE TABLE syntax (backward compatibility)
-        let properties = if self.current_token().token_type == TokenType::With {
+        let mut properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
             HashMap::new()
         };
+
+        // Extract properties from the SELECT statement (FROM clause WITH properties)
+        if let StreamingQuery::Select { properties: select_props, .. } = as_select.as_ref() {
+            if let Some(select_properties) = select_props {
+                // Merge SELECT properties into table properties
+                for (key, value) in select_properties {
+                    properties.insert(key.clone(), value.clone());
+                }
+            }
+        }
 
         // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
         // Only parse EMIT at this level if it exists (which would be unusual)

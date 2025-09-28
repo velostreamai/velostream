@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::SqlError;
-use velostream::velostream::table::ctas::CtasProcessor;
+use velostream::velostream::table::ctas::CtasExecutor;
 
 #[test]
 fn test_parse_ctas_with_auto_offset_latest() {
@@ -104,36 +104,18 @@ fn test_parse_ctas_with_multiple_properties() {
 
 #[tokio::test]
 async fn test_ctas_processor_with_auto_offset() {
-    let processor = CtasProcessor::new("localhost:9092".to_string());
+    let processor = CtasExecutor::new("localhost:9092".to_string(), "test-group".to_string());
 
     // Test that the processor correctly handles auto.offset.reset property
-    let mut properties = HashMap::new();
-    properties.insert("auto.offset.reset".to_string(), "latest".to_string());
+    let query = r#"
+        CREATE TABLE test_table AS
+        SELECT * FROM test_stream
+        WITH ("auto.offset.reset" = "latest")
+    "#;
 
     // The actual table creation will fail in tests due to Kafka connection,
     // but we're testing that the property is passed through correctly
-    let result = processor
-        .create_table(
-            "test_table",
-            Box::new(StreamingQuery::Select {
-                fields: vec![velostream::velostream::sql::ast::SelectField::Wildcard],
-                from: velostream::velostream::sql::ast::StreamSource::Stream(
-                    "test_stream".to_string(),
-                ),
-                from_alias: None,
-                joins: None,
-                where_clause: None,
-                group_by: None,
-                having: None,
-                window: None,
-                order_by: None,
-                limit: None,
-                emit_mode: None,
-                properties: properties.clone(),
-            }),
-            properties,
-        )
-        .await;
+    let result = processor.execute(query).await;
 
     // We expect an error due to Kafka connection issues in test environment
     match result {

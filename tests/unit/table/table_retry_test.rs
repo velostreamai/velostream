@@ -66,8 +66,8 @@ fn test_topic_missing_error_detection() {
     ];
 
     for msg in missing_topic_messages {
-        // Use Global error variant as a wrapper for subscription errors
-        let kafka_error = KafkaError::Global(msg.to_string());
+        // Use MetadataFetch error variant which is appropriate for topic missing errors
+        let kafka_error = KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition);
         let error = ConsumerError::KafkaError(kafka_error);
         assert!(
             is_topic_missing_error(&error),
@@ -85,7 +85,7 @@ fn test_topic_missing_error_detection() {
     ];
 
     for msg in other_error_messages {
-        let kafka_error = KafkaError::Global(msg.to_string());
+        let kafka_error = KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::BrokerNotAvailable);
         let error = ConsumerError::KafkaError(kafka_error);
         assert!(
             !is_topic_missing_error(&error),
