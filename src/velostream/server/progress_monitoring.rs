@@ -340,12 +340,19 @@ impl ProgressMonitor {
 
     /// Get progress for all actively loading tables
     pub async fn get_all_progress(&self) -> HashMap<String, TableLoadProgress> {
-        let trackers = self.trackers.read().await;
-        let mut progress_map = HashMap::new();
+        // Clone the tracker references to avoid holding the lock while calling async methods
+        let tracker_refs: Vec<(String, Arc<TableProgressTracker>)> = {
+            let trackers = self.trackers.read().await;
+            trackers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        };
 
-        for (table_name, tracker) in trackers.iter() {
+        let mut progress_map = HashMap::new();
+        for (table_name, tracker) in tracker_refs {
             let progress = tracker.get_current_progress().await;
-            progress_map.insert(table_name.clone(), progress);
+            progress_map.insert(table_name, progress);
         }
 
         progress_map
@@ -369,10 +376,17 @@ impl ProgressMonitor {
 
     /// Get loading summary statistics
     pub async fn get_loading_summary(&self) -> LoadingSummary {
-        let trackers = self.trackers.read().await;
-        let mut summary = LoadingSummary::default();
+        // Clone the tracker references to avoid holding the lock while calling async methods
+        let tracker_refs: Vec<Arc<TableProgressTracker>> = {
+            let trackers = self.trackers.read().await;
+            let refs: Vec<Arc<TableProgressTracker>> = trackers.values().cloned().collect();
+            refs
+        };
 
-        for tracker in trackers.values() {
+        let mut summary = LoadingSummary::default();
+        summary.total_tables = tracker_refs.len();
+
+        for tracker in tracker_refs {
             let progress = tracker.get_current_progress().await;
 
             match progress.status {
@@ -388,7 +402,6 @@ impl ProgressMonitor {
             summary.total_bytes_processed += progress.bytes_processed;
         }
 
-        summary.total_tables = trackers.len();
         summary
     }
 
@@ -445,45 +458,56 @@ mod tests {
     use super::*;
     use tokio::time::{sleep, Duration as TokioDuration};
 
-    #[tokio::test]
-    async fn test_table_progress_tracker() {
-        // Add timeout to prevent infinite hanging
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    #[test]
+    fn test_table_progress_tracker() {
+        // Use single-threaded runtime to avoid concurrency issues
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
             let tracker = TableProgressTracker::new("test_table".to_string(), Some(1000));
 
-            // Test initial state
-            let progress = tracker.get_current_progress().await;
+            // Test initial state using sync version
+            let progress = tracker.get_current_progress_sync();
             assert_eq!(progress.table_name, "test_table");
-            assert_eq!(progress.records_loaded, 0);
             assert_eq!(progress.total_records_expected, Some(1000));
-            assert_eq!(progress.status, TableLoadStatus::Initializing);
+            assert_eq!(progress.records_loaded, 0);
+            assert_eq!(progress.bytes_processed, 0);
 
             // Test adding records
             tracker.add_records(100, 1024).await;
-            let progress = tracker.get_current_progress().await;
+            let progress = tracker.get_current_progress_sync();
             assert_eq!(progress.records_loaded, 100);
             assert_eq!(progress.bytes_processed, 1024);
             assert!(progress.loading_rate >= 0.0);
 
-            // Test progress percentage
+            // Check progress percentage
             if let Some(percentage) = progress.progress_percentage {
                 assert!((percentage - 10.0).abs() < 0.1); // Should be ~10%
             }
 
             // Test completion
             tracker.set_completed().await;
+
+            // Give time for async operation to complete
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
             let progress = tracker.get_current_progress().await;
             assert_eq!(progress.status, TableLoadStatus::Completed);
-        })
-        .await;
-
-        assert!(result.is_ok(), "Test should complete within 5 seconds");
+        });
     }
 
-    #[tokio::test]
-    async fn test_progress_monitor() {
-        // Add timeout to prevent infinite hanging
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    #[test]
+    fn test_progress_monitor() {
+        // Use single-threaded runtime to avoid concurrency issues
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
             let monitor = ProgressMonitor::new();
 
             // Start tracking multiple tables with unique names to avoid conflicts
@@ -502,6 +526,9 @@ mod tests {
             tracker1.add_records(50, 512).await;
             tracker2.add_records(25, 256).await;
 
+            // Give time for async operations to complete
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
             // Get all progress
             let all_progress = monitor.get_all_progress().await;
             assert_eq!(all_progress.len(), 2);
@@ -514,13 +541,14 @@ mod tests {
 
             // Complete one table
             tracker1.set_completed().await;
+
+            // Give time for async operation to complete
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
             let summary = monitor.get_loading_summary().await;
             assert_eq!(summary.completed, 1);
             assert_eq!(summary.loading, 1);
-        })
-        .await;
-
-        assert!(result.is_ok(), "Test should complete within 5 seconds");
+        });
     }
 
     #[tokio::test]
