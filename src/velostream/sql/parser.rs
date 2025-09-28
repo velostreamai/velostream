@@ -3079,7 +3079,11 @@ impl<'a> TokenParser<'a> {
         };
 
         // Extract properties from the SELECT statement (FROM clause WITH properties)
-        if let StreamingQuery::Select { properties: select_props, .. } = as_select.as_ref() {
+        if let StreamingQuery::Select {
+            properties: select_props,
+            ..
+        } = as_select.as_ref()
+        {
             if let Some(select_properties) = select_props {
                 // Merge SELECT properties into table properties
                 for (key, value) in select_properties {

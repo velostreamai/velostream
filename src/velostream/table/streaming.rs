@@ -83,7 +83,10 @@ pub trait StreamingQueryable: Send + Sync {
     /// Count records without loading them all into memory
     ///
     /// Efficiently counts records by iterating without storing values.
-    fn stream_count(&self, where_clause: Option<&str>) -> impl std::future::Future<Output = StreamResult<usize>> + Send;
+    fn stream_count(
+        &self,
+        where_clause: Option<&str>,
+    ) -> impl std::future::Future<Output = StreamResult<usize>> + Send;
 
     /// Aggregate values during streaming
     ///

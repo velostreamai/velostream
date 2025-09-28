@@ -276,7 +276,9 @@ mod tests {
         ];
 
         for error_msg in missing_errors {
-            let kafka_error = rdkafka::error::KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition);
+            let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
+                rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
+            );
             let error = ConsumerError::KafkaError(kafka_error);
             assert!(
                 is_topic_missing_error(&error),
@@ -289,7 +291,9 @@ mod tests {
         let other_errors = vec!["Connection failed", "Authentication error", "Timeout error"];
 
         for error_msg in other_errors {
-            let kafka_error = rdkafka::error::KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::BrokerNotAvailable);
+            let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
+                rdkafka::error::RDKafkaErrorCode::BrokerNotAvailable,
+            );
             let error = ConsumerError::KafkaError(kafka_error);
             assert!(
                 !is_topic_missing_error(&error),
@@ -303,7 +307,9 @@ mod tests {
     fn test_format_topic_missing_error() {
         use crate::velostream::kafka::kafka_error::ConsumerError;
 
-        let kafka_error = rdkafka::error::KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition);
+        let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
+            rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
+        );
         let error = ConsumerError::KafkaError(kafka_error);
         let formatted = format_topic_missing_error("test_topic", &error);
 
