@@ -30,13 +30,9 @@ fn test_progress_monitoring_basic_workflow() {
             .start_tracking("test_table_2".to_string(), Some(1000))
             .await;
 
-        // Use atomic operations to avoid potential async deadlocks
-        use std::sync::atomic::Ordering;
-        tracker1.records_loaded.store(100, Ordering::Relaxed);
-        tracker1.bytes_processed.store(1000, Ordering::Relaxed);
-
-        tracker2.records_loaded.store(250, Ordering::Relaxed);
-        tracker2.bytes_processed.store(2500, Ordering::Relaxed);
+        // Use public async methods for updates
+        tracker1.add_records(100, 1000).await;
+        tracker2.add_records(250, 2500).await;
 
         // Test sync access to avoid hanging
         let progress1 = tracker1.get_current_progress_sync();
@@ -81,10 +77,8 @@ fn test_progress_tracking_updates() {
         assert_eq!(initial_progress.records_loaded, 0);
         assert_eq!(initial_progress.bytes_processed, 0);
 
-        // Test updates using atomic operations
-        use std::sync::atomic::Ordering;
-        tracker.records_loaded.store(50, Ordering::Relaxed);
-        tracker.bytes_processed.store(5000, Ordering::Relaxed);
+        // Test updates using public async method
+        tracker.add_records(50, 5000).await;
 
         let updated_progress = tracker.get_current_progress_sync();
         assert_eq!(updated_progress.records_loaded, 50);
@@ -118,13 +112,11 @@ fn test_multiple_trackers_performance() {
             trackers.push(tracker);
         }
 
-        // Update all trackers using atomic operations
-        use std::sync::atomic::Ordering;
+        // Update all trackers using public async methods
         for (i, tracker) in trackers.iter().enumerate() {
             let records = (i + 1) * 20;
             let bytes = records * 100;
-            tracker.records_loaded.store(records, Ordering::Relaxed);
-            tracker.bytes_processed.store(bytes, Ordering::Relaxed);
+            tracker.add_records(records, bytes as u64).await;
         }
 
         // Verify all trackers
@@ -132,7 +124,7 @@ fn test_multiple_trackers_performance() {
             let progress = tracker.get_current_progress_sync();
             let expected_records = (i + 1) * 20;
             assert_eq!(progress.records_loaded, expected_records);
-            assert_eq!(progress.bytes_processed, expected_records * 100);
+            assert_eq!(progress.bytes_processed, (expected_records * 100) as u64);
         }
 
         // Check that operations completed quickly
@@ -161,9 +153,7 @@ fn test_progress_monitoring_edge_cases() {
             .start_tracking("unknown_total".to_string(), None)
             .await;
 
-        use std::sync::atomic::Ordering;
-        tracker_unknown.records_loaded.store(100, Ordering::Relaxed);
-        tracker_unknown.bytes_processed.store(1000, Ordering::Relaxed);
+        tracker_unknown.add_records(100, 1000).await;
 
         let progress = tracker_unknown.get_current_progress_sync();
         assert_eq!(progress.records_loaded, 100);
