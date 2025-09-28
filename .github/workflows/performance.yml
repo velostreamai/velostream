@@ -24,6 +24,7 @@ jobs:
   performance-benchmarks:
     name: Performance Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # Add timeout for performance benchmarks
 
     services:
       kafka:
