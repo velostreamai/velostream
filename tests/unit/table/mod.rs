@@ -14,3 +14,10 @@ pub mod wildcard_standalone_test;
 // CTAS with EMIT CHANGES tests
 pub mod ctas_emit_changes_test;
 mod ctas_named_sources_sinks_test;
+// AUTO_OFFSET configuration tests
+pub mod ctas_auto_offset_test;
+pub mod table_auto_offset_test;
+// Retry logic tests
+pub mod table_retry_test;
+// File retry logic tests
+pub mod file_retry_test;

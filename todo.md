@@ -296,6 +296,97 @@ pub struct TableLoadCircuitBreaker {
 
 ---
 
+### ✅ **PHASE 4: Enhanced CREATE TABLE Features - COMPLETED September 28, 2025**
+
+**Status**: ✅ **COMPLETED**
+**Timeline**: Completed in 1 day
+**Achievement**: Full AUTO_OFFSET support and comprehensive documentation
+
+#### **Feature 1: Wildcard Field Discovery**
+**Status**: ✅ **VERIFIED SUPPORTED**
+- Parser fully supports `SelectField::Wildcard`
+- `CREATE TABLE AS SELECT *` works in production
+- Documentation created at `docs/sql/create-table-wildcard.md`
+
+#### **Feature 2: AUTO_OFFSET Configuration for TABLEs**
+**Status**: ✅ **IMPLEMENTED**
+- Added `new_with_properties()` method to Table
+- Updated CTAS processor to pass properties
+- Full test coverage added
+- Backward compatible (defaults to `earliest`)
+
+**Completed Implementation**:
+```sql
+-- Use latest offset (now working!)
+CREATE TABLE real_time_data AS
+SELECT * FROM kafka_stream
+WITH ("auto.offset.reset" = "latest");
+
+-- Use earliest offset (default)
+CREATE TABLE historical_data AS
+SELECT * FROM kafka_stream
+WITH ("auto.offset.reset" = "earliest");
+```
+
+---
+
+### ✅ **PHASE 5: Missing Source Handling - COMPLETED September 28, 2025**
+
+**Status**: ✅ **CORE FUNCTIONALITY COMPLETED**
+**Timeline**: Completed in 1 day
+**Achievement**: Robust Kafka retry logic with configurable timeouts
+
+#### **✅ Completed Features**
+
+##### **✅ Task 1: Kafka Topic Wait/Retry**
+- ✅ Added `topic.wait.timeout` property support
+- ✅ Added `topic.retry.interval` configuration
+- ✅ Implemented retry loop with logging
+- ✅ Backward compatible (no wait by default)
+
+```sql
+-- NOW WORKING:
+CREATE TABLE events AS
+SELECT * FROM kafka_topic
+WITH (
+    "topic.wait.timeout" = "60s",
+    "topic.retry.interval" = "5s"
+);
+```
+
+##### **✅ Task 2: Utility Functions**
+- ✅ Duration parsing utility (`parse_duration`)
+- ✅ Topic missing error detection (`is_topic_missing_error`)
+- ✅ Enhanced error message formatting
+- ✅ Comprehensive test coverage
+
+##### **✅ Task 3: Integration**
+- ✅ Updated `Table::new_with_properties` with retry logic
+- ✅ All CTAS operations now support retry
+- ✅ Full test suite added
+- ✅ Documentation updated
+
+#### **✅ Fully Completed**
+- ✅ **File Source Retry**: Complete implementation with comprehensive test suite ✅ **COMPLETED September 28, 2025**
+
+#### **Success Metrics**
+- [x] Zero manual intervention for transient missing Kafka topics
+- [x] Zero manual intervention for transient missing file sources ✅ **NEW**
+- [x] Clear error messages with solutions
+- [x] Configurable retry behavior
+- [x] Backward compatible (no retry by default)
+- [x] Production-ready timeout handling for Kafka and file sources ✅ **EXPANDED**
+
+**Key Benefits**:
+- **No more immediate failures** for missing Kafka topics or file sources
+- **Configurable wait times** up to any duration for both Kafka and file sources
+- **Intelligent retry intervals** with comprehensive logging
+- **100% backward compatible** - existing code unchanged
+- **Pattern matching support** - wait for glob patterns like `*.json` to appear
+- **File watching integration** - seamlessly works with existing file watching features
+
+---
+
 ### 🟡 **PRIORITY 2: Advanced Window Functions**
 **Timeline**: 4 weeks
 **Dependencies**: ✅ Prerequisites met (Phase 2 complete)

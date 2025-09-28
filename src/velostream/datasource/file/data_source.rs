@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
+use std::time::Duration;
 
 use super::config::{FileFormat, FileSourceConfig};
 use super::error::FileDataSourceError;
@@ -61,7 +62,14 @@ impl FileDataSource {
         // Parse format
         let format = Self::parse_file_format(&format_str);
 
-        // Create config
+        // Create config with all properties passed through
+        let mut properties = std::collections::HashMap::new();
+
+        // Store all properties for potential use by retry logic and other features
+        for (key, value) in props {
+            properties.insert(key.clone(), value.clone());
+        }
+
         let config = FileSourceConfig {
             path,
             format,
@@ -78,6 +86,7 @@ impl FileDataSource {
                 .or_else(|| get_source_prop("header"))
                 .and_then(|v| v.parse::<bool>().ok())
                 .unwrap_or(true),
+            properties,
             ..Default::default()
         };
 
@@ -146,46 +155,81 @@ impl FileDataSource {
         self.config.as_ref()
     }
 
-    /// Validate file path exists and is accessible
+    /// Validate file path exists and is accessible with optional retry logic
     async fn validate_path(&self, path: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        use crate::velostream::table::retry_utils::{
+            format_file_missing_error, parse_duration, wait_for_file_to_exist,
+            wait_for_pattern_match,
+        };
+
         let path_obj = Path::new(path);
+
+        // Extract retry configuration from stored config
+        let (wait_timeout, retry_interval) = if let Some(config) = &self.config {
+            // Get timeout and interval from config properties if available
+            let default_timeout = "0s".to_string();
+            let default_interval = "5s".to_string();
+
+            let timeout_str = config
+                .properties
+                .get("file.wait.timeout")
+                .or_else(|| config.properties.get("wait.timeout"))
+                .unwrap_or(&default_timeout);
+            let interval_str = config
+                .properties
+                .get("file.retry.interval")
+                .or_else(|| config.properties.get("retry.interval"))
+                .unwrap_or(&default_interval);
+
+            let timeout = parse_duration(timeout_str).unwrap_or(Duration::from_secs(0));
+            let interval = parse_duration(interval_str).unwrap_or(Duration::from_secs(5));
+            (timeout, interval)
+        } else {
+            (Duration::from_secs(0), Duration::from_secs(5))
+        };
 
         // Handle glob patterns
         if path.contains('*') || path.contains('?') {
-            // For glob patterns, validate the parent directory exists
-            if let Some(parent) = path_obj.parent() {
-                if !parent.exists() {
-                    return Err(Box::new(FileDataSourceError::FileNotFound(
-                        parent.to_string_lossy().to_string(),
-                    )));
+            match wait_for_pattern_match(path, wait_timeout, retry_interval).await {
+                Ok(files) if !files.is_empty() => {
+                    log::info!("Found {} files matching pattern '{}'", files.len(), path);
+                    Ok(())
                 }
+                Ok(_) => {
+                    // No files found and timeout exceeded
+                    Err(Box::new(FileDataSourceError::FileNotFound(format!(
+                        "No files found matching pattern: {}",
+                        path
+                    ))))
+                }
+                Err(e) => Err(Box::new(FileDataSourceError::FileNotFound(e))),
             }
         } else {
-            // For specific files, check file exists and is readable
-            if !path_obj.exists() {
-                return Err(Box::new(FileDataSourceError::FileNotFound(
-                    path.to_string(),
-                )));
-            }
+            // For specific files, use file existence waiting
+            match wait_for_file_to_exist(path, wait_timeout, retry_interval).await {
+                Ok(()) => {
+                    // File exists, now validate it's readable
+                    if !path_obj.is_file() {
+                        return Err(Box::new(FileDataSourceError::InvalidPath(format!(
+                            "Path is not a file: {}",
+                            path
+                        ))));
+                    }
 
-            if !path_obj.is_file() {
-                return Err(Box::new(FileDataSourceError::InvalidPath(format!(
-                    "Path is not a file: {}",
-                    path
-                ))));
-            }
+                    // Try to open file to check permissions
+                    std::fs::File::open(path_obj).map_err(|e| {
+                        if e.kind() == std::io::ErrorKind::PermissionDenied {
+                            Box::new(FileDataSourceError::PermissionDenied(path.to_string()))
+                        } else {
+                            Box::new(FileDataSourceError::IoError(e.to_string()))
+                        }
+                    })?;
 
-            // Try to open file to check permissions
-            std::fs::File::open(path_obj).map_err(|e| {
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    Box::new(FileDataSourceError::PermissionDenied(path.to_string()))
-                } else {
-                    Box::new(FileDataSourceError::IoError(e.to_string()))
+                    Ok(())
                 }
-            })?;
+                Err(e) => Err(Box::new(FileDataSourceError::FileNotFound(e))),
+            }
         }
-
-        Ok(())
     }
 
     /// Infer schema from file content

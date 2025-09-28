@@ -19,6 +19,7 @@ Public interface for Table functionality.
 pub mod compact_table;
 pub mod ctas;
 pub mod error;
+pub mod retry_utils;
 pub mod sql;
 pub mod streaming;
 pub mod table;
