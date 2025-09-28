@@ -676,8 +676,13 @@ impl TableRegistry {
         use crate::velostream::sql::ast::StreamSource;
 
         match source {
-            StreamSource::Table(name) | StreamSource::Stream(name) => {
+            StreamSource::Table(name) => {
+                // Only add actual tables to dependencies, not streams
                 tables.push(name.clone());
+            }
+            StreamSource::Stream(_name) => {
+                // Streams are not table dependencies - they are data sources
+                // Do not add to tables list
             }
             StreamSource::Subquery(subquery) => {
                 Self::extract_tables_recursive(subquery, tables);
