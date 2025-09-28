@@ -494,7 +494,8 @@ mod tests {
         assert_eq!(trackers_guard.len(), 0);
 
         // Test that we can create trackers directly
-        let tracker1 = std::sync::Arc::new(TableProgressTracker::new("table1".to_string(), Some(500)));
+        let tracker1 =
+            std::sync::Arc::new(TableProgressTracker::new("table1".to_string(), Some(500)));
         let tracker2 = std::sync::Arc::new(TableProgressTracker::new("table2".to_string(), None));
 
         // Test tracker functionality directly without async operations
