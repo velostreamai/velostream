@@ -165,24 +165,24 @@ fn test_extract_table_dependencies_fixed() {
     use velostream::velostream::server::table_registry::TableRegistry;
     use velostream::velostream::sql::StreamingSqlParser;
 
-    // Test: Extract table names from various queries using proper stream source syntax
+    // Test: Extract table names from various queries using named sources with WITH clauses
     let parser = StreamingSqlParser::new();
 
-    // Query with single table join - using kafka:// URI format that parser expects
-    let query1 = "SELECT * FROM kafka://localhost:9092/stream_topic JOIN table1 ON stream_topic.id = table1.id";
+    // Query with single table join - using named source with WITH clause
+    let query1 = r#"SELECT * FROM trades_stream WITH ("source" = "kafka") JOIN user_profiles ON trades_stream.user_id = user_profiles.user_id"#;
     let parsed1 = parser.parse(query1).unwrap();
     let tables1 = TableRegistry::extract_table_dependencies(&parsed1);
-    assert!(tables1.contains(&"table1".to_string()));
+    assert!(tables1.contains(&"user_profiles".to_string()));
 
     // Query with multiple table joins
-    let query2 = "SELECT * FROM kafka://localhost:9092/trades JOIN table1 ON trades.a = table1.a JOIN table2 ON trades.b = table2.b";
+    let query2 = r#"SELECT * FROM orders WITH ("source" = "kafka") JOIN customers ON orders.customer_id = customers.customer_id JOIN products ON orders.product_id = products.product_id"#;
     let parsed2 = parser.parse(query2).unwrap();
     let tables2 = TableRegistry::extract_table_dependencies(&parsed2);
-    assert!(tables2.contains(&"table1".to_string()));
-    assert!(tables2.contains(&"table2".to_string()));
+    assert!(tables2.contains(&"customers".to_string()));
+    assert!(tables2.contains(&"products".to_string()));
 
-    // Query with no table dependencies - only streams
-    let query3 = "SELECT * FROM kafka://localhost:9092/stream1 JOIN kafka://localhost:9092/stream2 ON stream1.id = stream2.id";
+    // Query with no table dependencies - only named streams
+    let query3 = r#"SELECT * FROM stream1 WITH ("source" = "kafka") JOIN stream2 WITH ("source" = "kafka") ON stream1.id = stream2.id"#;
     let parsed3 = parser.parse(query3).unwrap();
     let tables3 = TableRegistry::extract_table_dependencies(&parsed3);
     assert_eq!(tables3.len(), 0, "Should have no table dependencies");
