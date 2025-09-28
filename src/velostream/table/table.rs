@@ -476,8 +476,8 @@ where
 impl<K, KS, VS> UnifiedTable for Table<K, KS, VS>
 where
     K: Clone + std::hash::Hash + Eq + ToString + Send + Sync + 'static + std::fmt::Debug,
-    KS: Serializer<K> + Send + Sync + 'static,
-    VS: SerializationFormat + Send + Sync + 'static,
+    KS: Serializer<K> + Send + Sync + Clone + 'static,
+    VS: SerializationFormat + Send + Sync + Clone + 'static,
 {
     /// Enable downcasting (returns self)
     fn as_any(&self) -> &dyn std::any::Any {
@@ -502,7 +502,8 @@ where
         if std::any::type_name::<K>() == std::any::type_name::<String>() {
             let key_string = key.to_string();
             let key_k = unsafe { std::ptr::read(&key_string as *const _ as *const K) };
-            let result = self.contains_key(&key_k);
+            // Call the Table's contains_key method, not the trait method
+            let result = Table::contains_key(self, &key_k);
             std::mem::forget(key_string);
             std::mem::forget(key_k);
             result
