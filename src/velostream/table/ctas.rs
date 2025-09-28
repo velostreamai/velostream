@@ -350,24 +350,36 @@ impl CtasExecutor {
             // CompactTable integration now complete!
             log::info!("CompactTable optimization enabled for memory efficiency");
 
-            Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-                .await
-                .map_err(|e| SqlError::ExecutionError {
-                    message: format!(
-                        "Failed to create high-performance table '{}': {}",
-                        table_name, e
-                    ),
-                    query: None,
-                })?
+            Table::new_with_properties(
+                config,
+                topic.to_string(),
+                StringSerializer,
+                JsonFormat,
+                properties.clone(),
+            )
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to create high-performance table '{}': {}",
+                    table_name, e
+                ),
+                query: None,
+            })?
         } else {
             // Use regular Table for small datasets or simple queries
             log::info!("Creating standard Table for '{}'", table_name);
-            Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-                .await
-                .map_err(|e| SqlError::ExecutionError {
-                    message: format!("Failed to create Kafka table '{}': {}", table_name, e),
-                    query: None,
-                })?
+            Table::new_with_properties(
+                config,
+                topic.to_string(),
+                StringSerializer,
+                JsonFormat,
+                properties.clone(),
+            )
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to create Kafka table '{}': {}", table_name, e),
+                query: None,
+            })?
         };
 
         // Create OptimizedTableImpl for high-performance SQL queries
@@ -768,13 +780,19 @@ impl CtasExecutor {
         let mut config = ConsumerConfig::new(brokers, &consumer_group);
         self.apply_properties_to_config(&mut config, properties);
 
-        // Create the Table instance
-        let table = Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-            .await
-            .map_err(|e| SqlError::ExecutionError {
-                message: format!("Failed to create Kafka table '{}': {}", table_name, e),
-                query: None,
-            })?;
+        // Create the Table instance with properties
+        let table = Table::new_with_properties(
+            config,
+            topic.to_string(),
+            StringSerializer,
+            JsonFormat,
+            properties.clone(),
+        )
+        .await
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Failed to create Kafka table '{}': {}", table_name, e),
+            query: None,
+        })?;
 
         self.finalize_table_creation(table_name, table).await
     }
@@ -799,7 +817,7 @@ impl CtasExecutor {
         table_name: &str,
         _records_count: u32,
         _schema: &str,
-        _properties: &HashMap<String, String>,
+        properties: &HashMap<String, String>,
     ) -> Result<CtasResult, SqlError> {
         // Create a mock table using the existing Kafka infrastructure but with mock data
         let counter = self
@@ -814,11 +832,12 @@ impl CtasExecutor {
 
         // Create a mock Table instance - in real implementation this would use a MockDataSource
         // For now, we'll use the existing Table but it would fail to connect (which is expected in tests)
-        let table = Table::new(
+        let table = Table::new_with_properties(
             config,
             format!("mock-topic-{}", table_name),
             StringSerializer,
             JsonFormat,
+            properties.clone(),
         )
         .await
         .map_err(|e| SqlError::ExecutionError {

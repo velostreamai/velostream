@@ -5,6 +5,7 @@ use super::{FieldValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;
 
 /// JSON implementation of SerializationFormat
+#[derive(Clone, Debug)]
 pub struct JsonFormat;
 
 impl SerializationFormat for JsonFormat {

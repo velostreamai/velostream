@@ -3,6 +3,9 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
+use crate::velostream::table::retry_utils::{
+    format_topic_missing_error, is_topic_missing_error, parse_duration,
+};
 use crate::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
 };
@@ -12,7 +15,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::time::sleep;
 
 /// A Table represents a materialized view of a Kafka topic where each record
@@ -98,8 +101,8 @@ pub struct ChangeEvent<K> {
 impl<K, KS, VS> Table<K, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
-    KS: Serializer<K> + Send + Sync + 'static,
-    VS: SerializationFormat + Send + Sync + 'static,
+    KS: Serializer<K> + Send + Sync + Clone + 'static,
+    VS: SerializationFormat + Send + Sync + Clone + 'static,
 {
     /// Creates a new Table from a Kafka topic
     ///
@@ -107,14 +110,152 @@ where
     /// to rebuild the complete state from the topic. Values are deserialized
     /// using the provided SerializationFormat into FieldValue records.
     pub async fn new(
-        mut consumer_config: ConsumerConfig,
+        consumer_config: ConsumerConfig,
         topic: String,
         key_serializer: KS,
         value_format: VS,
     ) -> Result<Self, ConsumerError> {
-        // Ensure we start from earliest to rebuild full state
+        // Default to earliest for backward compatibility
+        Self::new_with_properties(
+            consumer_config,
+            topic,
+            key_serializer,
+            value_format,
+            HashMap::new(),
+        )
+        .await
+    }
+
+    /// Creates a new Table from a Kafka topic with configurable properties
+    ///
+    /// Supports configuration of offset reset behavior and retry logic via properties:
+    /// - "auto.offset.reset": "earliest" or "latest" (default: "earliest")
+    /// - "topic.wait.timeout": Duration to wait for topic (default: "0s" - no wait)
+    /// - "topic.retry.interval": Time between retry attempts (default: "5s")
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// let mut props = HashMap::new();
+    /// props.insert("auto.offset.reset".to_string(), "latest".to_string());
+    /// props.insert("topic.wait.timeout".to_string(), "30s".to_string());
+    ///
+    /// let table = Table::new_with_properties(
+    ///     consumer_config,
+    ///     "topic".to_string(),
+    ///     key_serializer,
+    ///     value_format,
+    ///     props,
+    /// ).await?;
+    /// ```
+    pub async fn new_with_properties(
+        consumer_config: ConsumerConfig,
+        topic: String,
+        key_serializer: KS,
+        value_format: VS,
+        properties: HashMap<String, String>,
+    ) -> Result<Self, ConsumerError> {
+        // Parse retry configuration
+        let wait_timeout = properties
+            .get("topic.wait.timeout")
+            .and_then(|s| parse_duration(s))
+            .unwrap_or(Duration::from_secs(0)); // Default: no wait
+
+        let retry_interval = properties
+            .get("topic.retry.interval")
+            .and_then(|s| parse_duration(s))
+            .unwrap_or(Duration::from_secs(5)); // Default: 5 seconds
+
+        // If wait timeout is configured, implement retry logic
+        if wait_timeout.as_secs() > 0 {
+            let start = Instant::now();
+            loop {
+                match Self::try_create_table(
+                    consumer_config.clone(),
+                    topic.clone(),
+                    key_serializer.clone(),
+                    value_format.clone(),
+                    &properties,
+                )
+                .await
+                {
+                    Ok(table) => {
+                        log::info!(
+                            "Successfully created table for topic '{}' after {:?}",
+                            topic,
+                            start.elapsed()
+                        );
+                        return Ok(table);
+                    }
+                    Err(e) if is_topic_missing_error(&e) => {
+                        if start.elapsed() >= wait_timeout {
+                            log::error!(
+                                "Timeout waiting for topic '{}' after {:?}",
+                                topic,
+                                wait_timeout
+                            );
+                            // Return the original error for now - enhanced error messages can be added later
+                            return Err(e);
+                        }
+                        log::info!(
+                            "Topic '{}' not found, retrying in {:?}... (elapsed: {:?})",
+                            topic,
+                            retry_interval,
+                            start.elapsed()
+                        );
+                        sleep(retry_interval).await;
+                    }
+                    Err(e) => {
+                        // Other errors fail immediately
+                        log::error!("Failed to create table for topic '{}': {}", topic, e);
+                        return Err(e);
+                    }
+                }
+            }
+        } else {
+            // No retry - existing behavior
+            Self::try_create_table(
+                consumer_config,
+                topic,
+                key_serializer,
+                value_format,
+                &properties,
+            )
+            .await
+        }
+    }
+
+    /// Internal method to attempt table creation without retry logic
+    async fn try_create_table(
+        mut consumer_config: ConsumerConfig,
+        topic: String,
+        key_serializer: KS,
+        value_format: VS,
+        properties: &HashMap<String, String>,
+    ) -> Result<Self, ConsumerError>
+    where
+        KS: Clone,
+        VS: Clone,
+    {
+        // Parse auto.offset.reset from properties
+        let offset_reset = match properties.get("auto.offset.reset") {
+            Some(value) => match value.to_lowercase().as_str() {
+                "latest" => OffsetReset::Latest,
+                "earliest" => OffsetReset::Earliest,
+                _ => {
+                    log::warn!(
+                        "Invalid auto.offset.reset value '{}', defaulting to 'earliest'",
+                        value
+                    );
+                    OffsetReset::Earliest
+                }
+            },
+            None => OffsetReset::Earliest, // Default for tables is earliest
+        };
+
+        // Configure consumer with the chosen offset reset
         consumer_config = consumer_config
-            .auto_offset_reset(OffsetReset::Earliest)
+            .auto_offset_reset(offset_reset)
             .auto_commit(false, Duration::from_secs(5))
             .isolation_level(IsolationLevel::ReadCommitted);
 
@@ -127,6 +268,7 @@ where
             crate::velostream::kafka::serialization::BytesSerializer,
         )?;
 
+        // This is where the error occurs if topic doesn't exist
         consumer.subscribe(&[&topic])?;
 
         Ok(Table {
