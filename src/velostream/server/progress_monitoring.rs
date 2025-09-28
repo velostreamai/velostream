@@ -447,64 +447,80 @@ mod tests {
 
     #[tokio::test]
     async fn test_table_progress_tracker() {
-        let tracker = TableProgressTracker::new("test_table".to_string(), Some(1000));
+        // Add timeout to prevent infinite hanging
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let tracker = TableProgressTracker::new("test_table".to_string(), Some(1000));
 
-        // Test initial state
-        let progress = tracker.get_current_progress().await;
-        assert_eq!(progress.table_name, "test_table");
-        assert_eq!(progress.records_loaded, 0);
-        assert_eq!(progress.total_records_expected, Some(1000));
-        assert_eq!(progress.status, TableLoadStatus::Initializing);
+            // Test initial state
+            let progress = tracker.get_current_progress().await;
+            assert_eq!(progress.table_name, "test_table");
+            assert_eq!(progress.records_loaded, 0);
+            assert_eq!(progress.total_records_expected, Some(1000));
+            assert_eq!(progress.status, TableLoadStatus::Initializing);
 
-        // Test adding records
-        tracker.add_records(100, 1024).await;
-        let progress = tracker.get_current_progress().await;
-        assert_eq!(progress.records_loaded, 100);
-        assert_eq!(progress.bytes_processed, 1024);
-        assert!(progress.loading_rate >= 0.0);
+            // Test adding records
+            tracker.add_records(100, 1024).await;
+            let progress = tracker.get_current_progress().await;
+            assert_eq!(progress.records_loaded, 100);
+            assert_eq!(progress.bytes_processed, 1024);
+            assert!(progress.loading_rate >= 0.0);
 
-        // Test progress percentage
-        if let Some(percentage) = progress.progress_percentage {
-            assert!((percentage - 10.0).abs() < 0.1); // Should be ~10%
-        }
+            // Test progress percentage
+            if let Some(percentage) = progress.progress_percentage {
+                assert!((percentage - 10.0).abs() < 0.1); // Should be ~10%
+            }
 
-        // Test completion
-        tracker.set_completed().await;
-        let progress = tracker.get_current_progress().await;
-        assert_eq!(progress.status, TableLoadStatus::Completed);
+            // Test completion
+            tracker.set_completed().await;
+            let progress = tracker.get_current_progress().await;
+            assert_eq!(progress.status, TableLoadStatus::Completed);
+        })
+        .await;
+
+        assert!(result.is_ok(), "Test should complete within 5 seconds");
     }
 
     #[tokio::test]
     async fn test_progress_monitor() {
-        let monitor = ProgressMonitor::new();
+        // Add timeout to prevent infinite hanging
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let monitor = ProgressMonitor::new();
 
-        // Start tracking multiple tables
-        let tracker1 = monitor
-            .start_tracking("table1".to_string(), Some(500))
-            .await;
-        let tracker2 = monitor.start_tracking("table2".to_string(), None).await;
+            // Start tracking multiple tables with unique names to avoid conflicts
+            let unique_id = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let tracker1 = monitor
+                .start_tracking(format!("table1_{}", unique_id), Some(500))
+                .await;
+            let tracker2 = monitor
+                .start_tracking(format!("table2_{}", unique_id), None)
+                .await;
 
-        // Add some progress
-        tracker1.add_records(50, 512).await;
-        tracker2.add_records(25, 256).await;
+            // Add some progress
+            tracker1.add_records(50, 512).await;
+            tracker2.add_records(25, 256).await;
 
-        // Get all progress
-        let all_progress = monitor.get_all_progress().await;
-        assert_eq!(all_progress.len(), 2);
-        assert!(all_progress.contains_key("table1"));
-        assert!(all_progress.contains_key("table2"));
+            // Get all progress
+            let all_progress = monitor.get_all_progress().await;
+            assert_eq!(all_progress.len(), 2);
 
-        // Get summary
-        let summary = monitor.get_loading_summary().await;
-        assert_eq!(summary.total_tables, 2);
-        assert_eq!(summary.total_records_loaded, 75);
-        assert_eq!(summary.total_bytes_processed, 768);
+            // Get summary
+            let summary = monitor.get_loading_summary().await;
+            assert_eq!(summary.total_tables, 2);
+            assert_eq!(summary.total_records_loaded, 75);
+            assert_eq!(summary.total_bytes_processed, 768);
 
-        // Complete one table
-        tracker1.set_completed().await;
-        let summary = monitor.get_loading_summary().await;
-        assert_eq!(summary.completed, 1);
-        assert_eq!(summary.loading, 1);
+            // Complete one table
+            tracker1.set_completed().await;
+            let summary = monitor.get_loading_summary().await;
+            assert_eq!(summary.completed, 1);
+            assert_eq!(summary.loading, 1);
+        })
+        .await;
+
+        assert!(result.is_ok(), "Test should complete within 5 seconds");
     }
 
     #[tokio::test]

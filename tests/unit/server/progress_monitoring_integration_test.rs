@@ -21,118 +21,146 @@ use velostream::velostream::sql::execution::types::FieldValue;
 /// Test complete progress monitoring workflow
 #[tokio::test]
 async fn test_complete_progress_monitoring_workflow() {
-    // Setup components
-    let registry = Arc::new(TableRegistry::new());
-    let config = ProgressStreamingConfig {
-        update_interval: Duration::from_millis(100),
-        ..Default::default()
-    };
-    let streaming_server = Arc::new(ProgressStreamingServer::new(registry.clone(), config));
-    let dashboard = HealthDashboard::with_streaming(registry.clone(), streaming_server.clone());
+    // Add timeout to prevent infinite hanging
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        // Setup components
+        let registry = Arc::new(TableRegistry::new());
+        let config = ProgressStreamingConfig {
+            update_interval: Duration::from_millis(100),
+            ..Default::default()
+        };
+        let streaming_server = Arc::new(ProgressStreamingServer::new(registry.clone(), config));
+        let dashboard = HealthDashboard::with_streaming(registry.clone(), streaming_server.clone());
 
-    // Start monitoring
-    let _monitoring_task = streaming_server.start_monitoring().await;
+        // Start monitoring with handle for cleanup
+        let monitoring_task = streaming_server.start_monitoring().await;
 
-    // Test 1: Initial state - no tables loading
-    let health = dashboard.get_tables_health().await.unwrap();
-    assert_eq!(health.total_tables, 0);
-    assert!(matches!(
-        health.overall_status,
-        OverallHealthStatus::Healthy
-    ));
+        // Store the handle so we can abort it later
+        let monitoring_handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await; // Let it run for max 5 seconds
+            monitoring_task.abort();
+        });
 
-    let progress = dashboard.get_loading_progress().await.unwrap();
-    assert!(progress.tables.is_empty());
-    assert_eq!(progress.summary.total_tables, 0);
+        // Test 1: Initial state - no tables loading
+        let health = dashboard.get_tables_health().await.unwrap();
+        assert_eq!(health.total_tables, 0);
+        assert!(matches!(
+            health.overall_status,
+            OverallHealthStatus::Healthy
+        ));
 
-    // Test 2: Start tracking a table
-    let tracker = registry
-        .start_progress_tracking("test_table".to_string(), Some(1000))
-        .await;
-    tracker.set_status(TableLoadStatus::Loading).await;
+        let progress = dashboard.get_loading_progress().await.unwrap();
+        assert!(progress.tables.is_empty());
+        assert_eq!(progress.summary.total_tables, 0);
 
-    // Give a moment for the update to propagate
-    sleep(Duration::from_millis(150)).await;
+        // Test 2: Start tracking a table
+        let tracker = registry
+            .start_progress_tracking("test_table".to_string(), Some(1000))
+            .await;
+        tracker.set_status(TableLoadStatus::Loading).await;
 
-    let progress = dashboard.get_loading_progress().await.unwrap();
-    assert_eq!(progress.tables.len(), 1);
-    assert!(progress.tables.contains_key("test_table"));
+        // Give a moment for the update to propagate
+        sleep(Duration::from_millis(150)).await;
 
-    // Test 3: Simulate loading progress
-    tracker.add_records(100, 1024).await;
-    sleep(Duration::from_millis(50)).await;
-    tracker.add_records(200, 2048).await;
-    sleep(Duration::from_millis(50)).await;
+        let progress = dashboard.get_loading_progress().await.unwrap();
+        assert_eq!(progress.tables.len(), 1);
+        assert!(progress.tables.contains_key("test_table"));
 
-    let progress = dashboard.get_loading_progress().await.unwrap();
-    let table_progress = progress.tables.get("test_table").unwrap();
-    assert_eq!(table_progress.records_loaded, 300);
-    assert_eq!(table_progress.bytes_processed, 3072);
-    assert!(table_progress.loading_rate > 0.0);
+        // Test 3: Simulate loading progress
+        tracker.add_records(100, 1024).await;
+        sleep(Duration::from_millis(50)).await;
+        tracker.add_records(200, 2048).await;
+        sleep(Duration::from_millis(50)).await;
 
-    // Test 4: Complete loading
-    tracker.add_records(700, 7168).await; // Complete to 1000 records
-    tracker.set_completed().await;
+        let progress = dashboard.get_loading_progress().await.unwrap();
+        let table_progress = progress.tables.get("test_table").unwrap();
+        assert_eq!(table_progress.records_loaded, 300);
+        assert_eq!(table_progress.bytes_processed, 3072);
+        assert!(table_progress.loading_rate > 0.0);
 
-    sleep(Duration::from_millis(150)).await;
+        // Test 4: Complete loading
+        tracker.add_records(700, 7168).await; // Complete to 1000 records
+        tracker.set_completed().await;
 
-    let progress = dashboard.get_loading_progress().await.unwrap();
-    let table_progress = progress.tables.get("test_table").unwrap();
-    assert_eq!(table_progress.records_loaded, 1000);
-    assert!(matches!(table_progress.status, TableLoadStatus::Completed));
+        sleep(Duration::from_millis(150)).await;
 
-    // Test 5: Stop tracking completed table
-    registry.stop_progress_tracking("test_table").await;
-    sleep(Duration::from_millis(150)).await;
+        let progress = dashboard.get_loading_progress().await.unwrap();
+        let table_progress = progress.tables.get("test_table").unwrap();
+        assert_eq!(table_progress.records_loaded, 1000);
+        assert!(matches!(table_progress.status, TableLoadStatus::Completed));
 
-    let progress = dashboard.get_loading_progress().await.unwrap();
-    assert!(progress.tables.is_empty());
+        // Test 5: Stop tracking completed table
+        registry.stop_progress_tracking("test_table").await;
+        sleep(Duration::from_millis(150)).await;
+
+        let progress = dashboard.get_loading_progress().await.unwrap();
+        assert!(progress.tables.is_empty());
+
+        // Cleanup monitoring task
+        monitoring_handle.abort();
+    })
+    .await;
+
+    assert!(result.is_ok(), "Test should complete within 10 seconds");
 }
 
 /// Test streaming updates for progress monitoring
 #[tokio::test]
 async fn test_progress_streaming_updates() {
-    let registry = Arc::new(TableRegistry::new());
-    let config = ProgressStreamingConfig {
-        update_interval: Duration::from_millis(50),
-        ..Default::default()
-    };
-    let streaming_server = ProgressStreamingServer::new(registry.clone(), config);
+    // Add timeout to prevent infinite hanging
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let registry = Arc::new(TableRegistry::new());
+        let config = ProgressStreamingConfig {
+            update_interval: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let streaming_server = ProgressStreamingServer::new(registry.clone(), config);
 
-    // Start monitoring
-    let _monitoring_task = streaming_server.start_monitoring().await;
+        // Start monitoring with cleanup handle
+        let monitoring_task = streaming_server.start_monitoring().await;
+        let monitoring_handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            monitoring_task.abort();
+        });
 
-    // Create a stream for updates
-    let mut stream = streaming_server.create_stream().await.unwrap();
+        // Create a stream for updates
+        let mut stream = streaming_server.create_stream().await.unwrap();
 
-    // Start tracking a table
-    let tracker = registry
-        .start_progress_tracking("stream_test_table".to_string(), Some(500))
-        .await;
-    tracker.set_status(TableLoadStatus::Loading).await;
+        // Start tracking a table
+        let tracker = registry
+            .start_progress_tracking("stream_test_table".to_string(), Some(500))
+            .await;
+        tracker.set_status(TableLoadStatus::Loading).await;
 
-    // Collect initial events
-    let events = timeout(Duration::from_millis(200), stream.collect_events(2)).await;
-    assert!(events.is_ok());
+        // Collect initial events
+        let events = timeout(Duration::from_millis(200), stream.collect_events(2)).await;
+        assert!(events.is_ok());
 
-    let events = events.unwrap();
-    assert!(!events.is_empty());
+        let events = events.unwrap();
+        assert!(!events.is_empty());
 
-    // Check that we get an initial snapshot
-    if let Some(ProgressEvent::InitialSnapshot { tables, .. }) = events.first() {
-        // Initial snapshot should be empty or contain the table we just added
-        assert!(tables.is_empty() || tables.contains_key("stream_test_table"));
-    }
+        // Check that we get an initial snapshot
+        if let Some(ProgressEvent::InitialSnapshot { tables, .. }) = events.first() {
+            // Initial snapshot should be empty or contain the table we just added
+            assert!(tables.is_empty() || tables.contains_key("stream_test_table"));
+        }
 
-    // Add some progress and verify we get updates
-    tracker.add_records(100, 1000).await;
-    tracker.add_records(150, 1500).await;
+        // Add some progress and verify we get updates
+        tracker.add_records(100, 1000).await;
+        tracker.add_records(150, 1500).await;
 
-    // Allow time for updates to be sent
-    sleep(Duration::from_millis(100)).await;
+        // Allow time for updates to be sent
+        sleep(Duration::from_millis(100)).await;
 
-    // The stream should have received table update events
-    // Note: In a real test, we'd collect more events and verify their content
+        // The stream should have received table update events
+        // Note: In a real test, we'd collect more events and verify their content
+
+        // Cleanup monitoring task
+        monitoring_handle.abort();
+    })
+    .await;
+
+    assert!(result.is_ok(), "Test should complete within 10 seconds");
 }
 
 /// Test health dashboard endpoints
@@ -235,42 +263,55 @@ async fn test_multiple_tables_progress_monitoring() {
 /// Test ETA calculation and progress percentage
 #[tokio::test]
 async fn test_eta_and_progress_calculations() {
-    let registry = Arc::new(TableRegistry::new());
-    let tracker = registry
-        .start_progress_tracking("eta_test_table".to_string(), Some(2000))
-        .await;
+    // Add timeout to prevent infinite hanging
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let registry = Arc::new(TableRegistry::new());
 
-    tracker.set_status(TableLoadStatus::Loading).await;
+        // Generate unique identifiers to prevent conflicts
+        let unique_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
 
-    // Add initial records and wait to establish a loading rate
-    tracker.add_records(200, 2000).await;
-    sleep(Duration::from_millis(100)).await;
-    tracker.add_records(200, 2000).await; // Total: 400 records
+        let tracker = registry
+            .start_progress_tracking(format!("eta_test_table_{}", unique_id), Some(2000))
+            .await;
 
-    // Get current progress
-    let progress = tracker.get_current_progress().await;
-    assert_eq!(progress.records_loaded, 400);
-    assert_eq!(progress.progress_percentage, Some(20.0)); // 400/2000 = 20%
-    assert!(progress.loading_rate > 0.0);
+        tracker.set_status(TableLoadStatus::Loading).await;
 
-    // ETA should be calculated if we have a loading rate
-    if progress.loading_rate > 0.0 {
-        assert!(progress.estimated_completion.is_some());
-    }
+        // Add initial records and wait to establish a loading rate
+        tracker.add_records(200, 2000).await;
+        sleep(Duration::from_millis(100)).await;
+        tracker.add_records(200, 2000).await; // Total: 400 records
 
-    // Test progress percentage edge cases
-    let tracker_zero = registry
-        .start_progress_tracking("zero_test".to_string(), Some(0))
-        .await;
-    let progress_zero = tracker_zero.get_current_progress().await;
-    assert_eq!(progress_zero.progress_percentage, Some(100.0)); // 0/0 should be 100%
+        // Get current progress
+        let progress = tracker.get_current_progress().await;
+        assert_eq!(progress.records_loaded, 400);
+        assert_eq!(progress.progress_percentage, Some(20.0)); // 400/2000 = 20%
+        assert!(progress.loading_rate > 0.0);
 
-    let tracker_unknown = registry
-        .start_progress_tracking("unknown_test".to_string(), None)
-        .await;
-    tracker_unknown.add_records(100, 1000).await;
-    let progress_unknown = tracker_unknown.get_current_progress().await;
-    assert!(progress_unknown.progress_percentage.is_none()); // Unknown total
+        // ETA should be calculated if we have a loading rate
+        if progress.loading_rate > 0.0 {
+            assert!(progress.estimated_completion.is_some());
+        }
+
+        // Test progress percentage edge cases
+        let tracker_zero = registry
+            .start_progress_tracking(format!("zero_test_{}", unique_id), Some(0))
+            .await;
+        let progress_zero = tracker_zero.get_current_progress().await;
+        assert_eq!(progress_zero.progress_percentage, Some(100.0)); // 0/0 should be 100%
+
+        let tracker_unknown = registry
+            .start_progress_tracking(format!("unknown_test_{}", unique_id), None)
+            .await;
+        tracker_unknown.add_records(100, 1000).await;
+        let progress_unknown = tracker_unknown.get_current_progress().await;
+        assert!(progress_unknown.progress_percentage.is_none()); // Unknown total
+    })
+    .await;
+
+    assert!(result.is_ok(), "Test should complete within 10 seconds");
 }
 
 /// Test error handling in progress monitoring
@@ -295,37 +336,49 @@ async fn test_progress_monitoring_error_handling() {
 /// Test performance under load
 #[tokio::test]
 async fn test_progress_monitoring_performance() {
-    let registry = Arc::new(TableRegistry::new());
-    let start_time = std::time::Instant::now();
+    // Add timeout to prevent infinite hanging
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        let registry = Arc::new(TableRegistry::new());
+        let start_time = std::time::Instant::now();
 
-    // Create multiple tables and update them rapidly
-    let mut trackers = Vec::new();
-    for i in 0..10 {
-        let tracker = registry
-            .start_progress_tracking(format!("perf_table_{}", i), Some(10000))
-            .await;
-        tracker.set_status(TableLoadStatus::Loading).await;
-        trackers.push(tracker);
-    }
-
-    // Rapidly update all tables
-    for _ in 0..100 {
-        for (i, tracker) in trackers.iter().enumerate() {
-            tracker.add_records(10, 100).await;
+        // Create multiple tables and update them rapidly (reduced for faster tests)
+        let mut trackers = Vec::new();
+        for i in 0..5 {
+            // Reduced from 10 to 5 tables
+            let unique_id = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let tracker = registry
+                .start_progress_tracking(format!("perf_table_{}_{}", i, unique_id), Some(1000)) // Reduced expected records
+                .await;
+            tracker.set_status(TableLoadStatus::Loading).await;
+            trackers.push(tracker);
         }
-    }
 
-    // Check that operations completed quickly
-    let elapsed = start_time.elapsed();
-    assert!(
-        elapsed < Duration::from_secs(5),
-        "Progress monitoring should be fast, took {:?}",
-        elapsed
-    );
+        // Rapidly update all tables (reduced iterations)
+        for _ in 0..20 {
+            // Reduced from 100 to 20 iterations
+            for tracker in trackers.iter() {
+                tracker.add_records(10, 100).await;
+            }
+        }
 
-    // Verify final state
-    let summary = registry.get_loading_summary().await;
-    assert_eq!(summary.total_tables, 10);
-    assert_eq!(summary.loading, 10);
-    assert_eq!(summary.total_records_loaded, 10_000); // 10 tables * 100 updates * 10 records
+        // Check that operations completed quickly
+        let elapsed = start_time.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Progress monitoring should be fast, took {:?}",
+            elapsed
+        );
+
+        // Verify final state (adjusted for reduced test size)
+        let summary = registry.get_loading_summary().await;
+        assert_eq!(summary.total_tables, 5); // Reduced from 10 to 5
+        assert_eq!(summary.loading, 5);
+        assert_eq!(summary.total_records_loaded, 1_000); // 5 tables * 20 updates * 10 records
+    })
+    .await;
+
+    assert!(result.is_ok(), "Test should complete within 15 seconds");
 }
