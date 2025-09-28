@@ -102,7 +102,12 @@ fn test_multi_field_join_condition_structure() {
     };
 
     // Verify complex condition structure
-    if let Expr::BinaryOp { op, left: _, right: _ } = &join_clause.condition {
+    if let Expr::BinaryOp {
+        op,
+        left: _,
+        right: _,
+    } = &join_clause.condition
+    {
         assert_eq!(*op, BinaryOperator::And);
     } else {
         panic!("Expected complex AND condition");
@@ -149,15 +154,24 @@ fn test_field_value_types() {
     let mut test_fields = HashMap::new();
 
     test_fields.insert("user_id".to_string(), FieldValue::Integer(123));
-    test_fields.insert("name".to_string(), FieldValue::String("TestUser".to_string()));
+    test_fields.insert(
+        "name".to_string(),
+        FieldValue::String("TestUser".to_string()),
+    );
     test_fields.insert("active".to_string(), FieldValue::Boolean(true));
     test_fields.insert("balance".to_string(), FieldValue::Float(1000.50));
 
     // Verify field value types
     assert_eq!(test_fields.get("user_id"), Some(&FieldValue::Integer(123)));
-    assert_eq!(test_fields.get("name"), Some(&FieldValue::String("TestUser".to_string())));
+    assert_eq!(
+        test_fields.get("name"),
+        Some(&FieldValue::String("TestUser".to_string()))
+    );
     assert_eq!(test_fields.get("active"), Some(&FieldValue::Boolean(true)));
-    assert_eq!(test_fields.get("balance"), Some(&FieldValue::Float(1000.50)));
+    assert_eq!(
+        test_fields.get("balance"),
+        Some(&FieldValue::Float(1000.50))
+    );
 }
 
 #[test]

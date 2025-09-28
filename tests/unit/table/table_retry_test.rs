@@ -92,7 +92,6 @@ fn test_topic_missing_error_detection() {
     }
 }
 
-
 #[test]
 fn test_property_parsing_edge_cases() {
     // Test that invalid timeout values are handled gracefully
