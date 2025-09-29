@@ -133,11 +133,59 @@ jobs:
         RAW_THROUGHPUT_INT=$(echo "$RAW_THROUGHPUT" | cut -d. -f1)
         P95_LATENCY_INT=$(echo "$P95_LATENCY" | cut -d. -f1)
 
-        # Calculate performance stars using safe integer arithmetic
-        JSON_STARS=$([ "$JSON_THROUGHPUT_INT" -gt 2000 ] && echo 5 || [ "$JSON_THROUGHPUT_INT" -gt 1000 ] && echo 4 || [ "$JSON_THROUGHPUT_INT" -gt 500 ] && echo 3 || [ "$JSON_THROUGHPUT_INT" -gt 200 ] && echo 2 || echo 1)
-        RAW_STARS=$([ "$RAW_THROUGHPUT_INT" -gt 10000 ] && echo 5 || [ "$RAW_THROUGHPUT_INT" -gt 5000 ] && echo 4 || [ "$RAW_THROUGHPUT_INT" -gt 2000 ] && echo 3 || [ "$RAW_THROUGHPUT_INT" -gt 800 ] && echo 2 || echo 1)
-        LATENCY_STARS=$([ "$P95_LATENCY_INT" -lt 50 ] && echo 5 || [ "$P95_LATENCY_INT" -lt 200 ] && echo 4 || [ "$P95_LATENCY_INT" -lt 500 ] && echo 3 || [ "$P95_LATENCY_INT" -lt 1000 ] && echo 2 || echo 1)
-        SQL_STARS=$([ "$BASELINE_THROUGHPUT" -gt 500 ] && echo 5 || [ "$BASELINE_THROUGHPUT" -gt 200 ] && echo 4 || [ "$BASELINE_THROUGHPUT" -gt 50 ] && echo 3 || [ "$BASELINE_THROUGHPUT" -gt 10 ] && echo 2 || echo 1)
+        # Calculate performance stars using proper if-elif-else blocks to avoid multiline output
+
+        # JSON stars calculation
+        if [ "$JSON_THROUGHPUT_INT" -gt 2000 ]; then
+          JSON_STARS=5
+        elif [ "$JSON_THROUGHPUT_INT" -gt 1000 ]; then
+          JSON_STARS=4
+        elif [ "$JSON_THROUGHPUT_INT" -gt 500 ]; then
+          JSON_STARS=3
+        elif [ "$JSON_THROUGHPUT_INT" -gt 200 ]; then
+          JSON_STARS=2
+        else
+          JSON_STARS=1
+        fi
+
+        # Raw throughput stars calculation
+        if [ "$RAW_THROUGHPUT_INT" -gt 10000 ]; then
+          RAW_STARS=5
+        elif [ "$RAW_THROUGHPUT_INT" -gt 5000 ]; then
+          RAW_STARS=4
+        elif [ "$RAW_THROUGHPUT_INT" -gt 2000 ]; then
+          RAW_STARS=3
+        elif [ "$RAW_THROUGHPUT_INT" -gt 800 ]; then
+          RAW_STARS=2
+        else
+          RAW_STARS=1
+        fi
+
+        # Latency stars calculation (lower is better)
+        if [ "$P95_LATENCY_INT" -lt 50 ]; then
+          LATENCY_STARS=5
+        elif [ "$P95_LATENCY_INT" -lt 200 ]; then
+          LATENCY_STARS=4
+        elif [ "$P95_LATENCY_INT" -lt 500 ]; then
+          LATENCY_STARS=3
+        elif [ "$P95_LATENCY_INT" -lt 1000 ]; then
+          LATENCY_STARS=2
+        else
+          LATENCY_STARS=1
+        fi
+
+        # SQL throughput stars calculation
+        if [ "$BASELINE_THROUGHPUT" -gt 500 ]; then
+          SQL_STARS=5
+        elif [ "$BASELINE_THROUGHPUT" -gt 200 ]; then
+          SQL_STARS=4
+        elif [ "$BASELINE_THROUGHPUT" -gt 50 ]; then
+          SQL_STARS=3
+        elif [ "$BASELINE_THROUGHPUT" -gt 10 ]; then
+          SQL_STARS=2
+        else
+          SQL_STARS=1
+        fi
 
         # Set outputs
         echo "json_throughput=$JSON_THROUGHPUT" >> $GITHUB_OUTPUT
