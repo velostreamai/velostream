@@ -38,7 +38,10 @@ async fn run_comprehensive_benchmark_suite() -> Result<(), Box<dyn std::error::E
     // Output results in GitHub Actions-compatible format
     println!("📊 SQL Performance Results:");
     println!("Baseline SQL Throughput: {} rec/s", baseline_throughput);
-    println!("Aggregation SQL Throughput: {} rec/s", aggregation_throughput);
+    println!(
+        "Aggregation SQL Throughput: {} rec/s",
+        aggregation_throughput
+    );
 
     Ok(())
 }
@@ -79,7 +82,10 @@ async fn benchmark_table_loading() -> Result<OptimizedTableImpl, Box<dyn std::er
     let records_per_sec = record_count as f64 / duration.as_secs_f64();
 
     println!("   ✅ Loaded {} records in {:?}", record_count, duration);
-    println!("   📈 Loading Throughput: {:.0} records/sec", records_per_sec);
+    println!(
+        "   📈 Loading Throughput: {:.0} records/sec",
+        records_per_sec
+    );
 
     Ok(table)
 }
@@ -109,7 +115,11 @@ async fn benchmark_baseline_queries(
     let duration = start.elapsed();
     let queries_per_sec = (queries.len() * 100) as f64 / duration.as_secs_f64();
 
-    println!("   ✅ Executed {} queries in {:?}", queries.len() * 100, duration);
+    println!(
+        "   ✅ Executed {} queries in {:?}",
+        queries.len() * 100,
+        duration
+    );
     println!("   📈 Query Throughput: {:.0} queries/sec", queries_per_sec);
     println!("   📊 Total Results: {} records", total_results);
 
@@ -141,7 +151,10 @@ async fn benchmark_aggregation_queries(
     let duration = start.elapsed();
     let agg_per_sec = total_aggregations as f64 / duration.as_secs_f64();
 
-    println!("   ✅ Executed {} aggregations in {:?}", total_aggregations, duration);
+    println!(
+        "   ✅ Executed {} aggregations in {:?}",
+        total_aggregations, duration
+    );
     println!("   📈 Aggregation Throughput: {:.0} agg/sec", agg_per_sec);
 
     Ok(agg_per_sec as u64)
@@ -171,8 +184,15 @@ async fn benchmark_complex_queries(
     let duration = start.elapsed();
     let queries_per_sec = (complex_queries.len() * 50) as f64 / duration.as_secs_f64();
 
-    println!("   ✅ Executed {} complex queries in {:?}", complex_queries.len() * 50, duration);
-    println!("   📈 Complex Query Throughput: {:.0} queries/sec", queries_per_sec);
+    println!(
+        "   ✅ Executed {} complex queries in {:?}",
+        complex_queries.len() * 50,
+        duration
+    );
+    println!(
+        "   📈 Complex Query Throughput: {:.0} queries/sec",
+        queries_per_sec
+    );
     println!("   📊 Total Results: {} records", total_results);
 
     Ok(queries_per_sec as u64)
@@ -187,7 +207,10 @@ async fn test_sql_performance_baseline() -> Result<(), Box<dyn std::error::Error
     for i in 0..10 {
         let mut record = HashMap::new();
         record.insert("id".to_string(), FieldValue::Integer(i));
-        record.insert("status".to_string(), FieldValue::String("active".to_string()));
+        record.insert(
+            "status".to_string(),
+            FieldValue::String("active".to_string()),
+        );
         table.insert(format!("test_{}", i), record)?;
     }
 
@@ -196,7 +219,9 @@ async fn test_sql_performance_baseline() -> Result<(), Box<dyn std::error::Error
     assert_eq!(values.len(), 10);
 
     // Test aggregation
-    let count = table.stream_aggregate("COUNT(*)", Some("status = 'active'")).await?;
+    let count = table
+        .stream_aggregate("COUNT(*)", Some("status = 'active'"))
+        .await?;
     if let FieldValue::Integer(c) = count {
         assert_eq!(c, 10);
     }
