@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 */
 
+use crate::velostream::datasource::file::FileDataSource;
 use crate::velostream::kafka::consumer_config::ConsumerConfig;
 use crate::velostream::kafka::serialization::StringSerializer;
 use crate::velostream::serialization::JsonFormat;
@@ -90,8 +91,6 @@ pub enum DataSourceType {
     Kafka { brokers: String, topic: String },
     /// File-based source (CSV, JSON, etc.)
     File { path: String, format: FileFormat },
-    /// Mock source for testing
-    Mock { records_count: u32, schema: String },
     /// HTTP/REST API source
     Http {
         endpoint: String,
@@ -639,71 +638,108 @@ impl CtasExecutor {
 
     /// Load data source configuration from a config file
     fn load_data_source_config(&self, config_file: &str) -> Result<ConfigBasedSource, SqlError> {
-        // For testing purposes, we'll create mock configurations based on file name patterns
-        // In production, this would parse actual YAML/JSON config files
+        use std::fs;
+        use serde_yaml::Value;
 
-        if config_file.ends_with("_test.yaml") || config_file.contains("mock") {
-            // Mock configuration for testing
-            let mut properties = HashMap::new();
-            properties.insert("records_count".to_string(), "1000".to_string());
-            properties.insert("schema".to_string(), "test_schema".to_string());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::Mock {
-                    records_count: 1000,
-                    schema: "test_schema".to_string(),
-                },
-                properties,
-            })
-        } else if config_file.contains("kafka") || config_file.contains("stream") {
-            // Kafka configuration
-            let mut properties = HashMap::new();
-            properties.insert("brokers".to_string(), self.kafka_brokers.clone());
-            properties.insert("topic".to_string(), "configured_topic".to_string());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::Kafka {
-                    brokers: self.kafka_brokers.clone(),
-                    topic: "configured_topic".to_string(),
-                },
-                properties,
-            })
-        } else if config_file.contains("file")
-            || config_file.ends_with(".csv")
-            || config_file.ends_with(".json")
-        {
-            // File configuration
-            let format = if config_file.contains("csv") {
-                FileFormat::Csv
-            } else if config_file.contains("json") {
-                FileFormat::Json
-            } else {
-                FileFormat::Json // default
-            };
-
-            let mut properties = HashMap::new();
-            properties.insert("path".to_string(), "/mock/data/file.json".to_string());
-            properties.insert("format".to_string(), format!("{:?}", format).to_lowercase());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::File {
-                    path: "/mock/data/file.json".to_string(),
-                    format,
-                },
-                properties,
-            })
-        } else {
-            Err(SqlError::ExecutionError {
-                message: format!(
-                    "Unable to determine data source type from config file: {}",
-                    config_file
-                ),
+        // Read and parse the configuration file
+        let config_content = fs::read_to_string(config_file)
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to read config file '{}': {}", config_file, e),
                 query: None,
-            })
+            })?;
+
+        let config: Value = serde_yaml::from_str(&config_content)
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to parse config file '{}': {}", config_file, e),
+                query: None,
+            })?;
+
+        // Extract source type and properties
+        let source_type_str = config.get("source_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: format!("Config file '{}' missing 'source_type' field", config_file),
+                query: None,
+            })?;
+
+        // Extract properties as HashMap
+        let mut properties = HashMap::new();
+        if let Some(props) = config.get("properties") {
+            if let Some(props_map) = props.as_mapping() {
+                for (key, value) in props_map {
+                    if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
+                        properties.insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
         }
+
+        // Create appropriate DataSourceType based on configuration
+        let source_type = match source_type_str {
+            "kafka" => {
+                let brokers = config.get("brokers")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&self.kafka_brokers)
+                    .to_string();
+                let topic = config.get("topic")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("Kafka config file '{}' missing 'topic' field", config_file),
+                        query: None,
+                    })?.to_string();
+
+                DataSourceType::Kafka { brokers, topic }
+            }
+            "file" => {
+                let path = config.get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("File config '{}' missing 'path' field", config_file),
+                        query: None,
+                    })?.to_string();
+
+                let format_str = config.get("format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("json");
+
+                let format = match format_str.to_lowercase().as_str() {
+                    "json" => FileFormat::Json,
+                    "csv" => FileFormat::Csv,
+                    "parquet" => FileFormat::Parquet,
+                    "avro" => FileFormat::Avro,
+                    _ => return Err(SqlError::ExecutionError {
+                        message: format!("Unsupported file format '{}' in config '{}'", format_str, config_file),
+                        query: None,
+                    }),
+                };
+
+                DataSourceType::File { path, format }
+            }
+            "http" => {
+                let endpoint = config.get("endpoint")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("HTTP config '{}' missing 'endpoint' field", config_file),
+                        query: None,
+                    })?.to_string();
+
+                let poll_interval = config.get("poll_interval")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(60000); // Default 60 seconds
+
+                DataSourceType::Http { endpoint, poll_interval }
+            }
+            _ => return Err(SqlError::ExecutionError {
+                message: format!("Unsupported source type '{}' in config '{}'", source_type_str, config_file),
+                query: None,
+            }),
+        };
+
+        Ok(ConfigBasedSource {
+            config_file: config_file.to_string(),
+            source_type,
+            properties,
+        })
     }
 
     /// Create a table based on configuration file specification
@@ -732,19 +768,6 @@ impl CtasExecutor {
                     format
                 );
                 self.create_file_table(table_name, path, format, properties)
-                    .await
-            }
-            DataSourceType::Mock {
-                records_count,
-                schema,
-            } => {
-                log::info!(
-                    "Creating mock table '{}' from config: records={}, schema={}",
-                    table_name,
-                    records_count,
-                    schema
-                );
-                self.create_mock_table(table_name, *records_count, schema, properties)
                     .await
             }
             DataSourceType::Http {
@@ -801,68 +824,171 @@ impl CtasExecutor {
     async fn create_file_table(
         &self,
         table_name: &str,
-        _path: &str,
-        _format: &FileFormat,
-        _properties: &HashMap<String, String>,
-    ) -> Result<CtasResult, SqlError> {
-        // For now, create a mock table since file table implementation would require more infrastructure
-        log::info!("File table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 500, "file_schema", _properties)
-            .await
-    }
-
-    /// Create a mock table for testing
-    async fn create_mock_table(
-        &self,
-        table_name: &str,
-        _records_count: u32,
-        _schema: &str,
+        path: &str,
+        format: &FileFormat,
         properties: &HashMap<String, String>,
     ) -> Result<CtasResult, SqlError> {
-        // Create a mock table using the existing Kafka infrastructure but with mock data
-        let counter = self
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let consumer_group = format!(
-            "{}-mock-table-{}-{}",
-            self.base_group_id, table_name, counter
+        log::info!(
+            "Creating file table '{}' from path '{}' with format {:?}",
+            table_name, path, format
         );
 
-        let config = ConsumerConfig::new(&self.kafka_brokers, &consumer_group);
+        // Create properties for FileDataSource
+        let mut file_props = properties.clone();
+        file_props.insert("path".to_string(), path.to_string());
+        file_props.insert("format".to_string(), format!("{:?}", format).to_lowercase());
 
-        // Create a mock Table instance - in real implementation this would use a MockDataSource
-        // For now, we'll use the existing Table but it would fail to connect (which is expected in tests)
-        let table = Table::new_with_properties(
-            config,
-            format!("mock-topic-{}", table_name),
-            StringSerializer,
-            JsonFormat,
-            properties.clone(),
-        )
-        .await
-        .map_err(|e| SqlError::ExecutionError {
-            message: format!(
-                "Mock table creation completed for '{}' (connection error expected: {})",
-                table_name, e
-            ),
-            query: None,
-        })?;
+        // Create FileDataSource and initialize
+        let mut file_source = FileDataSource::from_properties(&file_props);
+        use crate::velostream::datasource::{DataSource, config::{SourceConfig, FileFormat as ConfigFileFormat}};
+        use crate::velostream::datasource::BatchConfig;
 
-        self.finalize_table_creation(table_name, table).await
+        // Convert our FileFormat to config FileFormat
+        let config_format = match format {
+            FileFormat::Json => ConfigFileFormat::Json,
+            FileFormat::Csv => ConfigFileFormat::Csv {
+                header: true,
+                delimiter: ',',
+                quote: '"',
+            },
+            FileFormat::Parquet => ConfigFileFormat::Parquet,
+            FileFormat::Avro => ConfigFileFormat::Avro,
+        };
+
+        let source_config = SourceConfig::File {
+            path: path.to_string(),
+            format: config_format,
+            properties: file_props.clone(),
+            batch_config: BatchConfig::default(),
+        };
+
+        file_source.initialize(source_config).await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to initialize file source for table '{}': {}", table_name, e),
+                query: None,
+            })?;
+
+        // Create OptimizedTableImpl for SQL operations
+        let optimized_table = OptimizedTableImpl::new();
+        log::info!(
+            "Created OptimizedTableImpl for file-based table '{}'",
+            table_name
+        );
+
+        // Create the queryable table wrapper
+        let queryable_table: Arc<dyn UnifiedTable> = Arc::new(optimized_table.clone());
+
+        // Create background job to populate table from file
+        let table_clone = optimized_table.clone();
+        let table_name_clone = table_name.to_string();
+        let file_props_clone = file_props.clone();
+
+        let background_job = tokio::spawn(async move {
+            log::info!("Starting background population of file table '{}'", table_name_clone);
+
+            match Self::populate_table_from_file(table_clone, &file_props_clone).await {
+                Ok(record_count) => {
+                    log::info!(
+                        "Successfully populated table '{}' with {} records from file",
+                        table_name_clone, record_count
+                    );
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to populate table '{}' from file: {}",
+                        table_name_clone, e
+                    );
+                }
+            }
+        });
+
+        Ok(CtasResult {
+            table_name: table_name.to_string(),
+            table: queryable_table,
+            background_job,
+        })
+    }
+
+    /// Populate table from file data source
+    async fn populate_table_from_file(
+        table: OptimizedTableImpl,
+        file_props: &HashMap<String, String>,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::velostream::datasource::{DataSource, DataReader};
+        use crate::velostream::datasource::config::SourceConfig;
+
+        // Create FileDataSource
+        let mut file_source = FileDataSource::from_properties(file_props);
+
+        // Create proper SourceConfig from properties
+        let path = file_props.get("path").cloned().unwrap_or_default();
+        let format_str = file_props.get("format").cloned().unwrap_or("json".to_string());
+
+        let config_format = match format_str.to_lowercase().as_str() {
+            "csv" => crate::velostream::datasource::config::FileFormat::Csv {
+                header: true,
+                delimiter: ',',
+                quote: '"',
+            },
+            "parquet" => crate::velostream::datasource::config::FileFormat::Parquet,
+            "avro" => crate::velostream::datasource::config::FileFormat::Avro,
+            _ => crate::velostream::datasource::config::FileFormat::Json,
+        };
+
+        let source_config = SourceConfig::File {
+            path,
+            format: config_format,
+            properties: file_props.clone(),
+            batch_config: crate::velostream::datasource::BatchConfig::default(),
+        };
+
+        file_source.initialize(source_config).await?;
+
+        // Create a reader
+        let mut reader = file_source.create_reader().await?;
+
+        let mut record_count = 0;
+
+        // Read all records from file and populate table
+        loop {
+            let records = reader.read().await?;
+
+            if records.is_empty() {
+                break; // End of file
+            }
+
+            for record in records {
+                // Extract key from record (use first field or row number)
+                let key = record.fields.get("id")
+                    .or_else(|| record.fields.get("key"))
+                    .map(|v| format!("{:?}", v))
+                    .unwrap_or_else(|| format!("row_{}", record_count));
+
+                // Insert into OptimizedTableImpl
+                table.insert(key, record.fields)?;
+                record_count += 1;
+            }
+        }
+
+        Ok(record_count)
     }
 
     /// Create an HTTP-based table
     async fn create_http_table(
         &self,
         table_name: &str,
-        _endpoint: &str,
-        _poll_interval: u64,
+        endpoint: &str,
+        poll_interval: u64,
         _properties: &HashMap<String, String>,
     ) -> Result<CtasResult, SqlError> {
-        // For now, create a mock table since HTTP table implementation would require more infrastructure
-        log::info!("HTTP table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 100, "http_schema", _properties)
-            .await
+        // HTTP table implementation not yet available
+        Err(SqlError::ExecutionError {
+            message: format!(
+                "HTTP table creation not yet implemented. Table '{}' with endpoint '{}' and poll interval {}ms cannot be created. Use Kafka or File sources instead.",
+                table_name, endpoint, poll_interval
+            ),
+            query: None,
+        })
     }
 
     /// Common table finalization logic

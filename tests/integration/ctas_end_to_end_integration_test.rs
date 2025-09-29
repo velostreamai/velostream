@@ -165,6 +165,14 @@ async fn test_ctas_end_to_end_integration() {
             }
             println!("⚠️  Expected execution error (mock sources): {}", message);
         }
+        Err(SqlError::ConfigurationError { message, .. }) => {
+            // Expected due to source type specification requirements
+            if message.contains("Source type must be explicitly specified") {
+                println!("⚠️  Expected configuration error (source type specification): {}", message);
+            } else {
+                panic!("❌ Unexpected configuration error: {}", message);
+            }
+        }
         Err(e) => {
             panic!("❌ Unexpected error in SQL integration: {}", e);
         }

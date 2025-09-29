@@ -1,6 +1,6 @@
 # Velostream Active Development TODO
 
-**Last Updated**: September 27, 2025
+**Last Updated**: September 29, 2024
 **Status**: 🔄 **IN PROGRESS** - Stream-Table Joins implementation started
 **Current Priority**: **🎯 ACTIVE: Stream-Table Joins for Financial Services (Phase 3)**
 
@@ -12,7 +12,7 @@
 
 ## 🎯 **CURRENT STATUS & NEXT PRIORITIES**
 
-### **✅ Recent Completions - September 27, 2025**
+### **✅ Recent Completions - September 27, 2024**
 - ✅ **Test Failures Resolved**: Both `test_optimized_aggregates` and `test_error_handling` fixed
 - ✅ **OptimizedTableImpl Complete**: Production-ready with enterprise performance (1.85M+ lookups/sec)
 - ✅ **Phase 2 CTAS**: All 65 CTAS tests passing with comprehensive validation
@@ -24,12 +24,77 @@
 
 ---
 
+## 🚀 **NEW ARCHITECTURE: Generic Table Loading System**
+
+**Identified**: September 29, 2024
+**Priority**: **HIGH** - Performance & scalability enhancement
+**Status**: 📋 **DESIGNED** - Ready for implementation
+**Impact**: **🎯 MAJOR** - Unified loading for all data source types
+
+### **Architecture Overview**
+
+Replace source-specific loading with generic **Bulk + Incremental Loading** pattern that works across all data sources (Kafka, File, SQL, HTTP, S3).
+
+#### **Two-Phase Loading Pattern**
+```rust
+trait TableDataSource {
+    /// Phase 1: Initial bulk load of existing data
+    async fn bulk_load(&self) -> Result<Vec<StreamRecord>, Error>;
+
+    /// Phase 2: Incremental updates for new/changed data
+    async fn incremental_load(&self, since: SourceOffset) -> Result<Vec<StreamRecord>, Error>;
+
+    /// Get current position/offset for incremental loading
+    async fn get_current_offset(&self) -> Result<SourceOffset, Error>;
+
+    /// Check if incremental loading is supported
+    fn supports_incremental(&self) -> bool;
+}
+```
+
+#### **Loading Strategies by Source Type**
+| Data Source | Bulk Load | Incremental Load | Offset Tracking |
+|-------------|-----------|------------------|-----------------|
+| **Kafka** | ✅ Consume from earliest | ✅ Consumer offset | ✅ Kafka offsets |
+| **Files** | ✅ Read full file | ✅ File position/tail | ✅ Byte position |
+| **SQL DB** | ✅ Full table scan | ✅ Change tracking | ✅ Timestamp/ID |
+| **HTTP API** | ✅ Initial GET request | ✅ Polling/webhooks | ✅ ETag/timestamp |
+| **S3** | ✅ List + read objects | ✅ Event notifications | ✅ Last modified |
+
+### **Implementation Tasks**
+
+#### **Phase 1: Core Trait & Interface** (Estimated: 1 week)
+- [ ] Define `TableDataSource` trait with bulk/incremental methods
+- [ ] Create `SourceOffset` enum for different offset types
+- [ ] Implement generic CTAS loading orchestrator
+- [ ] Add offset persistence for resume capability
+
+#### **Phase 2: Source Implementations** (Estimated: 2 weeks)
+- [ ] **KafkaDataSource**: Implement bulk (earliest→latest) + incremental (offset-based)
+- [ ] **FileDataSource**: Implement bulk (full read) + incremental (file position tracking)
+- [ ] **SqlDataSource**: Implement bulk (full query) + incremental (timestamp-based)
+
+#### **Phase 3: Advanced Features** (Estimated: 1 week)
+- [ ] Configurable incremental loading intervals
+- [ ] Error recovery and retry logic
+- [ ] Performance monitoring and metrics
+- [ ] Health checks for loading status
+
+### **Benefits**
+- **🚀 Fast Initial Load**: Bulk load gets tables operational quickly
+- **🔄 Real-time Updates**: Incremental load keeps data fresh
+- **📊 Consistent Behavior**: Same pattern across all source types
+- **⚡ Performance**: Minimal overhead for incremental updates
+- **🛡️ Resilience**: Bulk load works even if incremental fails
+
+---
+
 ## 🚨 **CRITICAL GAP: Stream-Table Load Coordination**
 
-**Identified**: September 27, 2025
-**Priority**: **CRITICAL** - Production blocking issue
+**Identified**: September 27, 2024
+**Priority**: **MEDIUM** - Enhanced by generic loading system above
 **Status**: 🔄 **PHASES 1-2 IMPLEMENTED** - Core synchronization and graceful degradation complete
-**Risk Level**: 🟡 **MEDIUM** - Core gaps addressed, remaining work is enhancement
+**Risk Level**: 🟡 **LOW** - Core gaps addressed, mainly enhancement work remaining
 
 ### **Problem Statement**
 
@@ -75,8 +140,8 @@ Stream Start ───> Wait for Ready ┘
 
 ### **Implementation Plan**
 
-#### **✅ Phase 1: Core Synchronization - COMPLETED September 27, 2025**
-**Timeline**: October 1-7, 2025 → **COMPLETED EARLY**
+#### **✅ Phase 1: Core Synchronization - COMPLETED September 27, 2024**
+**Timeline**: October 1-7, 2024 → **COMPLETED EARLY**
 **Goal**: Make table coordination the DEFAULT behavior → **✅ ACHIEVED**
 
 ```rust
@@ -123,8 +188,8 @@ impl StreamJobServer {
 
 **🎯 PRODUCTION IMPACT**: Streams now WAIT for tables, preventing missing enrichment data
 
-#### **🔄 Phase 2: Graceful Degradation - IN PROGRESS September 27, 2025**
-**Timeline**: October 8-14, 2025 → **STARTED EARLY**
+#### **🔄 Phase 2: Graceful Degradation - IN PROGRESS September 27, 2024**
+**Timeline**: October 8-14, 2024 → **STARTED EARLY**
 **Goal**: Handle partial data scenarios gracefully → **⚡ CORE IMPLEMENTATION COMPLETE**
 
 ```rust
@@ -166,7 +231,7 @@ impl StreamTableJoinProcessor {
 **🎯 PRODUCTION IMPACT**: Missing table data now handled gracefully with configurable strategies
 
 #### **Phase 3: Progress Monitoring (Week 3)**
-**Timeline**: October 15-21, 2025
+**Timeline**: October 15-21, 2024
 **Goal**: Real-time visibility into table loading
 
 ```rust
@@ -202,7 +267,7 @@ GET /health/tables
         "status": "loading",
         "progress": 45.2,
         "records_loaded": 22600,
-        "estimated_completion": "2025-10-15T10:45:00Z",
+        "estimated_completion": "2024-10-15T10:45:00Z",
         "loading_rate": 1500.0
     }
 }
@@ -215,7 +280,7 @@ GET /health/tables
 - ✅ Health dashboard integration
 
 #### **Phase 4: Advanced Coordination (Week 4)**
-**Timeline**: October 22-28, 2025
+**Timeline**: October 22-28, 2024
 **Goal**: Enterprise-grade coordination features
 
 ```rust
@@ -288,7 +353,7 @@ pub struct TableLoadCircuitBreaker {
 
 ## 🔄 **NEXT DEVELOPMENT PRIORITIES**
 
-### ✅ **PHASE 3: Stream-Table Joins - COMPLETED September 27, 2025**
+### ✅ **PHASE 3: Stream-Table Joins - COMPLETED September 27, 2024**
 
 **Status**: ✅ **COMPLETED** - Moved to [todo-complete.md](todo-complete.md)
 **Achievement**: 840x performance improvement with advanced optimization suite
@@ -296,7 +361,7 @@ pub struct TableLoadCircuitBreaker {
 
 ---
 
-### ✅ **PHASE 4: Enhanced CREATE TABLE Features - COMPLETED September 28, 2025**
+### ✅ **PHASE 4: Enhanced CREATE TABLE Features - COMPLETED September 28, 2024**
 
 **Status**: ✅ **COMPLETED**
 **Timeline**: Completed in 1 day
@@ -330,7 +395,7 @@ WITH ("auto.offset.reset" = "earliest");
 
 ---
 
-### ✅ **PHASE 5: Missing Source Handling - COMPLETED September 28, 2025**
+### ✅ **PHASE 5: Missing Source Handling - COMPLETED September 28, 2024**
 
 **Status**: ✅ **CORE FUNCTIONALITY COMPLETED**
 **Timeline**: Completed in 1 day
@@ -367,7 +432,7 @@ WITH (
 - ✅ Documentation updated
 
 #### **✅ Fully Completed**
-- ✅ **File Source Retry**: Complete implementation with comprehensive test suite ✅ **COMPLETED September 28, 2025**
+- ✅ **File Source Retry**: Complete implementation with comprehensive test suite ✅ **COMPLETED September 28, 2024**
 
 #### **Success Metrics**
 - [x] Zero manual intervention for transient missing Kafka topics
@@ -413,10 +478,10 @@ WITH (
 
 | Phase | Status | Completion | Timeline | Dates |
 |-------|--------|------------|----------|-------|
-| **Phase 1**: SQL Subquery Foundation | ✅ **COMPLETED** | 100% | Weeks 1-3 | Aug 1-21, 2025 ✅ |
-| **Phase 2**: OptimizedTableImpl & CTAS | ✅ **COMPLETED** | 100% | Weeks 4-8 | Aug 22 - Sep 26, 2025 ✅ |
-| **Phase 3**: Stream-Table Joins | ✅ **COMPLETED** | 100% | Week 9 | Sep 27, 2025 ✅ |
-| **Phase 4**: Advanced Streaming Features | 🔄 **READY TO START** | 0% | Weeks 10-17 | Sep 28 - Dec 21, 2025 |
+| **Phase 1**: SQL Subquery Foundation | ✅ **COMPLETED** | 100% | Weeks 1-3 | Aug 1-21, 2024 ✅ |
+| **Phase 2**: OptimizedTableImpl & CTAS | ✅ **COMPLETED** | 100% | Weeks 4-8 | Aug 22 - Sep 26, 2024 ✅ |
+| **Phase 3**: Stream-Table Joins | ✅ **COMPLETED** | 100% | Week 9 | Sep 27, 2024 ✅ |
+| **Phase 4**: Advanced Streaming Features | 🔄 **READY TO START** | 0% | Weeks 10-17 | Sep 28 - Dec 21, 2024 |
 
 ### **Key Achievements**
 - ✅ **OptimizedTableImpl**: 90% code reduction with 1.85M+ lookups/sec performance
@@ -430,7 +495,7 @@ WITH (
 - ✅ **Production Ready**: Complete validation with enterprise benchmarks
 
 ### **Recent Milestone Achievement**
-**🎯 Target**: Complete Phase 3 Stream-Table Joins by October 25, 2025 → **✅ COMPLETED September 27, 2025**
+**🎯 Target**: Complete Phase 3 Stream-Table Joins by October 25, 2024 → **✅ COMPLETED September 27, 2024**
 - **Progress**: 100% complete (3 weeks ahead of schedule!)
 - **Achievement**: Real-time trade enrichment with KTable joins fully implemented
 - **Foundation**: ✅ OptimizedTableImpl provides enterprise performance foundation
@@ -438,7 +503,7 @@ WITH (
 - **Quality**: Enhanced SQL validation with intelligent JOIN performance warnings
 
 ### **Next Development Priorities**
-**📅 Phase 4 (Sep 28 - Dec 21, 2025)**: Advanced Streaming Features (NOW READY TO START)
+**📅 Phase 4 (Sep 28 - Dec 21, 2024)**: Advanced Streaming Features (NOW READY TO START)
 - Advanced Window Functions with complex aggregations
 - Enhanced JOIN Operations across multiple streams
 - Comprehensive Aggregation Functions
