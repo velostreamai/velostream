@@ -638,24 +638,25 @@ impl CtasExecutor {
 
     /// Load data source configuration from a config file
     fn load_data_source_config(&self, config_file: &str) -> Result<ConfigBasedSource, SqlError> {
-        use std::fs;
         use serde_yaml::Value;
+        use std::fs;
 
         // Read and parse the configuration file
-        let config_content = fs::read_to_string(config_file)
-            .map_err(|e| SqlError::ExecutionError {
+        let config_content =
+            fs::read_to_string(config_file).map_err(|e| SqlError::ExecutionError {
                 message: format!("Failed to read config file '{}': {}", config_file, e),
                 query: None,
             })?;
 
-        let config: Value = serde_yaml::from_str(&config_content)
-            .map_err(|e| SqlError::ExecutionError {
+        let config: Value =
+            serde_yaml::from_str(&config_content).map_err(|e| SqlError::ExecutionError {
                 message: format!("Failed to parse config file '{}': {}", config_file, e),
                 query: None,
             })?;
 
         // Extract source type and properties
-        let source_type_str = config.get("source_type")
+        let source_type_str = config
+            .get("source_type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| SqlError::ExecutionError {
                 message: format!("Config file '{}' missing 'source_type' field", config_file),
@@ -677,28 +678,37 @@ impl CtasExecutor {
         // Create appropriate DataSourceType based on configuration
         let source_type = match source_type_str {
             "kafka" => {
-                let brokers = config.get("brokers")
+                let brokers = config
+                    .get("brokers")
                     .and_then(|v| v.as_str())
                     .unwrap_or(&self.kafka_brokers)
                     .to_string();
-                let topic = config.get("topic")
+                let topic = config
+                    .get("topic")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SqlError::ExecutionError {
-                        message: format!("Kafka config file '{}' missing 'topic' field", config_file),
+                        message: format!(
+                            "Kafka config file '{}' missing 'topic' field",
+                            config_file
+                        ),
                         query: None,
-                    })?.to_string();
+                    })?
+                    .to_string();
 
                 DataSourceType::Kafka { brokers, topic }
             }
             "file" => {
-                let path = config.get("path")
+                let path = config
+                    .get("path")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SqlError::ExecutionError {
                         message: format!("File config '{}' missing 'path' field", config_file),
                         query: None,
-                    })?.to_string();
+                    })?
+                    .to_string();
 
-                let format_str = config.get("format")
+                let format_str = config
+                    .get("format")
                     .and_then(|v| v.as_str())
                     .unwrap_or("json");
 
@@ -707,32 +717,48 @@ impl CtasExecutor {
                     "csv" => FileFormat::Csv,
                     "parquet" => FileFormat::Parquet,
                     "avro" => FileFormat::Avro,
-                    _ => return Err(SqlError::ExecutionError {
-                        message: format!("Unsupported file format '{}' in config '{}'", format_str, config_file),
-                        query: None,
-                    }),
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported file format '{}' in config '{}'",
+                                format_str, config_file
+                            ),
+                            query: None,
+                        })
+                    }
                 };
 
                 DataSourceType::File { path, format }
             }
             "http" => {
-                let endpoint = config.get("endpoint")
+                let endpoint = config
+                    .get("endpoint")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| SqlError::ExecutionError {
                         message: format!("HTTP config '{}' missing 'endpoint' field", config_file),
                         query: None,
-                    })?.to_string();
+                    })?
+                    .to_string();
 
-                let poll_interval = config.get("poll_interval")
+                let poll_interval = config
+                    .get("poll_interval")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(60000); // Default 60 seconds
 
-                DataSourceType::Http { endpoint, poll_interval }
+                DataSourceType::Http {
+                    endpoint,
+                    poll_interval,
+                }
             }
-            _ => return Err(SqlError::ExecutionError {
-                message: format!("Unsupported source type '{}' in config '{}'", source_type_str, config_file),
-                query: None,
-            }),
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Unsupported source type '{}' in config '{}'",
+                        source_type_str, config_file
+                    ),
+                    query: None,
+                })
+            }
         };
 
         Ok(ConfigBasedSource {
@@ -830,7 +856,9 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         log::info!(
             "Creating file table '{}' from path '{}' with format {:?}",
-            table_name, path, format
+            table_name,
+            path,
+            format
         );
 
         // Create properties for FileDataSource
@@ -840,8 +868,11 @@ impl CtasExecutor {
 
         // Create FileDataSource and initialize
         let mut file_source = FileDataSource::from_properties(&file_props);
-        use crate::velostream::datasource::{DataSource, config::{SourceConfig, FileFormat as ConfigFileFormat}};
         use crate::velostream::datasource::BatchConfig;
+        use crate::velostream::datasource::{
+            config::{FileFormat as ConfigFileFormat, SourceConfig},
+            DataSource,
+        };
 
         // Convert our FileFormat to config FileFormat
         let config_format = match format {
@@ -862,9 +893,14 @@ impl CtasExecutor {
             batch_config: BatchConfig::default(),
         };
 
-        file_source.initialize(source_config).await
+        file_source
+            .initialize(source_config)
+            .await
             .map_err(|e| SqlError::ExecutionError {
-                message: format!("Failed to initialize file source for table '{}': {}", table_name, e),
+                message: format!(
+                    "Failed to initialize file source for table '{}': {}",
+                    table_name, e
+                ),
                 query: None,
             })?;
 
@@ -884,19 +920,24 @@ impl CtasExecutor {
         let file_props_clone = file_props.clone();
 
         let background_job = tokio::spawn(async move {
-            log::info!("Starting background population of file table '{}'", table_name_clone);
+            log::info!(
+                "Starting background population of file table '{}'",
+                table_name_clone
+            );
 
             match Self::populate_table_from_file(table_clone, &file_props_clone).await {
                 Ok(record_count) => {
                     log::info!(
                         "Successfully populated table '{}' with {} records from file",
-                        table_name_clone, record_count
+                        table_name_clone,
+                        record_count
                     );
                 }
                 Err(e) => {
                     log::error!(
                         "Failed to populate table '{}' from file: {}",
-                        table_name_clone, e
+                        table_name_clone,
+                        e
                     );
                 }
             }
@@ -914,15 +955,18 @@ impl CtasExecutor {
         table: OptimizedTableImpl,
         file_props: &HashMap<String, String>,
     ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::velostream::datasource::{DataSource, DataReader};
         use crate::velostream::datasource::config::SourceConfig;
+        use crate::velostream::datasource::{DataReader, DataSource};
 
         // Create FileDataSource
         let mut file_source = FileDataSource::from_properties(file_props);
 
         // Create proper SourceConfig from properties
         let path = file_props.get("path").cloned().unwrap_or_default();
-        let format_str = file_props.get("format").cloned().unwrap_or("json".to_string());
+        let format_str = file_props
+            .get("format")
+            .cloned()
+            .unwrap_or("json".to_string());
 
         let config_format = match format_str.to_lowercase().as_str() {
             "csv" => crate::velostream::datasource::config::FileFormat::Csv {
@@ -959,7 +1003,9 @@ impl CtasExecutor {
 
             for record in records {
                 // Extract key from record (use first field or row number)
-                let key = record.fields.get("id")
+                let key = record
+                    .fields
+                    .get("id")
                     .or_else(|| record.fields.get("key"))
                     .map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| format!("row_{}", record_count));

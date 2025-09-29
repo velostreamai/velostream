@@ -4,7 +4,9 @@ use crate::velostream::kafka::serialization::Serializer;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use crate::velostream::table::retry_utils::{
-    format_topic_missing_error, is_topic_missing_error, parse_duration,
+    calculate_retry_delay, categorize_kafka_error, format_categorized_error,
+    is_topic_missing_error, parse_duration, parse_retry_strategy, should_retry_for_category,
+    RetryMetrics, RetryStrategy,
 };
 use crate::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,
@@ -126,15 +128,32 @@ where
         .await
     }
 
-    /// Creates a new Table from a Kafka topic with configurable properties
+    /// Creates a new Table from a Kafka topic with enhanced retry and error handling
     ///
-    /// Supports configuration of offset reset behavior and retry logic via properties:
-    /// - "auto.offset.reset": "earliest" or "latest" (default: "earliest")
-    /// - "topic.wait.timeout": Duration to wait for topic (default: "0s" - no wait)
-    /// - "topic.retry.interval": Time between retry attempts (default: "5s")
+    /// # Enhanced Retry Configuration
+    ///
+    /// ## Basic Properties
+    /// - `topic.wait.timeout`: Maximum time to wait for topic (e.g., "30s", "5m", "1h", default: "0s")
+    /// - `topic.retry.interval`: Base interval for fixed retry strategy (default: "5s")
+    /// - `auto.offset.reset`: Kafka offset reset behavior ("earliest", "latest", default: "earliest")
+    ///
+    /// ## Advanced Retry Strategies
+    /// - `topic.retry.strategy`: Retry algorithm - "fixed", "exponential", "linear" (default: "fixed")
+    /// - `topic.retry.multiplier`: Exponential backoff multiplier (default: 2.0)
+    /// - `topic.retry.max.delay`: Maximum delay between retries (default: "5m")
+    /// - `topic.retry.increment`: Linear backoff increment (default: same as interval)
+    ///
+    /// # Intelligent Error Categorization
+    ///
+    /// The system automatically categorizes Kafka errors and applies appropriate retry logic:
+    /// - **TopicMissing**: Retries with configured strategy (topic may be created)
+    /// - **NetworkIssue**: Retries with backoff (network may recover)
+    /// - **AuthenticationIssue**: No retry (requires manual fix)
+    /// - **ConfigurationIssue**: No retry (code/config change needed)
     ///
     /// # Examples
     ///
+    /// ## Basic Retry (Development)
     /// ```rust,no_run
     /// use std::collections::HashMap;
     /// use velostream::velostream::table::Table;
@@ -147,11 +166,42 @@ where
     ///     let mut props = HashMap::new();
     ///     props.insert("auto.offset.reset".to_string(), "latest".to_string());
     ///     props.insert("topic.wait.timeout".to_string(), "30s".to_string());
+    ///     props.insert("topic.retry.interval".to_string(), "5s".to_string());
     ///
-    ///     let consumer_config = ConsumerConfig::new("localhost:9092", "test-group");
+    ///     let consumer_config = ConsumerConfig::new("localhost:9092", "dev-group");
     ///     let table: Table<String, JsonSerializer, JsonFormat> = Table::new_with_properties(
     ///         consumer_config,
-    ///         "topic".to_string(),
+    ///         "user_events".to_string(),
+    ///         JsonSerializer,
+    ///         JsonFormat,
+    ///         props,
+    ///     ).await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// ## Exponential Backoff (Production)
+    /// ```rust,no_run
+    /// use std::collections::HashMap;
+    /// use velostream::velostream::table::Table;
+    /// use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    /// use velostream::velostream::kafka::serialization::JsonSerializer;
+    /// use velostream::velostream::serialization::JsonFormat;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut props = HashMap::new();
+    ///     // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
+    ///     props.insert("topic.wait.timeout".to_string(), "5m".to_string());
+    ///     props.insert("topic.retry.strategy".to_string(), "exponential".to_string());
+    ///     props.insert("topic.retry.interval".to_string(), "1s".to_string());
+    ///     props.insert("topic.retry.multiplier".to_string(), "2.0".to_string());
+    ///     props.insert("topic.retry.max.delay".to_string(), "60s".to_string());
+    ///
+    ///     let consumer_config = ConsumerConfig::new("broker1:9092,broker2:9092", "prod-group");
+    ///     let table: Table<String, JsonSerializer, JsonFormat> = Table::new_with_properties(
+    ///         consumer_config,
+    ///         "financial_transactions".to_string(),
     ///         JsonSerializer,
     ///         JsonFormat,
     ///         props,
@@ -166,20 +216,20 @@ where
         value_format: VS,
         properties: HashMap<String, String>,
     ) -> Result<Self, ConsumerError> {
-        // Parse retry configuration
+        // Parse enhanced retry configuration
         let wait_timeout = properties
             .get("topic.wait.timeout")
             .and_then(|s| parse_duration(s))
             .unwrap_or(Duration::from_secs(0)); // Default: no wait
 
-        let retry_interval = properties
-            .get("topic.retry.interval")
-            .and_then(|s| parse_duration(s))
-            .unwrap_or(Duration::from_secs(5)); // Default: 5 seconds
+        let retry_strategy = parse_retry_strategy(&properties);
+        let metrics = RetryMetrics::new();
 
-        // If wait timeout is configured, implement retry logic
+        // If wait timeout is configured, implement enhanced retry logic
         if wait_timeout.as_secs() > 0 {
             let start = Instant::now();
+            let mut attempt_number = 0u32;
+
             loop {
                 match Self::try_create_table(
                     consumer_config.clone(),
@@ -191,48 +241,83 @@ where
                 .await
                 {
                     Ok(table) => {
+                        // High-performance batch metrics recording
+                        metrics.record_attempt_with_success();
                         log::info!(
-                            "Successfully created table for topic '{}' after {:?}",
+                            "Successfully created table for topic '{}' after {:?} ({} attempts)",
                             topic,
-                            start.elapsed()
+                            start.elapsed(),
+                            attempt_number + 1
                         );
                         return Ok(table);
                     }
-                    Err(e) if is_topic_missing_error(&e) => {
-                        if start.elapsed() >= wait_timeout {
-                            log::error!(
-                                "Timeout waiting for topic '{}' after {:?}",
-                                topic,
-                                wait_timeout
-                            );
-                            // Return the original error for now - enhanced error messages can be added later
-                            return Err(e);
-                        }
-                        log::info!(
-                            "Topic '{}' not found, retrying in {:?}... (elapsed: {:?})",
-                            topic,
-                            retry_interval,
-                            start.elapsed()
-                        );
-                        sleep(retry_interval).await;
-                    }
                     Err(e) => {
-                        // Other errors fail immediately
-                        log::error!("Failed to create table for topic '{}': {}", topic, e);
-                        return Err(e);
+                        let error_category = categorize_kafka_error(&e);
+                        // High-performance batch metrics recording
+                        metrics.record_attempt_with_error(&error_category);
+
+                        // Check if we should retry for this error category
+                        if !should_retry_for_category(&error_category) {
+                            log::error!(
+                                "Non-retryable error for topic '{}' (category: {:?}): {}",
+                                topic,
+                                error_category,
+                                e
+                            );
+                            let error_msg = format_categorized_error(&topic, &e, &error_category);
+                            return Err(ConsumerError::ConfigurationError(error_msg));
+                        }
+
+                        // Check timeout
+                        if start.elapsed() >= wait_timeout {
+                            // Use batch timeout recording (already recorded attempt above)
+                            metrics.record_timeout();
+                            log::error!(
+                                "Timeout waiting for topic '{}' after {:?} ({} attempts, category: {:?})",
+                                topic,
+                                wait_timeout,
+                                attempt_number + 1,
+                                error_category
+                            );
+                            let error_msg = format_categorized_error(&topic, &e, &error_category);
+                            return Err(ConsumerError::ConfigurationError(error_msg));
+                        }
+
+                        // Calculate next retry delay using strategy
+                        let delay = calculate_retry_delay(&retry_strategy, attempt_number);
+
+                        log::info!(
+                            "Retrying topic '{}' in {:?} (attempt {}, elapsed: {:?}, category: {:?})",
+                            topic,
+                            delay,
+                            attempt_number + 1,
+                            start.elapsed(),
+                            error_category
+                        );
+
+                        sleep(delay).await;
+                        attempt_number += 1;
                     }
                 }
             }
         } else {
-            // No retry - existing behavior
-            Self::try_create_table(
+            // No retry - existing behavior with enhanced error messages
+            match Self::try_create_table(
                 consumer_config,
-                topic,
+                topic.clone(),
                 key_serializer,
                 value_format,
                 &properties,
             )
             .await
+            {
+                Ok(table) => Ok(table),
+                Err(e) => {
+                    let error_category = categorize_kafka_error(&e);
+                    let error_msg = format_categorized_error(&topic, &e, &error_category);
+                    Err(ConsumerError::ConfigurationError(error_msg))
+                }
+            }
         }
     }
 

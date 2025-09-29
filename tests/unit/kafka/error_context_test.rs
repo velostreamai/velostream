@@ -335,6 +335,7 @@ pub fn categorize_error(error: &KafkaClientError) -> ErrorSeverity {
         KafkaClientError::SerializationError(_) => ErrorSeverity::Critical,
         KafkaClientError::Timeout => ErrorSeverity::Warning,
         KafkaClientError::NoMessage => ErrorSeverity::Info,
+        KafkaClientError::ConfigurationError(_) => ErrorSeverity::Critical,
     }
 }
 
