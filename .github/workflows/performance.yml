@@ -110,11 +110,59 @@ jobs:
         AGGREGATION_THROUGHPUT=$(grep -oE 'Aggregation.*[0-9]+' sql_results.txt | grep -oE '[0-9]+' | head -1 || echo "0")
 
         # Calculate performance stars (1-5 stars based on CI-friendly performance thresholds)
-        # Use awk for safer numeric comparisons and avoid bc multiline output issues
-        JSON_STARS=$(awk -v t="$JSON_THROUGHPUT" 'BEGIN {if (t > 2000) print 5; else if (t > 1000) print 4; else if (t > 500) print 3; else if (t > 200) print 2; else print 1}')
-        RAW_STARS=$(awk -v t="$RAW_THROUGHPUT" 'BEGIN {if (t > 10000) print 5; else if (t > 5000) print 4; else if (t > 2000) print 3; else if (t > 800) print 2; else print 1}')
-        LATENCY_STARS=$(awk -v l="$P95_LATENCY" 'BEGIN {if (l < 50) print 5; else if (l < 200) print 4; else if (l < 500) print 3; else if (l < 1000) print 2; else print 1}')
-        SQL_STARS=$(awk -v t="$BASELINE_THROUGHPUT" 'BEGIN {if (t > 500) print 5; else if (t > 200) print 4; else if (t > 50) print 3; else if (t > 10) print 2; else print 1}')
+        # Use proper if-elif-else blocks to ensure single value output
+
+        # JSON stars calculation
+        if [ $(echo "$JSON_THROUGHPUT > 2000" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          JSON_STARS=5
+        elif [ $(echo "$JSON_THROUGHPUT > 1000" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          JSON_STARS=4
+        elif [ $(echo "$JSON_THROUGHPUT > 500" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          JSON_STARS=3
+        elif [ $(echo "$JSON_THROUGHPUT > 200" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          JSON_STARS=2
+        else
+          JSON_STARS=1
+        fi
+
+        # Raw throughput stars calculation
+        if [ $(echo "$RAW_THROUGHPUT > 10000" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          RAW_STARS=5
+        elif [ $(echo "$RAW_THROUGHPUT > 5000" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          RAW_STARS=4
+        elif [ $(echo "$RAW_THROUGHPUT > 2000" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          RAW_STARS=3
+        elif [ $(echo "$RAW_THROUGHPUT > 800" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          RAW_STARS=2
+        else
+          RAW_STARS=1
+        fi
+
+        # Latency stars calculation (lower is better)
+        if [ $(echo "$P95_LATENCY < 50" | awk '{print ($1 < $3)}') -eq 1 ]; then
+          LATENCY_STARS=5
+        elif [ $(echo "$P95_LATENCY < 200" | awk '{print ($1 < $3)}') -eq 1 ]; then
+          LATENCY_STARS=4
+        elif [ $(echo "$P95_LATENCY < 500" | awk '{print ($1 < $3)}') -eq 1 ]; then
+          LATENCY_STARS=3
+        elif [ $(echo "$P95_LATENCY < 1000" | awk '{print ($1 < $3)}') -eq 1 ]; then
+          LATENCY_STARS=2
+        else
+          LATENCY_STARS=1
+        fi
+
+        # SQL throughput stars calculation
+        if [ $(echo "$BASELINE_THROUGHPUT > 500" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          SQL_STARS=5
+        elif [ $(echo "$BASELINE_THROUGHPUT > 200" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          SQL_STARS=4
+        elif [ $(echo "$BASELINE_THROUGHPUT > 50" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          SQL_STARS=3
+        elif [ $(echo "$BASELINE_THROUGHPUT > 10" | awk '{print ($1 > $3)}') -eq 1 ]; then
+          SQL_STARS=2
+        else
+          SQL_STARS=1
+        fi
 
         # Set outputs
         echo "json_throughput=$JSON_THROUGHPUT" >> $GITHUB_OUTPUT
