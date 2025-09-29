@@ -1100,6 +1100,224 @@ impl OptimizedTableImpl {
 
         Ok(results)
     }
+
+    // =========================================================================
+    // PHASE 7: UNIFIED TABLE LOADING METHODS
+    // =========================================================================
+
+    /// Load data from any DataSource using bulk loading pattern
+    ///
+    /// This method implements Phase 1 of the unified loading pattern by loading
+    /// all available data from the source into the table.
+    ///
+    /// # Arguments
+    /// - `data_source`: Any implementation of the DataSource trait
+    /// - `config`: Optional loading configuration
+    ///
+    /// # Returns
+    /// - `Ok(LoadingStats)`: Statistics about the loading operation
+    /// - `Err(SqlError)`: If loading fails
+    pub async fn bulk_load_from_source<T>(
+        &mut self,
+        data_source: &T,
+        config: Option<crate::velostream::table::loading_helpers::LoadingConfig>,
+    ) -> TableResult<crate::velostream::table::loading_helpers::LoadingStats>
+    where
+        T: crate::velostream::datasource::traits::DataSource,
+    {
+        let load_start = std::time::Instant::now();
+
+        // Use the unified loading helper
+        let records =
+            crate::velostream::table::loading_helpers::bulk_load_table(data_source, config)
+                .await
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Bulk load failed: {}", e),
+                    query: None,
+                })?;
+
+        // Insert all records into the table
+        {
+            let mut data = self.data.write().unwrap();
+            for record in &records {
+                let key = if let Some(key_field) =
+                    record.fields.get("id").or_else(|| record.fields.get("key"))
+                {
+                    match key_field {
+                        crate::velostream::sql::execution::types::FieldValue::String(s) => {
+                            s.clone()
+                        }
+                        crate::velostream::sql::execution::types::FieldValue::Integer(i) => {
+                            i.to_string()
+                        }
+                        _ => key_field.to_display_string(),
+                    }
+                } else {
+                    // Use offset as fallback key
+                    record.offset.to_string()
+                };
+                data.insert(key, record.fields.clone());
+            }
+        }
+
+        // Update table statistics
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.record_count = self.data.read().unwrap().len();
+        }
+
+        let loading_stats = crate::velostream::table::loading_helpers::LoadingStats {
+            bulk_records_loaded: records.len() as u64,
+            bulk_load_duration_ms: load_start.elapsed().as_millis() as u64,
+            incremental_records_loaded: 0,
+            incremental_load_duration_ms: 0,
+            total_load_operations: 1,
+            failed_load_operations: 0,
+            last_successful_load: Some(std::time::SystemTime::now()),
+        };
+
+        log::info!(
+            "Bulk loaded {} records into OptimizedTableImpl in {:?}",
+            records.len(),
+            load_start.elapsed()
+        );
+
+        Ok(loading_stats)
+    }
+
+    /// Load incremental data from any DataSource using incremental loading pattern
+    ///
+    /// This method implements Phase 2 of the unified loading pattern by loading
+    /// only new/changed data since a specific offset.
+    ///
+    /// # Arguments
+    /// - `data_source`: Any implementation of the DataSource trait
+    /// - `since_offset`: The offset to start loading from
+    /// - `config`: Optional loading configuration
+    ///
+    /// # Returns
+    /// - `Ok(LoadingStats)`: Statistics about the loading operation
+    /// - `Err(SqlError)`: If loading fails
+    pub async fn incremental_load_from_source<T>(
+        &mut self,
+        data_source: &T,
+        since_offset: crate::velostream::datasource::types::SourceOffset,
+        config: Option<crate::velostream::table::loading_helpers::LoadingConfig>,
+    ) -> TableResult<crate::velostream::table::loading_helpers::LoadingStats>
+    where
+        T: crate::velostream::datasource::traits::DataSource,
+    {
+        let load_start = std::time::Instant::now();
+
+        // Use the unified loading helper
+        let records = crate::velostream::table::loading_helpers::incremental_load_table(
+            data_source,
+            since_offset,
+            config,
+        )
+        .await
+        .map_err(|e| SqlError::ExecutionError {
+            message: format!("Incremental load failed: {}", e),
+            query: None,
+        })?;
+
+        // Insert/update records in the table
+        {
+            let mut data = self.data.write().unwrap();
+            for record in &records {
+                let key = if let Some(key_field) =
+                    record.fields.get("id").or_else(|| record.fields.get("key"))
+                {
+                    match key_field {
+                        crate::velostream::sql::execution::types::FieldValue::String(s) => {
+                            s.clone()
+                        }
+                        crate::velostream::sql::execution::types::FieldValue::Integer(i) => {
+                            i.to_string()
+                        }
+                        _ => key_field.to_display_string(),
+                    }
+                } else {
+                    // Use offset as fallback key
+                    record.offset.to_string()
+                };
+                data.insert(key, record.fields.clone());
+            }
+        }
+
+        // Update table statistics
+        {
+            let mut stats = self.stats.write().unwrap();
+            stats.record_count = self.data.read().unwrap().len();
+        }
+
+        let loading_stats = crate::velostream::table::loading_helpers::LoadingStats {
+            bulk_records_loaded: 0,
+            bulk_load_duration_ms: 0,
+            incremental_records_loaded: records.len() as u64,
+            incremental_load_duration_ms: load_start.elapsed().as_millis() as u64,
+            total_load_operations: 1,
+            failed_load_operations: 0,
+            last_successful_load: Some(std::time::SystemTime::now()),
+        };
+
+        log::info!(
+            "Incremental loaded {} records into OptimizedTableImpl in {:?}",
+            records.len(),
+            load_start.elapsed()
+        );
+
+        Ok(loading_stats)
+    }
+
+    /// Load data using the unified loading pattern (bulk or incremental based on offset)
+    ///
+    /// This is a convenience method that automatically chooses between bulk and
+    /// incremental loading based on whether a previous offset is provided.
+    ///
+    /// # Arguments
+    /// - `data_source`: Any implementation of the DataSource trait
+    /// - `previous_offset`: Optional previous offset for incremental loading
+    /// - `config`: Optional loading configuration
+    ///
+    /// # Returns
+    /// - `Ok(LoadingStats)`: Statistics about the loading operation
+    /// - `Err(SqlError)`: If loading fails
+    pub async fn unified_load_from_source<T>(
+        &mut self,
+        data_source: &T,
+        previous_offset: Option<crate::velostream::datasource::types::SourceOffset>,
+        config: Option<crate::velostream::table::loading_helpers::LoadingConfig>,
+    ) -> TableResult<crate::velostream::table::loading_helpers::LoadingStats>
+    where
+        T: crate::velostream::datasource::traits::DataSource,
+    {
+        match previous_offset {
+            None => {
+                // No previous offset: perform bulk load
+                self.bulk_load_from_source(data_source, config).await
+            }
+            Some(offset) => {
+                // Previous offset exists: perform incremental load
+                self.incremental_load_from_source(data_source, offset, config)
+                    .await
+            }
+        }
+    }
+
+    /// Check what loading capabilities a data source supports
+    ///
+    /// # Arguments
+    /// - `data_source`: The data source to check
+    ///
+    /// # Returns
+    /// - `(bool, bool)`: (supports_bulk, supports_incremental)
+    pub fn check_loading_support<T>(&self, data_source: &T) -> (bool, bool)
+    where
+        T: crate::velostream::datasource::traits::DataSource,
+    {
+        crate::velostream::table::loading_helpers::check_loading_support(data_source)
+    }
 }
 
 #[async_trait]
