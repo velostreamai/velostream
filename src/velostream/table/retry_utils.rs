@@ -302,7 +302,7 @@ fn parse_duration_uncached(duration_str: &str) -> Option<Duration> {
             // Handle fractional milliseconds properly
             let nanos = (number * 1_000_000.0) as u64;
             Duration::from_nanos(nanos)
-        },
+        }
         "s" | "sec" | "secs" | "second" | "seconds" => Duration::from_secs_f64(number),
         "m" | "min" | "mins" | "minute" | "minutes" => Duration::from_secs_f64(number * 60.0),
         "h" | "hr" | "hrs" | "hour" | "hours" => Duration::from_secs_f64(number * 3600.0),
@@ -431,7 +431,9 @@ pub fn calculate_retry_delay(strategy: &RetryStrategy, attempt_number: u32) -> D
                     return *max;
                 }
 
-                let delay_secs = initial.as_secs().saturating_mul(1u64 << attempt_number.min(63));
+                let delay_secs = initial
+                    .as_secs()
+                    .saturating_mul(1u64 << attempt_number.min(63));
                 let delay_duration = Duration::from_secs(delay_secs);
                 if delay_duration > *max {
                     *max

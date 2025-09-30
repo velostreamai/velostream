@@ -231,7 +231,25 @@ impl SimpleJobProcessor {
         // Step 1: Read batch from datasource
         let batch = reader.read().await?;
         if batch.is_empty() {
-            debug!("Job '{}': No data available, waiting 100ms", job_name);
+            debug!(
+                "Job '{}': No data available, checking if more data exists",
+                job_name
+            );
+
+            // If no data and no more data expected, don't wait - let the main loop check has_more() and exit
+            if !reader.has_more().await? {
+                debug!(
+                    "Job '{}': No data available and no more expected, batch processing complete",
+                    job_name
+                );
+                return Ok(());
+            }
+
+            // Otherwise wait briefly and try again
+            debug!(
+                "Job '{}': No data available but more expected, waiting 100ms",
+                job_name
+            );
             tokio::time::sleep(Duration::from_millis(100)).await;
             return Ok(());
         }

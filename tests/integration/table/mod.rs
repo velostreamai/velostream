@@ -5,3 +5,4 @@ pub mod core_test;
 pub mod ctas_emit_changes_integration_test;
 pub mod fieldvalue_integration_test;
 pub mod sql_integration_test;
+pub mod table_retry_integration_test;

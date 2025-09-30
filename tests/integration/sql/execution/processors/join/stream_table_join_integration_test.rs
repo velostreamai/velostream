@@ -21,11 +21,12 @@ fn create_trade_record(trade_id: &str, user_id: i64, symbol: &str, quantity: i64
     fields.insert("quantity".to_string(), FieldValue::Integer(quantity));
 
     StreamRecord {
-        id: trade_id.to_string(),
-        timestamp: chrono::Utc::now().naive_utc(),
-        event_time: None,
         fields,
-        metadata: HashMap::new(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        offset: trade_id.len() as i64, // Use string length as offset since trade_id is a &str
+        partition: 0,
+        headers: HashMap::new(),
+        event_time: Some(chrono::Utc::now()),
     }
 }
 
@@ -47,7 +48,10 @@ fn create_user_profiles_table() -> Arc<OptimizedTableImpl> {
 
     let mut user3 = HashMap::new();
     user3.insert("user_id".to_string(), FieldValue::Integer(3));
-    user3.insert("name".to_string(), FieldValue::String("Charlie".to_string()));
+    user3.insert(
+        "name".to_string(),
+        FieldValue::String("Charlie".to_string()),
+    );
     user3.insert("tier".to_string(), FieldValue::String("BRONZE".to_string()));
     user3.insert("risk_score".to_string(), FieldValue::Integer(60));
 
@@ -202,7 +206,11 @@ fn test_stream_table_left_join_without_match_integration() {
         .unwrap();
 
     // Verify results
-    assert_eq!(results.len(), 1, "Should have one record (left join preserves stream)");
+    assert_eq!(
+        results.len(),
+        1,
+        "Should have one record (left join preserves stream)"
+    );
     let joined = &results[0];
 
     // Verify trade fields are preserved
@@ -210,12 +218,18 @@ fn test_stream_table_left_join_without_match_integration() {
         joined.fields.get("trade_id"),
         Some(&FieldValue::String("T003".to_string()))
     );
-    assert_eq!(joined.fields.get("user_id"), Some(&FieldValue::Integer(999)));
+    assert_eq!(
+        joined.fields.get("user_id"),
+        Some(&FieldValue::Integer(999))
+    );
     assert_eq!(
         joined.fields.get("symbol"),
         Some(&FieldValue::String("MSFT".to_string()))
     );
-    assert_eq!(joined.fields.get("quantity"), Some(&FieldValue::Integer(200)));
+    assert_eq!(
+        joined.fields.get("quantity"),
+        Some(&FieldValue::Integer(200))
+    );
 
     // Table fields should not be present (no match)
     assert!(!joined.fields.contains_key("u.name"));

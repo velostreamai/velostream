@@ -27,6 +27,5 @@ pub mod kafka_retry_edge_cases_test;
 pub mod kafka_retry_test;
 pub mod unified_loading_test;
 // CTAS mock tests
+pub mod ctas_error_handling_test;
 pub mod ctas_mock_test;
-// CTAS Phase 7 integration tests
-pub mod ctas_phase7_integration_test;

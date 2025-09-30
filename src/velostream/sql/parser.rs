@@ -2399,13 +2399,17 @@ impl<'a> TokenParser<'a> {
             TokenType::Number => {
                 self.advance();
                 // Check for decimal literal (contains decimal point)
-                if token.value.contains('.') || token.value.to_uppercase().contains('E') {
-                    // Parse as Float for backward compatibility - users can cast to DECIMAL if needed
+                if token.value.contains('.') && !token.value.to_uppercase().contains('E') {
+                    // Parse as Decimal for exact precision (financial-first approach)
+                    // Store as string to preserve exact representation
+                    Ok(Expr::Literal(LiteralValue::Decimal(token.value)))
+                } else if token.value.to_uppercase().contains('E') {
+                    // Scientific notation - parse as Float
                     if let Ok(f) = token.value.parse::<f64>() {
                         Ok(Expr::Literal(LiteralValue::Float(f)))
                     } else {
                         Err(SqlError::ParseError {
-                            message: format!("Invalid float literal: {}", token.value),
+                            message: format!("Invalid scientific notation: {}", token.value),
                             position: Some(self.current),
                         })
                     }
