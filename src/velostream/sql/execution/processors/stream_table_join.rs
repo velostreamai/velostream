@@ -112,6 +112,7 @@ impl StreamTableJoinProcessor {
             &join_keys,
             &join_clause.condition,
             stream_record,
+            &join_clause.join_type,
         )?;
 
         // Combine stream record with matching table records
@@ -282,6 +283,7 @@ impl StreamTableJoinProcessor {
                 join_keys,
                 &join_clause.condition,
                 stream_record,
+                &join_clause.join_type,
             )?;
             let joined = self.combine_stream_table_records(
                 stream_record,
@@ -321,6 +323,7 @@ impl StreamTableJoinProcessor {
         join_keys: &HashMap<String, FieldValue>,
         condition: &Expr,
         stream_record: &StreamRecord,
+        join_type: &JoinType,
     ) -> Result<Vec<HashMap<String, FieldValue>>, SqlError> {
         // First, try the normal table lookup
         match self.lookup_table_records(table, join_keys, condition) {
@@ -329,12 +332,27 @@ impl StreamTableJoinProcessor {
                 Ok(records)
             }
             Ok(_empty_records) => {
-                // No matching records found in table - handle gracefully
-                info!(
-                    "No matching records found in table '{}' for join keys: {:?}",
-                    table_name, join_keys
-                );
-                self.handle_missing_table_data_sync(table_name, stream_record)
+                // No matching records found in table
+                // For LEFT/RIGHT/FULL OUTER joins, empty results are normal - return empty vec
+                // For INNER joins with non-FailFast strategies, apply graceful degradation
+                match join_type {
+                    JoinType::Left | JoinType::Right | JoinType::FullOuter => {
+                        // For outer joins, empty results are expected - just return empty
+                        debug!(
+                            "No matching records found in table '{}' for {:?} join - this is normal",
+                            table_name, join_type
+                        );
+                        Ok(vec![])
+                    }
+                    JoinType::Inner => {
+                        // For INNER joins, check if we should apply graceful degradation
+                        debug!(
+                            "No matching records found in table '{}' for INNER join, applying degradation strategy",
+                            table_name
+                        );
+                        self.handle_missing_table_data_sync(table_name, stream_record)
+                    }
+                }
             }
             Err(e) => {
                 // Table lookup failed - handle gracefully

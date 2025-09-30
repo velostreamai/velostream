@@ -381,10 +381,10 @@ async fn test_batch_config_propagation_multi_source() {
     ];
     
     let batch_config = Some(BatchConfig {
-        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize,
-        max_batch_size: Some(500),
-        batch_timeout: Some(Duration::from_millis(2000)),
-        memory_limit_mb: Some(100),
+        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize(500),
+        max_batch_size: 500,
+        batch_timeout: Duration::from_millis(2000),
+        enable_batching: true,
     });
     
     let result = create_multi_source_readers(
@@ -411,8 +411,8 @@ async fn test_batch_config_propagation_multi_source() {
 async fn test_multi_source_job_server_integration() {
     // Test StreamJobServer integration with multi-source queries
     let server = StreamJobServer::new_with_monitoring(
-        "localhost:9092",
-        "test-group",
+        "localhost:9092".to_string(),
+        "test-group".to_string(),
         10, // max jobs
         true, // enable monitoring
     );

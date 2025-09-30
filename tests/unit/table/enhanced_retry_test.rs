@@ -369,7 +369,7 @@ fn test_configuration_parsing_edge_cases() {
     let strategy = parse_retry_strategy(&props);
     match strategy {
         RetryStrategy::ExponentialBackoff { multiplier, .. } => {
-            assert_eq!(multiplier, 2.0); // Default fallback
+            assert_eq!(multiplier, 1.5); // Default fallback (changed from 2.0 to 1.5 for gentler backoff)
         }
         _ => panic!("Expected exponential backoff with default multiplier"),
     }

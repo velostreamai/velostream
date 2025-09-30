@@ -1,5 +1,5 @@
 /*!
-# Unified Loading Architecture Tests - Phase 7
+# Unified Loading Architecture Tests
 
 This test suite validates the unified table loading architecture that provides
 consistent bulk + incremental loading patterns across all data source types.
@@ -15,7 +15,7 @@ consistent bulk + incremental loading patterns across all data source types.
 
 ## Architecture Validation
 
-These tests confirm that Phase 7 successfully provides unified loading
+These tests confirm that unified loading successfully provides unified loading
 semantics while leveraging existing mature implementations without
 creating architectural confusion.
 */
@@ -245,17 +245,28 @@ impl DataReader for MockStreamingReader {
             self.is_initial_read = false;
             Ok(self.initial_records.clone())
         } else {
-            // Return incremental records
+            // For incremental reading after seek
             let incremental = self.incremental_records.read().unwrap();
-            let position = self.read_position.read().unwrap();
+            let position = *self.read_position.read().unwrap();
+            let initial_len = self.initial_records.len();
 
-            if *position < incremental.len() {
-                let records = incremental[*position..].to_vec();
-                let incremental_len = incremental.len();
+            // If we're past all data, return empty
+            let total_len = initial_len + incremental.len();
+            if position >= total_len {
+                return Ok(Vec::new());
+            }
+
+            // If position is at or past initial records, read from incremental
+            if position >= initial_len {
+                let incremental_start = position - initial_len;
+                let records = incremental[incremental_start..].to_vec();
                 drop(incremental);
-                *self.read_position.write().unwrap() = incremental_len;
+                // Update position to end of all data
+                *self.read_position.write().unwrap() = total_len;
                 Ok(records)
             } else {
+                // Position is before end of initial records
+                // This shouldn't happen in incremental mode after seek, return empty
                 Ok(Vec::new())
             }
         }
@@ -284,7 +295,9 @@ impl DataReader for MockStreamingReader {
         } else {
             let incremental = self.incremental_records.read().unwrap();
             let position = self.read_position.read().unwrap();
-            Ok(*position < incremental.len())
+            let initial_len = self.initial_records.len();
+            let total_len = initial_len + incremental.len();
+            Ok(*position < total_len)
         }
     }
 }
@@ -380,7 +393,8 @@ async fn test_incremental_load_with_mock_data_source() {
     data_source.add_incremental_records(incremental_records);
 
     // Test incremental loading from offset
-    let offset = SourceOffset::Generic("0".to_string());
+    // Seek to offset 50 (after the initial 50 records) to read the incremental records
+    let offset = SourceOffset::Generic("50".to_string());
     let config = LoadingConfig {
         max_incremental_records: Some(30),
         ..Default::default()
@@ -434,9 +448,6 @@ async fn test_unified_load_table_incremental_path() {
     let incremental_records = create_test_records(15)
         .into_iter()
         .map(|mut r| {
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
-                *id += 500;
-            }
             if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
                 *id += 500;
             }
@@ -512,9 +523,6 @@ async fn test_optimized_table_impl_incremental_load_integration() {
     let incremental_records = create_test_records(10)
         .into_iter()
         .map(|mut r| {
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
-                *id += 100;
-            }
             if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
                 *id += 100;
             }
