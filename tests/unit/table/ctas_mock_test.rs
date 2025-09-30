@@ -4,15 +4,15 @@
 //! CTAS code and moved here for testing purposes only.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-use crate::velostream::kafka::consumer_config::ConsumerConfig;
-use crate::velostream::kafka::serialization::StringSerializer;
-use crate::velostream::serialization::JsonFormat;
-use crate::velostream::sql::error::SqlError;
-use crate::velostream::table::{Table, UnifiedTable};
+use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+use velostream::velostream::kafka::serialization::StringSerializer;
+use velostream::velostream::serialization::JsonFormat;
+use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::table::{Table, UnifiedTable};
 
 /// Mock data source types for testing
 #[derive(Debug, Clone)]
@@ -86,11 +86,15 @@ impl MockCtasExecutor {
             query: None,
         })?;
 
-        self.finalize_mock_table_creation(table_name, table, records_count, schema).await
+        self.finalize_mock_table_creation(table_name, table, records_count, schema)
+            .await
     }
 
     /// Generate mock configuration based on file name patterns (for testing)
-    pub fn generate_mock_config(&self, config_file: &str) -> Result<MockConfigBasedSource, SqlError> {
+    pub fn generate_mock_config(
+        &self,
+        config_file: &str,
+    ) -> Result<MockConfigBasedSource, SqlError> {
         if config_file.ends_with("_test.yaml") || config_file.contains("mock") {
             // Mock configuration for testing
             let mut properties = HashMap::new();
@@ -144,7 +148,8 @@ impl MockCtasExecutor {
                 Err(e) => {
                     log::warn!(
                         "Mock background population job for table '{}' failed as expected: {}",
-                        table_name_clone, e
+                        table_name_clone,
+                        e
                     );
                 }
             }
@@ -164,10 +169,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_ctas_executor_creation() {
-        let executor = MockCtasExecutor::new(
-            "localhost:9092".to_string(),
-            "test-group".to_string(),
-        );
+        let executor =
+            MockCtasExecutor::new("localhost:9092".to_string(), "test-group".to_string());
 
         assert_eq!(executor.kafka_brokers, "localhost:9092");
         assert_eq!(executor.base_group_id, "test-group");
@@ -175,10 +178,8 @@ mod tests {
 
     #[test]
     fn test_generate_mock_config() {
-        let executor = MockCtasExecutor::new(
-            "localhost:9092".to_string(),
-            "test-group".to_string(),
-        );
+        let executor =
+            MockCtasExecutor::new("localhost:9092".to_string(), "test-group".to_string());
 
         // Should succeed for mock files
         let result = executor.generate_mock_config("test_config_test.yaml");
@@ -186,7 +187,10 @@ mod tests {
 
         let config = result.unwrap();
         assert_eq!(config.config_file, "test_config_test.yaml");
-        assert!(matches!(config.source_type, MockDataSourceType::Mock { .. }));
+        assert!(matches!(
+            config.source_type,
+            MockDataSourceType::Mock { .. }
+        ));
 
         // Should fail for non-mock files
         let result = executor.generate_mock_config("production_config.yaml");
@@ -195,20 +199,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_table_creation_expected_failure() {
-        let executor = MockCtasExecutor::new(
-            "localhost:9092".to_string(),
-            "test-group".to_string(),
-        );
+        let executor =
+            MockCtasExecutor::new("localhost:9092".to_string(), "test-group".to_string());
 
         let properties = HashMap::new();
 
         // This should fail as expected since there's no real Kafka broker
-        let result = executor.create_mock_table(
-            "test_table",
-            100,
-            "test_schema",
-            &properties,
-        ).await;
+        let result = executor
+            .create_mock_table("test_table", 100, "test_schema", &properties)
+            .await;
 
         // We expect this to fail in tests due to missing Kafka infrastructure
         assert!(result.is_err());

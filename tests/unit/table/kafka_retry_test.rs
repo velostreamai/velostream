@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
+use velostream::velostream::kafka::kafka_error::ConsumerError;
 use velostream::velostream::table::retry_utils::{
     format_topic_missing_error, is_topic_missing_error, parse_duration,
 };
-use velostream::velostream::kafka::kafka_error::ConsumerError;
 
 #[test]
 fn test_parse_duration_variations() {
@@ -38,11 +38,9 @@ fn test_is_topic_missing_error_detection() {
     // Create various Kafka errors that should be detected as missing topics
     let missing_topic_errors = vec![
         rdkafka::error::KafkaError::MetadataFetch(
-            rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition
+            rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
         ),
-        rdkafka::error::KafkaError::MetadataFetch(
-            rdkafka::error::RDKafkaErrorCode::UnknownTopic
-        ),
+        rdkafka::error::KafkaError::MetadataFetch(rdkafka::error::RDKafkaErrorCode::UnknownTopic),
     ];
 
     for kafka_error in missing_topic_errors {
@@ -57,10 +55,10 @@ fn test_is_topic_missing_error_detection() {
     // Test errors that should NOT be detected as missing topics
     let other_errors = vec![
         rdkafka::error::KafkaError::MetadataFetch(
-            rdkafka::error::RDKafkaErrorCode::BrokerNotAvailable
+            rdkafka::error::RDKafkaErrorCode::BrokerNotAvailable,
         ),
         rdkafka::error::KafkaError::MetadataFetch(
-            rdkafka::error::RDKafkaErrorCode::NetworkException
+            rdkafka::error::RDKafkaErrorCode::NetworkException,
         ),
     ];
 
@@ -77,23 +75,38 @@ fn test_is_topic_missing_error_detection() {
 #[test]
 fn test_format_topic_missing_error_content() {
     let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
-        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition
+        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
     );
     let error = ConsumerError::KafkaError(kafka_error);
     let formatted = format_topic_missing_error("test_topic", &error);
 
     // Check that the error message contains all helpful information
-    assert!(formatted.contains("test_topic"), "Should contain topic name");
-    assert!(formatted.contains("kafka-topics --create"), "Should contain creation command");
-    assert!(formatted.contains("--topic test_topic"), "Should contain specific topic in command");
-    assert!(formatted.contains("topic.wait.timeout"), "Should suggest retry configuration");
+    assert!(
+        formatted.contains("test_topic"),
+        "Should contain topic name"
+    );
+    assert!(
+        formatted.contains("kafka-topics --create"),
+        "Should contain creation command"
+    );
+    assert!(
+        formatted.contains("--topic test_topic"),
+        "Should contain specific topic in command"
+    );
+    assert!(
+        formatted.contains("topic.wait.timeout"),
+        "Should suggest retry configuration"
+    );
     assert!(formatted.contains("WITH"), "Should show SQL syntax hint");
-    assert!(formatted.contains("Original error"), "Should include original error");
+    assert!(
+        formatted.contains("Original error"),
+        "Should include original error"
+    );
 }
 
 #[test]
 fn test_retry_configuration_properties() {
-    let mut props = HashMap::new();
+    let mut props: HashMap<String, String> = HashMap::new();
 
     // Test default values (no properties set)
     let wait_timeout = props
@@ -127,11 +140,14 @@ fn test_retry_configuration_properties() {
 
 #[test]
 fn test_retry_configuration_edge_cases() {
-    let mut props = HashMap::new();
+    let mut props: HashMap<String, String> = HashMap::new();
 
     // Test with invalid duration format (should use defaults)
     props.insert("topic.wait.timeout".to_string(), "invalid".to_string());
-    props.insert("topic.retry.interval".to_string(), "also-invalid".to_string());
+    props.insert(
+        "topic.retry.interval".to_string(),
+        "also-invalid".to_string(),
+    );
 
     let wait_timeout = props
         .get("topic.wait.timeout")
@@ -142,8 +158,16 @@ fn test_retry_configuration_edge_cases() {
         .and_then(|s| parse_duration(s))
         .unwrap_or(Duration::from_secs(5));
 
-    assert_eq!(wait_timeout, Duration::from_secs(0), "Invalid timeout should default to 0");
-    assert_eq!(retry_interval, Duration::from_secs(5), "Invalid interval should default to 5s");
+    assert_eq!(
+        wait_timeout,
+        Duration::from_secs(0),
+        "Invalid timeout should default to 0"
+    );
+    assert_eq!(
+        retry_interval,
+        Duration::from_secs(5),
+        "Invalid interval should default to 5s"
+    );
 
     // Test with very large values
     props.insert("topic.wait.timeout".to_string(), "1h".to_string());
@@ -158,15 +182,23 @@ fn test_retry_configuration_edge_cases() {
         .and_then(|s| parse_duration(s))
         .unwrap_or(Duration::from_secs(5));
 
-    assert_eq!(wait_timeout, Duration::from_secs(3600), "Should support 1 hour timeout");
-    assert_eq!(retry_interval, Duration::from_secs(60), "Should support 1 minute interval");
+    assert_eq!(
+        wait_timeout,
+        Duration::from_secs(3600),
+        "Should support 1 hour timeout"
+    );
+    assert_eq!(
+        retry_interval,
+        Duration::from_secs(60),
+        "Should support 1 minute interval"
+    );
 }
 
 #[test]
 fn test_enhanced_error_message_formatting() {
     // Test that enhanced error messages provide actionable guidance
     let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
-        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition
+        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
     );
     let error = ConsumerError::KafkaError(kafka_error);
 
@@ -200,14 +232,17 @@ fn test_enhanced_error_message_formatting() {
 fn test_error_message_sql_syntax() {
     // Ensure error messages show proper SQL syntax for configuration
     let kafka_error = rdkafka::error::KafkaError::MetadataFetch(
-        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition
+        rdkafka::error::RDKafkaErrorCode::UnknownTopicOrPartition,
     );
     let error = ConsumerError::KafkaError(kafka_error);
     let formatted = format_topic_missing_error("test_topic", &error);
 
     // Should show WITH clause syntax
     assert!(formatted.contains("WITH"), "Should mention WITH clause");
-    assert!(formatted.contains("\"topic.wait.timeout\""), "Should use proper quote style");
+    assert!(
+        formatted.contains("\"topic.wait.timeout\""),
+        "Should use proper quote style"
+    );
 
     // Should provide complete example that users can copy
     assert!(

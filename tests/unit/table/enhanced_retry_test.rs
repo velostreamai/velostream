@@ -1,11 +1,11 @@
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use std::collections::HashMap;
 use std::time::Duration;
-use velostream::velostream::table::retry_utils::{
-    categorize_kafka_error, calculate_retry_delay, format_categorized_error,
-    parse_retry_strategy, should_retry_for_category, ErrorCategory, RetryStrategy, RetryMetrics,
-};
 use velostream::velostream::kafka::kafka_error::ConsumerError;
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use velostream::velostream::table::retry_utils::{
+    calculate_retry_delay, categorize_kafka_error, format_categorized_error, parse_retry_strategy,
+    should_retry_for_category, ErrorCategory, RetryMetrics, RetryStrategy,
+};
 
 #[test]
 fn test_error_categorization_comprehensive() {
@@ -19,8 +19,16 @@ fn test_error_categorization_comprehensive() {
         let kafka_error = KafkaError::MetadataFetch(code);
         let error = ConsumerError::KafkaError(kafka_error);
         let category = categorize_kafka_error(&error);
-        assert_eq!(category, ErrorCategory::TopicMissing, "Failed for: {:?}", code);
-        assert!(should_retry_for_category(&category), "Should retry for topic missing");
+        assert_eq!(
+            category,
+            ErrorCategory::TopicMissing,
+            "Failed for: {:?}",
+            code
+        );
+        assert!(
+            should_retry_for_category(&category),
+            "Should retry for topic missing"
+        );
     }
 
     // Test NetworkIssue errors
@@ -36,8 +44,16 @@ fn test_error_categorization_comprehensive() {
         let kafka_error = KafkaError::MetadataFetch(code);
         let error = ConsumerError::KafkaError(kafka_error);
         let category = categorize_kafka_error(&error);
-        assert_eq!(category, ErrorCategory::NetworkIssue, "Failed for: {:?}", code);
-        assert!(should_retry_for_category(&category), "Should retry for network issues");
+        assert_eq!(
+            category,
+            ErrorCategory::NetworkIssue,
+            "Failed for: {:?}",
+            code
+        );
+        assert!(
+            should_retry_for_category(&category),
+            "Should retry for network issues"
+        );
     }
 
     // Test AuthenticationIssue errors
@@ -51,8 +67,16 @@ fn test_error_categorization_comprehensive() {
         let kafka_error = KafkaError::MetadataFetch(code);
         let error = ConsumerError::KafkaError(kafka_error);
         let category = categorize_kafka_error(&error);
-        assert_eq!(category, ErrorCategory::AuthenticationIssue, "Failed for: {:?}", code);
-        assert!(!should_retry_for_category(&category), "Should NOT retry for auth issues");
+        assert_eq!(
+            category,
+            ErrorCategory::AuthenticationIssue,
+            "Failed for: {:?}",
+            code
+        );
+        assert!(
+            !should_retry_for_category(&category),
+            "Should NOT retry for auth issues"
+        );
     }
 
     // Test ConfigurationIssue errors
@@ -66,8 +90,16 @@ fn test_error_categorization_comprehensive() {
         let kafka_error = KafkaError::MetadataFetch(code);
         let error = ConsumerError::KafkaError(kafka_error);
         let category = categorize_kafka_error(&error);
-        assert_eq!(category, ErrorCategory::ConfigurationIssue, "Failed for: {:?}", code);
-        assert!(!should_retry_for_category(&category), "Should NOT retry for config issues");
+        assert_eq!(
+            category,
+            ErrorCategory::ConfigurationIssue,
+            "Failed for: {:?}",
+            code
+        );
+        assert!(
+            !should_retry_for_category(&category),
+            "Should NOT retry for config issues"
+        );
     }
 }
 
@@ -85,11 +117,26 @@ fn test_retry_strategies() {
         max: Duration::from_secs(60),
         multiplier: 2.0,
     };
-    assert_eq!(calculate_retry_delay(&exponential, 0), Duration::from_secs(1));
-    assert_eq!(calculate_retry_delay(&exponential, 1), Duration::from_secs(2));
-    assert_eq!(calculate_retry_delay(&exponential, 2), Duration::from_secs(4));
-    assert_eq!(calculate_retry_delay(&exponential, 3), Duration::from_secs(8));
-    assert_eq!(calculate_retry_delay(&exponential, 10), Duration::from_secs(60)); // Capped at max
+    assert_eq!(
+        calculate_retry_delay(&exponential, 0),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
+        calculate_retry_delay(&exponential, 1),
+        Duration::from_secs(2)
+    );
+    assert_eq!(
+        calculate_retry_delay(&exponential, 2),
+        Duration::from_secs(4)
+    );
+    assert_eq!(
+        calculate_retry_delay(&exponential, 3),
+        Duration::from_secs(8)
+    );
+    assert_eq!(
+        calculate_retry_delay(&exponential, 10),
+        Duration::from_secs(60)
+    ); // Capped at max
 
     // Test LinearBackoff
     let linear = RetryStrategy::LinearBackoff {
@@ -107,14 +154,21 @@ fn test_retry_strategies() {
 fn test_parse_retry_strategy_configurations() {
     // Test exponential backoff parsing
     let mut props = HashMap::new();
-    props.insert("topic.retry.strategy".to_string(), "exponential".to_string());
+    props.insert(
+        "topic.retry.strategy".to_string(),
+        "exponential".to_string(),
+    );
     props.insert("topic.retry.interval".to_string(), "1s".to_string());
     props.insert("topic.retry.multiplier".to_string(), "2.5".to_string());
     props.insert("topic.retry.max.delay".to_string(), "120s".to_string());
 
     let strategy = parse_retry_strategy(&props);
     match strategy {
-        RetryStrategy::ExponentialBackoff { initial, max, multiplier } => {
+        RetryStrategy::ExponentialBackoff {
+            initial,
+            max,
+            multiplier,
+        } => {
             assert_eq!(initial, Duration::from_secs(1));
             assert_eq!(max, Duration::from_secs(120));
             assert_eq!(multiplier, 2.5);
@@ -131,7 +185,11 @@ fn test_parse_retry_strategy_configurations() {
 
     let strategy = parse_retry_strategy(&props);
     match strategy {
-        RetryStrategy::LinearBackoff { initial, increment, max } => {
+        RetryStrategy::LinearBackoff {
+            initial,
+            increment,
+            max,
+        } => {
             assert_eq!(initial, Duration::from_secs(3));
             assert_eq!(increment, Duration::from_secs(2));
             assert_eq!(max, Duration::from_secs(60));
@@ -203,7 +261,8 @@ fn test_categorized_error_messages() {
     let error = ConsumerError::KafkaError(kafka_error);
 
     // Test TopicMissing error message
-    let topic_missing_msg = format_categorized_error("test_topic", &error, &ErrorCategory::TopicMissing);
+    let topic_missing_msg =
+        format_categorized_error("test_topic", &error, &ErrorCategory::TopicMissing);
     assert!(topic_missing_msg.contains("test_topic"));
     assert!(topic_missing_msg.contains("kafka-topics --create"));
     assert!(topic_missing_msg.contains("exponential"));
@@ -215,13 +274,15 @@ fn test_categorized_error_messages() {
     assert!(network_msg.contains("connectivity and firewall"));
 
     // Test AuthenticationIssue error message
-    let auth_msg = format_categorized_error("test_topic", &error, &ErrorCategory::AuthenticationIssue);
+    let auth_msg =
+        format_categorized_error("test_topic", &error, &ErrorCategory::AuthenticationIssue);
     assert!(auth_msg.contains("Authentication/authorization"));
     assert!(auth_msg.contains("won't resolve with retry"));
     assert!(auth_msg.contains("SASL/SSL"));
 
     // Test ConfigurationIssue error message
-    let config_msg = format_categorized_error("test_topic", &error, &ErrorCategory::ConfigurationIssue);
+    let config_msg =
+        format_categorized_error("test_topic", &error, &ErrorCategory::ConfigurationIssue);
     assert!(config_msg.contains("Configuration error"));
     assert!(config_msg.contains("won't resolve with retry"));
     assert!(config_msg.contains("bootstrap.servers"));
@@ -299,7 +360,10 @@ fn test_configuration_parsing_edge_cases() {
 
     // Test invalid multiplier (should use default)
     let mut props = HashMap::new();
-    props.insert("topic.retry.strategy".to_string(), "exponential".to_string());
+    props.insert(
+        "topic.retry.strategy".to_string(),
+        "exponential".to_string(),
+    );
     props.insert("topic.retry.multiplier".to_string(), "invalid".to_string());
 
     let strategy = parse_retry_strategy(&props);
@@ -312,7 +376,10 @@ fn test_configuration_parsing_edge_cases() {
 
     // Test unknown strategy (should use fixed)
     props.clear();
-    props.insert("topic.retry.strategy".to_string(), "unknown_strategy".to_string());
+    props.insert(
+        "topic.retry.strategy".to_string(),
+        "unknown_strategy".to_string(),
+    );
     props.insert("topic.retry.interval".to_string(), "7s".to_string());
 
     let strategy = parse_retry_strategy(&props);

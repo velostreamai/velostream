@@ -24,18 +24,18 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
-use crate::velostream::datasource::traits::{DataReader, DataSource};
-use crate::velostream::datasource::types::{SourceMetadata, SourceOffset};
-use crate::velostream::datasource::config::SourceConfig;
-use crate::velostream::schema::Schema;
-use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use crate::velostream::table::loading_helpers::{
-    bulk_load_table, incremental_load_table, unified_load_table, LoadingConfig, LoadingStats,
-};
-use crate::velostream::table::unified_table::OptimizedTableImpl;
 use async_trait::async_trait;
 use chrono::Utc;
+use velostream::velostream::datasource::config::SourceConfig;
+use velostream::velostream::datasource::traits::{DataReader, DataSource};
+use velostream::velostream::datasource::types::{SourceMetadata, SourceOffset};
+use velostream::velostream::schema::Schema;
+use velostream::velostream::sql::error::SqlError;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::table::loading_helpers::{
+    bulk_load_table, incremental_load_table, unified_load_table, LoadingConfig, LoadingStats,
+};
+use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 
 // ============================================================================
 // MOCK DATA SOURCES FOR TESTING
@@ -65,15 +65,20 @@ impl MockBatchDataSource {
 
 #[async_trait]
 impl DataSource for MockBatchDataSource {
-    async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        _config: SourceConfig,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
     async fn fetch_schema(&self) -> Result<Schema, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Schema::new())
+        Ok(Schema::new(vec![]))
     }
 
-    async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_reader(
+        &self,
+    ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MockBatchReader {
             records: self.records.clone(),
             read_position: self.read_position.clone(),
@@ -110,7 +115,9 @@ struct MockBatchReader {
 
 #[async_trait]
 impl DataReader for MockBatchReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let records = self.records.read().unwrap();
         let mut position = self.read_position.write().unwrap();
 
@@ -131,7 +138,10 @@ impl DataReader for MockBatchReader {
         Ok(())
     }
 
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let SourceOffset::Generic(pos_str) = offset {
             if let Ok(position) = pos_str.parse::<usize>() {
                 *self.read_position.write().unwrap() = position;
@@ -171,15 +181,20 @@ impl MockStreamingDataSource {
 
 #[async_trait]
 impl DataSource for MockStreamingDataSource {
-    async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn initialize(
+        &mut self,
+        _config: SourceConfig,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
     async fn fetch_schema(&self) -> Result<Schema, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Schema::new())
+        Ok(Schema::new(vec![]))
     }
 
-    async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_reader(
+        &self,
+    ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MockStreamingReader {
             initial_records: self.initial_records.clone(),
             incremental_records: self.incremental_records.clone(),
@@ -203,7 +218,11 @@ impl DataSource for MockStreamingDataSource {
             supports_streaming: true,
             supports_batch: true,
             supports_schema_evolution: false,
-            capabilities: vec!["read".to_string(), "seek".to_string(), "streaming".to_string()],
+            capabilities: vec![
+                "read".to_string(),
+                "seek".to_string(),
+                "streaming".to_string(),
+            ],
         }
     }
 }
@@ -218,7 +237,9 @@ struct MockStreamingReader {
 
 #[async_trait]
 impl DataReader for MockStreamingReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         if self.is_initial_read {
             // Return initial records for bulk load
             self.is_initial_read = false;
@@ -230,8 +251,9 @@ impl DataReader for MockStreamingReader {
 
             if *position < incremental.len() {
                 let records = incremental[*position..].to_vec();
+                let incremental_len = incremental.len();
                 drop(incremental);
-                *self.read_position.write().unwrap() = incremental.len();
+                *self.read_position.write().unwrap() = incremental_len;
                 Ok(records)
             } else {
                 Ok(Vec::new())
@@ -243,7 +265,10 @@ impl DataReader for MockStreamingReader {
         Ok(())
     }
 
-    async fn seek(&mut self, offset: SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let SourceOffset::Generic(pos_str) = offset {
             if let Ok(position) = pos_str.parse::<usize>() {
                 *self.read_position.write().unwrap() = position;
@@ -275,12 +300,12 @@ fn create_test_record(key: i64, name: &str, value: i64) -> StreamRecord {
     fields.insert("value".to_string(), FieldValue::Integer(value));
 
     StreamRecord {
-        key: FieldValue::Integer(key),
         fields,
-        timestamp: Some(Utc::now()),
-        partition_id: Some(0),
-        offset: Some(key),
+        timestamp: Utc::now().timestamp_millis(),
+        offset: key,
+        partition: 0,
         headers: HashMap::new(),
+        event_time: Some(Utc::now()),
     }
 }
 
@@ -316,12 +341,18 @@ async fn test_bulk_load_with_mock_data_source() {
 
     // Verify record content
     for (i, record) in loaded_records.iter().enumerate() {
-        assert_eq!(record.key, FieldValue::Integer(i as i64));
+        assert_eq!(
+            record.fields.get("id"),
+            Some(&FieldValue::Integer(i as i64))
+        );
         assert_eq!(
             record.fields.get("name"),
             Some(&FieldValue::String(format!("record_{}", i)))
         );
-        assert_eq!(record.fields.get("value"), Some(&FieldValue::Integer(i as i64 * 10)));
+        assert_eq!(
+            record.fields.get("value"),
+            Some(&FieldValue::Integer(i as i64 * 10))
+        );
     }
 }
 
@@ -336,7 +367,7 @@ async fn test_incremental_load_with_mock_data_source() {
         .into_iter()
         .map(|mut r| {
             // Modify to simulate new data
-            if let FieldValue::Integer(ref mut id) = r.key {
+            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
                 *id += 1000;
             }
             if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
@@ -364,8 +395,12 @@ async fn test_incremental_load_with_mock_data_source() {
 
     // Verify these are the incremental records (ids >= 1000)
     for record in &loaded_records {
-        if let FieldValue::Integer(id) = &record.key {
-            assert!(*id >= 1000, "Expected incremental record with id >= 1000, got {}", id);
+        if let Some(FieldValue::Integer(id)) = record.fields.get("id") {
+            assert!(
+                *id >= 1000,
+                "Expected incremental record with id >= 1000, got {}",
+                id
+            );
         }
     }
 }
@@ -399,7 +434,7 @@ async fn test_unified_load_table_incremental_path() {
     let incremental_records = create_test_records(15)
         .into_iter()
         .map(|mut r| {
-            if let FieldValue::Integer(ref mut id) = r.key {
+            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
                 *id += 500;
             }
             if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
@@ -444,14 +479,19 @@ async fn test_optimized_table_impl_bulk_load_integration() {
     assert_eq!(loading_stats.total_load_operations, 1);
 
     // Verify data was loaded into the table
-    let snapshot = table.get_snapshot().expect("Should be able to get snapshot");
-    assert_eq!(snapshot.len(), 50);
+    let record_count = table.record_count();
+    assert_eq!(record_count, 50);
 
     // Verify specific records
-    let record_0 = table.get_record("0").expect("Should be able to get record 0");
+    let record_0 = table
+        .get_record("0")
+        .expect("Should be able to get record 0");
     assert!(record_0.is_some());
     let record_0 = record_0.unwrap();
-    assert_eq!(record_0.get("name"), Some(&FieldValue::String("record_0".to_string())));
+    assert_eq!(
+        record_0.get("name"),
+        Some(&FieldValue::String("record_0".to_string()))
+    );
     assert_eq!(record_0.get("value"), Some(&FieldValue::Integer(0)));
 }
 
@@ -472,7 +512,7 @@ async fn test_optimized_table_impl_incremental_load_integration() {
     let incremental_records = create_test_records(10)
         .into_iter()
         .map(|mut r| {
-            if let FieldValue::Integer(ref mut id) = r.key {
+            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
                 *id += 100;
             }
             if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
@@ -500,11 +540,13 @@ async fn test_optimized_table_impl_incremental_load_integration() {
     assert_eq!(incremental_stats.total_load_operations, 1);
 
     // Verify table now contains both initial and incremental data
-    let snapshot = table.get_snapshot().expect("Should be able to get snapshot");
-    assert_eq!(snapshot.len(), 35); // 25 initial + 10 incremental
+    let record_count = table.record_count();
+    assert_eq!(record_count, 35); // 25 initial + 10 incremental
 
     // Verify incremental record was loaded
-    let incremental_record = table.get_record("100").expect("Should be able to get incremental record");
+    let incremental_record = table
+        .get_record("100")
+        .expect("Should be able to get incremental record");
     assert!(incremental_record.is_some());
     let incremental_record = incremental_record.unwrap();
     assert_eq!(
@@ -543,7 +585,10 @@ async fn test_loading_error_handling() {
 
     #[async_trait]
     impl DataSource for FailingDataSource {
-        async fn initialize(&mut self, _config: SourceConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn initialize(
+            &mut self,
+            _config: SourceConfig,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(())
         }
 
@@ -551,7 +596,9 @@ async fn test_loading_error_handling() {
             Err("Schema fetch failed".into())
         }
 
-        async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
+        async fn create_reader(
+            &self,
+        ) -> Result<Box<dyn DataReader>, Box<dyn std::error::Error + Send + Sync>> {
             Err("Reader creation failed".into())
         }
 
@@ -596,14 +643,14 @@ async fn test_loading_statistics_accuracy() {
     let test_records = create_test_records(42);
     let data_source = MockBatchDataSource::new(test_records, 10);
 
-    let start_time = SystemTime::now();
+    let _start_time = SystemTime::now();
 
     // Test bulk loading with statistics
     let loaded_records = bulk_load_table(&data_source, None)
         .await
         .expect("Bulk load should succeed");
 
-    let end_time = SystemTime::now();
+    let _end_time = SystemTime::now();
 
     // Verify loaded record count
     assert_eq!(loaded_records.len(), 42);
@@ -617,18 +664,30 @@ async fn test_check_loading_support() {
     // Test with batch-only source
     let batch_source = MockBatchDataSource::new(create_test_records(10), 5);
     let (supports_bulk, supports_incremental) =
-        crate::velostream::table::loading_helpers::check_loading_support(&batch_source);
+        velostream::velostream::table::loading_helpers::check_loading_support(&batch_source);
 
-    assert!(supports_bulk, "MockBatchDataSource should support bulk loading");
-    assert!(supports_incremental, "MockBatchDataSource should support incremental loading");
+    assert!(
+        supports_bulk,
+        "MockBatchDataSource should support bulk loading"
+    );
+    assert!(
+        supports_incremental,
+        "MockBatchDataSource should support incremental loading"
+    );
 
     // Test with streaming source
     let streaming_source = MockStreamingDataSource::new(create_test_records(10));
     let (supports_bulk, supports_incremental) =
-        crate::velostream::table::loading_helpers::check_loading_support(&streaming_source);
+        velostream::velostream::table::loading_helpers::check_loading_support(&streaming_source);
 
-    assert!(supports_bulk, "MockStreamingDataSource should support bulk loading");
-    assert!(supports_incremental, "MockStreamingDataSource should support incremental loading");
+    assert!(
+        supports_bulk,
+        "MockStreamingDataSource should support bulk loading"
+    );
+    assert!(
+        supports_incremental,
+        "MockStreamingDataSource should support incremental loading"
+    );
 }
 
 #[tokio::test]
@@ -651,8 +710,8 @@ async fn test_unified_load_with_optimized_table_impl() {
     assert_eq!(loading_stats.incremental_records_loaded, 0);
 
     // Verify data was loaded
-    let snapshot = table.get_snapshot().expect("Should be able to get snapshot");
-    assert_eq!(snapshot.len(), 30);
+    let record_count = table.record_count();
+    assert_eq!(record_count, 30);
 
     // Test check loading support
     let (supports_bulk, supports_incremental) = table.check_loading_support(&data_source);

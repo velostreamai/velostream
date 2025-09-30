@@ -27,17 +27,19 @@ DataSource trait to implement:
 ```rust
 use velostream::velostream::table::loading_helpers::{bulk_load_table, incremental_load_table};
 use velostream::velostream::datasource::kafka::KafkaDataSource;
+use velostream::velostream::datasource::types::SourceOffset;
+use std::collections::HashMap;
 
 async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    let mut kafka_source = KafkaDataSource::from_properties(&props, "topic", "job");
+    let mut kafka_source = KafkaDataSource::new("localhost:9092".to_string(), "topic".to_string());
 
     // Phase 1: Bulk load all existing data
-    let initial_records = bulk_load_table(&kafka_source).await?;
+    let initial_records = bulk_load_table(&kafka_source, None).await?;
     println!("Loaded {} initial records", initial_records.len());
 
     // Phase 2: Incremental load new data
-    let current_offset = get_current_offset(&kafka_source).await?;
-    let new_records = incremental_load_table(&kafka_source, current_offset).await?;
+    let offset = SourceOffset::Generic("0".to_string());
+    let new_records = incremental_load_table(&kafka_source, offset, None).await?;
     println!("Loaded {} new records", new_records.len());
 
     Ok(())

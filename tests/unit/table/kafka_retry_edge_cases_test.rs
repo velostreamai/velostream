@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 use velostream::velostream::table::retry_utils::parse_duration;
 
 #[test]
