@@ -622,15 +622,16 @@ pub fn format_categorized_error(
             format!(
                 "Kafka topic '{}' does not exist. Production-optimized options:\n\
                  1. Create topic (production): kafka-topics --create --topic {} --partitions {} --replication-factor {}\n\
-                 2. Enable intelligent retry: WITH (\"topic.wait.timeout\" = \"30s\")\n\
+                 2. Enable intelligent retry: WITH (\"topic.wait.timeout\" = \"{}\")\n\
                  3. Use exponential backoff (recommended): WITH (\"topic.retry.strategy\" = \"exponential\")\n\
                  4. Environment override: VELOSTREAM_RETRY_STRATEGY=exponential\n\
                  5. Check topic name and broker connectivity\n\
                  \n\
-                 Example SQL: CREATE TABLE my_table AS SELECT * FROM kafka_source WITH (\"topic.wait.timeout\" = \"30s\")\n\
+                 Example SQL: CREATE TABLE my_table AS SELECT * FROM kafka_source WITH (\"topic.wait.timeout\" = \"{}\")\n\
                  \n\
                  Original error: {}",
                 topic, topic, ErrorMessageConfig::default_partitions(), ErrorMessageConfig::default_replication_factor(),
+                ErrorMessageConfig::suggested_timeout(), ErrorMessageConfig::suggested_timeout(),
                 error
             )
         }
