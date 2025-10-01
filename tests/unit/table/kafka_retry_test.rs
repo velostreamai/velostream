@@ -222,8 +222,8 @@ fn test_enhanced_error_message_formatting() {
             "Should include specific topic in creation command"
         );
         assert!(
-            formatted.contains("\"topic.wait.timeout\" = \"30s\""),
-            "Should show example configuration"
+            formatted.contains("\"topic.wait.timeout\" = \"60s\""),
+            "Should show example configuration with production-optimized timeout"
         );
     }
 }
@@ -246,7 +246,7 @@ fn test_error_message_sql_syntax() {
 
     // Should provide complete example that users can copy
     assert!(
-        formatted.contains("WITH (\"topic.wait.timeout\" = \"30s\")"),
-        "Should provide complete WITH clause example"
+        formatted.contains("WITH (\"topic.wait.timeout\" = \"60s\")"),
+        "Should provide complete WITH clause example with production-optimized timeout"
     );
 }
