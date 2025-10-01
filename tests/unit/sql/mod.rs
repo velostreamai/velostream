@@ -26,6 +26,9 @@ pub mod query_analyzer_explicit_type_test;
 pub mod query_analyzer_test;
 
 // General SQL tests
+pub mod between_operator_test;
+pub mod config_file_comprehensive_test;
+pub mod config_file_test;
 pub mod context_test;
 pub mod lifecycle_test;
 
