@@ -4,10 +4,12 @@
 //! and resource limits. Uses wave-based loading where each wave contains
 //! independent tables that can be loaded concurrently.
 
-use crate::velostream::server::dependency_graph::{DependencyError, TableDependencyGraph};
+use crate::velostream::server::dependency_graph::TableDependencyGraph;
 use crate::velostream::server::progress_monitoring::ProgressMonitor;
 use crate::velostream::server::table_registry::TableRegistry;
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::parser::StreamingSqlParser;
+use crate::velostream::table::CtasExecutor;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -124,6 +126,12 @@ pub struct ParallelLoader {
     /// Progress monitor for real-time updates
     progress_monitor: Arc<ProgressMonitor>,
 
+    /// CTAS executor for creating tables
+    ctas_executor: CtasExecutor,
+
+    /// SQL parser for dependency extraction
+    sql_parser: StreamingSqlParser,
+
     /// Configuration
     config: ParallelLoadingConfig,
 }
@@ -133,12 +141,26 @@ impl ParallelLoader {
     pub fn new(
         table_registry: Arc<TableRegistry>,
         progress_monitor: Arc<ProgressMonitor>,
+        ctas_executor: CtasExecutor,
         config: ParallelLoadingConfig,
     ) -> Self {
         Self {
             table_registry,
             progress_monitor,
+            ctas_executor,
+            sql_parser: StreamingSqlParser::new(),
             config,
+        }
+    }
+
+    /// Clone necessary fields for async task (cheap Arc clones)
+    fn clone_for_task(&self) -> Self {
+        Self {
+            table_registry: self.table_registry.clone(),
+            progress_monitor: self.progress_monitor.clone(),
+            ctas_executor: self.ctas_executor.clone(),
+            sql_parser: StreamingSqlParser::new(),
+            config: self.config.clone(),
         }
     }
 
@@ -146,10 +168,12 @@ impl ParallelLoader {
     pub fn with_default_config(
         table_registry: Arc<TableRegistry>,
         progress_monitor: Arc<ProgressMonitor>,
+        ctas_executor: CtasExecutor,
     ) -> Self {
         Self::new(
             table_registry,
             progress_monitor,
+            ctas_executor,
             ParallelLoadingConfig::default(),
         )
     }
@@ -289,6 +313,9 @@ impl ParallelLoader {
             let progress = self.progress_monitor.clone();
             let timeout = self.config.table_load_timeout;
 
+            // Clone self fields needed in async task
+            let loader_clone = self.clone_for_task();
+
             join_set.spawn(async move {
                 // Acquire semaphore permit
                 let _permit = semaphore.acquire().await.unwrap();
@@ -300,9 +327,9 @@ impl ParallelLoader {
                     .start_tracking(table_def.name.clone(), None) // Unknown size
                     .await;
 
-                // Simulate table loading (in production, this would call actual CTAS)
+                // Execute actual CTAS table loading
                 let result =
-                    tokio::time::timeout(timeout, Self::mock_load_table(table_def.clone())).await;
+                    tokio::time::timeout(timeout, loader_clone.load_table(table_def.clone())).await;
 
                 match result {
                     Ok(Ok(())) => {
@@ -354,18 +381,73 @@ impl ParallelLoader {
         let mut graph = TableDependencyGraph::new();
 
         for table in tables {
-            // For now, use explicit dependencies from TableDefinition
-            // In production, this would parse SQL to extract dependencies
-            graph.add_table(table.name.clone(), table.dependencies.clone());
+            // Parse SQL to automatically extract dependencies
+            let deps = if !table.dependencies.is_empty() {
+                // Use explicit dependencies if provided
+                table.dependencies.clone()
+            } else {
+                // Auto-extract from SQL
+                match self.sql_parser.parse(&table.sql) {
+                    Ok(query) => {
+                        let table_deps = TableRegistry::extract_table_dependencies(&query);
+                        table_deps.into_iter().collect()
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to parse SQL for table '{}', using explicit deps: {}",
+                            table.name,
+                            e
+                        );
+                        table.dependencies.clone()
+                    }
+                }
+            };
+
+            graph.add_table(table.name.clone(), deps);
         }
 
         Ok(graph)
     }
 
-    /// Mock table loading (placeholder for actual CTAS integration)
-    async fn mock_load_table(_table_def: TableDefinition) -> Result<(), SqlError> {
-        // Simulate some loading time
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    /// Load a table using CTAS execution
+    async fn load_table(&self, table_def: TableDefinition) -> Result<(), SqlError> {
+        log::info!("Executing CTAS for table '{}'", table_def.name);
+
+        // Build CTAS query with properties
+        let ctas_query = if !table_def.properties.is_empty() {
+            // Build WITH clause from properties
+            let props: Vec<String> = table_def
+                .properties
+                .iter()
+                .map(|(k, v)| format!("'{}' = '{}'", k, v))
+                .collect();
+
+            format!(
+                "CREATE TABLE {} AS {} WITH ({})",
+                table_def.name,
+                table_def.sql,
+                props.join(", ")
+            )
+        } else {
+            format!("CREATE TABLE {} AS {}", table_def.name, table_def.sql)
+        };
+
+        // Execute CTAS
+        let result = self.ctas_executor.execute(&ctas_query).await?;
+
+        // Register table in registry
+        self.table_registry
+            .register_table(table_def.name.clone(), result.table)
+            .await
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register table '{}': {}", table_def.name, e),
+            })?;
+
+        log::info!(
+            "Successfully created and registered table '{}'",
+            table_def.name
+        );
+
         Ok(())
     }
 }
