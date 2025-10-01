@@ -223,55 +223,6 @@ fn test_case_insensitive_strategy_names() {
 }
 
 #[test]
-fn test_alternative_batch_key_prefixes() {
-    let parser = WithClauseParser::new();
-
-    // Test both 'batch.' and 'sink.batch.' prefixes
-    let with_clause = r#"
-        'sink.bootstrap.servers' = 'localhost:9092',
-        'sink.topic' = 'test-topic',
-        'batch.enable' = 'true',
-        'batch.strategy' = 'fixed_size',
-        'batch.size' = '150'
-    "#;
-
-    let config = parser.parse_with_clause(with_clause).unwrap();
-    let batch_config = config.batch_config.unwrap();
-
-    assert_eq!(batch_config.enable_batching, true);
-    match batch_config.strategy {
-        BatchStrategy::FixedSize(size) => assert_eq!(size, 150),
-        _ => panic!("Expected FixedSize strategy"),
-    }
-}
-
-#[test]
-fn test_mixed_batch_key_prefixes() {
-    let parser = WithClauseParser::new();
-
-    // Test mixing 'batch.' and 'sink.batch.' prefixes (sink.batch. should take precedence)
-    let with_clause = r#"
-        'sink.bootstrap.servers' = 'localhost:9092',
-        'sink.topic' = 'test-topic',
-        'batch.enable' = 'false',
-        'sink.batch.enable' = 'true',
-        'batch.strategy' = 'time_window',
-        'sink.batch.strategy' = 'fixed_size',
-        'sink.batch.size' = '300'
-    "#;
-
-    let config = parser.parse_with_clause(with_clause).unwrap();
-    let batch_config = config.batch_config.unwrap();
-
-    // sink.batch.* should take precedence
-    assert_eq!(batch_config.enable_batching, true);
-    match batch_config.strategy {
-        BatchStrategy::FixedSize(size) => assert_eq!(size, 300),
-        _ => panic!("Expected FixedSize strategy from sink.batch.strategy"),
-    }
-}
-
-#[test]
 fn test_invalid_batch_strategy() {
     let parser = WithClauseParser::new();
 
@@ -308,7 +259,7 @@ fn test_invalid_batch_size() {
 
     match result.unwrap_err() {
         WithClauseError::InvalidValue { key, value, .. } => {
-            assert_eq!(key, "sink.batch.max_size");
+            assert_eq!(key, "sink.batch.size");
             assert_eq!(value, "not_a_number");
         }
         _ => panic!("Expected InvalidValue error for invalid batch size"),

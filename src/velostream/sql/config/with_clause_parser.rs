@@ -148,7 +148,7 @@ impl WithClauseParser {
 
         // Build typed configuration objects
         let mut config = WithClauseConfig {
-            raw_config: validated_config.clone(),
+            raw_config: resolved_config.clone(), // Use resolved config to preserve all keys
             schema_registry: None,
             cache_config: None,
             data_source: None,
@@ -157,23 +157,23 @@ impl WithClauseParser {
             warnings: Vec::new(),
         };
 
-        // Parse schema registry configuration
-        if self.has_schema_registry_config(&validated_config) {
+        // Parse schema registry configuration (check original config, not validated with defaults)
+        if self.has_schema_registry_config(&resolved_config) {
             config.schema_registry = Some(self.parse_schema_registry_config(&validated_config)?);
         }
 
-        // Parse cache configuration
-        if self.has_cache_config(&validated_config) {
+        // Parse cache configuration (check original config, not validated with defaults)
+        if self.has_cache_config(&resolved_config) {
             config.cache_config = Some(self.parse_cache_config(&validated_config)?);
         }
 
-        // Parse data source configuration
-        if self.has_data_source_config(&validated_config) {
+        // Parse data source configuration (check original config, not validated with defaults)
+        if self.has_data_source_config(&resolved_config) {
             config.data_source = Some(self.parse_data_source_config(&validated_config)?);
         }
 
-        // Parse batch configuration
-        if self.has_batch_config(&validated_config) {
+        // Parse batch configuration (check original config, not validated with defaults)
+        if self.has_batch_config(&resolved_config) {
             config.batch_config = Some(self.parse_batch_config(&validated_config)?);
         }
 
@@ -439,7 +439,8 @@ impl WithClauseParser {
                 Ok(())
             }
             ConfigValueType::Enum(allowed_values) => {
-                if allowed_values.contains(&value.to_string()) {
+                // Case-insensitive enum matching
+                if allowed_values.iter().any(|v| v.eq_ignore_ascii_case(value)) {
                     Ok(())
                 } else {
                     Err(WithClauseError::InvalidValue {
@@ -572,9 +573,7 @@ impl WithClauseParser {
 
     /// Check if configuration contains batch settings
     fn has_batch_config(&self, config: &HashMap<String, String>) -> bool {
-        config
-            .keys()
-            .any(|k| k.starts_with("sink.batch.") || k.starts_with("batch."))
+        config.keys().any(|k| k.starts_with("sink.batch."))
     }
 
     /// Parse schema registry configuration from validated config
@@ -698,18 +697,12 @@ impl WithClauseParser {
         let mut batch_config = BatchConfig::default();
 
         // Parse batch strategy
-        if let Some(strategy_str) = config
-            .get("sink.batch.strategy")
-            .or(config.get("batch.strategy"))
-        {
+        if let Some(strategy_str) = config.get("sink.batch.strategy") {
             batch_config.strategy = self.parse_batch_strategy(strategy_str, config)?;
         }
 
         // Parse max batch size
-        if let Some(max_size) = config
-            .get("sink.batch.max_size")
-            .or(config.get("batch.max_size"))
-        {
+        if let Some(max_size) = config.get("sink.batch.max_size") {
             batch_config.max_batch_size =
                 max_size
                     .parse()
@@ -721,10 +714,7 @@ impl WithClauseParser {
         }
 
         // Parse batch timeout
-        if let Some(timeout) = config
-            .get("sink.batch.timeout")
-            .or(config.get("batch.timeout"))
-        {
+        if let Some(timeout) = config.get("sink.batch.timeout") {
             batch_config.batch_timeout =
                 self.parse_duration(timeout)
                     .map_err(|_| WithClauseError::InvalidValue {
@@ -735,10 +725,7 @@ impl WithClauseParser {
         }
 
         // Parse enable batching flag
-        if let Some(enable_str) = config
-            .get("sink.batch.enable")
-            .or(config.get("batch.enable"))
-        {
+        if let Some(enable_str) = config.get("sink.batch.enable") {
             batch_config.enable_batching =
                 self.try_parse_boolean(enable_str)
                     .map_err(|_| WithClauseError::InvalidValue {
@@ -761,7 +748,6 @@ impl WithClauseParser {
             "fixed_size" | "fixedsize" => {
                 let size = config
                     .get("sink.batch.size")
-                    .or(config.get("batch.size"))
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(100);
                 Ok(BatchStrategy::FixedSize(size))
@@ -769,7 +755,6 @@ impl WithClauseParser {
             "time_window" | "timewindow" => {
                 let duration = config
                     .get("sink.batch.window")
-                    .or(config.get("batch.window"))
                     .and_then(|s| self.parse_duration(s).ok())
                     .unwrap_or(Duration::from_millis(1000));
                 Ok(BatchStrategy::TimeWindow(duration))
@@ -777,7 +762,6 @@ impl WithClauseParser {
             "memory_based" | "memorybased" => {
                 let size = config
                     .get("sink.batch.memory_size")
-                    .or(config.get("batch.memory_size"))
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1024 * 1024); // 1MB default
                 Ok(BatchStrategy::MemoryBased(size))
@@ -785,17 +769,14 @@ impl WithClauseParser {
             "adaptive_size" | "adaptivesize" => {
                 let min_size = config
                     .get("sink.batch.min_size")
-                    .or(config.get("batch.min_size"))
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(10);
                 let max_size = config
                     .get("sink.batch.adaptive_max_size")
-                    .or(config.get("batch.adaptive_max_size"))
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1000);
                 let target_latency = config
                     .get("sink.batch.target_latency")
-                    .or(config.get("batch.target_latency"))
                     .and_then(|s| self.parse_duration(s).ok())
                     .unwrap_or(Duration::from_millis(100));
                 Ok(BatchStrategy::AdaptiveSize {
@@ -807,17 +788,14 @@ impl WithClauseParser {
             "low_latency" | "lowlatency" => {
                 let max_batch_size = config
                     .get("sink.batch.low_latency_max_size")
-                    .or(config.get("batch.low_latency_max_size"))
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1);
                 let max_wait_time = config
                     .get("sink.batch.low_latency_wait")
-                    .or(config.get("batch.low_latency_wait"))
                     .and_then(|s| self.parse_duration(s).ok())
                     .unwrap_or(Duration::from_millis(1));
                 let eager_processing = config
                     .get("sink.batch.eager_processing")
-                    .or(config.get("batch.eager_processing"))
                     .and_then(|s| self.try_parse_boolean(s).ok())
                     .unwrap_or(true);
                 Ok(BatchStrategy::LowLatency {
@@ -1008,10 +986,15 @@ impl WithClauseParser {
                 key: "sink.batch.strategy".to_string(),
                 value_type: ConfigValueType::Enum(vec![
                     "fixed_size".to_string(),
+                    "fixedsize".to_string(),
                     "time_window".to_string(),
+                    "timewindow".to_string(),
                     "memory_based".to_string(),
+                    "memorybased".to_string(),
                     "adaptive_size".to_string(),
+                    "adaptivesize".to_string(),
                     "low_latency".to_string(),
+                    "lowlatency".to_string(),
                 ]),
                 required: false,
                 default_value: Some("fixed_size".to_string()),
@@ -1019,10 +1002,15 @@ impl WithClauseParser {
                 description: "Batch processing strategy".to_string(),
                 allowed_values: Some(vec![
                     "fixed_size".to_string(),
+                    "fixedsize".to_string(),
                     "time_window".to_string(),
+                    "timewindow".to_string(),
                     "memory_based".to_string(),
+                    "memorybased".to_string(),
                     "adaptive_size".to_string(),
+                    "adaptivesize".to_string(),
                     "low_latency".to_string(),
+                    "lowlatency".to_string(),
                 ]),
             },
             ConfigKeySchema {
@@ -1117,136 +1105,6 @@ impl WithClauseParser {
             },
             ConfigKeySchema {
                 key: "sink.batch.adaptive_max_size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("1000".to_string()),
-                validation_pattern: None,
-                description: "Maximum batch size for adaptive strategy".to_string(),
-                allowed_values: None,
-            },
-            // Alternative prefixes without "sink."
-            ConfigKeySchema {
-                key: "batch.enable".to_string(),
-                value_type: ConfigValueType::Boolean,
-                required: false,
-                default_value: Some("true".to_string()),
-                validation_pattern: None,
-                description: "Enable batch processing for sink".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.strategy".to_string(),
-                value_type: ConfigValueType::Enum(vec![
-                    "fixed_size".to_string(),
-                    "time_window".to_string(),
-                    "memory_based".to_string(),
-                    "adaptive_size".to_string(),
-                    "low_latency".to_string(),
-                ]),
-                required: false,
-                default_value: Some("fixed_size".to_string()),
-                validation_pattern: None,
-                description: "Batch processing strategy".to_string(),
-                allowed_values: Some(vec![
-                    "fixed_size".to_string(),
-                    "time_window".to_string(),
-                    "memory_based".to_string(),
-                    "adaptive_size".to_string(),
-                    "low_latency".to_string(),
-                ]),
-            },
-            ConfigKeySchema {
-                key: "batch.size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("100".to_string()),
-                validation_pattern: None,
-                description: "Fixed batch size (records per batch)".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.max_size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("1000".to_string()),
-                validation_pattern: None,
-                description: "Maximum batch size limit".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.timeout".to_string(),
-                value_type: ConfigValueType::Duration,
-                required: false,
-                default_value: Some("1000ms".to_string()),
-                validation_pattern: None,
-                description: "Maximum time to wait for batch completion".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.window".to_string(),
-                value_type: ConfigValueType::Duration,
-                required: false,
-                default_value: Some("1s".to_string()),
-                validation_pattern: None,
-                description: "Time window for time-based batching".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.memory_size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("1048576".to_string()),
-                validation_pattern: None,
-                description: "Memory-based batch size in bytes".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.min_size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("10".to_string()),
-                validation_pattern: None,
-                description: "Minimum batch size for adaptive strategy".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.target_latency".to_string(),
-                value_type: ConfigValueType::Duration,
-                required: false,
-                default_value: Some("100ms".to_string()),
-                validation_pattern: None,
-                description: "Target latency for adaptive batch sizing".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.eager_processing".to_string(),
-                value_type: ConfigValueType::Boolean,
-                required: false,
-                default_value: Some("true".to_string()),
-                validation_pattern: None,
-                description: "Enable eager processing for low-latency strategy".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.low_latency_max_size".to_string(),
-                value_type: ConfigValueType::Integer,
-                required: false,
-                default_value: Some("1".to_string()),
-                validation_pattern: None,
-                description: "Maximum batch size for low-latency strategy".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.low_latency_wait".to_string(),
-                value_type: ConfigValueType::Duration,
-                required: false,
-                default_value: Some("1ms".to_string()),
-                validation_pattern: None,
-                description: "Maximum wait time for low-latency strategy".to_string(),
-                allowed_values: None,
-            },
-            ConfigKeySchema {
-                key: "batch.adaptive_max_size".to_string(),
                 value_type: ConfigValueType::Integer,
                 required: false,
                 default_value: Some("1000".to_string()),
