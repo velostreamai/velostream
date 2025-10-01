@@ -388,12 +388,29 @@ tests/
 ### Writing Tests - CORRECT Structure
 When adding new functionality:
 1. **Create test file** in `tests/unit/[module_path]/[feature]_test.rs`
-2. **Use proper imports** at the top of the test file
-3. **Write comprehensive test cases** covering:
+2. **⚠️ CRITICAL: Register test in mod.rs** - Add `pub mod [feature]_test;` to the parent `mod.rs`
+3. **Use proper imports** at the top of the test file
+4. **Write comprehensive test cases** covering:
    - Happy path scenarios
    - Error conditions
    - Edge cases
    - Performance considerations (if applicable)
+
+**⚠️ CRITICAL: Always Register New Test Files in mod.rs**
+
+When you create a new test file, you MUST add it to the parent module's `mod.rs` file, otherwise Cargo won't discover or run your tests!
+
+Example workflow:
+```bash
+# 1. Create new test file
+touch tests/unit/table/new_feature_test.rs
+
+# 2. IMMEDIATELY add to mod.rs (DO NOT SKIP THIS!)
+echo "pub mod new_feature_test;" >> tests/unit/table/mod.rs
+
+# 3. Verify test is discovered
+cargo test new_feature_test --no-default-features -- --list
+```
 
 Example test file structure:
 ```rust
@@ -414,6 +431,14 @@ fn test_query_analyzer_select() {
 fn test_query_analyzer_error_handling() {
     // Test implementation
 }
+```
+
+Example mod.rs registration:
+```rust
+// tests/unit/sql/mod.rs
+pub mod query_analyzer_test;  // ← ADD THIS LINE for each new test file
+pub mod parser_test;
+pub mod execution_test;
 ```
 
 ### Unit Tests
@@ -488,7 +513,24 @@ cargo clippy --all-targets --no-default-features || {
 }
 echo "✅ Clippy linting passed"
 
-echo "4️⃣ Running unit tests..."
+echo "4️⃣ Verifying test registration..."
+# Check if any *_test.rs files exist that aren't registered in mod.rs
+UNREGISTERED=$(find tests/unit -name "*_test.rs" -type f | while read test_file; do
+    test_name=$(basename "$test_file" .rs)
+    mod_file=$(dirname "$test_file")/mod.rs
+    if [ -f "$mod_file" ] && ! grep -q "pub mod $test_name" "$mod_file"; then
+        echo "⚠️  $test_file not registered in $mod_file"
+    fi
+done)
+if [ -n "$UNREGISTERED" ]; then
+    echo "❌ Found unregistered test files:"
+    echo "$UNREGISTERED"
+    echo "Run: echo 'pub mod <test_name>;' >> <mod_file>"
+    exit 1
+fi
+echo "✅ All test files registered"
+
+echo "5️⃣ Running unit tests..."
 cargo test --lib --no-default-features --quiet || {
     echo "❌ Unit tests failed."
     exit 1
@@ -497,28 +539,28 @@ echo "✅ Unit tests passed"
 
 echo "🔄 Stage 2: Comprehensive Validation"
 
-echo "5️⃣ Testing example compilation..."
+echo "6️⃣ Testing example compilation..."
 cargo build --examples --no-default-features || {
     echo "❌ Example compilation failed."
     exit 1
 }
 echo "✅ Examples compiled successfully"
 
-echo "6️⃣ Testing binary compilation..."
+echo "7️⃣ Testing binary compilation..."
 cargo build --bins --no-default-features || {
     echo "❌ Binary compilation failed."
     exit 1
 }
 echo "✅ Binaries compiled successfully"
 
-echo "7️⃣ Running comprehensive test suite..."
+echo "8️⃣ Running comprehensive test suite..."
 cargo test --tests --no-default-features --quiet -- --skip integration:: --skip performance:: || {
     echo "❌ Comprehensive tests failed."
     exit 1
 }
 echo "✅ Comprehensive tests passed"
 
-echo "8️⃣ Running documentation tests..."
+echo "9️⃣ Running documentation tests..."
 cargo test --doc --no-default-features --quiet || {
     echo "❌ Documentation tests failed."
     exit 1
@@ -532,6 +574,7 @@ echo "📊 Summary:"
 echo "   • Code formatting: ✅"
 echo "   • Compilation: ✅"
 echo "   • Clippy linting: ✅"
+echo "   • Test registration: ✅"
 echo "   • Unit tests: ✅"
 echo "   • Examples: ✅"
 echo "   • Binaries: ✅"
@@ -586,6 +629,7 @@ Before every commit, ensure:
 - [ ] **Code formatting** passes (`cargo fmt --all -- --check`)
 - [ ] **Compilation** succeeds (`cargo check --all-targets --no-default-features`)
 - [ ] **Clippy linting** passes (`cargo clippy --all-targets --no-default-features`)
+- [ ] **New test files registered** in `mod.rs` (verify with `cargo test --list`)
 - [ ] **Unit tests** pass (`cargo test --lib --no-default-features`)
 - [ ] **Examples compile** (`cargo build --examples --no-default-features`)
 - [ ] **Binaries compile** (`cargo build --bins --no-default-features`)
