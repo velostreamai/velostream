@@ -3,14 +3,14 @@
 //! This module tests the integration of batch configuration with SQL WITH clauses,
 //! ensuring that batch settings can be specified and parsed correctly in streaming queries.
 
-use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
-use velostream::velostream::sql::config::with_clause_parser::{WithClauseParser, WithClauseError};
 use std::time::Duration;
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+use velostream::velostream::sql::config::with_clause_parser::{WithClauseError, WithClauseParser};
 
 #[test]
 fn test_basic_batch_configuration() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -22,14 +22,14 @@ fn test_basic_batch_configuration() {
     "#;
 
     let config = parser.parse_with_clause(with_clause).unwrap();
-    
+
     assert!(config.batch_config.is_some());
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1000);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(500));
-    
+
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => assert_eq!(size, 200),
         _ => panic!("Expected FixedSize strategy"),
@@ -39,7 +39,7 @@ fn test_basic_batch_configuration() {
 #[test]
 fn test_time_window_batch_strategy() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -50,19 +50,19 @@ fn test_time_window_batch_strategy() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
         BatchStrategy::TimeWindow(duration) => assert_eq!(duration, Duration::from_secs(2)),
         _ => panic!("Expected TimeWindow strategy"),
     }
-    
+
     assert_eq!(batch_config.max_batch_size, 500);
 }
 
 #[test]
 fn test_memory_based_batch_strategy() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -73,19 +73,19 @@ fn test_memory_based_batch_strategy() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
         BatchStrategy::MemoryBased(size) => assert_eq!(size, 2097152), // 2MB
         _ => panic!("Expected MemoryBased strategy"),
     }
-    
+
     assert_eq!(batch_config.batch_timeout, Duration::from_secs(1));
 }
 
 #[test]
 fn test_adaptive_size_batch_strategy() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -97,13 +97,17 @@ fn test_adaptive_size_batch_strategy() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
-        BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
+        BatchStrategy::AdaptiveSize {
+            min_size,
+            max_size,
+            target_latency,
+        } => {
             assert_eq!(min_size, 50);
             assert_eq!(max_size, 800);
             assert_eq!(target_latency, Duration::from_millis(150));
-        },
+        }
         _ => panic!("Expected AdaptiveSize strategy"),
     }
 }
@@ -111,7 +115,7 @@ fn test_adaptive_size_batch_strategy() {
 #[test]
 fn test_low_latency_batch_strategy() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -123,13 +127,17 @@ fn test_low_latency_batch_strategy() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     match batch_config.strategy {
-        BatchStrategy::LowLatency { max_batch_size, max_wait_time, eager_processing } => {
+        BatchStrategy::LowLatency {
+            max_batch_size,
+            max_wait_time,
+            eager_processing,
+        } => {
             assert_eq!(max_batch_size, 5);
             assert_eq!(max_wait_time, Duration::from_millis(2));
             assert_eq!(eager_processing, true);
-        },
+        }
         _ => panic!("Expected LowLatency strategy"),
     }
 }
@@ -137,7 +145,7 @@ fn test_low_latency_batch_strategy() {
 #[test]
 fn test_batch_configuration_defaults() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -146,12 +154,12 @@ fn test_batch_configuration_defaults() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     // Should use defaults for missing values
     assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1000); // Default max size
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(1000)); // Default timeout
-    
+
     // Should use default strategy (FixedSize with default size)
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => assert_eq!(size, 100), // Default strategy/size
@@ -162,7 +170,7 @@ fn test_batch_configuration_defaults() {
 #[test]
 fn test_batch_disabled() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -171,33 +179,45 @@ fn test_batch_disabled() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, false);
 }
 
 #[test]
 fn test_case_insensitive_strategy_names() {
     let parser = WithClauseParser::new();
-    
+
     // Test various case combinations
     let test_cases = vec![
         ("FIXED_SIZE", "fixedsize", "FixedSize", "fixed_size"),
-        ("TIME_WINDOW", "timewindow", "TimeWindow", "time_window"), 
+        ("TIME_WINDOW", "timewindow", "TimeWindow", "time_window"),
         ("MEMORY_BASED", "memorybased", "MemoryBased", "memory_based"),
-        ("ADAPTIVE_SIZE", "adaptivesize", "AdaptiveSize", "adaptive_size"),
+        (
+            "ADAPTIVE_SIZE",
+            "adaptivesize",
+            "AdaptiveSize",
+            "adaptive_size",
+        ),
         ("LOW_LATENCY", "lowlatency", "LowLatency", "low_latency"),
     ];
 
     for variations in test_cases {
         for strategy_name in [variations.0, variations.1, variations.2, variations.3] {
-            let with_clause = format!(r#"
+            let with_clause = format!(
+                r#"
                 'sink.bootstrap.servers' = 'localhost:9092',
                 'sink.topic' = 'test-topic',
                 'sink.batch.strategy' = '{}'
-            "#, strategy_name);
+            "#,
+                strategy_name
+            );
 
             let config = parser.parse_with_clause(&with_clause).unwrap();
-            assert!(config.batch_config.is_some(), "Failed to parse strategy: {}", strategy_name);
+            assert!(
+                config.batch_config.is_some(),
+                "Failed to parse strategy: {}",
+                strategy_name
+            );
         }
     }
 }
@@ -205,7 +225,7 @@ fn test_case_insensitive_strategy_names() {
 #[test]
 fn test_alternative_batch_key_prefixes() {
     let parser = WithClauseParser::new();
-    
+
     // Test both 'batch.' and 'sink.batch.' prefixes
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
@@ -217,7 +237,7 @@ fn test_alternative_batch_key_prefixes() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, true);
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => assert_eq!(size, 150),
@@ -228,7 +248,7 @@ fn test_alternative_batch_key_prefixes() {
 #[test]
 fn test_mixed_batch_key_prefixes() {
     let parser = WithClauseParser::new();
-    
+
     // Test mixing 'batch.' and 'sink.batch.' prefixes (sink.batch. should take precedence)
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
@@ -242,7 +262,7 @@ fn test_mixed_batch_key_prefixes() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     // sink.batch.* should take precedence
     assert_eq!(batch_config.enable_batching, true);
     match batch_config.strategy {
@@ -254,7 +274,7 @@ fn test_mixed_batch_key_prefixes() {
 #[test]
 fn test_invalid_batch_strategy() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -263,12 +283,12 @@ fn test_invalid_batch_strategy() {
 
     let result = parser.parse_with_clause(with_clause);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         WithClauseError::InvalidValue { key, value, .. } => {
             assert_eq!(key, "sink.batch.strategy");
             assert_eq!(value, "invalid_strategy");
-        },
+        }
         _ => panic!("Expected InvalidValue error"),
     }
 }
@@ -276,7 +296,7 @@ fn test_invalid_batch_strategy() {
 #[test]
 fn test_invalid_batch_size() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -285,12 +305,12 @@ fn test_invalid_batch_size() {
 
     let result = parser.parse_with_clause(with_clause);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         WithClauseError::InvalidValue { key, value, .. } => {
             assert_eq!(key, "sink.batch.max_size");
             assert_eq!(value, "not_a_number");
-        },
+        }
         _ => panic!("Expected InvalidValue error for invalid batch size"),
     }
 }
@@ -298,7 +318,7 @@ fn test_invalid_batch_size() {
 #[test]
 fn test_invalid_batch_timeout() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -307,12 +327,12 @@ fn test_invalid_batch_timeout() {
 
     let result = parser.parse_with_clause(with_clause);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         WithClauseError::InvalidValue { key, value, .. } => {
             assert_eq!(key, "sink.batch.timeout");
             assert_eq!(value, "invalid_duration");
-        },
+        }
         _ => panic!("Expected InvalidValue error for invalid timeout"),
     }
 }
@@ -320,7 +340,7 @@ fn test_invalid_batch_timeout() {
 #[test]
 fn test_invalid_boolean_values() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -329,12 +349,12 @@ fn test_invalid_boolean_values() {
 
     let result = parser.parse_with_clause(with_clause);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         WithClauseError::InvalidValue { key, value, .. } => {
             assert_eq!(key, "sink.batch.enable");
             assert_eq!(value, "maybe");
-        },
+        }
         _ => panic!("Expected InvalidValue error for invalid boolean"),
     }
 }
@@ -342,7 +362,7 @@ fn test_invalid_boolean_values() {
 #[test]
 fn test_comprehensive_batch_configuration() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'comprehensive-test',
@@ -356,23 +376,27 @@ fn test_comprehensive_batch_configuration() {
     "#;
 
     let config = parser.parse_with_clause(with_clause).unwrap();
-    
+
     // Should have both regular config and batch config
     assert!(config.batch_config.is_some());
     assert!(config.raw_config.contains_key("sink.bootstrap.servers"));
     assert!(config.raw_config.contains_key("sink.topic"));
-    
+
     let batch_config = config.batch_config.unwrap();
     assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1500);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(750));
-    
+
     match batch_config.strategy {
-        BatchStrategy::AdaptiveSize { min_size, max_size, target_latency } => {
+        BatchStrategy::AdaptiveSize {
+            min_size,
+            max_size,
+            target_latency,
+        } => {
             assert_eq!(min_size, 25);
             assert_eq!(max_size, 750);
             assert_eq!(target_latency, Duration::from_millis(80));
-        },
+        }
         _ => panic!("Expected AdaptiveSize strategy"),
     }
 }
@@ -380,7 +404,7 @@ fn test_comprehensive_batch_configuration() {
 #[test]
 fn test_no_batch_configuration() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'no-batch-config',
@@ -388,7 +412,7 @@ fn test_no_batch_configuration() {
     "#;
 
     let config = parser.parse_with_clause(with_clause).unwrap();
-    
+
     // Should not have batch configuration when no batch keys are present
     assert!(config.batch_config.is_none());
     assert!(config.raw_config.contains_key("sink.bootstrap.servers"));
@@ -396,10 +420,10 @@ fn test_no_batch_configuration() {
     assert!(config.raw_config.contains_key("sink.value.format"));
 }
 
-#[test] 
+#[test]
 fn test_batch_configuration_with_file_sink() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.path' = '/tmp/output.json',
         'sink.format' = 'json',
@@ -410,22 +434,25 @@ fn test_batch_configuration_with_file_sink() {
 
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
-    
+
     assert_eq!(batch_config.enable_batching, true);
     match batch_config.strategy {
         BatchStrategy::MemoryBased(size) => assert_eq!(size, 524288), // 512KB
         _ => panic!("Expected MemoryBased strategy"),
     }
-    
+
     // Should still have file sink properties
-    assert_eq!(config.raw_config.get("sink.path").unwrap(), "/tmp/output.json");
+    assert_eq!(
+        config.raw_config.get("sink.path").unwrap(),
+        "/tmp/output.json"
+    );
     assert_eq!(config.raw_config.get("sink.format").unwrap(), "json");
 }
 
-#[test] 
+#[test]
 fn test_sink_failure_strategy_configuration() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'sink.bootstrap.servers' = 'localhost:9092',
         'sink.topic' = 'test-topic',
@@ -436,14 +463,20 @@ fn test_sink_failure_strategy_configuration() {
     "#;
 
     let config = parser.parse_with_clause(with_clause).unwrap();
-    
+
     // Validate that failure_strategy is parsed and available in raw config
-    assert_eq!(config.raw_config.get("sink.failure_strategy").unwrap(), "LogAndContinue");
-    
+    assert_eq!(
+        config.raw_config.get("sink.failure_strategy").unwrap(),
+        "LogAndContinue"
+    );
+
     // Validate that other sink properties are also available
-    assert_eq!(config.raw_config.get("sink.bootstrap.servers").unwrap(), "localhost:9092");
+    assert_eq!(
+        config.raw_config.get("sink.bootstrap.servers").unwrap(),
+        "localhost:9092"
+    );
     assert_eq!(config.raw_config.get("sink.topic").unwrap(), "test-topic");
-    
+
     // Validate that batch config is still parsed correctly alongside failure strategy
     let batch_config = config.batch_config.unwrap();
     assert_eq!(batch_config.enable_batching, true);
@@ -456,32 +489,38 @@ fn test_sink_failure_strategy_configuration() {
 #[test]
 fn test_all_failure_strategy_variants() {
     let parser = WithClauseParser::new();
-    
+
     let failure_strategies = vec![
         "LogAndContinue",
-        "SendToDLQ", 
+        "SendToDLQ",
         "FailBatch",
-        "RetryWithBackoff"
+        "RetryWithBackoff",
     ];
-    
+
     for strategy in failure_strategies {
-        let with_clause = format!(r#"
+        let with_clause = format!(
+            r#"
             'sink.bootstrap.servers' = 'localhost:9092',
             'sink.topic' = 'test-topic',
             'sink.failure_strategy' = '{}'
-        "#, strategy);
+        "#,
+            strategy
+        );
 
         let config = parser.parse_with_clause(&with_clause).unwrap();
-        
+
         // Should parse successfully and be available in raw config
-        assert_eq!(config.raw_config.get("sink.failure_strategy").unwrap(), strategy);
+        assert_eq!(
+            config.raw_config.get("sink.failure_strategy").unwrap(),
+            strategy
+        );
     }
 }
 
 #[test]
 fn test_source_failure_strategy_configuration() {
     let parser = WithClauseParser::new();
-    
+
     let with_clause = r#"
         'source.format' = 'csv',
         'source.failure_strategy' = 'RetryWithBackoff',
@@ -490,10 +529,16 @@ fn test_source_failure_strategy_configuration() {
     "#;
 
     let config = parser.parse_with_clause(with_clause).unwrap();
-    
-    // Validate source failure strategy configuration 
-    assert_eq!(config.raw_config.get("source.failure_strategy").unwrap(), "RetryWithBackoff");
-    assert_eq!(config.raw_config.get("source.retry_backoff").unwrap(), "1000ms");
+
+    // Validate source failure strategy configuration
+    assert_eq!(
+        config.raw_config.get("source.failure_strategy").unwrap(),
+        "RetryWithBackoff"
+    );
+    assert_eq!(
+        config.raw_config.get("source.retry_backoff").unwrap(),
+        "1000ms"
+    );
     assert_eq!(config.raw_config.get("source.max_retries").unwrap(), "3");
     assert_eq!(config.raw_config.get("source.format").unwrap(), "csv");
 }

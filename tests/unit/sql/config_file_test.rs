@@ -1,9 +1,9 @@
 //! Tests for named source/sink config_file functionality
 
-use velostream::velostream::sql::query_analyzer::QueryAnalyzer;
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
+use velostream::velostream::sql::query_analyzer::QueryAnalyzer;
 
 #[test]
 fn test_named_source_config_file() {
@@ -24,14 +24,11 @@ schema.registry.url: "http://schema-registry:8081"
     )
     .unwrap();
 
-    let analyzer = QueryAnalyzer::new();
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
     let mut config = HashMap::new();
 
     // Configure named source with config_file
-    config.insert(
-        "orders_source.type".to_string(),
-        "kafka_source".to_string(),
-    );
+    config.insert("orders_source.type".to_string(), "kafka_source".to_string());
     config.insert(
         "orders_source.config_file".to_string(),
         config_path.to_string_lossy().to_string(),
@@ -106,7 +103,7 @@ compression: "gzip"
     )
     .unwrap();
 
-    let analyzer = QueryAnalyzer::new();
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
     let mut config = HashMap::new();
 
     // Configure named sink with config_file
@@ -180,7 +177,7 @@ group.id: "dev-analytics"
     )
     .unwrap();
 
-    let analyzer = QueryAnalyzer::new();
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
     let mut config = HashMap::new();
 
     // Configure with config_file and inline overrides
@@ -236,7 +233,7 @@ group.id: "dev-analytics"
 
 #[test]
 fn test_invalid_config_file() {
-    let analyzer = QueryAnalyzer::new();
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
     let mut config = HashMap::new();
 
     // Configure with non-existent config_file
@@ -281,7 +278,7 @@ topic: "test-topic"
     )
     .unwrap();
 
-    let analyzer = QueryAnalyzer::new();
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
     let mut config = HashMap::new();
 
     config.insert("test_src.type".to_string(), "kafka_source".to_string());
