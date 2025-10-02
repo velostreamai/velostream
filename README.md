@@ -95,8 +95,17 @@ Velostream supports pluggable data sources with unified URI-based configuration.
 ```sql
 -- Kafka → File (JSON Lines) streaming pipeline
 CREATE STREAM kafka_to_json AS
-SELECT * FROM 'kafka://localhost:9092/orders?group_id=file-export'
-INTO 'file:///output/orders.jsonl?format=jsonl';
+SELECT * FROM kafka_orders_source
+INTO file_json_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.brokers' = 'localhost:9092',
+    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.group_id' = 'file-export',
+    'file_json_sink.type' = 'file_sink',
+    'file_json_sink.path' = '/output/orders.jsonl',
+    'file_json_sink.format' = 'jsonl'
+);
 
 -- Kafka → File (CSV) with transformation
 CREATE STREAM kafka_to_csv AS
@@ -105,15 +114,35 @@ SELECT
     order_id,
     SUM(amount) as total_spent,
     COUNT(*) as order_count
-FROM 'kafka://localhost:9092/orders?group_id=analytics'
+FROM kafka_orders_source
 GROUP BY customer_id, order_id
-INTO 'file:///output/customer_stats.csv?format=csv&header=true';
+INTO file_csv_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.brokers' = 'localhost:9092',
+    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.group_id' = 'analytics',
+    'file_csv_sink.type' = 'file_sink',
+    'file_csv_sink.path' = '/output/customer_stats.csv',
+    'file_csv_sink.format' = 'csv',
+    'file_csv_sink.header' = 'true'
+);
 
 -- File (CSV) → Kafka streaming pipeline
 CREATE STREAM csv_to_kafka AS
-SELECT * FROM 'file:///data/input/*.csv?format=csv&header=true&watch=true'
+SELECT * FROM file_csv_source
 WHERE amount > 100.0
-INTO 'kafka://localhost:9092/high-value-orders';
+INTO kafka_high_value_sink
+WITH (
+    'file_csv_source.type' = 'file_source',
+    'file_csv_source.path' = '/data/input/*.csv',
+    'file_csv_source.format' = 'csv',
+    'file_csv_source.header' = 'true',
+    'file_csv_source.watch' = 'true',
+    'kafka_high_value_sink.type' = 'kafka_sink',
+    'kafka_high_value_sink.brokers' = 'localhost:9092',
+    'kafka_high_value_sink.topic' = 'high-value-orders'
+);
 
 -- Kafka → File (Parquet) with windowing
 CREATE STREAM kafka_to_parquet AS
@@ -122,10 +151,20 @@ SELECT
     AVG(amount) as avg_order_value,
     COUNT(*) as order_count,
     window_start
-FROM 'kafka://localhost:9092/orders?group_id=analytics'
+FROM kafka_orders_source
 WINDOW TUMBLING(1h)
 GROUP BY customer_id, window_start
-INTO 'file:///output/hourly_stats.parquet?format=parquet&compression=snappy';
+INTO file_parquet_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.brokers' = 'localhost:9092',
+    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.group_id' = 'analytics',
+    'file_parquet_sink.type' = 'file_sink',
+    'file_parquet_sink.path' = '/output/hourly_stats.parquet',
+    'file_parquet_sink.format' = 'parquet',
+    'file_parquet_sink.compression' = 'snappy'
+);
 ```
 
 ### Future Multi-Source Examples (Planned)
@@ -133,8 +172,18 @@ INTO 'file:///output/hourly_stats.parquet?format=parquet&compression=snappy';
 ```sql
 -- PostgreSQL CDC → Kafka (Coming Soon)
 CREATE STREAM order_events AS
-SELECT * FROM 'postgresql://localhost/shop?table=orders&cdc=true'
-INTO 'kafka://localhost:9092/order-stream';
+SELECT * FROM postgres_orders_source
+INTO kafka_events_sink
+WITH (
+    'postgres_orders_source.type' = 'postgresql_source',
+    'postgres_orders_source.host' = 'localhost',
+    'postgres_orders_source.database' = 'shop',
+    'postgres_orders_source.table' = 'orders',
+    'postgres_orders_source.cdc' = 'true',
+    'kafka_events_sink.type' = 'kafka_sink',
+    'kafka_events_sink.brokers' = 'localhost:9092',
+    'kafka_events_sink.topic' = 'order-stream'
+);
 
 -- Cross-source enrichment: Kafka + PostgreSQL → ClickHouse (Coming Soon)
 CREATE STREAM enriched_orders AS
@@ -142,10 +191,24 @@ SELECT
     o.*,
     c.customer_name,
     c.tier
-FROM 'kafka://localhost:9092/orders' o
-INNER JOIN 'postgresql://localhost/db?table=customers' c
+FROM kafka_orders_source o
+INNER JOIN postgres_customers_table c
     ON o.customer_id = c.customer_id
-INTO 'clickhouse://localhost:8123/analytics?table=enriched_orders';
+INTO clickhouse_analytics_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.brokers' = 'localhost:9092',
+    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.group_id' = 'enrichment',
+    'postgres_customers_table.type' = 'postgresql_table',
+    'postgres_customers_table.host' = 'localhost',
+    'postgres_customers_table.database' = 'db',
+    'postgres_customers_table.table' = 'customers',
+    'clickhouse_analytics_sink.type' = 'clickhouse_sink',
+    'clickhouse_analytics_sink.host' = 'localhost:8123',
+    'clickhouse_analytics_sink.database' = 'analytics',
+    'clickhouse_analytics_sink.table' = 'enriched_orders'
+);
 ```
 
 **Learn More**: See [Data Sources Documentation](docs/data-sources/) for complete URI reference and configuration options.
@@ -543,9 +606,19 @@ SELECT
         ORDER BY order_time
         RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
     ) as hourly_avg
-FROM 'kafka://localhost:9092/orders?group_id=processor'
+FROM kafka_orders_source
 WHERE amount > 100.0
-INTO 'file:///output/order_analytics.csv?format=csv&header=true';
+INTO file_analytics_sink
+WITH (
+    'kafka_orders_source.type' = 'kafka_source',
+    'kafka_orders_source.brokers' = 'localhost:9092',
+    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.group_id' = 'processor',
+    'file_analytics_sink.type' = 'file_sink',
+    'file_analytics_sink.path' = '/output/order_analytics.csv',
+    'file_analytics_sink.format' = 'csv',
+    'file_analytics_sink.header' = 'true'
+);
 ```
 
 Run it:
@@ -684,10 +757,20 @@ SELECT
     -- Stream-table JOIN for enrichment
     p.position_size,
     p.avg_cost
-FROM 'kafka://localhost:9092/trades?group_id=analytics' t
+FROM kafka_trades_source t
 LEFT JOIN positions_table p ON t.trader_id = p.trader_id AND t.symbol = p.symbol
 WHERE t.price > 0
-INTO 'clickhouse://localhost:8123/analytics?table=trades';
+INTO file_trades_sink
+WITH (
+    'kafka_trades_source.type' = 'kafka_source',
+    'kafka_trades_source.brokers' = 'localhost:9092',
+    'kafka_trades_source.topic' = 'trades',
+    'kafka_trades_source.group_id' = 'analytics',
+    'file_trades_sink.type' = 'file_sink',
+    'file_trades_sink.path' = '/output/trades_analytics.parquet',
+    'file_trades_sink.format' = 'parquet',
+    'file_trades_sink.compression' = 'snappy'
+);
 ```
 
 #### Subquery Support ✨ NEW
@@ -702,7 +785,7 @@ SELECT
     -- EXISTS subquery for risk classification
     CASE
         WHEN EXISTS (
-            SELECT 1 FROM trades t2
+            SELECT 1 FROM kafka_trades_source t2
             WHERE t2.trader_id = trades.trader_id
             AND t2.event_time >= trades.event_time - INTERVAL '1' HOUR
             AND ABS(t2.pnl) > 50000
@@ -712,12 +795,21 @@ SELECT
     -- IN subquery for filtering
     symbol IN (SELECT symbol FROM high_volume_stocks) as is_high_volume,
     -- Scalar subquery for comparison
-    (SELECT AVG(notional_value) FROM trades) as market_avg
-FROM 'kafka://localhost:9092/trades' trades
+    (SELECT AVG(notional_value) FROM kafka_trades_source) as market_avg
+FROM kafka_trades_source trades
 WHERE trader_id IN (
     SELECT trader_id FROM active_traders WHERE status = 'ACTIVE'
 )
-INTO 'kafka://localhost:9092/risk-alerts';
+INTO kafka_risk_alerts_sink
+WITH (
+    'kafka_trades_source.type' = 'kafka_source',
+    'kafka_trades_source.brokers' = 'localhost:9092',
+    'kafka_trades_source.topic' = 'trades',
+    'kafka_trades_source.group_id' = 'risk-analysis',
+    'kafka_risk_alerts_sink.type' = 'kafka_sink',
+    'kafka_risk_alerts_sink.brokers' = 'localhost:9092',
+    'kafka_risk_alerts_sink.topic' = 'risk-alerts'
+);
 ```
 
 #### Programmatic API
@@ -731,14 +823,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
-    // Parse and execute CREATE STREAM
+    // Parse and execute CREATE STREAM with named sources
     let query = "
         CREATE STREAM enriched_orders AS
         SELECT o.*, c.customer_name
-        FROM 'kafka://localhost:9092/orders' o
-        INNER JOIN 'postgresql://localhost/db?table=customers' c
+        FROM kafka_orders_source o
+        INNER JOIN customers_table c
             ON o.customer_id = c.customer_id
-        INTO 'kafka://localhost:9092/enriched-orders';
+        INTO file_enriched_sink
+        WITH (
+            'kafka_orders_source.type' = 'kafka_source',
+            'kafka_orders_source.brokers' = 'localhost:9092',
+            'kafka_orders_source.topic' = 'orders',
+            'kafka_orders_source.group_id' = 'enrichment',
+            'file_enriched_sink.type' = 'file_sink',
+            'file_enriched_sink.path' = '/output/enriched_orders.json',
+            'file_enriched_sink.format' = 'json'
+        );
     ";
 
     let parsed_query = parser.parse(query)?;
