@@ -98,13 +98,10 @@ CREATE STREAM kafka_to_json AS
 SELECT * FROM kafka_orders_source
 INTO file_json_sink
 WITH (
-    'kafka_orders_source.type' = 'kafka_source',
-    'kafka_orders_source.brokers' = 'localhost:9092',
-    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
     'kafka_orders_source.group_id' = 'file-export',
-    'file_json_sink.type' = 'file_sink',
-    'file_json_sink.path' = '/output/orders.jsonl',
-    'file_json_sink.format' = 'jsonl'
+    'file_json_sink.config_file' = 'config/file_sink.yaml',
+    'file_json_sink.path' = '/output/orders.jsonl'
 );
 
 -- Kafka → File (CSV) with transformation
@@ -118,14 +115,11 @@ FROM kafka_orders_source
 GROUP BY customer_id, order_id
 INTO file_csv_sink
 WITH (
-    'kafka_orders_source.type' = 'kafka_source',
-    'kafka_orders_source.brokers' = 'localhost:9092',
-    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
     'kafka_orders_source.group_id' = 'analytics',
-    'file_csv_sink.type' = 'file_sink',
+    'file_csv_sink.config_file' = 'config/file_sink.yaml',
     'file_csv_sink.path' = '/output/customer_stats.csv',
-    'file_csv_sink.format' = 'csv',
-    'file_csv_sink.header' = 'true'
+    'file_csv_sink.format' = 'csv'
 );
 
 -- File (CSV) → Kafka streaming pipeline
@@ -134,13 +128,10 @@ SELECT * FROM file_csv_source
 WHERE amount > 100.0
 INTO kafka_high_value_sink
 WITH (
-    'file_csv_source.type' = 'file_source',
+    'file_csv_source.config_file' = 'config/file_source.yaml',
     'file_csv_source.path' = '/data/input/*.csv',
-    'file_csv_source.format' = 'csv',
-    'file_csv_source.header' = 'true',
     'file_csv_source.watch' = 'true',
-    'kafka_high_value_sink.type' = 'kafka_sink',
-    'kafka_high_value_sink.brokers' = 'localhost:9092',
+    'kafka_high_value_sink.config_file' = 'config/kafka_sink.yaml',
     'kafka_high_value_sink.topic' = 'high-value-orders'
 );
 
@@ -156,15 +147,30 @@ WINDOW TUMBLING(1h)
 GROUP BY customer_id, window_start
 INTO file_parquet_sink
 WITH (
-    'kafka_orders_source.type' = 'kafka_source',
-    'kafka_orders_source.brokers' = 'localhost:9092',
-    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
     'kafka_orders_source.group_id' = 'analytics',
-    'file_parquet_sink.type' = 'file_sink',
+    'file_parquet_sink.config_file' = 'config/file_sink.yaml',
     'file_parquet_sink.path' = '/output/hourly_stats.parquet',
-    'file_parquet_sink.format' = 'parquet',
-    'file_parquet_sink.compression' = 'snappy'
+    'file_parquet_sink.format' = 'parquet'
 );
+```
+
+**Example Configuration Files:**
+
+```yaml
+# config/kafka_source.yaml
+type: kafka_source
+brokers: localhost:9092
+topic: orders
+format: json
+schema_registry: http://localhost:8081
+```
+
+```yaml
+# config/file_sink.yaml
+type: file_sink
+format: jsonl
+compression: gzip
 ```
 
 ### Future Multi-Source Examples (Planned)
@@ -175,13 +181,10 @@ CREATE STREAM order_events AS
 SELECT * FROM postgres_orders_source
 INTO kafka_events_sink
 WITH (
-    'postgres_orders_source.type' = 'postgresql_source',
-    'postgres_orders_source.host' = 'localhost',
-    'postgres_orders_source.database' = 'shop',
+    'postgres_orders_source.config_file' = 'config/postgres_source.yaml',
     'postgres_orders_source.table' = 'orders',
     'postgres_orders_source.cdc' = 'true',
-    'kafka_events_sink.type' = 'kafka_sink',
-    'kafka_events_sink.brokers' = 'localhost:9092',
+    'kafka_events_sink.config_file' = 'config/kafka_sink.yaml',
     'kafka_events_sink.topic' = 'order-stream'
 );
 
@@ -196,17 +199,11 @@ INNER JOIN postgres_customers_table c
     ON o.customer_id = c.customer_id
 INTO clickhouse_analytics_sink
 WITH (
-    'kafka_orders_source.type' = 'kafka_source',
-    'kafka_orders_source.brokers' = 'localhost:9092',
-    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
     'kafka_orders_source.group_id' = 'enrichment',
-    'postgres_customers_table.type' = 'postgresql_table',
-    'postgres_customers_table.host' = 'localhost',
-    'postgres_customers_table.database' = 'db',
+    'postgres_customers_table.config_file' = 'config/postgres_table.yaml',
     'postgres_customers_table.table' = 'customers',
-    'clickhouse_analytics_sink.type' = 'clickhouse_sink',
-    'clickhouse_analytics_sink.host' = 'localhost:8123',
-    'clickhouse_analytics_sink.database' = 'analytics',
+    'clickhouse_analytics_sink.config_file' = 'config/clickhouse_sink.yaml',
     'clickhouse_analytics_sink.table' = 'enriched_orders'
 );
 ```
@@ -610,14 +607,11 @@ FROM kafka_orders_source
 WHERE amount > 100.0
 INTO file_analytics_sink
 WITH (
-    'kafka_orders_source.type' = 'kafka_source',
-    'kafka_orders_source.brokers' = 'localhost:9092',
-    'kafka_orders_source.topic' = 'orders',
+    'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
     'kafka_orders_source.group_id' = 'processor',
-    'file_analytics_sink.type' = 'file_sink',
+    'file_analytics_sink.config_file' = 'config/file_sink.yaml',
     'file_analytics_sink.path' = '/output/order_analytics.csv',
-    'file_analytics_sink.format' = 'csv',
-    'file_analytics_sink.header' = 'true'
+    'file_analytics_sink.format' = 'csv'
 );
 ```
 
@@ -762,14 +756,12 @@ LEFT JOIN positions_table p ON t.trader_id = p.trader_id AND t.symbol = p.symbol
 WHERE t.price > 0
 INTO file_trades_sink
 WITH (
-    'kafka_trades_source.type' = 'kafka_source',
-    'kafka_trades_source.brokers' = 'localhost:9092',
+    'kafka_trades_source.config_file' = 'config/kafka_source.yaml',
     'kafka_trades_source.topic' = 'trades',
     'kafka_trades_source.group_id' = 'analytics',
-    'file_trades_sink.type' = 'file_sink',
+    'file_trades_sink.config_file' = 'config/file_sink.yaml',
     'file_trades_sink.path' = '/output/trades_analytics.parquet',
-    'file_trades_sink.format' = 'parquet',
-    'file_trades_sink.compression' = 'snappy'
+    'file_trades_sink.format' = 'parquet'
 );
 ```
 
@@ -802,12 +794,10 @@ WHERE trader_id IN (
 )
 INTO kafka_risk_alerts_sink
 WITH (
-    'kafka_trades_source.type' = 'kafka_source',
-    'kafka_trades_source.brokers' = 'localhost:9092',
+    'kafka_trades_source.config_file' = 'config/kafka_source.yaml',
     'kafka_trades_source.topic' = 'trades',
     'kafka_trades_source.group_id' = 'risk-analysis',
-    'kafka_risk_alerts_sink.type' = 'kafka_sink',
-    'kafka_risk_alerts_sink.brokers' = 'localhost:9092',
+    'kafka_risk_alerts_sink.config_file' = 'config/kafka_sink.yaml',
     'kafka_risk_alerts_sink.topic' = 'risk-alerts'
 );
 ```
@@ -823,7 +813,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = StreamExecutionEngine::new(tx);
     let parser = StreamingSqlParser::new();
 
-    // Parse and execute CREATE STREAM with named sources
+    // Parse and execute CREATE STREAM with config files
     let query = "
         CREATE STREAM enriched_orders AS
         SELECT o.*, c.customer_name
@@ -832,13 +822,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ON o.customer_id = c.customer_id
         INTO file_enriched_sink
         WITH (
-            'kafka_orders_source.type' = 'kafka_source',
-            'kafka_orders_source.brokers' = 'localhost:9092',
-            'kafka_orders_source.topic' = 'orders',
+            'kafka_orders_source.config_file' = 'config/kafka_source.yaml',
             'kafka_orders_source.group_id' = 'enrichment',
-            'file_enriched_sink.type' = 'file_sink',
-            'file_enriched_sink.path' = '/output/enriched_orders.json',
-            'file_enriched_sink.format' = 'json'
+            'file_enriched_sink.config_file' = 'config/file_sink.yaml',
+            'file_enriched_sink.path' = '/output/enriched_orders.json'
         );
     ";
 
