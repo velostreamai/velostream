@@ -304,8 +304,8 @@ async fn test_null_handling() {
     );
     assert_eq!(
         result.fields.get("safe_bid_price"),
-        Some(&FieldValue::Float(0.0))
-    ); // COALESCE should return 0.0 for null
+        Some(&FieldValue::ScaledInteger(0, 1))
+    ); // COALESCE should return 0.0 for null (now ScaledInteger since 0.0 is parsed as Decimal)
 
     println!("✅ NULL handling works correctly");
 }

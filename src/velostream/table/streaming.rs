@@ -14,9 +14,13 @@ use tokio::sync::mpsc;
 /// Result type for streaming operations
 pub type StreamResult<T> = Result<T, SqlError>;
 
-/// A streaming record containing a key and its field values
+/// A lightweight streaming record for memory-efficient table operations
+///
+/// This simplified record format saves ~48% memory vs full StreamRecord by excluding
+/// Kafka metadata (timestamp, offset, partition, headers, event_time).
+/// Use for: table iteration, bulk processing, memory-constrained environments.
 #[derive(Debug, Clone)]
-pub struct StreamRecord {
+pub struct SimpleStreamRecord {
     pub key: String,
     pub fields: HashMap<String, FieldValue>,
 }
@@ -24,17 +28,17 @@ pub struct StreamRecord {
 /// A batch of records for efficient processing
 #[derive(Debug, Clone)]
 pub struct RecordBatch {
-    pub records: Vec<StreamRecord>,
+    pub records: Vec<SimpleStreamRecord>,
     pub has_more: bool,
 }
 
 /// Stream of records for async iteration
 pub struct RecordStream {
-    pub receiver: mpsc::UnboundedReceiver<StreamResult<StreamRecord>>,
+    pub receiver: mpsc::UnboundedReceiver<StreamResult<SimpleStreamRecord>>,
 }
 
 impl Stream for RecordStream {
-    type Item = StreamResult<StreamRecord>;
+    type Item = StreamResult<SimpleStreamRecord>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.receiver.poll_recv(cx)
@@ -73,13 +77,16 @@ pub trait StreamingQueryable: Send + Sync {
     /// avoiding the need to load all data before transformation.
     async fn stream_map<F, T>(&self, transform: F) -> StreamResult<Vec<T>>
     where
-        F: Fn(StreamRecord) -> T + Send + Sync + 'static,
+        F: Fn(SimpleStreamRecord) -> T + Send + Sync + 'static,
         T: Send + 'static;
 
     /// Count records without loading them all into memory
     ///
     /// Efficiently counts records by iterating without storing values.
-    async fn stream_count(&self, where_clause: Option<&str>) -> StreamResult<usize>;
+    fn stream_count(
+        &self,
+        where_clause: Option<&str>,
+    ) -> impl std::future::Future<Output = StreamResult<usize>> + Send;
 
     /// Aggregate values during streaming
     ///

@@ -6,7 +6,6 @@ These tests verify the complete flow from Kafka messages through Table to SQL qu
 */
 
 use async_trait::async_trait;
-use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -15,12 +14,12 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
-use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::kafka::serialization::StringSerializer;
 use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 use velostream::velostream::table::Table;
@@ -180,6 +179,9 @@ struct MockTableDataSource {
 
 #[async_trait]
 impl UnifiedTable for MockTableDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     // =========================================================================
     // CORE DATA ACCESS - Required methods
     // =========================================================================

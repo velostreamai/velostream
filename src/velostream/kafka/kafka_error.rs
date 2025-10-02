@@ -15,6 +15,8 @@ pub enum KafkaClientError {
     Timeout,
     /// No message available
     NoMessage,
+    /// Configuration error with helpful message
+    ConfigurationError(String),
 }
 
 impl std::fmt::Display for KafkaClientError {
@@ -24,6 +26,7 @@ impl std::fmt::Display for KafkaClientError {
             KafkaClientError::SerializationError(e) => write!(f, "Serialization error: {}", e),
             KafkaClientError::Timeout => write!(f, "Timeout waiting for operation"),
             KafkaClientError::NoMessage => write!(f, "No message available"),
+            KafkaClientError::ConfigurationError(msg) => write!(f, "{}", msg),
         }
     }
 }
@@ -33,7 +36,9 @@ impl std::error::Error for KafkaClientError {
         match self {
             KafkaClientError::KafkaError(e) => Some(e),
             KafkaClientError::SerializationError(e) => Some(e),
-            KafkaClientError::Timeout | KafkaClientError::NoMessage => None,
+            KafkaClientError::Timeout
+            | KafkaClientError::NoMessage
+            | KafkaClientError::ConfigurationError(_) => None,
         }
     }
 }

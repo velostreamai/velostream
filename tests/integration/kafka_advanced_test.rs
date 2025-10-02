@@ -294,15 +294,22 @@ async fn test_cross_topic_messaging() {
         }
     }
 
-    user_consumer
-        .commit()
-        .expect("Failed to commit user consumer");
-    product_consumer
-        .commit()
-        .expect("Failed to commit product consumer");
-    order_consumer
-        .commit()
-        .expect("Failed to commit order consumer");
+    // Only commit if messages were received (otherwise we get NoOffset error)
+    if user_received {
+        user_consumer
+            .commit()
+            .expect("Failed to commit user consumer");
+    }
+    if product_received {
+        product_consumer
+            .commit()
+            .expect("Failed to commit product consumer");
+    }
+    if order_received {
+        order_consumer
+            .commit()
+            .expect("Failed to commit order consumer");
+    }
 
     assert!(user_received, "Should receive user message");
     assert!(product_received, "Should receive product message");

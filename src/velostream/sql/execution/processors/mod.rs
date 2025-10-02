@@ -3,7 +3,7 @@
 //! This module contains specialized processors for different types of SQL operations:
 //! - SELECT processing
 //! - Window processing
-//! - JOIN processing
+//! - JOIN processing (including optimized Stream-Table joins)
 //! - LIMIT processing
 //! - SHOW/DESCRIBE processing
 
@@ -12,6 +12,7 @@ use crate::velostream::sql::{SqlError, StreamingQuery};
 
 pub mod context;
 pub mod processor_types;
+pub mod stream_table_join;
 
 pub use context::{ProcessorContext, TableReference, WindowContext};
 pub use processor_types::{HeaderMutation, HeaderOperation, ProcessorResult};

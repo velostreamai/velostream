@@ -769,7 +769,6 @@ impl StreamExecutionEngine {
         self.message_sender.clone()
     }
 
-    #[doc(hidden)]
     pub async fn start_query_execution(
         &mut self,
         query_id: String,
@@ -803,7 +802,6 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
-    #[doc(hidden)]
     pub async fn process_stream_record(
         &mut self,
         stream_name: &str,

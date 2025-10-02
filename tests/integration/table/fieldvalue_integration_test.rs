@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
@@ -288,6 +288,9 @@ impl FinancialDataSource {
 
 #[async_trait]
 impl UnifiedTable for FinancialDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     // =========================================================================
     // CORE DATA ACCESS - Required methods
     // =========================================================================

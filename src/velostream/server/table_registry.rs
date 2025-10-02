@@ -2,14 +2,18 @@
 //!
 //! This module provides a centralized registry for managing tables created via CTAS
 //! that can be referenced by multiple streaming SQL jobs. It handles table lifecycle,
-//! background population jobs, and health monitoring.
+//! background population jobs, health monitoring, and real-time progress tracking.
 
+use crate::velostream::server::progress_monitoring::{
+    LoadingSummary, ProgressMonitor, TableLoadProgress, TableProgressTracker,
+};
 use crate::velostream::sql::{ast::StreamingQuery, SqlError};
 use crate::velostream::table::{CtasExecutor, UnifiedTable};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 
 /// Statistics and metadata for registered tables
@@ -25,7 +29,7 @@ pub struct TableMetadata {
 }
 
 /// Status of a table in the registry
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub enum TableStatus {
     Active,
     Populating,
@@ -93,6 +97,9 @@ pub struct TableRegistry {
 
     /// Registry configuration
     config: TableRegistryConfig,
+
+    /// Progress monitoring for table loading operations
+    progress_monitor: Arc<ProgressMonitor>,
 }
 
 impl TableRegistry {
@@ -112,6 +119,7 @@ impl TableRegistry {
             metadata: Arc::new(RwLock::new(HashMap::new())),
             ctas_executor,
             config,
+            progress_monitor: Arc::new(ProgressMonitor::new()),
         }
     }
 
@@ -485,6 +493,134 @@ impl TableRegistry {
         context_customizer(&available_tables);
     }
 
+    /// Wait for a table to be ready for use (fully loaded)
+    ///
+    /// This is CRITICAL for stream-table joins to ensure data consistency.
+    /// Streams MUST wait for tables to be ready before starting processing.
+    pub async fn wait_for_table_ready(
+        &self,
+        table_name: &str,
+        timeout: std::time::Duration,
+    ) -> Result<TableStatus, SqlError> {
+        let start_time = std::time::Instant::now();
+        let mut check_interval = std::time::Duration::from_millis(100); // Start with 100ms
+        let max_interval = std::time::Duration::from_secs(2); // Cap at 2 seconds
+
+        info!(
+            "Waiting for table '{}' to be ready (timeout: {:?})",
+            table_name, timeout
+        );
+
+        loop {
+            // Check if timeout exceeded
+            if start_time.elapsed() > timeout {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Timeout waiting for table '{}' to be ready after {:?}",
+                        table_name, timeout
+                    ),
+                    query: None,
+                });
+            }
+
+            // Check table existence
+            let tables = self.tables.read().await;
+            if !tables.contains_key(table_name) {
+                drop(tables);
+                return Err(SqlError::ExecutionError {
+                    message: format!("Table '{}' does not exist in registry", table_name),
+                    query: None,
+                });
+            }
+            drop(tables);
+
+            // Check table status
+            let jobs = self.background_jobs.read().await;
+            let metadata = self.metadata.read().await;
+
+            let status = if let Some(job) = jobs.get(table_name) {
+                if job.is_finished() {
+                    // Job completed - table is ready
+                    info!(
+                        "Table '{}' background job completed, table is ready",
+                        table_name
+                    );
+                    drop(jobs);
+                    drop(metadata);
+
+                    // Update metadata status
+                    self.update_table_metadata(table_name, |meta| {
+                        meta.status = TableStatus::BackgroundJobFinished;
+                    })
+                    .await?;
+
+                    return Ok(TableStatus::BackgroundJobFinished);
+                } else {
+                    // Still loading
+                    let meta = metadata.get(table_name);
+                    let record_count = meta.map_or(0, |m| m.record_count);
+                    debug!(
+                        "Table '{}' still loading... ({} records loaded)",
+                        table_name, record_count
+                    );
+                    TableStatus::Populating
+                }
+            } else {
+                // No background job - table is immediately ready
+                info!(
+                    "Table '{}' has no background job, immediately ready",
+                    table_name
+                );
+                drop(jobs);
+                drop(metadata);
+                return Ok(TableStatus::Active);
+            };
+
+            drop(jobs);
+            drop(metadata);
+
+            // Wait with exponential backoff
+            tokio::time::sleep(check_interval).await;
+
+            // Increase interval with exponential backoff (capped)
+            check_interval = std::cmp::min(check_interval * 2, max_interval);
+        }
+    }
+
+    /// Wait for multiple tables to be ready
+    pub async fn wait_for_tables_ready(
+        &self,
+        table_names: &[String],
+        timeout: std::time::Duration,
+    ) -> Result<Vec<(String, TableStatus)>, SqlError> {
+        let start_time = std::time::Instant::now();
+        let mut results = Vec::new();
+
+        for table_name in table_names {
+            // Calculate remaining timeout for each table
+            let elapsed = start_time.elapsed();
+            if elapsed >= timeout {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Timeout waiting for tables - failed at table '{}'",
+                        table_name
+                    ),
+                    query: None,
+                });
+            }
+            let remaining_timeout = timeout - elapsed;
+
+            // Wait for this table
+            let status = self
+                .wait_for_table_ready(table_name, remaining_timeout)
+                .await?;
+            results.push((table_name.clone(), status));
+        }
+
+        info!("All {} tables are ready for use", table_names.len());
+        Ok(results)
+    }
+
     /// Extract table references from a SQL query
     pub fn extract_table_dependencies(query: &StreamingQuery) -> Vec<String> {
         let mut tables = Vec::new();
@@ -540,8 +676,13 @@ impl TableRegistry {
         use crate::velostream::sql::ast::StreamSource;
 
         match source {
-            StreamSource::Table(name) | StreamSource::Stream(name) => {
+            StreamSource::Table(name) => {
+                // Only add actual tables to dependencies, not streams
                 tables.push(name.clone());
+            }
+            StreamSource::Stream(_name) => {
+                // Streams are not table dependencies - they are data sources
+                // Do not add to tables list
             }
             StreamSource::Subquery(subquery) => {
                 Self::extract_tables_recursive(subquery, tables);
@@ -587,6 +728,190 @@ impl TableRegistry {
             _ => {}
         }
     }
+
+    // ========== PROGRESS MONITORING METHODS ==========
+
+    /// Start tracking progress for a table loading operation
+    pub async fn start_progress_tracking(
+        &self,
+        table_name: String,
+        total_records_expected: Option<usize>,
+    ) -> Arc<TableProgressTracker> {
+        info!(
+            "Starting progress tracking for table '{}' with expected {} records",
+            table_name,
+            total_records_expected.map_or("unknown".to_string(), |n| n.to_string())
+        );
+
+        self.progress_monitor
+            .start_tracking(table_name, total_records_expected)
+            .await
+    }
+
+    /// Stop tracking progress for a table (when loading completes or fails)
+    pub async fn stop_progress_tracking(&self, table_name: &str) {
+        info!("Stopping progress tracking for table '{}'", table_name);
+        self.progress_monitor.stop_tracking(table_name).await
+    }
+
+    /// Get loading progress for all actively loading tables
+    pub async fn get_loading_progress(&self) -> HashMap<String, TableLoadProgress> {
+        self.progress_monitor.get_all_progress().await
+    }
+
+    /// Get loading progress for a specific table
+    pub async fn get_table_loading_progress(&self, table_name: &str) -> Option<TableLoadProgress> {
+        self.progress_monitor.get_table_progress(table_name).await
+    }
+
+    /// Subscribe to real-time progress updates for all tables
+    pub fn subscribe_to_progress(&self) -> broadcast::Receiver<HashMap<String, TableLoadProgress>> {
+        self.progress_monitor.subscribe_to_global_progress()
+    }
+
+    /// Subscribe to progress updates for a specific table
+    pub async fn subscribe_to_table_progress(
+        &self,
+        table_name: &str,
+    ) -> Option<broadcast::Receiver<TableLoadProgress>> {
+        self.progress_monitor
+            .subscribe_to_table_progress(table_name)
+            .await
+    }
+
+    /// Get summary statistics for all loading operations
+    pub async fn get_loading_summary(&self) -> LoadingSummary {
+        self.progress_monitor.get_loading_summary().await
+    }
+
+    /// Wait for a table to be ready with real-time progress monitoring
+    pub async fn wait_for_table_ready_with_progress(
+        &self,
+        table_name: &str,
+        timeout: Duration,
+    ) -> Result<TableStatus, SqlError> {
+        let start_time = std::time::Instant::now();
+        let progress_interval = Duration::from_millis(500); // Check progress every 500ms
+
+        info!(
+            "Waiting for table '{}' to be ready (timeout: {:?})",
+            table_name, timeout
+        );
+
+        // Subscribe to progress updates for real-time monitoring
+        if let Some(mut progress_receiver) = self.subscribe_to_table_progress(table_name).await {
+            // Monitor progress while waiting
+            let mut last_log = std::time::Instant::now();
+
+            loop {
+                // Check if table is ready
+                if let Some(metadata) = self.get_table_stats(table_name).await {
+                    match metadata.status {
+                        TableStatus::Active
+                        | TableStatus::BackgroundJobFinished
+                        | TableStatus::NoBackgroundJob => {
+                            info!("Table '{}' is ready for use", table_name);
+                            return Ok(metadata.status);
+                        }
+                        TableStatus::Error(msg) => {
+                            warn!("Table '{}' failed to load: {}", table_name, msg);
+                            return Err(SqlError::ExecutionError {
+                                message: format!("Table '{}' failed to load: {}", table_name, msg),
+                                query: None,
+                            });
+                        }
+                        TableStatus::Populating => {
+                            // Log progress periodically
+                            if last_log.elapsed() >= Duration::from_secs(5) {
+                                if let Some(progress) =
+                                    self.get_table_loading_progress(table_name).await
+                                {
+                                    info!("Table '{}' loading progress: {} records loaded at {:.1} records/sec",
+                                          table_name,
+                                          progress.records_loaded,
+                                          progress.loading_rate);
+                                    if let Some(eta) = progress.estimated_completion {
+                                        info!(
+                                            "Table '{}' ETA: {}",
+                                            table_name,
+                                            eta.format("%Y-%m-%d %H:%M:%S UTC")
+                                        );
+                                    }
+                                }
+                                last_log = std::time::Instant::now();
+                            }
+                        }
+                    }
+                }
+
+                // Check for timeout
+                if start_time.elapsed() >= timeout {
+                    warn!(
+                        "Timeout waiting for table '{}' after {:?}",
+                        table_name, timeout
+                    );
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Timeout waiting for table '{}' after {:?}",
+                            table_name, timeout
+                        ),
+                        query: None,
+                    });
+                }
+
+                // Wait for progress update or timeout
+                tokio::select! {
+                    progress_result = progress_receiver.recv() => {
+                        if let Ok(progress) = progress_result {
+                            debug!("Progress update for table '{}': {} records loaded",
+                                   table_name, progress.records_loaded);
+                        }
+                    }
+                    _ = tokio::time::sleep(progress_interval) => {
+                        // Continue to next iteration
+                    }
+                }
+            }
+        } else {
+            // Fall back to original wait_for_table_ready if no progress tracking
+            warn!(
+                "No progress tracking available for table '{}', falling back to basic wait",
+                table_name
+            );
+            self.wait_for_table_ready(table_name, timeout).await
+        }
+    }
+
+    /// Enhanced health status that includes loading progress
+    pub async fn get_enhanced_health_status(&self) -> Vec<EnhancedTableHealth> {
+        let basic_health = self.get_health_status().await;
+        let loading_progress = self.get_loading_progress().await;
+
+        let mut enhanced_health = Vec::new();
+
+        for health in basic_health {
+            let progress = loading_progress.get(&health.table_name).cloned();
+            enhanced_health.push(EnhancedTableHealth {
+                table_name: health.table_name,
+                status: health.status,
+                is_healthy: health.is_healthy,
+                issues: health.issues,
+                loading_progress: progress,
+            });
+        }
+
+        enhanced_health
+    }
+}
+
+/// Enhanced health information that includes loading progress
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnhancedTableHealth {
+    pub table_name: String,
+    pub status: TableStatus,
+    pub is_healthy: bool,
+    pub issues: Vec<String>,
+    pub loading_progress: Option<TableLoadProgress>,
 }
 
 /// Clone implementation for TableRegistry
@@ -598,6 +923,7 @@ impl Clone for TableRegistry {
             metadata: Arc::clone(&self.metadata),
             ctas_executor: self.ctas_executor.clone(),
             config: self.config.clone(),
+            progress_monitor: Arc::clone(&self.progress_monitor),
         }
     }
 }

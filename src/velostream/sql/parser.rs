@@ -2399,13 +2399,17 @@ impl<'a> TokenParser<'a> {
             TokenType::Number => {
                 self.advance();
                 // Check for decimal literal (contains decimal point)
-                if token.value.contains('.') || token.value.to_uppercase().contains('E') {
-                    // Parse as Float for backward compatibility - users can cast to DECIMAL if needed
+                if token.value.contains('.') && !token.value.to_uppercase().contains('E') {
+                    // Parse as Decimal for exact precision (financial-first approach)
+                    // Store as string to preserve exact representation
+                    Ok(Expr::Literal(LiteralValue::Decimal(token.value)))
+                } else if token.value.to_uppercase().contains('E') {
+                    // Scientific notation - parse as Float
                     if let Ok(f) = token.value.parse::<f64>() {
                         Ok(Expr::Literal(LiteralValue::Float(f)))
                     } else {
                         Err(SqlError::ParseError {
-                            message: format!("Invalid float literal: {}", token.value),
+                            message: format!("Invalid scientific notation: {}", token.value),
                             position: Some(self.current),
                         })
                     }
@@ -3072,11 +3076,25 @@ impl<'a> TokenParser<'a> {
         }
 
         // Fallback to existing CREATE TABLE syntax (backward compatibility)
-        let properties = if self.current_token().token_type == TokenType::With {
+        let mut properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
             HashMap::new()
         };
+
+        // Extract properties from the SELECT statement (FROM clause WITH properties)
+        if let StreamingQuery::Select {
+            properties: select_props,
+            ..
+        } = as_select.as_ref()
+        {
+            if let Some(select_properties) = select_props {
+                // Merge SELECT properties into table properties
+                for (key, value) in select_properties {
+                    properties.insert(key.clone(), value.clone());
+                }
+            }
+        }
 
         // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
         // Only parse EMIT at this level if it exists (which would be unusual)

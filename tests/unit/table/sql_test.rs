@@ -19,7 +19,7 @@ use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::sql::{ExpressionEvaluator, TableDataSource};
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
@@ -70,6 +70,9 @@ impl MockWildcardDataSource {
 
 #[async_trait]
 impl UnifiedTable for MockWildcardDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         if let Some(value) = self.records.get(key) {
             let mut record = HashMap::new();
@@ -791,6 +794,9 @@ impl MockDataSource {
 
 #[async_trait]
 impl UnifiedTable for MockDataSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         if let Some(value) = self.records.get(key) {
             let record = match value {

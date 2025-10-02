@@ -121,21 +121,31 @@ impl SqlExecutor {
             }
         }
 
-        // // need to flush any remaining results for windowed queries with group by
-        // // First flush windows, then flush group by results
-        // if let Err(e) = engine.flush_windows().await {
-        //     eprintln!("❌ Error flushing windows: {:?}", e);
-        // } else {
-        //     println!("✅ Windows flushed successfully");
-        // }
+        // Need to flush any remaining results for windowed queries with group by
+        // First flush windows, then flush group by results
+        if let Err(e) = engine.flush_windows().await {
+            eprintln!("❌ Error flushing windows: {:?}", e);
+        } else {
+            println!("✅ Windows flushed successfully");
+        }
 
-        // let flushed_results = engine.flush_group_by_results(&query);
-        // println!("Group by flush results: {:?}", flushed_results);
-        // Collect results
+        if let Err(e) = engine.flush_group_by_results(&query) {
+            eprintln!("❌ Error flushing group by results: {:?}", e);
+        } else {
+            println!("✅ Group by results flushed successfully");
+        }
+        // Collect results with timeout to allow async processing
         let mut results = Vec::new();
+
+        // Give the engine a moment to process any final emissions
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Collect all available results
         while let Ok(output) = rx.try_recv() {
             results.push(format!("{:?}", output));
         }
+
+        println!("Collected {} results after flushing", results.len());
         results
     }
 }

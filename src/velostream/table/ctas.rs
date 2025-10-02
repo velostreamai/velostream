@@ -41,6 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 */
 
+use crate::velostream::datasource::config::SourceConfig;
+use crate::velostream::datasource::file::FileDataSource;
+use crate::velostream::datasource::kafka::KafkaDataSource;
+use crate::velostream::datasource::traits::DataSource;
+use crate::velostream::datasource::BatchConfig;
 use crate::velostream::kafka::consumer_config::ConsumerConfig;
 use crate::velostream::kafka::serialization::StringSerializer;
 use crate::velostream::serialization::JsonFormat;
@@ -48,6 +53,7 @@ use crate::velostream::sql::ast::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::table::error::{CtasError, CtasResult as CtasErrorResult};
+use crate::velostream::table::loading_helpers::{unified_load_table, LoadingConfig, LoadingStats};
 use crate::velostream::table::{
     CompactTable, OptimizedTableImpl, Table, TableDataSource, UnifiedTable,
 };
@@ -90,8 +96,6 @@ pub enum DataSourceType {
     Kafka { brokers: String, topic: String },
     /// File-based source (CSV, JSON, etc.)
     File { path: String, format: FileFormat },
-    /// Mock source for testing
-    Mock { records_count: u32, schema: String },
     /// HTTP/REST API source
     Http {
         endpoint: String,
@@ -202,8 +206,24 @@ impl CtasExecutor {
     ) -> Result<CtasResult, SqlError> {
         match source_info {
             SourceInfo::Kafka(topic) => {
-                self.create_kafka_table(table_name, &topic, properties)
-                    .await
+                // Check if Phase 7 unified loading is enabled
+                if self.should_use_unified_loading(properties) {
+                    log::info!(
+                        "Using Phase 7 unified loading for Kafka table '{}' from topic '{}'",
+                        table_name,
+                        topic
+                    );
+                    self.create_kafka_table_unified(table_name, &topic, properties)
+                        .await
+                } else {
+                    log::info!(
+                        "Using legacy table creation for Kafka table '{}' from topic '{}'",
+                        table_name,
+                        topic
+                    );
+                    self.create_kafka_table(table_name, &topic, properties)
+                        .await
+                }
             }
             SourceInfo::Uri(uri) => Err(CtasError::not_implemented_with_workaround(
                 format!("URI-based table creation: {}", uri),
@@ -350,24 +370,36 @@ impl CtasExecutor {
             // CompactTable integration now complete!
             log::info!("CompactTable optimization enabled for memory efficiency");
 
-            Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-                .await
-                .map_err(|e| SqlError::ExecutionError {
-                    message: format!(
-                        "Failed to create high-performance table '{}': {}",
-                        table_name, e
-                    ),
-                    query: None,
-                })?
+            Table::new_with_properties(
+                config,
+                topic.to_string(),
+                StringSerializer,
+                JsonFormat,
+                properties.clone(),
+            )
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to create high-performance table '{}': {}",
+                    table_name, e
+                ),
+                query: None,
+            })?
         } else {
             // Use regular Table for small datasets or simple queries
             log::info!("Creating standard Table for '{}'", table_name);
-            Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-                .await
-                .map_err(|e| SqlError::ExecutionError {
-                    message: format!("Failed to create Kafka table '{}': {}", table_name, e),
-                    query: None,
-                })?
+            Table::new_with_properties(
+                config,
+                topic.to_string(),
+                StringSerializer,
+                JsonFormat,
+                properties.clone(),
+            )
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to create Kafka table '{}': {}", table_name, e),
+                query: None,
+            })?
         };
 
         // Create OptimizedTableImpl for high-performance SQL queries
@@ -627,71 +659,134 @@ impl CtasExecutor {
 
     /// Load data source configuration from a config file
     fn load_data_source_config(&self, config_file: &str) -> Result<ConfigBasedSource, SqlError> {
-        // For testing purposes, we'll create mock configurations based on file name patterns
-        // In production, this would parse actual YAML/JSON config files
+        use serde_yaml::Value;
+        use std::fs;
 
-        if config_file.ends_with("_test.yaml") || config_file.contains("mock") {
-            // Mock configuration for testing
-            let mut properties = HashMap::new();
-            properties.insert("records_count".to_string(), "1000".to_string());
-            properties.insert("schema".to_string(), "test_schema".to_string());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::Mock {
-                    records_count: 1000,
-                    schema: "test_schema".to_string(),
-                },
-                properties,
-            })
-        } else if config_file.contains("kafka") || config_file.contains("stream") {
-            // Kafka configuration
-            let mut properties = HashMap::new();
-            properties.insert("brokers".to_string(), self.kafka_brokers.clone());
-            properties.insert("topic".to_string(), "configured_topic".to_string());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::Kafka {
-                    brokers: self.kafka_brokers.clone(),
-                    topic: "configured_topic".to_string(),
-                },
-                properties,
-            })
-        } else if config_file.contains("file")
-            || config_file.ends_with(".csv")
-            || config_file.ends_with(".json")
-        {
-            // File configuration
-            let format = if config_file.contains("csv") {
-                FileFormat::Csv
-            } else if config_file.contains("json") {
-                FileFormat::Json
-            } else {
-                FileFormat::Json // default
-            };
-
-            let mut properties = HashMap::new();
-            properties.insert("path".to_string(), "/mock/data/file.json".to_string());
-            properties.insert("format".to_string(), format!("{:?}", format).to_lowercase());
-
-            Ok(ConfigBasedSource {
-                config_file: config_file.to_string(),
-                source_type: DataSourceType::File {
-                    path: "/mock/data/file.json".to_string(),
-                    format,
-                },
-                properties,
-            })
-        } else {
-            Err(SqlError::ExecutionError {
-                message: format!(
-                    "Unable to determine data source type from config file: {}",
-                    config_file
-                ),
+        // Read and parse the configuration file
+        let config_content =
+            fs::read_to_string(config_file).map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to read config file '{}': {}", config_file, e),
                 query: None,
-            })
+            })?;
+
+        let config: Value =
+            serde_yaml::from_str(&config_content).map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to parse config file '{}': {}", config_file, e),
+                query: None,
+            })?;
+
+        // Extract source type and properties
+        let source_type_str = config
+            .get("source_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: format!("Config file '{}' missing 'source_type' field", config_file),
+                query: None,
+            })?;
+
+        // Extract properties as HashMap
+        let mut properties = HashMap::new();
+        if let Some(props) = config.get("properties") {
+            if let Some(props_map) = props.as_mapping() {
+                for (key, value) in props_map {
+                    if let (Some(k), Some(v)) = (key.as_str(), value.as_str()) {
+                        properties.insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
         }
+
+        // Create appropriate DataSourceType based on configuration
+        let source_type = match source_type_str {
+            "kafka" => {
+                let brokers = config
+                    .get("brokers")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&self.kafka_brokers)
+                    .to_string();
+                let topic = config
+                    .get("topic")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!(
+                            "Kafka config file '{}' missing 'topic' field",
+                            config_file
+                        ),
+                        query: None,
+                    })?
+                    .to_string();
+
+                DataSourceType::Kafka { brokers, topic }
+            }
+            "file" => {
+                let path = config
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("File config '{}' missing 'path' field", config_file),
+                        query: None,
+                    })?
+                    .to_string();
+
+                let format_str = config
+                    .get("format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("json");
+
+                let format = match format_str.to_lowercase().as_str() {
+                    "json" => FileFormat::Json,
+                    "csv" => FileFormat::Csv,
+                    "parquet" => FileFormat::Parquet,
+                    "avro" => FileFormat::Avro,
+                    _ => {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Unsupported file format '{}' in config '{}'",
+                                format_str, config_file
+                            ),
+                            query: None,
+                        })
+                    }
+                };
+
+                DataSourceType::File { path, format }
+            }
+            "http" => {
+                let endpoint = config
+                    .get("endpoint")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("HTTP config '{}' missing 'endpoint' field", config_file),
+                        query: None,
+                    })?
+                    .to_string();
+
+                let poll_interval = config
+                    .get("poll_interval")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(60000); // Default 60 seconds
+
+                DataSourceType::Http {
+                    endpoint,
+                    poll_interval,
+                }
+            }
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Unsupported source type '{}' in config '{}'",
+                        source_type_str, config_file
+                    ),
+                    query: None,
+                })
+            }
+        };
+
+        Ok(ConfigBasedSource {
+            config_file: config_file.to_string(),
+            source_type,
+            properties,
+        })
     }
 
     /// Create a table based on configuration file specification
@@ -720,19 +815,6 @@ impl CtasExecutor {
                     format
                 );
                 self.create_file_table(table_name, path, format, properties)
-                    .await
-            }
-            DataSourceType::Mock {
-                records_count,
-                schema,
-            } => {
-                log::info!(
-                    "Creating mock table '{}' from config: records={}, schema={}",
-                    table_name,
-                    records_count,
-                    schema
-                );
-                self.create_mock_table(table_name, *records_count, schema, properties)
                     .await
             }
             DataSourceType::Http {
@@ -768,82 +850,481 @@ impl CtasExecutor {
         let mut config = ConsumerConfig::new(brokers, &consumer_group);
         self.apply_properties_to_config(&mut config, properties);
 
-        // Create the Table instance
-        let table = Table::new(config, topic.to_string(), StringSerializer, JsonFormat)
-            .await
-            .map_err(|e| SqlError::ExecutionError {
-                message: format!("Failed to create Kafka table '{}': {}", table_name, e),
-                query: None,
-            })?;
-
-        self.finalize_table_creation(table_name, table).await
-    }
-
-    /// Create a file-based table
-    async fn create_file_table(
-        &self,
-        table_name: &str,
-        _path: &str,
-        _format: &FileFormat,
-        _properties: &HashMap<String, String>,
-    ) -> Result<CtasResult, SqlError> {
-        // For now, create a mock table since file table implementation would require more infrastructure
-        log::info!("File table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 500, "file_schema", _properties)
-            .await
-    }
-
-    /// Create a mock table for testing
-    async fn create_mock_table(
-        &self,
-        table_name: &str,
-        _records_count: u32,
-        _schema: &str,
-        _properties: &HashMap<String, String>,
-    ) -> Result<CtasResult, SqlError> {
-        // Create a mock table using the existing Kafka infrastructure but with mock data
-        let counter = self
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let consumer_group = format!(
-            "{}-mock-table-{}-{}",
-            self.base_group_id, table_name, counter
-        );
-
-        let config = ConsumerConfig::new(&self.kafka_brokers, &consumer_group);
-
-        // Create a mock Table instance - in real implementation this would use a MockDataSource
-        // For now, we'll use the existing Table but it would fail to connect (which is expected in tests)
-        let table = Table::new(
+        // Create the Table instance with properties
+        let table = Table::new_with_properties(
             config,
-            format!("mock-topic-{}", table_name),
+            topic.to_string(),
             StringSerializer,
             JsonFormat,
+            properties.clone(),
         )
         .await
         .map_err(|e| SqlError::ExecutionError {
-            message: format!(
-                "Mock table creation completed for '{}' (connection error expected: {})",
-                table_name, e
-            ),
+            message: format!("Failed to create Kafka table '{}': {}", table_name, e),
             query: None,
         })?;
 
         self.finalize_table_creation(table_name, table).await
     }
 
+    /// Create a Kafka-based table using Phase 7 unified loading architecture
+    /// This method leverages DataSource instances and unified loading helpers
+    async fn create_kafka_table_unified(
+        &self,
+        table_name: &str,
+        topic: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<CtasResult, SqlError> {
+        log::info!(
+            "Creating Kafka table '{}' from topic '{}' using Phase 7 unified loading",
+            table_name,
+            topic
+        );
+
+        // Generate unique consumer group for this table
+        let counter = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let consumer_group = format!("{}-table-{}-{}", self.base_group_id, table_name, counter);
+
+        // Create KafkaDataSource instance
+        let mut kafka_source = KafkaDataSource::new(self.kafka_brokers.clone(), topic.to_string());
+
+        // Convert CTAS properties to SourceConfig
+        let mut kafka_properties = properties.clone();
+        kafka_properties.insert("group.id".to_string(), consumer_group.clone());
+
+        // Apply any Kafka-specific properties from CTAS WITH clause
+        self.apply_kafka_properties_to_source_config(&mut kafka_properties, properties);
+
+        let source_config = SourceConfig::Kafka {
+            brokers: self.kafka_brokers.clone(),
+            topic: topic.to_string(),
+            group_id: Some(consumer_group),
+            properties: kafka_properties,
+            batch_config: self.create_batch_config_from_properties(properties),
+        };
+
+        // Initialize the DataSource
+        kafka_source
+            .initialize(source_config)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to initialize Kafka DataSource for table '{}': {}",
+                    table_name, e
+                ),
+                query: None,
+            })?;
+
+        // Create OptimizedTableImpl for the target table
+        let optimized_table = OptimizedTableImpl::new();
+        log::info!(
+            "Created OptimizedTableImpl for unified loading into table '{}'",
+            table_name
+        );
+
+        // Create loading configuration from CTAS properties
+        let loading_config = self.create_loading_config_from_properties(properties);
+
+        // Use Phase 7 unified loading to populate the table
+        let mut table_clone = optimized_table.clone();
+        let table_name_clone = table_name.to_string();
+        let topic_clone = topic.to_string();
+        let brokers_clone = self.kafka_brokers.clone();
+        let config_clone = loading_config.clone();
+
+        let background_job = tokio::spawn(async move {
+            log::info!(
+                "Starting Phase 7 unified loading for table '{}' from Kafka topic '{}'",
+                table_name_clone,
+                topic_clone
+            );
+
+            // Create a new KafkaDataSource instance for the background task
+            let mut bg_kafka_source =
+                KafkaDataSource::new(brokers_clone.clone(), topic_clone.clone());
+            let consumer_group = format!("bg-{}-table", table_name_clone);
+
+            let bg_source_config = SourceConfig::Kafka {
+                brokers: brokers_clone,
+                topic: topic_clone,
+                group_id: Some(consumer_group),
+                properties: HashMap::new(),
+                batch_config: BatchConfig::default(),
+            };
+
+            if let Err(e) = bg_kafka_source.initialize(bg_source_config).await {
+                log::error!(
+                    "Failed to initialize background KafkaDataSource for table '{}': {}",
+                    table_name_clone,
+                    e
+                );
+                return;
+            }
+
+            match unified_load_table(&bg_kafka_source, None, Some(config_clone.clone())).await {
+                Ok((records, stats)) => {
+                    log::info!(
+                        "Phase 7 unified loading completed for table '{}': {} records loaded in {}ms",
+                        table_name_clone,
+                        records.len(),
+                        stats.bulk_load_duration_ms + stats.incremental_load_duration_ms
+                    );
+
+                    // Use OptimizedTableImpl's bulk loading method
+                    match table_clone
+                        .bulk_load_from_source(&bg_kafka_source, Some(config_clone))
+                        .await
+                    {
+                        Ok(loading_stats) => {
+                            log::info!(
+                                "Successfully loaded records into OptimizedTableImpl for table '{}': {:?}",
+                                table_name_clone,
+                                loading_stats
+                            );
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to load records into OptimizedTableImpl for table '{}': {}",
+                                table_name_clone,
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Phase 7 unified loading failed for table '{}': {}",
+                        table_name_clone,
+                        e
+                    );
+                }
+            }
+        });
+
+        // Create the queryable table wrapper
+        let queryable_table: Arc<dyn UnifiedTable> = Arc::new(optimized_table);
+
+        // Return CTAS result with unified loading job
+        Ok(CtasResult {
+            table_name: table_name.to_string(),
+            table: queryable_table,
+            background_job,
+        })
+    }
+
+    /// Helper method to apply Kafka-specific properties to source configuration
+    pub fn apply_kafka_properties_to_source_config(
+        &self,
+        kafka_properties: &mut HashMap<String, String>,
+        ctas_properties: &HashMap<String, String>,
+    ) {
+        // Map CTAS properties to Kafka consumer properties
+        if let Some(batch_size) = ctas_properties.get("kafka.batch.size") {
+            kafka_properties.insert("max.poll.records".to_string(), batch_size.clone());
+        }
+        if let Some(timeout) = ctas_properties.get("kafka.timeout") {
+            kafka_properties.insert("session.timeout.ms".to_string(), timeout.clone());
+        }
+        if let Some(offset) = ctas_properties.get("kafka.auto.offset.reset") {
+            kafka_properties.insert("auto.offset.reset".to_string(), offset.clone());
+        }
+
+        log::debug!(
+            "Applied {} Kafka-specific properties from CTAS configuration",
+            kafka_properties.len()
+        );
+    }
+
+    /// Helper method to create BatchConfig from CTAS properties
+    pub fn create_batch_config_from_properties(
+        &self,
+        properties: &HashMap<String, String>,
+    ) -> BatchConfig {
+        use crate::velostream::datasource::config::BatchStrategy;
+
+        let mut config = BatchConfig::default();
+
+        // Configure batch strategy based on CTAS properties
+        if let Some(strategy) = properties.get("batch.strategy") {
+            match strategy.as_str() {
+                "memory" => {
+                    let memory_limit = properties
+                        .get("batch.memory.limit")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(1024 * 1024); // 1MB default
+                    config.strategy = BatchStrategy::MemoryBased(memory_limit);
+                }
+                "time" => {
+                    let time_limit = properties
+                        .get("batch.time.limit")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(5000); // 5 seconds default
+                    config.strategy =
+                        BatchStrategy::TimeWindow(std::time::Duration::from_millis(time_limit));
+                }
+                _ => {
+                    log::warn!("Unknown batch strategy '{}', using default", strategy);
+                }
+            }
+        }
+
+        log::debug!("Created BatchConfig: {:?}", config);
+        config
+    }
+
+    /// Helper method to create LoadingConfig from CTAS properties
+    pub fn create_loading_config_from_properties(
+        &self,
+        properties: &HashMap<String, String>,
+    ) -> LoadingConfig {
+        let mut config = LoadingConfig::default();
+
+        // Configure bulk loading limits
+        if let Some(max_records) = properties.get("loading.bulk.max_records") {
+            if let Ok(limit) = max_records.parse() {
+                config.max_bulk_records = Some(limit);
+            }
+        }
+
+        if let Some(max_duration) = properties.get("loading.bulk.max_duration") {
+            if let Ok(duration_secs) = max_duration.parse::<u64>() {
+                config.max_bulk_duration = Some(std::time::Duration::from_secs(duration_secs));
+            }
+        }
+
+        // Configure incremental loading limits
+        if let Some(max_records) = properties.get("loading.incremental.max_records") {
+            if let Ok(limit) = max_records.parse() {
+                config.max_incremental_records = Some(limit);
+            }
+        }
+
+        // Configure error handling
+        if let Some(continue_on_errors) = properties.get("loading.continue_on_errors") {
+            config.continue_on_errors = continue_on_errors.parse().unwrap_or(true);
+        }
+
+        log::debug!("Created LoadingConfig: {:?}", config);
+        config
+    }
+
+    /// Determine if Phase 7 unified loading should be used based on CTAS properties
+    pub fn should_use_unified_loading(&self, properties: &HashMap<String, String>) -> bool {
+        // Check for explicit unified loading flag
+        if let Some(unified) = properties.get("loading.unified") {
+            return unified.parse().unwrap_or(false);
+        }
+
+        // Check for Phase 7 specific properties that indicate unified loading preference
+        if properties.contains_key("loading.bulk.max_records")
+            || properties.contains_key("loading.incremental.max_records")
+            || properties.contains_key("loading.continue_on_errors")
+        {
+            log::debug!("Phase 7 loading properties detected, enabling unified loading");
+            return true;
+        }
+
+        // Check for DataSource configuration preferences
+        if properties.contains_key("datasource.type") || properties.contains_key("batch.strategy") {
+            log::debug!("DataSource configuration detected, enabling unified loading");
+            return true;
+        }
+
+        // Default to legacy loading for backward compatibility
+        false
+    }
+
+    /// Create a file-based table
+    async fn create_file_table(
+        &self,
+        table_name: &str,
+        path: &str,
+        format: &FileFormat,
+        properties: &HashMap<String, String>,
+    ) -> Result<CtasResult, SqlError> {
+        log::info!(
+            "Creating file table '{}' from path '{}' with format {:?}",
+            table_name,
+            path,
+            format
+        );
+
+        // Create properties for FileDataSource
+        let mut file_props = properties.clone();
+        file_props.insert("path".to_string(), path.to_string());
+        file_props.insert("format".to_string(), format!("{:?}", format).to_lowercase());
+
+        // Create FileDataSource and initialize
+        let mut file_source = FileDataSource::from_properties(&file_props);
+        use crate::velostream::datasource::BatchConfig;
+        use crate::velostream::datasource::{
+            config::{FileFormat as ConfigFileFormat, SourceConfig},
+            DataSource,
+        };
+
+        // Convert our FileFormat to config FileFormat
+        let config_format = match format {
+            FileFormat::Json => ConfigFileFormat::Json,
+            FileFormat::Csv => ConfigFileFormat::Csv {
+                header: true,
+                delimiter: ',',
+                quote: '"',
+            },
+            FileFormat::Parquet => ConfigFileFormat::Parquet,
+            FileFormat::Avro => ConfigFileFormat::Avro,
+        };
+
+        let source_config = SourceConfig::File {
+            path: path.to_string(),
+            format: config_format,
+            properties: file_props.clone(),
+            batch_config: BatchConfig::default(),
+        };
+
+        file_source
+            .initialize(source_config)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!(
+                    "Failed to initialize file source for table '{}': {}",
+                    table_name, e
+                ),
+                query: None,
+            })?;
+
+        // Create OptimizedTableImpl for SQL operations
+        let optimized_table = OptimizedTableImpl::new();
+        log::info!(
+            "Created OptimizedTableImpl for file-based table '{}'",
+            table_name
+        );
+
+        // Create the queryable table wrapper
+        let queryable_table: Arc<dyn UnifiedTable> = Arc::new(optimized_table.clone());
+
+        // Create background job to populate table from file
+        let table_clone = optimized_table.clone();
+        let table_name_clone = table_name.to_string();
+        let file_props_clone = file_props.clone();
+
+        let background_job = tokio::spawn(async move {
+            log::info!(
+                "Starting background population of file table '{}'",
+                table_name_clone
+            );
+
+            match Self::populate_table_from_file(table_clone, &file_props_clone).await {
+                Ok(record_count) => {
+                    log::info!(
+                        "Successfully populated table '{}' with {} records from file",
+                        table_name_clone,
+                        record_count
+                    );
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to populate table '{}' from file: {}",
+                        table_name_clone,
+                        e
+                    );
+                }
+            }
+        });
+
+        Ok(CtasResult {
+            table_name: table_name.to_string(),
+            table: queryable_table,
+            background_job,
+        })
+    }
+
+    /// Populate table from file data source
+    async fn populate_table_from_file(
+        table: OptimizedTableImpl,
+        file_props: &HashMap<String, String>,
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::velostream::datasource::config::SourceConfig;
+        use crate::velostream::datasource::{DataReader, DataSource};
+
+        // Create FileDataSource
+        let mut file_source = FileDataSource::from_properties(file_props);
+
+        // Create proper SourceConfig from properties
+        let path = file_props.get("path").cloned().unwrap_or_default();
+        let format_str = file_props
+            .get("format")
+            .cloned()
+            .unwrap_or("json".to_string());
+
+        let config_format = match format_str.to_lowercase().as_str() {
+            "csv" => crate::velostream::datasource::config::FileFormat::Csv {
+                header: true,
+                delimiter: ',',
+                quote: '"',
+            },
+            "parquet" => crate::velostream::datasource::config::FileFormat::Parquet,
+            "avro" => crate::velostream::datasource::config::FileFormat::Avro,
+            _ => crate::velostream::datasource::config::FileFormat::Json,
+        };
+
+        let source_config = SourceConfig::File {
+            path,
+            format: config_format,
+            properties: file_props.clone(),
+            batch_config: crate::velostream::datasource::BatchConfig::default(),
+        };
+
+        file_source.initialize(source_config).await?;
+
+        // Create a reader
+        let mut reader = file_source.create_reader().await?;
+
+        let mut record_count = 0;
+
+        // Read all records from file and populate table
+        loop {
+            let records = reader.read().await?;
+
+            if records.is_empty() {
+                break; // End of file
+            }
+
+            for record in records {
+                // Extract key from record (use first field or row number)
+                let key = record
+                    .fields
+                    .get("id")
+                    .or_else(|| record.fields.get("key"))
+                    .map(|v| format!("{:?}", v))
+                    .unwrap_or_else(|| format!("row_{}", record_count));
+
+                // Insert into OptimizedTableImpl
+                table.insert(key, record.fields)?;
+                record_count += 1;
+            }
+        }
+
+        Ok(record_count)
+    }
+
     /// Create an HTTP-based table
     async fn create_http_table(
         &self,
         table_name: &str,
-        _endpoint: &str,
-        _poll_interval: u64,
+        endpoint: &str,
+        poll_interval: u64,
         _properties: &HashMap<String, String>,
     ) -> Result<CtasResult, SqlError> {
-        // For now, create a mock table since HTTP table implementation would require more infrastructure
-        log::info!("HTTP table '{}' created as mock for testing", table_name);
-        self.create_mock_table(table_name, 100, "http_schema", _properties)
-            .await
+        // HTTP table implementation not yet available
+        Err(SqlError::ExecutionError {
+            message: format!(
+                "HTTP table creation not yet implemented. Table '{}' with endpoint '{}' and poll interval {}ms cannot be created. Use Kafka or File sources instead.",
+                table_name, endpoint, poll_interval
+            ),
+            query: None,
+        })
     }
 
     /// Common table finalization logic

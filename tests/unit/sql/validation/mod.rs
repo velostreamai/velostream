@@ -3,6 +3,7 @@
 //! Comprehensive test suite for the object-oriented SQL validation components
 
 pub mod config_validator_test;
+pub mod ctas_validation_test;
 pub mod error_formatter_test;
 pub mod integration_test;
 pub mod query_validator_test;

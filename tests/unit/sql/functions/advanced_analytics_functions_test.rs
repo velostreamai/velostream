@@ -49,12 +49,12 @@ async fn test_percentile_cont_function() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
-        (0.5, 50.0),   // 50th percentile (median)
-        (0.25, 25.0),  // 25th percentile
-        (0.75, 75.0),  // 75th percentile
-        (0.95, 95.0),  // 95th percentile
-        (0.0, 0.0),    // 0th percentile
-        (1.0, 100.0),  // 100th percentile
+        (0.5, 50.0),  // 50th percentile (median)
+        (0.25, 25.0), // 25th percentile
+        (0.75, 75.0), // 75th percentile
+        (0.95, 95.0), // 95th percentile
+        (0.0, 0.0),   // 0th percentile
+        (1.0, 100.0), // 100th percentile
     ];
 
     for (percentile, expected) in test_cases {
@@ -67,7 +67,8 @@ async fn test_percentile_cont_function() {
                 alias: Some("percentile_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -80,7 +81,11 @@ async fn test_percentile_cont_function() {
 
         let record = create_test_record();
         let result = engine.execute_with_record(&query, record).await;
-        assert!(result.is_ok(), "PERCENTILE_CONT({}) execution failed", percentile);
+        assert!(
+            result.is_ok(),
+            "PERCENTILE_CONT({}) execution failed",
+            percentile
+        );
 
         let output = rx.try_recv().unwrap();
         match output.fields.get("percentile_result") {
@@ -88,7 +93,9 @@ async fn test_percentile_cont_function() {
                 assert!(
                     (*f - expected).abs() < 0.0001,
                     "PERCENTILE_CONT({}) should return {}, got {}",
-                    percentile, expected, f
+                    percentile,
+                    expected,
+                    f
                 );
             }
             _ => panic!("Expected float result for PERCENTILE_CONT({})", percentile),
@@ -102,11 +109,11 @@ async fn test_percentile_disc_function() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let test_cases = vec![
-        (0.5, 50),    // 50th percentile (median)
-        (0.25, 25),   // 25th percentile
-        (0.95, 95),   // 95th percentile
-        (0.0, 0),     // 0th percentile
-        (1.0, 100),   // 100th percentile
+        (0.5, 50),  // 50th percentile (median)
+        (0.25, 25), // 25th percentile
+        (0.95, 95), // 95th percentile
+        (0.0, 0),   // 0th percentile
+        (1.0, 100), // 100th percentile
     ];
 
     for (percentile, expected) in test_cases {
@@ -119,7 +126,8 @@ async fn test_percentile_disc_function() {
                 alias: Some("percentile_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -132,7 +140,11 @@ async fn test_percentile_disc_function() {
 
         let record = create_test_record();
         let result = engine.execute_with_record(&query, record).await;
-        assert!(result.is_ok(), "PERCENTILE_DISC({}) execution failed", percentile);
+        assert!(
+            result.is_ok(),
+            "PERCENTILE_DISC({}) execution failed",
+            percentile
+        );
 
         let output = rx.try_recv().unwrap();
         match output.fields.get("percentile_result") {
@@ -143,7 +155,10 @@ async fn test_percentile_disc_function() {
                     percentile, expected, i
                 );
             }
-            _ => panic!("Expected integer result for PERCENTILE_DISC({})", percentile),
+            _ => panic!(
+                "Expected integer result for PERCENTILE_DISC({})",
+                percentile
+            ),
         }
     }
 }
@@ -171,7 +186,8 @@ async fn test_percentile_functions_validation() {
                 alias: Some("result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -187,13 +203,15 @@ async fn test_percentile_functions_validation() {
         assert!(
             result.is_err(),
             "{}({}) should fail validation",
-            function_name, percentile
+            function_name,
+            percentile
         );
         let error_msg = format!("{:?}", result.err().unwrap());
         assert!(
             error_msg.contains(expected_error),
             "Error message should contain '{}', got: {}",
-            expected_error, error_msg
+            expected_error,
+            error_msg
         );
     }
 }
@@ -205,9 +223,9 @@ async fn test_corr_function() {
 
     let test_cases = vec![
         // (column1, column2, expected_correlation)
-        ("price", "volume", 1.0),      // Perfect correlation placeholder
+        ("price", "volume", 1.0),         // Perfect correlation placeholder
         ("high_value", "low_value", 1.0), // Perfect correlation placeholder
-        ("price", "zero_value", 1.0),  // Perfect correlation placeholder
+        ("price", "zero_value", 1.0),     // Perfect correlation placeholder
     ];
 
     for (col1, col2, expected) in test_cases {
@@ -223,7 +241,8 @@ async fn test_corr_function() {
                 alias: Some("corr_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -244,7 +263,10 @@ async fn test_corr_function() {
                 assert!(
                     (*f - expected).abs() < 0.0001,
                     "CORR({}, {}) should return {}, got {}",
-                    col1, col2, expected, f
+                    col1,
+                    col2,
+                    expected,
+                    f
                 );
             }
             _ => panic!("Expected float result for CORR({}, {})", col1, col2),
@@ -259,7 +281,7 @@ async fn test_covar_pop_function() {
 
     let test_cases = vec![
         // (column1, column2, expected_covariance)
-        ("price", "volume", 0.0),      // Zero covariance for single record
+        ("price", "volume", 0.0), // Zero covariance for single record
         ("high_value", "low_value", 0.0), // Zero covariance for single record
     ];
 
@@ -276,7 +298,8 @@ async fn test_covar_pop_function() {
                 alias: Some("covar_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -289,7 +312,12 @@ async fn test_covar_pop_function() {
 
         let record = create_test_record();
         let result = engine.execute_with_record(&query, record).await;
-        assert!(result.is_ok(), "COVAR_POP({}, {}) execution failed", col1, col2);
+        assert!(
+            result.is_ok(),
+            "COVAR_POP({}, {}) execution failed",
+            col1,
+            col2
+        );
 
         let output = rx.try_recv().unwrap();
         match output.fields.get("covar_result") {
@@ -297,7 +325,10 @@ async fn test_covar_pop_function() {
                 assert!(
                     (*f - expected).abs() < 0.0001,
                     "COVAR_POP({}, {}) should return {}, got {}",
-                    col1, col2, expected, f
+                    col1,
+                    col2,
+                    expected,
+                    f
                 );
             }
             _ => panic!("Expected float result for COVAR_POP({}, {})", col1, col2),
@@ -323,7 +354,8 @@ async fn test_covar_samp_function() {
             alias: Some("covar_samp_result".to_string()),
         }],
         from: StreamSource::Stream("test".to_string()),
-            from_alias: None,        joins: None,
+        from_alias: None,
+        joins: None,
         where_clause: None,
         window: None,
         group_by: None,
@@ -340,7 +372,10 @@ async fn test_covar_samp_function() {
 
     let output = rx.try_recv().unwrap();
     assert!(
-        matches!(output.fields.get("covar_samp_result"), Some(FieldValue::Null)),
+        matches!(
+            output.fields.get("covar_samp_result"),
+            Some(FieldValue::Null)
+        ),
         "COVAR_SAMP should return NULL for single record"
     );
 }
@@ -365,7 +400,8 @@ async fn test_regression_functions() {
                 alias: Some("regr_result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -397,15 +433,72 @@ async fn test_analytics_functions_null_handling() {
 
     let functions_and_args = vec![
         // (function_name, args, expected_result)
-        ("PERCENTILE_CONT", vec![Expr::Column("null_value".to_string())], "null"),
-        ("PERCENTILE_DISC", vec![Expr::Column("null_value".to_string())], "null"),
-        ("CORR", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
-        ("CORR", vec![Expr::Column("price".to_string()), Expr::Column("null_value".to_string())], "null"),
-        ("COVAR_POP", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
-        ("COVAR_SAMP", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
-        ("REGR_SLOPE", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
-        ("REGR_INTERCEPT", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
-        ("REGR_R2", vec![Expr::Column("null_value".to_string()), Expr::Column("price".to_string())], "null"),
+        (
+            "PERCENTILE_CONT",
+            vec![Expr::Column("null_value".to_string())],
+            "null",
+        ),
+        (
+            "PERCENTILE_DISC",
+            vec![Expr::Column("null_value".to_string())],
+            "null",
+        ),
+        (
+            "CORR",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "CORR",
+            vec![
+                Expr::Column("price".to_string()),
+                Expr::Column("null_value".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "COVAR_POP",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "COVAR_SAMP",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "REGR_SLOPE",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "REGR_INTERCEPT",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
+        (
+            "REGR_R2",
+            vec![
+                Expr::Column("null_value".to_string()),
+                Expr::Column("price".to_string()),
+            ],
+            "null",
+        ),
     ];
 
     for (function_name, args, expected_result) in functions_and_args {
@@ -418,7 +511,8 @@ async fn test_analytics_functions_null_handling() {
                 alias: Some("result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -456,12 +550,36 @@ async fn test_analytics_functions_error_cases() {
         // (function_name, args, expected_error_message_contains)
         ("PERCENTILE_CONT", vec![], "requires exactly one argument"),
         ("PERCENTILE_DISC", vec![], "requires exactly one argument"),
-        ("CORR", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
-        ("COVAR_POP", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
-        ("COVAR_SAMP", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
-        ("REGR_SLOPE", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
-        ("REGR_INTERCEPT", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
-        ("REGR_R2", vec![Expr::Column("price".to_string())], "requires exactly two arguments"),
+        (
+            "CORR",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
+        (
+            "COVAR_POP",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
+        (
+            "COVAR_SAMP",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
+        (
+            "REGR_SLOPE",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
+        (
+            "REGR_INTERCEPT",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
+        (
+            "REGR_R2",
+            vec![Expr::Column("price".to_string())],
+            "requires exactly two arguments",
+        ),
     ];
 
     for (function_name, args, expected_error) in error_cases {
@@ -474,7 +592,8 @@ async fn test_analytics_functions_error_cases() {
                 alias: Some("result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -549,7 +668,8 @@ async fn test_multiple_analytics_functions_in_single_query() {
             },
         ],
         from: StreamSource::Stream("test".to_string()),
-            from_alias: None,        joins: None,
+        from_alias: None,
+        joins: None,
         where_clause: None,
         window: None,
         group_by: None,
@@ -562,7 +682,11 @@ async fn test_multiple_analytics_functions_in_single_query() {
 
     let record = create_test_record();
     let result = engine.execute_with_record(&query, record).await;
-    assert!(result.is_ok(), "Multiple analytics functions failed: {:?}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Multiple analytics functions failed: {:?}",
+        result.unwrap_err()
+    );
 
     let output = rx.try_recv().unwrap();
 
@@ -616,10 +740,36 @@ async fn test_analytics_functions_with_literal_values() {
 
     let test_cases = vec![
         // (function_name, args, expected_result_type, expected_value)
-        ("PERCENTILE_CONT", vec![Expr::Literal(LiteralValue::Float(0.75))], "float", 75.0),
-        ("PERCENTILE_DISC", vec![Expr::Literal(LiteralValue::Float(0.25))], "integer", 25.0),
-        ("CORR", vec![Expr::Literal(LiteralValue::Integer(100)), Expr::Literal(LiteralValue::Integer(200))], "float", 1.0),
-        ("COVAR_POP", vec![Expr::Literal(LiteralValue::Float(50.5)), Expr::Literal(LiteralValue::Integer(100))], "float", 0.0),
+        (
+            "PERCENTILE_CONT",
+            vec![Expr::Literal(LiteralValue::Float(0.75))],
+            "float",
+            75.0,
+        ),
+        (
+            "PERCENTILE_DISC",
+            vec![Expr::Literal(LiteralValue::Float(0.25))],
+            "integer",
+            25.0,
+        ),
+        (
+            "CORR",
+            vec![
+                Expr::Literal(LiteralValue::Integer(100)),
+                Expr::Literal(LiteralValue::Integer(200)),
+            ],
+            "float",
+            1.0,
+        ),
+        (
+            "COVAR_POP",
+            vec![
+                Expr::Literal(LiteralValue::Float(50.5)),
+                Expr::Literal(LiteralValue::Integer(100)),
+            ],
+            "float",
+            0.0,
+        ),
     ];
 
     for (function_name, args, expected_type, expected_value) in test_cases {
@@ -632,7 +782,8 @@ async fn test_analytics_functions_with_literal_values() {
                 alias: Some("result".to_string()),
             }],
             from: StreamSource::Stream("test".to_string()),
-            from_alias: None,            joins: None,
+            from_alias: None,
+            joins: None,
             where_clause: None,
             window: None,
             group_by: None,
@@ -664,13 +815,12 @@ async fn test_analytics_functions_with_literal_values() {
                 assert!(
                     (*f - expected_value).abs() < 0.0001,
                     "{} should return {}, got {}",
-                    function_name, expected_value, f
+                    function_name,
+                    expected_value,
+                    f
                 );
             }
-            _ => panic!(
-                "Expected {} result for {}",
-                expected_type, function_name
-            ),
+            _ => panic!("Expected {} result for {}", expected_type, function_name),
         }
     }
 }

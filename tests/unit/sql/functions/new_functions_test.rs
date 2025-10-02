@@ -410,9 +410,10 @@ async fn test_complex_expressions() {
         execute_query("SELECT ROUND(ABS(negative_num) * 1.5, 1) as complex_math FROM test_stream")
             .await
             .unwrap();
+    // Result is now ScaledInteger since 1.5 is parsed as Decimal → ScaledInteger
     assert_eq!(
         results[0].fields.get("complex_math"),
-        Some(&FieldValue::Float(22.5))
+        Some(&FieldValue::ScaledInteger(225, 1)) // 22.5 with scale=1
     );
 
     let results = execute_query(

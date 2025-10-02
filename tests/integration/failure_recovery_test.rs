@@ -126,7 +126,6 @@ async fn test_network_partition_recovery_with_retry_logic() {
 /// Test consumer resilience during broker failures
 #[tokio::test]
 #[serial]
-#[ignore] // Ignore this test - borked on CICD
 async fn test_consumer_graceful_degradation() {
     if !is_kafka_running() {
         return;
@@ -216,7 +215,6 @@ async fn test_consumer_graceful_degradation() {
 /// Test retry mechanisms with exponential backoff
 #[tokio::test]
 #[serial]
-#[ignore] // Ignore this test - borked on CICD
 async fn test_retry_with_exponential_backoff() {
     if !is_kafka_running() {
         return;
@@ -237,7 +235,7 @@ async fn test_retry_with_exponential_backoff() {
     .expect("Failed to create producer");
 
     let message = TestMessage::new(1, "Retry test message");
-    let retry_attempts = Arc::new(AtomicBool::new(false));
+    let mut success = false;
 
     // Simulate retry logic
     let max_retries = 3;
@@ -257,6 +255,7 @@ async fn test_retry_with_exponential_backoff() {
         {
             Ok(_) => {
                 println!("✅ Message sent successfully on attempt {}", attempt);
+                success = true;
                 break;
             }
             Err(e) => {
@@ -266,15 +265,14 @@ async fn test_retry_with_exponential_backoff() {
                     println!("⏳ Waiting {:?} before retry", delay);
                     sleep(delay).await;
                     delay *= 2; // Exponential backoff
-                    retry_attempts.store(true, Ordering::Relaxed);
                 }
             }
         }
     }
 
     assert!(
-        retry_attempts.load(Ordering::Relaxed),
-        "Should have attempted retries"
+        success,
+        "Message should be sent successfully (with or without retries)"
     );
 }
 

@@ -961,6 +961,500 @@ source:
 
 ---
 
+## Complete WITH Clause Property Reference
+
+### Overview
+
+The `WITH` clause configures table and stream behavior. Properties are specified as key-value pairs in the format `'property.name' = 'value'`.
+
+### Table Configuration Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`table_model`** | enum | `normal` | Table implementation: `normal` (Standard Table) or `compact` (CompactTable) | `'table_model' = 'compact'` |
+| **`retention`** | duration | None | How long to keep data in the table | `'retention' = '7 days'` |
+| **`refresh_interval`** | duration | Continuous | How often to refresh table data | `'refresh_interval' = '1 hour'` |
+| **`compression`** | enum | None | Compression type: `snappy`, `gzip`, `zstd` | `'compression' = 'zstd'` |
+
+### Kafka Consumer Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`kafka.bootstrap.servers`** | string | localhost:9092 | Kafka broker addresses | `'kafka.bootstrap.servers' = 'kafka:9092'` |
+| **`kafka.group.id`** | string | Auto-generated | Consumer group ID | `'kafka.group.id' = 'analytics-group'` |
+| **`kafka.auto.offset.reset`** | enum | `latest` | Offset reset policy: `earliest`, `latest` | `'kafka.auto.offset.reset' = 'earliest'` |
+| **`kafka.batch.size`** | integer | 100 | Number of records per batch | `'kafka.batch.size' = '1000'` |
+| **`kafka.linger.ms`** | integer | 0 | Wait time before sending batch (milliseconds) | `'kafka.linger.ms' = '50'` |
+| **`kafka.max.poll.records`** | integer | 500 | Maximum records in single poll | `'kafka.max.poll.records' = '5000'` |
+| **`kafka.compression.type`** | enum | None | Compression: `zstd`, `gzip`, `snappy`, `lz4` | `'kafka.compression.type' = 'zstd'` |
+| **`kafka.enable.auto.commit`** | boolean | `false` | Enable automatic offset commits | `'kafka.enable.auto.commit' = 'true'` |
+| **`kafka.cleanup.policy`** | enum | `delete` | Cleanup policy: `delete`, `compact` | `'kafka.cleanup.policy' = 'compact'` |
+
+### File Source Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`file.format`** | enum | `json` | File format: `json`, `csv`, `avro`, `parquet` | `'file.format' = 'avro'` |
+| **`file.path`** | string | Required | Path to file(s) - supports wildcards | `'file.path' = '/data/*.json'` |
+| **`file.header`** | boolean | `true` | CSV file has header row | `'file.header' = 'true'` |
+| **`file.delimiter`** | char | `,` | CSV delimiter character | `'file.delimiter' = '\|'` |
+| **`file.quote.char`** | char | `"` | CSV quote character | `'file.quote.char' = '\''` |
+| **`file.schema.inference`** | boolean | `true` | Automatically infer schema | `'file.schema.inference' = 'true'` |
+| **`file.error.handling`** | enum | `fail` | Error handling: `skip`, `fail`, `dead_letter_queue` | `'file.error.handling' = 'skip'` |
+| **`file.pattern.recursive`** | boolean | `false` | Recursively process directories | `'file.pattern.recursive' = 'true'` |
+| **`file.watch.interval`** | integer | 0 | File watch interval (milliseconds), 0=disabled | `'file.watch.interval' = '5000'` |
+| **`file.processing.mode`** | enum | `batch` | Processing mode: `batch`, `streaming` | `'file.processing.mode' = 'streaming'` |
+
+### Schema Registry Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`value.format`** | enum | `json` | Value serialization format | `'value.format' = 'avro'` |
+| **`key.format`** | enum | `string` | Key serialization format | `'key.format' = 'avro'` |
+| **`avro.schema.registry.url`** | string | None | Avro schema registry URL | `'avro.schema.registry.url' = 'http://schema-registry:8081'` |
+| **`avro.schema.id`** | integer | None | Specific Avro schema ID to use | `'avro.schema.id' = '12345'` |
+| **`protobuf.schema.registry.url`** | string | None | Protobuf schema registry URL | `'protobuf.schema.registry.url' = 'http://schema-registry:8081'` |
+| **`protobuf.message.type`** | string | None | Protobuf message type name | `'protobuf.message.type' = 'trading.Order'` |
+
+### Multi-Config Properties (INTO Clause)
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`config_file`** | path | None | Path to external YAML configuration file | `'config_file' = 'source.yaml'` |
+| **`source_config`** | path | None | Path to source configuration file | `'source_config' = 'kafka_source.yaml'` |
+| **`sink_config`** | path | None | Path to sink configuration file | `'sink_config' = 'warehouse_sink.yaml'` |
+| **`monitoring_config`** | path | None | Path to monitoring configuration file | `'monitoring_config' = 'metrics.yaml'` |
+
+### Error Handling Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`error.handling`** | enum | `fail` | Error handling strategy: `skip`, `fail`, `dead_letter_queue` | `'error.handling' = 'skip'` |
+| **`error.topic`** | string | None | Dead letter queue topic name | `'error.topic' = 'processing_errors'` |
+| **`error.max.retries`** | integer | 3 | Maximum retry attempts | `'error.max.retries' = '5'` |
+
+### Complete Example: All Properties
+
+```sql
+CREATE TABLE production_ready_table AS
+SELECT * FROM kafka://data-topic
+WITH (
+    -- Table configuration
+    'table_model' = 'compact',              -- Memory-efficient CompactTable
+    'retention' = '30 days',                -- Keep data for 30 days
+    'compression' = 'zstd',                 -- Use ZSTD compression
+
+    -- Kafka consumer
+    'kafka.bootstrap.servers' = 'kafka1:9092,kafka2:9092,kafka3:9092',
+    'kafka.group.id' = 'analytics-consumers',
+    'kafka.auto.offset.reset' = 'earliest',
+    'kafka.batch.size' = '2000',
+    'kafka.linger.ms' = '50',
+    'kafka.max.poll.records' = '5000',
+    'kafka.compression.type' = 'zstd',
+
+    -- Schema registry
+    'value.format' = 'avro',
+    'avro.schema.registry.url' = 'http://schema-registry:8081',
+
+    -- Error handling
+    'error.handling' = 'skip',
+    'error.topic' = 'processing_errors',
+    'error.max.retries' = '3'
+)
+EMIT CHANGES;
+```
+
+---
+
+## Column Definition Syntax
+
+### Explicit Column Definitions
+
+You can optionally specify column names and types when creating tables or streams.
+
+#### Basic Column Definitions
+
+```sql
+-- Explicit column types
+CREATE TABLE typed_orders (
+    order_id BIGINT,
+    customer_id BIGINT,
+    amount DECIMAL(10, 2),
+    status VARCHAR(50),
+    created_at TIMESTAMP
+) AS
+SELECT order_id, customer_id, amount, status, created_at
+FROM orders_stream;
+```
+
+#### Supported Column Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **BIGINT** | 64-bit integer | `order_id BIGINT` |
+| **INTEGER** / **INT** | 32-bit integer | `quantity INT` |
+| **DECIMAL(p, s)** | Fixed-point decimal | `amount DECIMAL(10, 2)` |
+| **FLOAT** / **DOUBLE** | Floating-point number | `price FLOAT` |
+| **VARCHAR(n)** | Variable-length string | `status VARCHAR(50)` |
+| **STRING** / **TEXT** | Unlimited string | `description TEXT` |
+| **BOOLEAN** / **BOOL** | True/false value | `active BOOLEAN` |
+| **TIMESTAMP** | Date and time | `created_at TIMESTAMP` |
+| **DATE** | Date only | `order_date DATE` |
+
+#### Implicit Column Types (Schema Inference)
+
+```sql
+-- Schema inferred from SELECT clause
+CREATE TABLE inferred_schema AS
+SELECT
+    order_id,           -- Type inferred as BIGINT
+    amount,             -- Type inferred from source
+    status,             -- Type inferred as STRING
+    created_at          -- Type inferred as TIMESTAMP
+FROM orders_stream
+EMIT CHANGES;
+```
+
+#### When to Use Explicit vs Implicit
+
+**Use Explicit Column Definitions When:**
+- ✅ You need type enforcement (e.g., DECIMAL for financial data)
+- ✅ You're creating a schema contract for downstream systems
+- ✅ You need to validate data types at ingestion time
+- ✅ Documentation clarity is important
+
+**Use Implicit Schema Inference When:**
+- ✅ Source schema is well-defined (Avro, Protobuf)
+- ✅ You want rapid development without type management
+- ✅ Schema can change over time
+
+#### Column Definitions with Constraints
+
+```sql
+-- Note: Constraints are documented but not all are enforced yet
+CREATE TABLE orders_with_constraints (
+    order_id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) AS
+SELECT order_id, customer_id, amount, status, created_at
+FROM orders_stream;
+```
+
+---
+
+## Reproducing Performance Benchmarks
+
+All performance benchmarks in this guide were measured on **M1 Max, 32GB RAM** running macOS.
+
+### Running Benchmark Tests
+
+#### 1. Comprehensive Benchmark Suite
+
+```bash
+# Run all performance benchmarks
+cargo test --release --test comprehensive_benchmark_test -- --nocapture
+
+# Sample output:
+# ✅ Key Lookups: 1,851,366/sec (540ns average)
+# ✅ Data Loading: 103,771 records/sec
+# ✅ Query Caching: 1.4x speedup
+```
+
+#### 2. CTAS-Specific Performance Tests
+
+```bash
+# Run CTAS performance tests
+cargo test --test mod ctas_performance --no-default-features -- --nocapture
+
+# Or run integration test
+cargo test --test ctas_performance_test --no-default-features -- --nocapture
+```
+
+#### 3. Table Model Comparison
+
+```bash
+# Compare Standard Table vs CompactTable
+cargo test --test mod test_performance_optimizations --no-default-features -- --nocapture
+
+# Sample output:
+# Standard Table: 100MB memory, 1.85M lookups/sec
+# CompactTable: 10MB memory, 1.6M lookups/sec (90% memory reduction)
+```
+
+### Benchmark Code Locations
+
+- **Comprehensive Benchmarks**: `tests/comprehensive_benchmark_test.rs`
+- **CTAS Performance**: `tests/integration/ctas_performance_test.rs`
+- **Table Performance**: `tests/unit/table/ctas_test.rs`
+- **OptimizedTableImpl**: `tests/unit/table/optimized_table_test.rs`
+
+### Hardware Requirements for Benchmarks
+
+- **CPU**: Modern multi-core processor (Apple M1/M2, Intel i7/i9, AMD Ryzen 7/9)
+- **RAM**: 16GB minimum, 32GB recommended
+- **Storage**: SSD recommended for consistent I/O performance
+- **Kafka**: Kafka broker running locally or on fast network
+
+### Custom Benchmark Configuration
+
+```rust
+// Example: Create your own benchmark
+#[test]
+fn custom_ctas_benchmark() {
+    let records = 1_000_000;
+    let start = Instant::now();
+
+    // Create CTAS table
+    let ctas_sql = r#"
+        CREATE TABLE benchmark_table AS
+        SELECT id, name, value, timestamp
+        FROM kafka://benchmark-topic
+        WITH ('table_model' = 'compact')
+    "#;
+
+    // Execute and measure...
+
+    let duration = start.elapsed();
+    let throughput = records as f64 / duration.as_secs_f64();
+
+    println!("Throughput: {:.0} records/sec", throughput);
+}
+```
+
+### Interpreting Benchmark Results
+
+**Key Metrics:**
+- **Lookups/sec**: Higher is better (target: > 1M/sec)
+- **Data Loading**: Records ingested per second (target: > 100K/sec)
+- **Memory Usage**: Lower is better (CompactTable: 90% reduction)
+- **CPU Overhead**: CompactTable: ~10% additional CPU
+- **Latency**: EMIT CHANGES should be sub-millisecond
+
+**Expected Performance Ranges:**
+
+| Metric | Standard Table | CompactTable |
+|--------|----------------|--------------|
+| Lookups/sec | 1.5M - 2M | 1.3M - 1.8M |
+| Memory (1M records) | 100MB - 1GB | 10MB - 100MB |
+| Data Loading | 100K/sec | 80K/sec |
+| Query Latency | Sub-ms | Sub-ms |
+
+---
+
+## Troubleshooting Guide
+
+### Common CTAS Issues
+
+#### Issue: Out of Memory Errors
+
+**Symptoms:**
+```
+Error: OutOfMemoryError
+Table: customer_data
+Records: 5,000,000
+```
+
+**Solution 1: Use CompactTable**
+```sql
+CREATE TABLE customer_data AS
+SELECT * FROM source
+WITH (
+    'table_model' = 'compact',  -- 90% memory reduction
+    'kafka.batch.size' = '5000'
+);
+```
+
+**Solution 2: Add Retention Limit**
+```sql
+CREATE TABLE customer_data AS
+SELECT * FROM source
+WITH (
+    'table_model' = 'compact',
+    'retention' = '7 days'      -- Limit data age
+);
+```
+
+**Solution 3: Use CSAS Instead**
+If you don't need SQL queries, use CSAS (stream-to-stream) which has minimal memory:
+```sql
+CREATE STREAM customer_data_stream AS
+SELECT * FROM source
+EMIT CHANGES;
+```
+
+#### Issue: Table Not Updating
+
+**Symptoms:**
+- CTAS table created but not receiving updates
+- Empty table even though source has data
+
+**Solution: Ensure EMIT CHANGES**
+```sql
+CREATE TABLE orders AS
+SELECT * FROM orders_stream
+EMIT CHANGES;  -- ← Required for continuous updates
+```
+
+**Solution: Check Kafka Offset Reset**
+```sql
+CREATE TABLE orders AS
+SELECT * FROM orders_stream
+WITH (
+    'kafka.auto.offset.reset' = 'earliest'  -- Start from beginning
+)
+EMIT CHANGES;
+```
+
+#### Issue: Slow Query Performance
+
+**Symptoms:**
+- Queries taking > 100ms
+- High CPU usage during queries
+
+**Solution: Verify Table Model**
+```sql
+-- Ensure you're using the right model
+-- For queries < 1M records: Use normal
+-- For queries > 1M records: Use compact but expect slight slowdown
+WITH ('table_model' = 'normal')  -- Fastest queries
+```
+
+**Solution: Check Table Statistics**
+```bash
+# Query table statistics to verify OptimizedTableImpl usage
+SELECT * FROM SHOW TABLE STATISTICS;
+```
+
+#### Issue: Duplicate Table Error
+
+**Symptoms:**
+```
+Error: Table 'orders' already exists
+```
+
+**Solution 1: Drop Existing Table**
+```sql
+DROP TABLE orders;
+CREATE TABLE orders AS ...
+```
+
+**Solution 2: Use IF NOT EXISTS (if supported)**
+```sql
+CREATE TABLE IF NOT EXISTS orders AS ...
+```
+
+### Common CSAS Issues
+
+#### Issue: Data Not Appearing in Output Topic
+
+**Symptoms:**
+- CSAS stream created but output topic is empty
+- No errors reported
+
+**Solution: Verify Sink Configuration**
+```sql
+CREATE STREAM output_stream AS
+SELECT * FROM source
+WITH (
+    'sink.bootstrap.servers' = 'localhost:9092',  -- ← Verify broker
+    'sink.topic' = 'output-topic'                  -- ← Verify topic
+)
+EMIT CHANGES;
+```
+
+**Solution: Check Topic Creation**
+```bash
+# Verify topic exists
+kafka-topics --list --bootstrap-server localhost:9092
+
+# Create topic manually if needed
+kafka-topics --create --topic output-topic --partitions 3 --bootstrap-server localhost:9092
+```
+
+#### Issue: High Latency in Stream Processing
+
+**Symptoms:**
+- EMIT CHANGES taking > 1 second
+- Batch processing delays
+
+**Solution: Reduce Batch Size**
+```sql
+CREATE STREAM fast_stream AS
+SELECT * FROM source
+WITH (
+    'kafka.batch.size' = '100',    -- Smaller batches
+    'kafka.linger.ms' = '0'        -- No batching delay
+)
+EMIT CHANGES;
+```
+
+#### Issue: Schema Registry Errors
+
+**Symptoms:**
+```
+Error: Failed to fetch schema from registry
+SchemaId: 12345
+```
+
+**Solution: Verify Schema Registry Config**
+```sql
+CREATE STREAM avro_stream AS
+SELECT * FROM source
+WITH (
+    'value.format' = 'avro',
+    'avro.schema.registry.url' = 'http://schema-registry:8081',  -- ← Verify URL
+    'avro.schema.id' = '12345'  -- ← Verify schema ID exists
+)
+EMIT CHANGES;
+```
+
+### Property Validation Errors
+
+#### Issue: Invalid Property Value
+
+**Symptoms:**
+```
+Error: Invalid value for property 'table_model': 'super_fast'
+Valid values: 'normal', 'compact'
+```
+
+**Solution: Use Correct Property Values**
+Refer to the [Complete WITH Clause Property Reference](#complete-with-clause-property-reference) table above.
+
+#### Issue: Conflicting Properties
+
+**Symptoms:**
+```
+Warning: 'retention' specified but 'table_model' is 'normal'
+Long retention without compact model may use significant memory
+```
+
+**Solution: Align Properties**
+```sql
+CREATE TABLE large_data AS
+SELECT * FROM source
+WITH (
+    'table_model' = 'compact',  -- ← Use compact for long retention
+    'retention' = '30 days'
+);
+```
+
+### Getting Help
+
+If you encounter issues not covered here:
+
+1. **Check Logs**: Review Velostream logs for detailed error messages
+2. **Verify Configuration**: Use the property reference table to validate your WITH clause
+3. **Test with Minimal Example**: Simplify your query to isolate the issue
+4. **Check Kafka**: Verify Kafka broker is running and accessible
+5. **Review Documentation**: See `docs/sql/ctas-vs-csas-guide.md` for usage patterns
+
+---
+
 ## Performance Benchmarks
 
 Based on comprehensive testing with the three-component architecture:

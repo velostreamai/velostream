@@ -26,11 +26,16 @@
 //! ```
 
 pub mod config;
+pub mod dependency_graph;
+pub mod graceful_degradation;
+pub mod health_dashboard;
 pub mod job_manager;
 pub mod metrics;
+pub mod parallel_loader;
+pub mod processors;
+pub mod progress_monitoring;
+pub mod progress_streaming;
 pub mod stream_job_server;
 pub mod table_registry;
-
-pub mod processors;
 
 // Re-exports for convenience

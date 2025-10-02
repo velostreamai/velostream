@@ -229,7 +229,6 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
 }
 
 #[tokio::test]
-#[ignore = "temporarily disabled - hanging issue needs investigation"]
 async fn test_simple_processor_sink_failure_continues_processing() {
     // Test that simple processor continues processing even when sink fails (different from transactional)
     let batch1 = create_test_records(3);

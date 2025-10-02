@@ -2,3 +2,12 @@
 
 # Claude Code CLI cache and session data
 .claude/
+
+# Development profiling reports
+dev-profiling/performance_report_*.txt
+
+# IDE files
+.idea/copilot.*.xml
+
+# Temporary output files
+output.json

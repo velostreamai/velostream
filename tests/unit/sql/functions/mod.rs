@@ -1,6 +1,7 @@
 // SQL Function Tests
 // Tests for SQL function implementations
 
+pub mod advanced_analytics_functions_test;
 pub mod advanced_functions_test;
 pub mod cast_functions_test;
 pub mod date_functions_test;

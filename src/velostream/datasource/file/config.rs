@@ -87,6 +87,9 @@ pub struct FileSourceConfig {
 
     /// Batch configuration for reading records
     pub batch_config: Option<BatchConfig>,
+
+    /// Additional properties for file processing (e.g., retry configuration)
+    pub properties: std::collections::HashMap<String, String>,
 }
 
 impl Default for FileSourceConfig {
@@ -106,6 +109,7 @@ impl Default for FileSourceConfig {
             recursive: false,
             extension_filter: None,
             batch_config: None,
+            properties: std::collections::HashMap::new(),
         }
     }
 }
@@ -183,7 +187,10 @@ impl FileSourceConfig {
                     "buffer_size" => file_config.buffer_size = value.parse().unwrap_or(8192),
                     "recursive" => file_config.recursive = value.parse().unwrap_or(false),
                     "extension_filter" => file_config.extension_filter = Some(value.clone()),
-                    _ => {} // Ignore unknown properties
+                    // Store all properties including retry configuration
+                    _ => {
+                        file_config.properties.insert(key.clone(), value.clone());
+                    }
                 }
             }
 

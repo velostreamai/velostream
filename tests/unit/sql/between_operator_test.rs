@@ -1,10 +1,10 @@
 // Tests for SQL BETWEEN operator
+use std::collections::HashMap;
 use velostream::velostream::sql::{
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery},
     execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
     parser::StreamingSqlParser,
 };
-use std::collections::HashMap;
 
 #[test]
 fn test_parse_between_operator() {
@@ -17,18 +17,23 @@ fn test_parse_between_operator() {
         StreamingQuery::Select { where_clause, .. } => {
             assert!(where_clause.is_some());
             match where_clause.unwrap() {
-                Expr::Between { expr, low, high, negated } => {
+                Expr::Between {
+                    expr,
+                    low,
+                    high,
+                    negated,
+                } => {
                     assert!(!negated);
                     match expr.as_ref() {
                         Expr::Column(name) => assert_eq!(name, "price"),
                         _ => panic!("Expected column expression"),
                     }
                     match low.as_ref() {
-                        Expr::Literal(LiteralValue::Integer(10)) => {},
+                        Expr::Literal(LiteralValue::Integer(10)) => {}
                         _ => panic!("Expected low value 10"),
                     }
                     match high.as_ref() {
-                        Expr::Literal(LiteralValue::Integer(100)) => {},
+                        Expr::Literal(LiteralValue::Integer(100)) => {}
                         _ => panic!("Expected high value 100"),
                     }
                 }
@@ -50,18 +55,23 @@ fn test_parse_not_between_operator() {
         StreamingQuery::Select { where_clause, .. } => {
             assert!(where_clause.is_some());
             match where_clause.unwrap() {
-                Expr::Between { expr, low, high, negated } => {
+                Expr::Between {
+                    expr,
+                    low,
+                    high,
+                    negated,
+                } => {
                     assert!(negated); // NOT BETWEEN should be negated
                     match expr.as_ref() {
                         Expr::Column(name) => assert_eq!(name, "amount"),
                         _ => panic!("Expected column expression"),
                     }
                     match low.as_ref() {
-                        Expr::Literal(LiteralValue::Float(f)) => assert_eq!(*f, 50.0),
+                        Expr::Literal(LiteralValue::Decimal(s)) => assert_eq!(s, "50.0"),
                         _ => panic!("Expected low value 50.0"),
                     }
                     match high.as_ref() {
-                        Expr::Literal(LiteralValue::Float(f)) => assert_eq!(*f, 200.0),
+                        Expr::Literal(LiteralValue::Decimal(s)) => assert_eq!(s, "200.0"),
                         _ => panic!("Expected high value 200.0"),
                     }
                 }
@@ -74,8 +84,9 @@ fn test_parse_not_between_operator() {
 
 #[test]
 fn test_evaluate_between_integer_in_range() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Integer(50));
+    let mut fields = HashMap::new();
+    fields.insert("value".to_string(), FieldValue::Integer(50));
+    let record = StreamRecord::new(fields);
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
@@ -90,8 +101,9 @@ fn test_evaluate_between_integer_in_range() {
 
 #[test]
 fn test_evaluate_between_integer_out_of_range() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Integer(150));
+    let mut fields = HashMap::new();
+    fields.insert("value".to_string(), FieldValue::Integer(150));
+    let record = StreamRecord::new(fields);
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
@@ -106,10 +118,12 @@ fn test_evaluate_between_integer_out_of_range() {
 
 #[test]
 fn test_evaluate_between_integer_boundary_values() {
-    let mut record = StreamRecord::new();
-    
+    let mut record = StreamRecord::new(HashMap::new());
+
     // Test lower boundary
-    record.insert("value".to_string(), FieldValue::Integer(10));
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(10));
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
         low: Box::new(Expr::Literal(LiteralValue::Integer(10))),
@@ -120,15 +134,19 @@ fn test_evaluate_between_integer_boundary_values() {
     assert!(result); // 10 should be included (boundary)
 
     // Test upper boundary
-    record.insert("value".to_string(), FieldValue::Integer(100));
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(100));
     let result = ExpressionEvaluator::evaluate_expression(&expr, &record).unwrap();
     assert!(result); // 100 should be included (boundary)
 }
 
 #[test]
 fn test_evaluate_not_between_operator() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Integer(50));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(50));
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
@@ -141,15 +159,19 @@ fn test_evaluate_not_between_operator() {
     assert!(!result); // NOT (50 between 10 and 100) = false
 
     // Test with value outside range
-    record.insert("value".to_string(), FieldValue::Integer(150));
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(150));
     let result = ExpressionEvaluator::evaluate_expression(&expr, &record).unwrap();
     assert!(result); // NOT (150 between 10 and 100) = true
 }
 
 #[test]
 fn test_evaluate_between_float_values() {
-    let mut record = StreamRecord::new();
-    record.insert("price".to_string(), FieldValue::Float(75.5));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("price".to_string(), FieldValue::Float(75.5));
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("price".to_string())),
@@ -164,8 +186,11 @@ fn test_evaluate_between_float_values() {
 
 #[test]
 fn test_evaluate_between_string_values() {
-    let mut record = StreamRecord::new();
-    record.insert("name".to_string(), FieldValue::String("Charlie".to_string()));
+    let mut record = StreamRecord::new(HashMap::new());
+    record.fields.insert(
+        "name".to_string(),
+        FieldValue::String("Charlie".to_string()),
+    );
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("name".to_string())),
@@ -178,20 +203,24 @@ fn test_evaluate_between_string_values() {
     assert!(result); // "Charlie" is lexicographically between "Alice" and "David"
 
     // Test with value outside range
-    record.insert("name".to_string(), FieldValue::String("Zoe".to_string()));
+    record
+        .fields
+        .insert("name".to_string(), FieldValue::String("Zoe".to_string()));
     let result = ExpressionEvaluator::evaluate_expression(&expr, &record).unwrap();
     assert!(!result); // "Zoe" is not between "Alice" and "David"
 }
 
 #[test]
 fn test_evaluate_between_scaled_integer_values() {
-    let mut record = StreamRecord::new();
-    record.insert("amount".to_string(), FieldValue::ScaledInteger(7550, 2)); // $75.50
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("amount".to_string(), FieldValue::ScaledInteger(7550, 2)); // $75.50
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("amount".to_string())),
-        low: Box::new(Expr::Literal(LiteralValue::ScaledInteger(5000, 2))), // $50.00
-        high: Box::new(Expr::Literal(LiteralValue::ScaledInteger(10000, 2))), // $100.00
+        low: Box::new(Expr::Literal(LiteralValue::Decimal("50.00".to_string()))), // $50.00
+        high: Box::new(Expr::Literal(LiteralValue::Decimal("100.00".to_string()))), // $100.00
         negated: false,
     };
 
@@ -201,13 +230,15 @@ fn test_evaluate_between_scaled_integer_values() {
 
 #[test]
 fn test_evaluate_between_different_scale_integers() {
-    let mut record = StreamRecord::new();
-    record.insert("amount".to_string(), FieldValue::ScaledInteger(7550, 2)); // $75.50 (scale 2)
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("amount".to_string(), FieldValue::ScaledInteger(7550, 2)); // $75.50 (scale 2)
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("amount".to_string())),
-        low: Box::new(Expr::Literal(LiteralValue::ScaledInteger(500, 1))), // $50.0 (scale 1)
-        high: Box::new(Expr::Literal(LiteralValue::ScaledInteger(100000, 3))), // $100.000 (scale 3)
+        low: Box::new(Expr::Literal(LiteralValue::Decimal("50.0".to_string()))), // $50.0 (scale 1)
+        high: Box::new(Expr::Literal(LiteralValue::Decimal("100.000".to_string()))), // $100.000 (scale 3)
         negated: false,
     };
 
@@ -217,8 +248,10 @@ fn test_evaluate_between_different_scale_integers() {
 
 #[test]
 fn test_evaluate_between_mixed_types() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Integer(75));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(75));
 
     // Test integer between floats (should convert to common type)
     let expr = Expr::Between {
@@ -234,8 +267,8 @@ fn test_evaluate_between_mixed_types() {
 
 #[test]
 fn test_evaluate_between_with_null_values() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Null);
+    let mut record = StreamRecord::new(HashMap::new());
+    record.fields.insert("value".to_string(), FieldValue::Null);
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
@@ -248,7 +281,9 @@ fn test_evaluate_between_with_null_values() {
     assert!(!result); // NULL BETWEEN should return false
 
     // Test with NULL bounds
-    record.insert("value".to_string(), FieldValue::Integer(50));
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(50));
     let expr_null_low = Expr::Between {
         expr: Box::new(Expr::Column("value".to_string())),
         low: Box::new(Expr::Literal(LiteralValue::Null)),
@@ -262,10 +297,16 @@ fn test_evaluate_between_with_null_values() {
 
 #[test]
 fn test_evaluate_between_with_expressions() {
-    let mut record = StreamRecord::new();
-    record.insert("value".to_string(), FieldValue::Integer(50));
-    record.insert("min_val".to_string(), FieldValue::Integer(10));
-    record.insert("max_val".to_string(), FieldValue::Integer(100));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("value".to_string(), FieldValue::Integer(50));
+    record
+        .fields
+        .insert("min_val".to_string(), FieldValue::Integer(10));
+    record
+        .fields
+        .insert("max_val".to_string(), FieldValue::Integer(100));
 
     // Test BETWEEN with column expressions for bounds
     let expr = Expr::Between {
@@ -291,8 +332,10 @@ fn test_between_operator_precedence() {
 
 #[test]
 fn test_between_with_arithmetic_expressions() {
-    let mut record = StreamRecord::new();
-    record.insert("base_price".to_string(), FieldValue::Integer(80));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("base_price".to_string(), FieldValue::Integer(80));
 
     // Test BETWEEN with arithmetic in the bounds
     let sql = "SELECT * FROM test_stream WHERE base_price BETWEEN 50 + 10 AND 200 - 100";
@@ -313,7 +356,7 @@ fn test_complex_between_query() {
         AND transaction_date BETWEEN '2023-01-01' AND '2023-12-31'
         AND customer_id NOT BETWEEN 1000 AND 2000
     ";
-    
+
     let result = parser.parse(sql);
     assert!(result.is_ok()); // Should handle complex BETWEEN queries
 }
@@ -335,13 +378,15 @@ fn test_between_error_handling() {
 
 #[test]
 fn test_financial_precision_between() {
-    let mut record = StreamRecord::new();
-    record.insert("price".to_string(), FieldValue::ScaledInteger(9999, 2)); // $99.99
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("price".to_string(), FieldValue::ScaledInteger(9999, 2)); // $99.99
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("price".to_string())),
-        low: Box::new(Expr::Literal(LiteralValue::ScaledInteger(5000, 2))), // $50.00
-        high: Box::new(Expr::Literal(LiteralValue::ScaledInteger(10000, 2))), // $100.00
+        low: Box::new(Expr::Literal(LiteralValue::Decimal("50.00".to_string()))), // $50.00
+        high: Box::new(Expr::Literal(LiteralValue::Decimal("100.00".to_string()))), // $100.00
         negated: false,
     };
 
@@ -349,15 +394,19 @@ fn test_financial_precision_between() {
     assert!(result); // $99.99 is between $50.00 and $100.00
 
     // Test boundary case with exact precision
-    record.insert("price".to_string(), FieldValue::ScaledInteger(10000, 2)); // $100.00
+    record
+        .fields
+        .insert("price".to_string(), FieldValue::ScaledInteger(10000, 2)); // $100.00
     let result = ExpressionEvaluator::evaluate_expression(&expr, &record).unwrap();
     assert!(result); // $100.00 should be included (boundary)
 }
 
 #[test]
 fn test_between_value_evaluation() {
-    let mut record = StreamRecord::new();
-    record.insert("score".to_string(), FieldValue::Integer(85));
+    let mut record = StreamRecord::new(HashMap::new());
+    record
+        .fields
+        .insert("score".to_string(), FieldValue::Integer(85));
 
     let expr = Expr::Between {
         expr: Box::new(Expr::Column("score".to_string())),
@@ -369,7 +418,7 @@ fn test_between_value_evaluation() {
     // Test value evaluation (should return boolean FieldValue)
     let result = ExpressionEvaluator::evaluate_expression_value(&expr, &record).unwrap();
     match result {
-        FieldValue::Boolean(true) => {}, // Expected
+        FieldValue::Boolean(true) => {} // Expected
         _ => panic!("BETWEEN should return FieldValue::Boolean(true)"),
     }
 
@@ -383,7 +432,7 @@ fn test_between_value_evaluation() {
 
     let result_not = ExpressionEvaluator::evaluate_expression_value(&expr_not, &record).unwrap();
     match result_not {
-        FieldValue::Boolean(false) => {}, // Expected (NOT true = false)
+        FieldValue::Boolean(false) => {} // Expected (NOT true = false)
         _ => panic!("NOT BETWEEN should return FieldValue::Boolean(false)"),
     }
 }

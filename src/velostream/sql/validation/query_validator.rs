@@ -241,15 +241,78 @@ impl QueryValidator {
         }
     }
 
-    fn analyze_performance(&self, _query: &StreamingQuery, result: &mut QueryValidationResult) {
-        let query_text = &result.query_text;
+    fn analyze_performance(&self, query: &StreamingQuery, result: &mut QueryValidationResult) {
+        // Check for performance anti-patterns - use AST analysis for better accuracy
+        self.check_join_performance(query, result);
+        self.check_other_performance_patterns(result);
+    }
 
-        // Check for performance anti-patterns
-        if query_text.contains("JOIN") && !query_text.contains("WINDOW") {
-            result
-                .performance_warnings
-                .push("Stream-to-stream JOINs without time windows can be expensive".to_string());
+    fn check_join_performance(&self, query: &StreamingQuery, result: &mut QueryValidationResult) {
+        use crate::velostream::sql::ast::{StreamSource, StreamingQuery as SQ};
+
+        match query {
+            SQ::Select { from, joins, .. } => {
+                // Check if main source is a stream
+                let main_is_stream = self.is_stream_source(from);
+
+                // Analyze each JOIN if they exist
+                if let Some(join_list) = joins {
+                    for join in join_list {
+                        let right_is_stream = self.is_stream_source(&join.right_source);
+
+                        // Only warn for stream-to-stream JOINs without time windows
+                        if main_is_stream && right_is_stream {
+                            // Check if there's a window specification
+                            let has_window = join.window.is_some()
+                                || result.query_text.contains("WINDOW")
+                                || result.query_text.contains("INTERVAL");
+
+                            if !has_window {
+                                result
+                                    .performance_warnings
+                                    .push("Stream-to-stream JOINs without time windows can be expensive. Consider adding WINDOW clauses for bounded joins.".to_string());
+                            }
+                        }
+                        // Stream-to-Table JOINs are efficient and don't need warnings
+                    }
+                }
+            }
+            _ => {
+                // For non-SELECT queries, fall back to simple string matching
+                if result.query_text.contains("JOIN") && !result.query_text.contains("WINDOW") {
+                    result.performance_warnings.push(
+                        "JOINs without time windows may impact performance in streaming contexts"
+                            .to_string(),
+                    );
+                }
+            }
         }
+    }
+
+    fn is_stream_source(&self, source: &crate::velostream::sql::ast::StreamSource) -> bool {
+        use crate::velostream::sql::ast::StreamSource;
+
+        match source {
+            StreamSource::Stream(_) => true,
+            StreamSource::Table(_) => false,
+            StreamSource::Uri(uri) => {
+                // For URI sources, use heuristics based on common naming patterns
+                uri.ends_with("_stream")
+                    || uri.ends_with("_events")
+                    || uri.contains("stream")
+                    || uri.ends_with("_feed")
+                    || uri.ends_with("_log")
+            }
+            StreamSource::Subquery(_) => {
+                // Subqueries could be either stream or table-like,
+                // assume table-like for conservative performance warnings
+                false
+            }
+        }
+    }
+
+    fn check_other_performance_patterns(&self, result: &mut QueryValidationResult) {
+        let query_text = &result.query_text;
 
         if query_text.contains("ORDER BY") && !query_text.contains("LIMIT") {
             result

@@ -24,6 +24,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Add 30 minute timeout for entire job
 
     services:
       kafka:
@@ -87,21 +88,38 @@ jobs:
 
     - name: Run integration tests
       id: integration-tests
+      timeout-minutes: 15  # Add 15 minute timeout for integration tests
       run: |
         echo "🧪 Running integration test suite..."
 
-        # Run integration tests with proper error handling
-        cargo test integration --no-default-features -- --nocapture > integration_results.txt 2>&1 || {
-          echo "❌ Integration tests failed"
-          cat integration_results.txt
+        # Run integration tests with proper error handling and timeout
+        echo "🧪 Starting integration tests at $(date)"
+        echo "Command: cargo test integration --no-default-features -- --nocapture"
+        echo "Timeout: 15 minutes (900 seconds)"
+        echo "=================="
 
-          # Extract failure information
-          FAILED=$(grep -o "[0-9]* failed" integration_results.txt | grep -o "[0-9]*" | head -1 || echo "1")
-          PASSED=$(grep -o "test result:.* [0-9]* passed" integration_results.txt | grep -o "[0-9]* passed" | grep -o "[0-9]*" | head -1 || echo "0")
+        timeout 900 cargo test integration --no-default-features -- --nocapture 2>&1 | tee integration_results.txt || {
+          EXIT_CODE=$?
+          echo "❌ Integration tests failed with exit code: $EXIT_CODE"
 
-          echo "status=failed" >> $GITHUB_OUTPUT
-          echo "passed=${PASSED}" >> $GITHUB_OUTPUT
-          echo "failed=${FAILED}" >> $GITHUB_OUTPUT
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "⏰ Integration tests timed out after 15 minutes"
+            echo "This likely indicates hanging tests or infinite loops"
+            echo "status=timeout" >> $GITHUB_OUTPUT
+            echo "passed=0" >> $GITHUB_OUTPUT
+            echo "failed=1" >> $GITHUB_OUTPUT
+          else
+            echo "💥 Integration tests failed"
+            cat integration_results.txt
+
+            # Extract failure information
+            FAILED=$(grep -o "[0-9]* failed" integration_results.txt | grep -o "[0-9]*" | head -1 || echo "1")
+            PASSED=$(grep -o "test result:.* [0-9]* passed" integration_results.txt | grep -o "[0-9]* passed" | grep -o "[0-9]*" | head -1 || echo "0")
+
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "passed=${PASSED}" >> $GITHUB_OUTPUT
+            echo "failed=${FAILED}" >> $GITHUB_OUTPUT
+          fi
           exit 1
         }
 
@@ -131,7 +149,8 @@ jobs:
         echo "status=passed" >> $GITHUB_OUTPUT
         echo "passed=${PASSED}" >> $GITHUB_OUTPUT
         echo "failed=${FAILED}" >> $GITHUB_OUTPUT
-        echo "✅ Integration tests passed: ${PASSED} passed, ${FAILED} failed"
+        echo "✅ Integration tests completed successfully at $(date)"
+        echo "📊 Results: ${PASSED} passed, ${FAILED} failed"
 
       env:
         KAFKA_BROKERS: localhost:9092
@@ -139,13 +158,17 @@ jobs:
 
     - name: Build and test SQL server
       run: |
-        echo "🏗️ Building velo-sql-multi binary..."
+        echo "🏗️ Building velo-sql-multi binary at $(date)..."
         cargo build --release --bin velo-sql-multi --no-default-features
+        echo "✅ velo-sql-multi binary built successfully"
 
-        echo "🧪 Testing multi-job SQL server..."
+        echo "🧪 Testing multi-job SQL server at $(date)..."
+        echo "Command: cargo test multi_job::sql_server_test --no-default-features -- --nocapture"
+        echo "Timeout: 60 seconds"
         timeout 60 cargo test multi_job::sql_server_test --no-default-features -- --nocapture || {
-          echo "⚠️ SQL server test timed out (expected in CI)"
+          echo "⚠️ SQL server test timed out after 60 seconds (expected in CI)"
         }
+        echo "✅ SQL server test completed"
 
       env:
         KAFKA_BROKERS: localhost:9092
@@ -153,11 +176,21 @@ jobs:
 
     - name: Build examples
       run: |
-        echo "🏗️ Building examples..."
+        echo "🏗️ Building examples at $(date)..."
+
+        echo "Building builder_configuration example..."
         cargo build --example builder_configuration --no-default-features
+        echo "✅ builder_configuration built"
+
+        echo "Building consumer_with_headers example..."
         cargo build --example consumer_with_headers --no-default-features
+        echo "✅ consumer_with_headers built"
+
+        echo "Building fluent_api_example..."
         cargo build --example fluent_api_example --no-default-features
-        echo "✅ All examples built successfully"
+        echo "✅ fluent_api_example built"
+
+        echo "✅ All examples built successfully at $(date)"
 
     - name: Set integration results output
       id: integration-results
@@ -177,6 +210,7 @@ jobs:
   report-integration-results:
     name: Report Integration Results
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # Add timeout for reporting job
     needs: [integration-tests]
     if: always() && github.event_name == 'pull_request'
 
@@ -192,13 +226,13 @@ jobs:
           } catch (e) {
             results = {status: "failed", passed: "0", failed: "1"};
           }
-          const status = results.status === 'passed' ? '✅' : '❌';
-          const needsReview = results.status === 'failed';
+          const status = results.status === 'passed' ? '✅' : results.status === 'timeout' ? '⏰' : '❌';
+          const needsReview = results.status === 'failed' || results.status === 'timeout';
 
           const comment = `## 🔗 Integration Test Results ${status}
 
           ### Test Summary
-          - **Status**: ${results.status === 'passed' ? '✅ All integration tests passed' : '❌ Some integration tests failed'}
+          - **Status**: ${results.status === 'passed' ? '✅ All integration tests passed' : results.status === 'timeout' ? '⏰ Integration tests timed out' : '❌ Some integration tests failed'}
           - **Passed**: ${results.passed} tests
           - **Failed**: ${results.failed} tests
 
@@ -208,7 +242,9 @@ jobs:
           - **Examples**: ${results.failed === '0' ? '✅ All compile' : '⚠️ Check required'}
 
           ${needsReview ?
-            '🚨 **Action Required**: Integration tests failed. Please review the [workflow logs](${context.payload.pull_request.html_url}/checks) for details.' :
+            results.status === 'timeout' ?
+              '⏰ **Action Required**: Integration tests timed out after 15 minutes. This indicates hanging tests or infinite loops. Please review the [workflow logs](${context.payload.pull_request.html_url}/checks) for details.' :
+              '🚨 **Action Required**: Integration tests failed. Please review the [workflow logs](${context.payload.pull_request.html_url}/checks) for details.' :
             '✅ **Ready for Integration** - All systems working correctly.'}
 
           View detailed results in the [workflow run](${context.payload.pull_request.html_url}/checks).`;

@@ -19,7 +19,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 // SqlQueryable removed - using UnifiedTable only
 use async_trait::async_trait;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
@@ -156,6 +156,9 @@ impl MockTable {
 
 #[async_trait]
 impl UnifiedTable for MockTable {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         // For testing, try to parse an index from the key
         if let Some(index_str) = key.strip_prefix(&format!("{}_", self.name)) {

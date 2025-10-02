@@ -549,6 +549,19 @@ impl BuiltinFunctions {
                 let multiplier = 10_f64.powi(precision);
                 Ok(FieldValue::Float((f * multiplier).round() / multiplier))
             }
+            FieldValue::ScaledInteger(value, scale) => {
+                // For ScaledInteger, precision parameter refers to decimal places
+                // If precision >= current scale, no rounding needed
+                if precision >= scale as i32 {
+                    return Ok(FieldValue::ScaledInteger(value, scale));
+                }
+
+                // Round to fewer decimal places
+                let scale_diff = scale as i32 - precision;
+                let divisor = 10i64.pow(scale_diff as u32);
+                let rounded = (value as f64 / divisor as f64).round() as i64 * divisor;
+                Ok(FieldValue::ScaledInteger(rounded, scale))
+            }
             FieldValue::Integer(i) => Ok(FieldValue::Integer(i)), // Integers don't need rounding
             FieldValue::Null => Ok(FieldValue::Null),
             _ => Err(SqlError::ExecutionError {

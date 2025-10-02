@@ -379,8 +379,9 @@ impl SelectProcessor {
             // Handle JOINs first (if any)
             let mut joined_record = record.clone();
             if let Some(join_clauses) = joins {
+                let join_processor = JoinProcessor::new();
                 joined_record =
-                    JoinProcessor::process_joins(&joined_record, join_clauses, context)?;
+                    join_processor.process_joins(&joined_record, join_clauses, context)?;
             }
 
             // Set correlation context for subquery resolution
@@ -1773,8 +1774,8 @@ impl CorrelationContext {
     }
 }
 
-/// Pre-compiled regex for table.column pattern matching (performance optimization)
 lazy_static::lazy_static! {
+    /// Pre-compiled regex for table.column pattern matching (performance optimization)
     static ref TABLE_COLUMN_PATTERN: regex::Regex = regex::Regex::new(
         r"([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)"
     ).expect("Failed to compile table.column regex pattern");

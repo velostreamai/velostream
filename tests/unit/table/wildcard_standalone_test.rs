@@ -10,7 +10,7 @@ use velostream::velostream::sql::execution::types::FieldValue;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, StreamRecord as StreamingRecord, StreamResult,
+    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
 use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
 
@@ -56,6 +56,9 @@ impl TestWildcardSource {
 
 #[async_trait]
 impl UnifiedTable for TestWildcardSource {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn get_record(&self, key: &str) -> TableResult<Option<HashMap<String, FieldValue>>> {
         if let Some(value) = self.records.get(key) {
             let mut record = HashMap::new();

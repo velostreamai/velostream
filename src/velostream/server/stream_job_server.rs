@@ -250,7 +250,7 @@ impl StreamJobServer {
         let parser = StreamingSqlParser::new();
         let parsed_query = parser.parse(&query)?;
 
-        // Extract table dependencies and ensure they exist
+        // Extract table dependencies and ensure they exist AND ARE READY
         let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
         if !required_tables.is_empty() {
             info!("Job '{}' requires tables: {:?}", name, required_tables);
@@ -275,7 +275,44 @@ impl StreamJobServer {
                 });
             }
 
-            info!("Job '{}': All required tables exist in registry", name);
+            info!(
+                "Job '{}': All required tables exist, waiting for them to be ready...",
+                name
+            );
+
+            // CRITICAL: Wait for ALL tables to be fully loaded before starting the stream
+            // This prevents missing enrichment data and ensures data consistency
+            let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
+
+            match self
+                .table_registry
+                .wait_for_tables_ready(&required_tables, table_ready_timeout)
+                .await
+            {
+                Ok(table_statuses) => {
+                    info!(
+                        "Job '{}': All {} tables are ready!",
+                        name,
+                        table_statuses.len()
+                    );
+                    for (table_name, status) in table_statuses {
+                        info!("  Table '{}': {:?}", table_name, status);
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Job '{}': Failed waiting for tables to be ready: {}",
+                        name, e
+                    );
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",
+                            name, table_ready_timeout, e
+                        ),
+                        query: Some(query),
+                    });
+                }
+            }
         } else {
             info!("Job '{}' has no table dependencies", name);
         }

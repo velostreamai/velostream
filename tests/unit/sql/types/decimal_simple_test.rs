@@ -66,10 +66,10 @@ mod decimal_simple_tests {
                         match first_field {
                             SelectField::Expression { expr, .. } => {
                                 match expr {
-                                    Expr::Literal(LiteralValue::Float(value)) => {
-                                        assert!((value - 123.45).abs() < f64::EPSILON);
+                                    Expr::Literal(LiteralValue::Decimal(value)) => {
+                                        assert_eq!(value, "123.45");
                                     }
-                                    _ => panic!("Expected float literal (decimal numbers parse as Float), got: {:?}", expr),
+                                    _ => panic!("Expected Decimal literal (decimal numbers now parse as Decimal for exact precision), got: {:?}", expr),
                                 }
                             }
                             _ => panic!("Expected expression field, got: {:?}", first_field),

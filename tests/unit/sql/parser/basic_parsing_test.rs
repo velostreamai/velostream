@@ -224,9 +224,9 @@ mod tests {
                     assert!(matches!(expr, Expr::Literal(LiteralValue::Integer(42))));
                 }
 
-                // Check second field (float - decimal numbers are parsed as Float for backward compatibility)
+                // Check second field (decimal - decimal numbers are now parsed as Decimal for exact precision)
                 if let SelectField::Expression { expr, .. } = &fields[1] {
-                    assert!(matches!(expr, Expr::Literal(LiteralValue::Float(_))));
+                    assert!(matches!(expr, Expr::Literal(LiteralValue::Decimal(_))));
                 }
 
                 // Check third field (integer zero)

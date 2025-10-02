@@ -17,6 +17,10 @@ pub mod processors;
 // Utility tests
 pub mod utils;
 
+// Phase 1A: Streaming tests
+// TODO: Fix compilation errors - tests unimplemented FR-058 features
+// pub mod phase_1a_streaming_test;
+
 // Phase 1B: Time Semantics & Watermarks tests
 pub mod phase_1b_watermarks_test;
 
