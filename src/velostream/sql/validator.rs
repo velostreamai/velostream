@@ -91,6 +91,8 @@ pub struct SqlValidator {
     with_clause_parser: WithClauseParser,
     strict_mode: bool,
     pub check_performance: bool,
+    errors: std::cell::RefCell<Vec<ValidationError>>,
+    warnings: std::cell::RefCell<Vec<ValidationError>>,
 }
 
 impl SqlValidator {
@@ -102,6 +104,8 @@ impl SqlValidator {
             with_clause_parser: WithClauseParser::new(),
             strict_mode: false,
             check_performance: true,
+            errors: std::cell::RefCell::new(Vec::new()),
+            warnings: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -113,7 +117,412 @@ impl SqlValidator {
             with_clause_parser: WithClauseParser::new(),
             strict_mode: true,
             check_performance: true,
+            errors: std::cell::RefCell::new(Vec::new()),
+            warnings: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// Validate a StreamingQuery AST node
+    pub fn validate(&self, query: &StreamingQuery) {
+        // Clear previous errors/warnings
+        self.errors.borrow_mut().clear();
+        self.warnings.borrow_mut().clear();
+
+        match query {
+            StreamingQuery::CreateTable {
+                name,
+                as_select,
+                properties,
+                emit_mode,
+                ..
+            } => {
+                self.validate_create_table(name, as_select, properties, emit_mode);
+            }
+            StreamingQuery::CreateStream {
+                name,
+                as_select,
+                properties,
+                emit_mode,
+                ..
+            } => {
+                self.validate_create_stream(name, as_select, properties, emit_mode);
+            }
+            StreamingQuery::CreateTableInto {
+                name,
+                as_select,
+                properties,
+                emit_mode,
+                ..
+            } => {
+                self.validate_create_table_with_properties(name, as_select, properties, emit_mode);
+            }
+            StreamingQuery::CreateStreamInto {
+                name,
+                as_select,
+                properties,
+                emit_mode,
+                ..
+            } => {
+                self.validate_create_stream_with_properties(name, as_select, properties, emit_mode);
+            }
+            _ => {
+                // Other query types - basic validation
+                self.validate_inner_select(query);
+            }
+        }
+    }
+
+    /// Get collected errors
+    pub fn errors(&self) -> Vec<ValidationError> {
+        self.errors.borrow().clone()
+    }
+
+    /// Get collected warnings
+    pub fn warnings(&self) -> Vec<ValidationError> {
+        self.warnings.borrow().clone()
+    }
+
+    /// Clear all errors and warnings
+    fn clear_errors_warnings(&self) {
+        self.errors.borrow_mut().clear();
+        self.warnings.borrow_mut().clear();
+    }
+
+    /// Add an error
+    fn add_error(&self, message: String) {
+        self.errors.borrow_mut().push(ValidationError {
+            message,
+            line: None,
+            column: None,
+            severity: ErrorSeverity::Error,
+        });
+    }
+
+    /// Add a warning
+    fn add_warning(&self, message: String) {
+        self.warnings.borrow_mut().push(ValidationError {
+            message,
+            line: None,
+            column: None,
+            severity: ErrorSeverity::Warning,
+        });
+    }
+
+    /// Validate CREATE TABLE statement
+    fn validate_create_table(
+        &self,
+        name: &str,
+        as_select: &StreamingQuery,
+        properties: &HashMap<String, String>,
+        emit_mode: &Option<crate::velostream::sql::ast::EmitMode>,
+    ) {
+        use crate::velostream::sql::ast::EmitMode;
+
+        // Validate table name
+        self.validate_table_stream_name(name, "Table");
+
+        // Validate properties
+        self.validate_ctas_properties(properties);
+
+        // Validate EMIT mode compatibility
+        if let Some(EmitMode::Final) = emit_mode {
+            // Check if inner SELECT has a window
+            if !self.has_window_clause(as_select) {
+                self.add_warning(
+                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                );
+            }
+        }
+
+        // Validate inner SELECT for aggregations
+        self.validate_aggregation_rules(as_select);
+
+        // Check for memory warnings based on properties
+        self.validate_memory_configuration(properties);
+
+        // Recursively validate inner SELECT
+        self.validate_inner_select(as_select);
+    }
+
+    /// Validate CREATE STREAM statement
+    fn validate_create_stream(
+        &self,
+        name: &str,
+        as_select: &StreamingQuery,
+        properties: &HashMap<String, String>,
+        emit_mode: &Option<crate::velostream::sql::ast::EmitMode>,
+    ) {
+        use crate::velostream::sql::ast::EmitMode;
+
+        // Validate stream name
+        self.validate_table_stream_name(name, "Stream");
+
+        // Validate EMIT mode compatibility
+        if let Some(EmitMode::Final) = emit_mode {
+            if !self.has_window_clause(as_select) {
+                self.add_warning(
+                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                );
+            }
+        }
+
+        // Validate inner SELECT for aggregations
+        self.validate_aggregation_rules(as_select);
+
+        // Recursively validate inner SELECT
+        self.validate_inner_select(as_select);
+    }
+
+    /// Validate CREATE TABLE with INTO clause
+    fn validate_create_table_with_properties(
+        &self,
+        name: &str,
+        as_select: &StreamingQuery,
+        properties: &crate::velostream::sql::ast::ConfigProperties,
+        emit_mode: &Option<crate::velostream::sql::ast::EmitMode>,
+    ) {
+        use crate::velostream::sql::ast::EmitMode;
+
+        // Validate table name
+        self.validate_table_stream_name(name, "Table");
+
+        // Validate inline properties
+        self.validate_ctas_properties(&properties.inline_properties);
+
+        // Validate EMIT mode
+        if let Some(EmitMode::Final) = emit_mode {
+            if !self.has_window_clause(as_select) {
+                self.add_warning(
+                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                );
+            }
+        }
+
+        // Validate aggregations
+        self.validate_aggregation_rules(as_select);
+
+        // Recursively validate inner SELECT
+        self.validate_inner_select(as_select);
+    }
+
+    /// Validate CREATE STREAM with INTO clause
+    fn validate_create_stream_with_properties(
+        &self,
+        name: &str,
+        as_select: &StreamingQuery,
+        properties: &crate::velostream::sql::ast::ConfigProperties,
+        emit_mode: &Option<crate::velostream::sql::ast::EmitMode>,
+    ) {
+        use crate::velostream::sql::ast::EmitMode;
+
+        // Validate stream name
+        self.validate_table_stream_name(name, "Stream");
+
+        // Validate EMIT mode
+        if let Some(EmitMode::Final) = emit_mode {
+            if !self.has_window_clause(as_select) {
+                self.add_warning(
+                    "EMIT FINAL without WINDOW clause - results may not be meaningful without windowing".to_string()
+                );
+            }
+        }
+
+        // Validate aggregations
+        self.validate_aggregation_rules(as_select);
+
+        // Recursively validate inner SELECT
+        self.validate_inner_select(as_select);
+    }
+
+    /// Validate table or stream name
+    fn validate_table_stream_name(&self, name: &str, entity_type: &str) {
+        // Check for empty or whitespace-only names
+        if name.trim().is_empty() {
+            self.add_error(format!("{} name cannot be empty or whitespace-only", entity_type));
+            return;
+        }
+
+        // Check for potentially invalid characters
+        let has_special_chars = name.contains('-')
+            || name.contains(' ')
+            || name.contains('.')
+            || name.contains('@');
+
+        if has_special_chars {
+            self.add_warning(format!(
+                "{} name '{}' contains special characters that may cause issues",
+                entity_type, name
+            ));
+        }
+
+        // Check if name starts with a number
+        if name.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            self.add_warning(format!(
+                "{} name '{}' starts with a number - this may cause parsing issues",
+                entity_type, name
+            ));
+        }
+    }
+
+    /// Validate CTAS/CSAS properties
+    fn validate_ctas_properties(&self, properties: &HashMap<String, String>) {
+        // Validate table_model
+        if let Some(table_model) = properties.get("table_model") {
+            if table_model != "normal" && table_model != "compact" {
+                self.add_error(format!(
+                    "Invalid table_model '{}'. Must be 'normal' or 'compact'",
+                    table_model
+                ));
+            }
+        }
+
+        // Validate retention format
+        if let Some(retention) = properties.get("retention") {
+            if !self.is_valid_retention_format(retention) {
+                self.add_error(format!(
+                    "Invalid retention format '{}'. Expected format: '7 days', '24 hours', etc.",
+                    retention
+                ));
+            }
+        }
+
+        // Validate compression
+        if let Some(compression) = properties.get("compression") {
+            let valid_compressions = ["snappy", "gzip", "zstd", "lz4"];
+            if !valid_compressions.contains(&compression.as_str()) {
+                self.add_error(format!(
+                    "Invalid compression '{}'. Must be one of: {}",
+                    compression,
+                    valid_compressions.join(", ")
+                ));
+            }
+        }
+
+        // Validate kafka.batch.size
+        if let Some(batch_size) = properties.get("kafka.batch.size") {
+            if batch_size.parse::<usize>().is_err() {
+                self.add_error(format!(
+                    "Invalid kafka.batch.size '{}'. Must be an integer",
+                    batch_size
+                ));
+            }
+        }
+    }
+
+    /// Check if retention format is valid
+    fn is_valid_retention_format(&self, retention: &str) -> bool {
+        // Simple validation: should contain a number followed by a time unit
+        let parts: Vec<&str> = retention.split_whitespace().collect();
+        if parts.len() != 2 {
+            return false;
+        }
+
+        // Check if first part is a number
+        if parts[0].parse::<u64>().is_err() {
+            return false;
+        }
+
+        // Check if second part is a valid time unit
+        let valid_units = ["day", "days", "hour", "hours", "minute", "minutes", "second", "seconds"];
+        valid_units.contains(&parts[1])
+    }
+
+    /// Validate memory configuration
+    fn validate_memory_configuration(&self, properties: &HashMap<String, String>) {
+        let retention = properties.get("retention");
+        let table_model = properties.get("table_model");
+
+        // Check for long retention without compact model
+        if let Some(retention_str) = retention {
+            if let Some(days) = self.parse_retention_days(retention_str) {
+                if days > 30 && table_model.map_or(true, |m| m == "normal") {
+                    self.add_warning(
+                        format!(
+                            "Long retention ({}) with 'normal' table model may cause high memory usage. Consider using 'table_model' = 'compact'",
+                            retention_str
+                        )
+                    );
+                }
+            }
+        }
+    }
+
+    /// Parse retention string to days
+    fn parse_retention_days(&self, retention: &str) -> Option<u64> {
+        let parts: Vec<&str> = retention.split_whitespace().collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let value = parts[0].parse::<u64>().ok()?;
+        let unit = parts[1];
+
+        match unit {
+            "day" | "days" => Some(value),
+            "hour" | "hours" => Some(value / 24),
+            "minute" | "minutes" => Some(value / (24 * 60)),
+            _ => None,
+        }
+    }
+
+    /// Check if query has a window clause
+    fn has_window_clause(&self, query: &StreamingQuery) -> bool {
+        match query {
+            StreamingQuery::Select { window, .. } => window.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Validate aggregation rules
+    fn validate_aggregation_rules(&self, query: &StreamingQuery) {
+        use crate::velostream::sql::ast::SelectField;
+
+        match query {
+            StreamingQuery::Select {
+                fields, group_by, ..
+            } => {
+                // Check if any field uses aggregation functions
+                let has_aggregation = fields.iter().any(|field| {
+                    if let SelectField::Expression { expr, .. } = field {
+                        self.is_aggregation_expr(expr)
+                    } else {
+                        false
+                    }
+                });
+
+                // If aggregation is used without GROUP BY, warn
+                if has_aggregation && group_by.is_none() {
+                    self.add_warning(
+                        "Aggregation functions used without GROUP BY clause - this creates a global aggregation".to_string()
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if expression contains aggregation functions
+    fn is_aggregation_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Function { name, .. } => {
+                let name_upper = name.to_uppercase();
+                matches!(
+                    name_upper.as_str(),
+                    "COUNT" | "SUM" | "AVG" | "MIN" | "MAX"
+                )
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.is_aggregation_expr(left) || self.is_aggregation_expr(right)
+            }
+            _ => false,
+        }
+    }
+
+    /// Validate inner SELECT query
+    fn validate_inner_select(&self, query: &StreamingQuery) {
+        // This would recursively validate the inner SELECT
+        // For now, we just check basic structure
+        // More complex validation can be added later
     }
 
     /// Validate SQL content from string - main integration point for StreamJobServer
