@@ -11,6 +11,12 @@ Implement an in-memory data source and sink architecture that enables zero-copy,
 
 ## Motivation
 
+Velostream’s in-memory source/sink layer introduces a process-local streaming fabric — a zero-copy, bounded, back-pressured memory bus that connects SQL queries (CSAS / CTAS) directly without external brokers or files.
+
+Unlike Kafka, which externalizes every stream boundary, or Flink, which couples operator networks into a single DAG, Velostream’s design allows SQL-defined pipelines to communicate via lightweight in-process topics, providing the composability of Kafka with the latency of shared memory.
+
+This makes it uniquely suited for ultra-low-latency pipelines, AI feature extraction, and financial analytics, where intra-pipeline roundtrips below 100µs enable entirely new use cases — such as real-time joins, sliding aggregations, and anomaly detection directly on live streams.
+
 ### Problem Statement
 
 Current Velostream deployments require external systems (Kafka, Files) to link query stages together:
@@ -110,6 +116,119 @@ INTO kafka_enriched;
 | **Memory overhead** | 2x (ser+deser) | 1x (native) | **50%** |
 
 ## Design
+
+### Memory Visibility and Concurrency Model
+
+**Explicit Guarantees:**
+
+The in-memory channel system is designed for **multi-threaded, MPMC (Multiple Producer Multiple Consumer) parallel execution** within a single Velostream process. Channels are NOT process-local or query-local — they are **process-global** and thread-safe.
+
+#### Visibility Scope
+
+| Scope | Visible | Use Case |
+|-------|---------|----------|
+| **Across threads** | ✅ Yes | Multiple SQL queries execute on thread pool |
+| **Across async tasks** | ✅ Yes | Each query stage runs as async task |
+| **Across queries** | ✅ Yes | Query 1 writes, Query 2 reads |
+| **Across processes** | ❌ No (V1) | Use Kafka for multi-process |
+| **Across machines** | ❌ No | Use Kafka for distributed |
+
+#### Concurrency Semantics
+
+```rust
+// Channel is Arc-wrapped and shared across the entire process
+pub struct InMemoryChannel {
+    name: String,
+    queue: Arc<SegQueue<Arc<StreamRecord>>>,  // Lock-free MPMC
+    // ... other fields
+}
+
+// Global registry provides process-wide visibility
+static CHANNEL_REGISTRY: Lazy<InMemoryChannelRegistry> = Lazy::new(|| {
+    InMemoryChannelRegistry::new()
+});
+```
+
+**Threading Model:**
+
+1. **Producer threads**: Multiple queries can write to same channel concurrently
+   - Lock-free push operations via `crossbeam::SegQueue`
+   - No coordination required between producers
+   - Each `write()` is atomic and thread-safe
+
+2. **Consumer threads**: Multiple queries can read from same channel concurrently
+   - Consumer groups provide partitioning for load balancing
+   - Each consumer group sees all records (broadcast)
+   - Within a consumer group, records are distributed (round-robin/hash-based)
+
+3. **Async task isolation**: Each SQL query executes as independent async task
+   - Queries run on tokio thread pool (typically N cores)
+   - Channel operations are `async fn` for back-pressure
+   - `Arc<StreamRecord>` allows zero-copy sharing across tasks
+
+**Example: Parallel Execution**
+
+```rust
+// Three queries running in parallel on thread pool
+
+// Query 1 (Thread Pool Worker 1)
+tokio::spawn(async move {
+    loop {
+        let record = source.read().await?;
+        channel.write(Arc::new(transform(record))).await?;  // ← Thread-safe write
+    }
+});
+
+// Query 2 (Thread Pool Worker 2)
+tokio::spawn(async move {
+    loop {
+        let record = channel.read(Some("group-1")).await?;  // ← Thread-safe read
+        process(record);
+    }
+});
+
+// Query 3 (Thread Pool Worker 3)
+tokio::spawn(async move {
+    loop {
+        let record = channel.read(Some("group-2")).await?;  // ← Independent read
+        analyze(record);
+    }
+});
+```
+
+**Not Intra-Query:**
+
+Channels are **NOT** limited to single query scope. They are explicitly designed for **inter-query communication**:
+
+```sql
+-- Query 1: Writes to channel (runs on worker thread 1)
+CREATE STREAM producer AS
+SELECT * FROM kafka_source
+INTO memory_channel;
+
+-- Query 2: Reads from same channel (runs on worker thread 2)
+CREATE STREAM consumer AS
+SELECT * FROM memory_channel
+WHERE amount > 100
+INTO file_output;
+```
+
+Both queries execute **concurrently** on different threads, coordinating via the shared `memory_channel`.
+
+**Safety Guarantees:**
+
+- **Memory safety**: Rust ownership + `Arc` prevents data races
+- **MPMC correctness**: Lock-free queue guarantees consistency
+- **No data loss**: Bounded queue with back-pressure (not drop)
+- **Ordering**: FIFO per partition (within consumer group)
+- **Atomicity**: Each `write()`/`read()` is atomic operation
+
+**When NOT to Use:**
+
+- **Cross-process communication** → Use Kafka (network boundaries)
+- **Durable storage** → Use Kafka/File (persistence required)
+- **Very large buffers** → Use Kafka (disk-backed)
+- **Multi-machine clusters** → Use Kafka (distributed architecture)
 
 ### Architecture Overview
 
