@@ -338,15 +338,16 @@ impl SqlValidator {
     fn validate_table_stream_name(&self, name: &str, entity_type: &str) {
         // Check for empty or whitespace-only names
         if name.trim().is_empty() {
-            self.add_error(format!("{} name cannot be empty or whitespace-only", entity_type));
+            self.add_error(format!(
+                "{} name cannot be empty or whitespace-only",
+                entity_type
+            ));
             return;
         }
 
         // Check for potentially invalid characters
-        let has_special_chars = name.contains('-')
-            || name.contains(' ')
-            || name.contains('.')
-            || name.contains('@');
+        let has_special_chars =
+            name.contains('-') || name.contains(' ') || name.contains('.') || name.contains('@');
 
         if has_special_chars {
             self.add_warning(format!(
@@ -423,7 +424,9 @@ impl SqlValidator {
         }
 
         // Check if second part is a valid time unit
-        let valid_units = ["day", "days", "hour", "hours", "minute", "minutes", "second", "seconds"];
+        let valid_units = [
+            "day", "days", "hour", "hours", "minute", "minutes", "second", "seconds",
+        ];
         valid_units.contains(&parts[1])
     }
 
@@ -506,10 +509,7 @@ impl SqlValidator {
         match expr {
             Expr::Function { name, .. } => {
                 let name_upper = name.to_uppercase();
-                matches!(
-                    name_upper.as_str(),
-                    "COUNT" | "SUM" | "AVG" | "MIN" | "MAX"
-                )
+                matches!(name_upper.as_str(), "COUNT" | "SUM" | "AVG" | "MIN" | "MAX")
             }
             Expr::BinaryOp { left, right, .. } => {
                 self.is_aggregation_expr(left) || self.is_aggregation_expr(right)

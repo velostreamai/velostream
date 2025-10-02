@@ -8,7 +8,7 @@
 //! - Memory usage warnings
 
 use std::collections::HashMap;
-use velostream::velostream::sql::ast::{EmitMode, StreamingQuery, SelectField, StreamSource, Expr};
+use velostream::velostream::sql::ast::{EmitMode, Expr, SelectField, StreamSource, StreamingQuery};
 use velostream::velostream::sql::validator::SqlValidator;
 
 // Helper to create a basic SELECT query
@@ -372,15 +372,13 @@ fn test_aggregation_without_group_by_warning() {
         name: "orders_table".to_string(),
         columns: None,
         as_select: Box::new(StreamingQuery::Select {
-            fields: vec![
-                SelectField::Expression {
-                    expr: Expr::Function {
-                        name: "COUNT".to_string(),
-                        args: vec![Expr::Column("*".to_string())],
-                    },
-                    alias: Some("total_count".to_string()),
+            fields: vec![SelectField::Expression {
+                expr: Expr::Function {
+                    name: "COUNT".to_string(),
+                    args: vec![Expr::Column("*".to_string())],
                 },
-            ],
+                alias: Some("total_count".to_string()),
+            }],
             from: StreamSource::Stream("orders_stream".to_string()),
             from_alias: None,
             joins: None,

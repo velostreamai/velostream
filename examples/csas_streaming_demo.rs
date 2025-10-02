@@ -47,11 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("================================\n");
 
     // Create StreamJobServer
-    let server = StreamJobServer::new(
-        "localhost:9092".to_string(),
-        "csas-demo".to_string(),
-        10,
-    );
+    let server = StreamJobServer::new("localhost:9092".to_string(), "csas-demo".to_string(), 10);
 
     println!("📊 Created StreamJobServer for CSAS operations\n");
 
@@ -82,12 +78,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Memory: Minimal - only processes current batch");
     println!("Output: Kafka topic 'fraud_alerts' with suspicious transactions\n");
 
-    match server.deploy_job(
-        "fraud_alerts".to_string(),
-        "v1".to_string(),
-        fraud_alerts_csas.to_string(),
-        "transactions".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "fraud_alerts".to_string(),
+            "v1".to_string(),
+            fraud_alerts_csas.to_string(),
+            "transactions".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Fraud alerts stream deployed successfully"),
         Err(e) => println!("⚠️  Expected error (Kafka not running): {}", e),
     }
@@ -118,12 +117,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Use Case: Priority processing, VIP customer service");
     println!("Output: Kafka topic 'high_value_orders'\n");
 
-    match server.deploy_job(
-        "high_value_orders".to_string(),
-        "v1".to_string(),
-        high_value_orders_csas.to_string(),
-        "orders".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "high_value_orders".to_string(),
+            "v1".to_string(),
+            high_value_orders_csas.to_string(),
+            "orders".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ High-value orders stream deployed"),
         Err(e) => println!("⚠️  Expected error: {}", e),
     }
@@ -150,12 +152,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Step 1: Create customers lookup table (CTAS)");
     println!("SQL:\n{}\n", customers_table_ctas);
 
-    match server.deploy_job(
-        "customers".to_string(),
-        "v1".to_string(),
-        customers_table_ctas.to_string(),
-        "customers_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "customers".to_string(),
+            "v1".to_string(),
+            customers_table_ctas.to_string(),
+            "customers_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Created customers table"),
         Err(e) => println!("⚠️  Expected error: {}", e),
     }
@@ -190,12 +195,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Pattern: Table (CTAS) for lookups + Stream (CSAS) for forwarding");
     println!("Output: Enriched orders with customer details\n");
 
-    match server.deploy_job(
-        "enriched_orders".to_string(),
-        "v1".to_string(),
-        enriched_orders_csas.to_string(),
-        "orders".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "enriched_orders".to_string(),
+            "v1".to_string(),
+            enriched_orders_csas.to_string(),
+            "orders".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Enriched orders stream deployed"),
         Err(e) => println!("⚠️  Expected error: {}", e),
     }
@@ -229,12 +237,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Use Case: Metrics forwarding to monitoring systems");
     println!("Output: 5-minute aggregated metrics per category\n");
 
-    match server.deploy_job(
-        "order_metrics_stream".to_string(),
-        "v1".to_string(),
-        metrics_stream_csas.to_string(),
-        "orders".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "order_metrics_stream".to_string(),
+            "v1".to_string(),
+            metrics_stream_csas.to_string(),
+            "orders".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Metrics stream deployed"),
         Err(e) => println!("⚠️  Expected error: {}", e),
     }
@@ -296,12 +307,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("eu_orders", eu_orders_csas),
         ("asia_orders", asia_orders_csas),
     ] {
-        match server.deploy_job(
-            name.to_string(),
-            "v1".to_string(),
-            csas.to_string(),
-            "orders".to_string(),
-        ).await {
+        match server
+            .deploy_job(
+                name.to_string(),
+                "v1".to_string(),
+                csas.to_string(),
+                "orders".to_string(),
+            )
+            .await
+        {
             Ok(_) => println!("✅ {} stream deployed", name),
             Err(e) => println!("⚠️  Expected error for {}: {}", name, e),
         }
@@ -335,12 +349,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Use Case: Format standardization, schema enforcement");
     println!("Output: Avro-encoded orders in orders_avro_topic\n");
 
-    match server.deploy_job(
-        "orders_avro".to_string(),
-        "v1".to_string(),
-        avro_orders_csas.to_string(),
-        "orders_json_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "orders_avro".to_string(),
+            "v1".to_string(),
+            avro_orders_csas.to_string(),
+            "orders_json_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Avro transformation stream deployed"),
         Err(e) => println!("⚠️  Expected error: {}", e),
     }

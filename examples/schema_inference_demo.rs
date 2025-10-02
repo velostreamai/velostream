@@ -34,11 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==========================================\n");
 
     // Create StreamJobServer
-    let server = StreamJobServer::new(
-        "localhost:9092".to_string(),
-        "schema-demo".to_string(),
-        10,
-    );
+    let server = StreamJobServer::new("localhost:9092".to_string(), "schema-demo".to_string(), 10);
 
     println!("📊 Created StreamJobServer\n");
 
@@ -88,12 +84,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • May include unwanted columns");
     println!("   • Less explicit about what data is being used\n");
 
-    match server.deploy_job(
-        "orders_full_inference".to_string(),
-        "v1".to_string(),
-        full_inference_ctas.to_string(),
-        "orders_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "orders_full_inference".to_string(),
+            "v1".to_string(),
+            full_inference_ctas.to_string(),
+            "orders_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Full inference table deployed\n"),
         Err(e) => println!("⚠️  Expected error (Kafka not running): {}\n", e),
     }
@@ -127,12 +126,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • Must update query when adding new columns");
     println!("   • Still relies on source for type information\n");
 
-    match server.deploy_job(
-        "orders_partial_inference".to_string(),
-        "v1".to_string(),
-        partial_inference_ctas.to_string(),
-        "orders_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "orders_partial_inference".to_string(),
+            "v1".to_string(),
+            partial_inference_ctas.to_string(),
+            "orders_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Partial inference table deployed\n"),
         Err(e) => println!("⚠️  Expected error (Kafka not running): {}\n", e),
     }
@@ -168,12 +170,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • Schema changes require code updates");
     println!("   • Slightly more development time\n");
 
-    match server.deploy_job(
-        "orders_explicit".to_string(),
-        "v1".to_string(),
-        explicit_ctas.to_string(),
-        "orders_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "orders_explicit".to_string(),
+            "v1".to_string(),
+            explicit_ctas.to_string(),
+            "orders_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Explicit schema table deployed\n"),
         Err(e) => println!("⚠️  Expected error (Kafka not running): {}\n", e),
     }
@@ -202,12 +207,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Memory: Minimal - stateless transformation");
     println!("Output: Kafka topic 'high_value_orders' with inferred types\n");
 
-    match server.deploy_job(
-        "high_value_orders_partial".to_string(),
-        "v1".to_string(),
-        partial_csas.to_string(),
-        "orders_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "high_value_orders_partial".to_string(),
+            "v1".to_string(),
+            partial_csas.to_string(),
+            "orders_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Partial inference stream deployed\n"),
         Err(e) => println!("⚠️  Expected error: {}\n", e),
     }
@@ -242,12 +250,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Type Safety: DECIMAL ensures exact financial amounts");
     println!("Documentation: Clear schema for downstream alert consumers\n");
 
-    match server.deploy_job(
-        "fraud_alerts_explicit".to_string(),
-        "v1".to_string(),
-        explicit_csas.to_string(),
-        "transactions_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "fraud_alerts_explicit".to_string(),
+            "v1".to_string(),
+            explicit_csas.to_string(),
+            "transactions_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Explicit schema stream deployed\n"),
         Err(e) => println!("⚠️  Expected error: {}\n", e),
     }
@@ -277,12 +288,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   • Aggregations get appropriate types automatically");
     println!("   • Best of both worlds - simple yet type-safe\n");
 
-    match server.deploy_job(
-        "customer_metrics".to_string(),
-        "v1".to_string(),
-        hybrid_ctas.to_string(),
-        "orders_stream".to_string(),
-    ).await {
+    match server
+        .deploy_job(
+            "customer_metrics".to_string(),
+            "v1".to_string(),
+            hybrid_ctas.to_string(),
+            "orders_stream".to_string(),
+        )
+        .await
+    {
         Ok(_) => println!("✅ Hybrid approach table deployed\n"),
         Err(e) => println!("⚠️  Expected error: {}\n", e),
     }
