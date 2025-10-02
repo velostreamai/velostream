@@ -7,13 +7,16 @@
 
 ## Summary
 
-Implement an in-memory data source and sink architecture that enables zero-copy, high-throughput data pipelines for linking CSAS (CREATE STREAM AS SELECT) and CTAS (CREATE TABLE AS SELECT) queries together. This provides a Kafka-like topic abstraction that operates entirely in memory, optimized for multi-stage stream processing with minimal latency.
+Velostream introduces a process-local streaming fabric — a zero-copy, bounded, back-pressured memory bus that connects SQL pipelines (CSAS, CTAS, and subqueries) directly inside a single runtime.
 
-## Motivation
+Unlike Kafka, which externalizes every stream boundary, or Flink, which compiles a monolithic DAG of operators, Velostream’s design allows independently defined SQL queries to communicate through lightweight, in-process channels. Each channel behaves like a stream — but it never leaves memory, never serializes, and never touches a broker.
 
-Velostream’s in-memory source/sink layer introduces a process-local streaming fabric — a zero-copy, bounded, back-pressured memory bus that connects SQL queries (CSAS / CTAS) directly without external brokers or files.
+This creates a new latency class: <100µs per stage, suitable for AI feature extraction, financial tick analytics, IoT anomaly detection, and real-time joins where every microsecond matters.
 
-Unlike Kafka, which externalizes every stream boundary, or Flink, which couples operator networks into a single DAG, Velostream’s design allows SQL-defined pipelines to communicate via lightweight in-process topics, providing the composability of Kafka with the latency of shared memory.
+By combining the composability of Kafka with the latency of shared memory, Velostream defines a new category:
+
+> The embedded streaming database — where pipelines live inside your process, not across a cluster.
+
 
 This makes it uniquely suited for ultra-low-latency pipelines, AI feature extraction, and financial analytics, where intra-pipeline roundtrips below 100µs enable entirely new use cases — such as real-time joins, sliding aggregations, and anomaly detection directly on live streams.
 
@@ -42,6 +45,22 @@ INTO file_stats_sink;
 3. **Resource waste** - Serialize data only to immediately deserialize it
 4. **Complexity** - Need to manage external topics/files for transient data
 5. **Testing friction** - Integration tests require Kafka infrastructure
+
+
+
+## Differentiation
+| Feature                  | **Velostream (In-Memory Fabric)**      | **Flink / Arroyo** | **Kafka / Materialize**  |
+| ------------------------ | -------------------------------------- | ------------------ | ------------------------ |
+| **Latency per stage**    | <100µs                                 | 1–10ms             | 10–100ms                 |
+| **Serialization**        | Zero-copy (`Arc<StreamRecord>`)        | Arrow / Protobuf   | Avro / JSON              |
+| **Deployment**           | Single Rust binary                     | JVM cluster        | External cluster         |
+| **SQL composability**    | ✅ Native (`memory://`)                 | Limited            | ❌                        |
+| **Concurrency model**    | Lock-free, async MPMC                  | Task-based DAG     | External topics          |
+| **Schema visibility**    | Shared memory structs                  | Arrow schema only  | External Avro registry   |
+| **State model**          | Row-native, window-aware               | Columnar, batchy   | None                     |
+| **Use cases**            | Sub-millisecond analytics, AI, finance | Batchy real-time   | Event integration        |
+| **Integration overhead** | Zero (in-process)                      | High (task graph)  | Very high (network hops) |
+
 
 ### Use Cases
 
@@ -780,15 +799,126 @@ Use `crossbeam::queue::SegQueue` for MPMC:
 
 ### 2. Cross-Process Support
 
-**Question**: Support channels across multiple Velostream processes?
+**Question**: Support channels across multiple Velostream processes on same host?
 
 **Options**:
-- A) Single process only
-- B) Shared memory between processes
-- C) Unix domain sockets
-- D) Use Kafka for cross-process
 
-**Recommendation**: (A) for V1, (D) for multi-process (use Kafka)
+**A) Single process only (V1 - Current)**
+- Simplest implementation
+- Lock-free MPMC in-process
+- Zero serialization overhead
+- Sufficient for most use cases
+
+**B) Unix Domain Sockets (V2 - Recommended for single-host)**
+
+Extend channel transport to support local IPC:
+
+```rust
+pub enum ChannelTransport {
+    InProcess(Arc<SegQueue<Arc<StreamRecord>>>),
+    UnixSocket(UnixStream),  // Same host, different processes
+}
+
+impl InMemoryChannel {
+    pub async fn new(name: &str, transport: ChannelTransport) -> Self {
+        match transport {
+            ChannelTransport::InProcess(queue) => {
+                // Zero-copy, lock-free (current)
+                Self::new_in_process(name, queue)
+            }
+            ChannelTransport::UnixSocket(stream) => {
+                // Fast serialization via Unix socket
+                Self::new_unix_socket(name, stream)
+            }
+        }
+    }
+}
+```
+
+**Pros**:
+- ✅ Standard POSIX (works everywhere)
+- ✅ Easy cleanup (filesystem-based)
+- ✅ Portable across Unix-like systems
+- ✅ Still very fast: ~1µs latency (vs 10ms for TCP)
+- ✅ Simpler than shared memory
+- ✅ Automatic process isolation and security
+
+**Cons**:
+- ❌ Requires serialization (no zero-copy across processes)
+- ❌ Not as fast as in-process (1µs vs 50ns)
+- ❌ Limited to single host
+- ❌ Need socket path management
+
+**C) Shared Memory (Complex)**
+- True zero-copy across processes
+- Platform-specific APIs (not portable)
+- Complex lifecycle management
+- Overkill for most use cases
+
+**D) Use Kafka for cross-process**
+- Best for multi-host distributed
+- Already implemented
+- Adds network overhead
+- Overkill for single-host
+
+**Recommendation**:
+
+**V1 (Current)**: Option A - Single process only
+- Covers 80% of use cases
+- Simplest, fastest implementation
+- Focus on lock-free in-process first
+
+**V2 (Future)**: Option B - Add Unix Domain Sockets for single-host cross-process
+- When multiple Velostream processes on same host need low-latency IPC
+- Use case: Process isolation for security/sandboxing
+- Still 100x faster than Kafka (1µs vs 10-100ms)
+- Standard and portable
+
+**V3+ (Distributed)**: Option D - Use Kafka for multi-host
+- When processes are on different machines
+- Need durability and replication
+- Can fall back to existing Kafka infrastructure
+
+**Implementation Path**:
+
+```rust
+// V1: In-process only
+let channel = InMemoryChannel::new("my-channel",
+    ChannelTransport::InProcess(queue)
+);
+
+// V2: Unix socket for cross-process (same host)
+let channel = InMemoryChannel::new("my-channel",
+    ChannelTransport::UnixSocket("/tmp/velostream/my-channel.sock")
+);
+
+// V3: Kafka for distributed
+let channel = KafkaChannel::new("my-channel", "kafka://broker:9092/topic");
+```
+
+**Configuration**:
+
+```yaml
+# In-process (V1)
+memory_channel:
+  type: memory
+  transport: in_process
+  capacity: 10000
+
+# Unix socket (V2)
+memory_channel:
+  type: memory
+  transport: unix_socket
+  socket_path: /tmp/velostream/channels/my-channel.sock
+  capacity: 10000
+  serialization: messagepack  # Fast binary format
+
+# Kafka (V3)
+kafka_channel:
+  type: kafka
+  brokers: localhost:9092
+  topic: my-channel
+```
 
 ### 3. Schema Evolution
 
