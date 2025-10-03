@@ -16,7 +16,7 @@
 
 ## Performance Overview
 
-Velostream is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with **883/883 tests passing (100% success rate)**.
+Velostream is designed for high-performance financial data processing with exact precision guarantees. The system demonstrates production-ready performance across all query types with comprehensive test coverage and benchmark validation.
 
 ### Architecture Performance Profile
 
@@ -36,16 +36,24 @@ Kafka Consumer → KafkaDataReader → Multi-Job Processor → SQL Engine → Ka
 
 ## Current Performance Metrics
 
-### Core SQL Engine Performance (per record)
+### Latest Benchmark Results (October 2025)
 
-| Operation | Latency | Throughput | Status |
-|-----------|---------|------------|--------|
-| Simple SELECT | ~7.05µs | 142,000 records/sec | ✅ Excellent |
-| Filtered SELECT | ~6.46µs | 155,000 records/sec | ✅ Excellent |
-| Multi-condition | ~6.26µs | 160,000 records/sec | ✅ Excellent |
-| GROUP BY | ~17.3µs | 57,700 records/sec | ✅ Good |
-| Window functions | ~49.2µs | 20,300 records/sec | ⚠️ Optimization target |
-| Complex JOINs | Variable | 10x+ improvement with hash joins | ✅ Optimized |
+For detailed benchmark results, see:
+- **Primary**: [`docs/benchmark-results-summary.md`](../benchmark-results-summary.md) - Comprehensive SQL benchmarks (40+ tests)
+- **Phase 2**: [`docs/performance-comparison-report.md`](../performance-comparison-report.md) - Hash join optimization (163M rec/sec)
+
+### Core SQL Engine Performance
+
+| Operation | Performance | Target | Status |
+|-----------|-------------|--------|--------|
+| **WHERE Clause Evaluation** | 8.82-11.17ns/eval | <30ns | ✅ **Outstanding** |
+| **WHERE Throughput** | 90-113M eval/sec | >33M/sec | ✅ **3x above target** |
+| **Subqueries (EXISTS)** | 30.1M rec/sec | 1M rec/sec | ✅ **30x above target** |
+| **Subqueries (IN)** | 49.7M rec/sec | 2M rec/sec | ✅ **24.8x above target** |
+| **HAVING Clause** | 7.7M rec/sec | 1M rec/sec | ✅ **7.7x above target** |
+| **CTAS Operation** | 864K rec/sec | 500K rec/sec | ✅ **1.7x above target** |
+| **Hash JOIN (Phase 2)** | 163M rec/sec (f64) | - | ✅ **Optimized** |
+| **Hash JOIN (Exact)** | 85M rec/sec (ScaledInteger) | - | ✅ **Optimized** |
 
 ### Financial Precision Benchmarks
 
@@ -530,6 +538,86 @@ WITH (
 );
 ```
 
+### 6. MegaBatch Strategy (NEW - Phase 4)
+
+#### Description
+Optimized for maximum throughput with large batch sizes (50K-100K records), ring buffer reuse, and optional parallel processing.
+
+#### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `batch.strategy` | String | `"MegaBatch"` | Strategy identifier |
+| `batch.mega_batch_size` | Integer | `50000` | Large batch size (10K-100K records) |
+| `batch.parallel` | Boolean | `true` | Enable parallel batch processing |
+| `batch.reuse_buffer` | Boolean | `true` | Use ring buffer for allocation reuse |
+| `batch.max_batch_size` | Integer | `100000` | Maximum batch size cap |
+| `batch.timeout_ms` | Integer | `100` | Batch timeout |
+| `batch.enable_batching` | Boolean | `true` | Enable batch processing |
+
+#### Performance Characteristics
+
+| Metric | Target | Impact |
+|--------|--------|--------|
+| **Throughput** | 8.37M+ rec/sec | **5x improvement** |
+| **Memory Efficiency** | Ring buffer | **20-30% faster** |
+| **Multi-Core Scaling** | 4+ cores | **2-4x improvement** |
+
+#### Source Settings (Kafka)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `fetch.min.bytes` | `1048576` | 1MB minimum fetch |
+| `fetch.max.wait.ms` | `500` | Allow batch accumulation |
+| `fetch.max.bytes` | `104857600` | 100MB max fetch |
+| `max.poll.records` | `50000` | Matches mega_batch_size |
+| `max.partition.fetch.bytes` | `10485760` | 10MB per partition |
+
+#### Sink Settings (Kafka)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `batch.size` | `1048576` | 1MB Kafka batch size (suggested) |
+| `linger.ms` | `100` | Allow time for batching (suggested) |
+| `buffer.memory` | `134217728` | 128MB buffer (suggested) |
+| `compression.type` | `"zstd"` | Best compression (suggested) |
+| `acks` | `"all"` | Default reliability |
+
+#### Rust API Usage
+```rust
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+
+// High-throughput configuration (50K batch size)
+let config = BatchConfig::high_throughput();
+
+// Ultra-throughput configuration (100K batch size)
+let config = BatchConfig::ultra_throughput();
+
+// Custom MegaBatch configuration
+let config = BatchConfig {
+    strategy: BatchStrategy::MegaBatch {
+        batch_size: 75_000,
+        parallel: true,
+        reuse_buffer: true,
+    },
+    max_batch_size: 100_000,
+    batch_timeout: Duration::from_millis(100),
+    enable_batching: true,
+};
+```
+
+#### Transaction Safety Note
+- ✅ Safe for read-only operations (queries, aggregations, filters)
+- ✅ Safe for independent writes (each batch has its own transaction)
+- ⚠️ Use with caution for writes spanning multiple batches
+- Set `parallel: false` for transactional writes that span batches
+
+#### Best Use Cases
+- High-throughput data ingestion (Kafka → Table)
+- Bulk table loading operations
+- Streaming ETL pipelines
+- Large-scale data migrations
+
 ### 5. LowLatency Strategy
 
 #### Description
@@ -613,15 +701,19 @@ WITH (
 | TimeWindow | High | Low-Moderate | Variable | Moderate | Real-time analytics |
 | AdaptiveSize | Variable | Variable | Adaptive | Higher | Variable workloads |
 | MemoryBased | Moderate | Moderate-High | Controlled | Lower | Resource-constrained |
+| **MegaBatch** | **Very High** | **Moderate** | **High** | **High** | **Bulk ingestion/ETL** |
 | LowLatency | Lower | Very Low | Low | Higher | Critical alerts/trading |
 
 #### Use Case Recommendations
 
 - **Financial Trading**: LowLatency for order processing, TimeWindow for analytics
-- **IoT Data Processing**: AdaptiveSize for variable sensors, MemoryBased for edge devices  
+- **IoT Data Processing**: AdaptiveSize for variable sensors, MemoryBased for edge devices
 - **Log Processing**: FixedSize for consistent throughput, TimeWindow for real-time monitoring
 - **Real-time Analytics**: TimeWindow for dashboards, AdaptiveSize for variable queries
 - **Batch ETL**: FixedSize for predictable processing, MemoryBased for large datasets
+- **Bulk Data Ingestion**: MegaBatch for high-throughput Kafka → Table loading (8.37M+ rec/sec)
+- **Table Loading**: MegaBatch for parallel bulk loading operations (50K-100K batch sizes)
+- **Streaming ETL Pipelines**: MegaBatch for maximum throughput with multi-core systems
 
 ## Configuration Implementation Notes
 
@@ -977,9 +1069,11 @@ RUST_LOG=debug cargo test --test memory_pressure --release
 - **Monitor allocation patterns** continuously
 
 ### 3. Throughput Optimization
-- **Batch processing** for better CPU cache utilization  
+- **Batch processing** for better CPU cache utilization
 - **Async pipeline** for overlapped I/O and processing
 - **Resource pooling** to reduce allocation overhead
+- **MegaBatch strategy** for bulk ingestion (8.37M+ rec/sec target)
+- **Parallel processing** on multi-core systems (4+ cores recommended)
 
 ### 4. Testing Strategy
 - **Baseline before optimization** to measure improvements
@@ -990,19 +1084,23 @@ RUST_LOG=debug cargo test --test memory_pressure --release
 
 ## Related Documentation
 
-- [`TODO-optimisation-plan.MD`](../../TODO-optimisation-plan.MD) - Detailed optimization roadmap
+### Performance Results and Analysis
+- [`benchmark-results-summary.md`](../benchmark-results-summary.md) - Comprehensive benchmark results (40+ tests)
+- [`performance-comparison-report.md`](../performance-comparison-report.md) - Performance comparison analysis
+- [`sql-engine-performance-plan.md`](../sql-engine-performance-plan.md) - Performance optimization roadmap
+
+### Configuration Guides
+- [`batch-configuration-guide.md`](../batch-configuration-guide.md) - Complete batch strategy configuration
 - [`KAFKA_TRANSACTION_CONFIGURATION.md`](../KAFKA_TRANSACTION_CONFIGURATION.md) - Transaction performance
 - [`CLAUDE.md`](../../CLAUDE.md) - Development guidelines with performance focus
 
+### Performance Testing
+- [`tests/performance/`](../../tests/performance/) - Performance test suite
+  - `where_clause_performance_test.rs` - WHERE clause benchmarks (90-113M eval/sec)
+  - `unit/serialization_formats.rs` - Serialization benchmarks (JSON/Avro/Protobuf)
+  - Performance test binaries in `src/bin/test_*`
+
 ---
 
-*This guide consolidates and replaces:*
-- `docs/PERFORMANCE_INTEGRATION.md`
-- `docs/PERFORMANCE_MONITORING.md` 
-- `docs/PERFORMANCE_ANALYSIS.md`
-- `docs/KAFKA_PERFORMANCE_CONFIGS.md`
-- `docs/PERFORMANCE_BENCHMARK_RESULTS.md`
-- `docs/PERFORMANCE_COMPARISON_REPORT.md`
-
-*Last updated: 2025-09-03*  
-*Next review: After optimization implementation*
+*Last updated: 2025-10-02*
+*Next review: After Phase 4 benchmark validation*

@@ -34,6 +34,7 @@
 //! }
 //! ```
 
+pub mod batch_buffer;
 pub mod config;
 pub mod file;
 pub mod kafka;
@@ -46,6 +47,9 @@ pub mod types;
 pub use config::{BatchConfig, BatchStrategy, FileFormat, SinkConfig, SourceConfig};
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
+
+// Re-export batch optimization types (Phase 4 - Investigation #4)
+pub use batch_buffer::{ParallelBatchProcessor, RingBatchBuffer};
 
 // Re-export specific implementations
 pub use stdout_writer::StdoutWriter;

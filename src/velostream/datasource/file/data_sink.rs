@@ -322,6 +322,22 @@ impl FileDataSink {
                     }
                 }
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                if optimized_config.buffer_size_bytes == 65536 {
+                    // Default buffer size
+                    let buffer_size = (*batch_size * 8192).min(100 * 1024 * 1024); // 8KB per record estimate, max 100MB
+                    optimized_config.buffer_size_bytes = buffer_size as u64;
+                }
+
+                // Suggest compression for very large batches only if not explicitly set
+                if optimized_config.compression.is_none()
+                    && optimized_config.buffer_size_bytes > 10 * 1024 * 1024
+                {
+                    use super::config::CompressionType;
+                    optimized_config.compression = Some(CompressionType::Gzip);
+                }
+            }
         }
 
         optimized_config

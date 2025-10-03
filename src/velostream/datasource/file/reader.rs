@@ -603,6 +603,10 @@ impl DataReader for FileReader {
                 self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing)
                     .await
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                self.read_fixed_size(*batch_size).await
+            }
         }
     }
 
