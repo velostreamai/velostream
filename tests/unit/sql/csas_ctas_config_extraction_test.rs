@@ -213,7 +213,9 @@ fn test_property_extraction_from_with_clause() {
 
     // Extract properties through QueryAnalyzer
     let analyzer = QueryAnalyzer::new("test-group".to_string());
-    let analysis = analyzer.analyze(&query).expect("Should analyze successfully");
+    let analysis = analyzer
+        .analyze(&query)
+        .expect("Should analyze successfully");
 
     // Verify sources were detected
     assert!(
@@ -225,7 +227,6 @@ fn test_property_extraction_from_with_clause() {
     println!("   Detected {} sources", analysis.required_sources.len());
     println!("   Detected {} sinks", analysis.required_sinks.len());
 }
-
 
 #[test]
 fn test_csas_phase1b4_features_with_named_sources() {
@@ -304,7 +305,10 @@ fn test_property_validation_edge_cases() {
             'source.group.id' = 'test-group_v1.0'
         )
     "#;
-    assert!(parser.parse(sql).is_ok(), "Should parse properties with special chars");
+    assert!(
+        parser.parse(sql).is_ok(),
+        "Should parse properties with special chars"
+    );
 }
 
 #[test]
@@ -313,7 +317,10 @@ fn test_error_handling_invalid_sql() {
 
     // Invalid WITH syntax (missing equals)
     let sql = r#"CREATE STREAM test AS SELECT * FROM source WITH ('key' 'value')"#;
-    assert!(parser.parse(sql).is_err(), "Should fail with invalid WITH syntax");
+    assert!(
+        parser.parse(sql).is_err(),
+        "Should fail with invalid WITH syntax"
+    );
 
     // Completely malformed SQL
     let sql = r#"CREATE STREAM AS FROM SELECT"#;
@@ -340,7 +347,10 @@ fn test_missing_sink_configuration() {
     "#;
 
     let result = parser.parse(sql);
-    assert!(result.is_ok(), "Should parse SQL (parsing only checks syntax)");
+    assert!(
+        result.is_ok(),
+        "Should parse SQL (parsing only checks syntax)"
+    );
 
     // Analysis should detect missing sink configuration
     let query = result.unwrap();
@@ -360,7 +370,10 @@ fn test_missing_sink_configuration() {
             "Error should mention missing sink configuration: {}",
             error_msg
         );
-        println!("✅ Missing sink configuration correctly detected as error: {:?}", e);
+        println!(
+            "✅ Missing sink configuration correctly detected as error: {:?}",
+            e
+        );
     }
 }
 
@@ -380,7 +393,10 @@ fn test_missing_source_configuration() {
     "#;
 
     let result = parser.parse(sql);
-    assert!(result.is_ok(), "Should parse SQL (parsing only checks syntax)");
+    assert!(
+        result.is_ok(),
+        "Should parse SQL (parsing only checks syntax)"
+    );
 
     // Analysis should detect missing source configuration
     let query = result.unwrap();
@@ -389,7 +405,10 @@ fn test_missing_source_configuration() {
 
     // Should fail when trying to use undefined source
     if let Err(e) = analysis_result {
-        println!("✅ Missing source configuration correctly detected: {:?}", e);
+        println!(
+            "✅ Missing source configuration correctly detected: {:?}",
+            e
+        );
     } else {
         let analysis = analysis_result.unwrap();
         println!("⚠️  Warning: Missing source 'undefined_source' was not detected as error");
@@ -422,7 +441,10 @@ fn test_config_property_precedence() {
     // Verify analysis works even with duplicates
     let query = result.unwrap();
     let analyzer = QueryAnalyzer::new("test-group".to_string());
-    assert!(analyzer.analyze(&query).is_ok(), "Should analyze despite duplicate keys");
+    assert!(
+        analyzer.analyze(&query).is_ok(),
+        "Should analyze despite duplicate keys"
+    );
 }
 
 #[test]
@@ -454,13 +476,22 @@ fn test_complex_where_clause_with_config() {
     "#;
 
     let result = parser.parse(sql);
-    assert!(result.is_ok(), "Should parse complex WHERE with config: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should parse complex WHERE with config: {:?}",
+        result.err()
+    );
 
     let query = result.unwrap();
     let analyzer = QueryAnalyzer::new("test-group".to_string());
-    let analysis = analyzer.analyze(&query).expect("Should analyze complex query");
+    let analysis = analyzer
+        .analyze(&query)
+        .expect("Should analyze complex query");
 
-    assert!(!analysis.required_sources.is_empty(), "Should detect source");
+    assert!(
+        !analysis.required_sources.is_empty(),
+        "Should detect source"
+    );
     println!("✅ Complex WHERE clause with config parsed successfully");
 }
 
@@ -493,13 +524,22 @@ fn test_aggregation_with_config() {
     "#;
 
     let result = parser.parse(sql);
-    assert!(result.is_ok(), "Should parse aggregation with config: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should parse aggregation with config: {:?}",
+        result.err()
+    );
 
     let query = result.unwrap();
     let analyzer = QueryAnalyzer::new("test-group".to_string());
-    let analysis = analyzer.analyze(&query).expect("Should analyze aggregation query");
+    let analysis = analyzer
+        .analyze(&query)
+        .expect("Should analyze aggregation query");
 
-    assert!(!analysis.required_sources.is_empty(), "Should detect source in aggregation");
+    assert!(
+        !analysis.required_sources.is_empty(),
+        "Should detect source in aggregation"
+    );
     println!("✅ Aggregation with GROUP BY/HAVING and config parsed successfully");
 }
 
@@ -529,12 +569,21 @@ fn test_window_functions_with_config() {
     "#;
 
     let result = parser.parse(sql);
-    assert!(result.is_ok(), "Should parse window functions with config: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should parse window functions with config: {:?}",
+        result.err()
+    );
 
     let query = result.unwrap();
     let analyzer = QueryAnalyzer::new("test-group".to_string());
-    let analysis = analyzer.analyze(&query).expect("Should analyze window function query");
+    let analysis = analyzer
+        .analyze(&query)
+        .expect("Should analyze window function query");
 
-    assert!(!analysis.required_sources.is_empty(), "Should detect source with window functions");
+    assert!(
+        !analysis.required_sources.is_empty(),
+        "Should detect source with window functions"
+    );
     println!("✅ Window functions (LAG, LEAD, ROW_NUMBER) with config parsed successfully");
 }

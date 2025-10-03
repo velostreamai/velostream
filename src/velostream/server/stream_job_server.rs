@@ -14,8 +14,9 @@ use crate::velostream::server::table_registry::{
 };
 use crate::velostream::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
-    execution::performance::PerformanceMonitor, execution::config::StreamingConfig, query_analyzer::QueryAnalyzer, SqlApplication,
-    SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
+    execution::config::StreamingConfig, execution::performance::PerformanceMonitor,
+    query_analyzer::QueryAnalyzer, SqlApplication, SqlError, SqlValidator, StreamExecutionEngine,
+    StreamingSqlParser,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -1132,15 +1133,15 @@ impl StreamJobServer {
                 "bounded_out_of_orderness" => {
                     info!("Watermark strategy: BoundedOutOfOrderness");
                     WatermarkStrategy::BoundedOutOfOrderness
-                },
+                }
                 "ascending" | "ascending_timestamps" => {
                     info!("Watermark strategy: AscendingTimestamps");
                     WatermarkStrategy::AscendingTimestamps
-                },
+                }
                 "custom" => {
                     info!("Watermark strategy: Custom");
                     WatermarkStrategy::Custom
-                },
+                }
                 other => {
                     warn!("Unknown watermark strategy '{}', using default", other);
                     WatermarkStrategy::None
@@ -1156,19 +1157,19 @@ impl StreamJobServer {
                 "dead_letter" => {
                     info!("Late data strategy: DeadLetterQueue");
                     LateDataStrategy::DeadLetterQueue
-                },
+                }
                 "update_previous" | "update_previous_window" => {
                     info!("Late data strategy: UpdatePreviousWindow");
                     LateDataStrategy::UpdatePreviousWindow
-                },
+                }
                 "include_in_next" | "include_in_next_window" => {
                     info!("Late data strategy: IncludeInNextWindow");
                     LateDataStrategy::IncludeInNextWindow
-                },
+                }
                 "drop" => {
                     info!("Late data strategy: Drop");
                     LateDataStrategy::Drop
-                },
+                }
                 other => {
                     warn!("Unknown late data strategy '{}', using Drop", other);
                     LateDataStrategy::Drop
@@ -1193,7 +1194,10 @@ impl StreamJobServer {
         if let Some(max_memory_str) = properties.get("max.memory.mb") {
             if let Ok(max_memory_mb) = max_memory_str.parse::<usize>() {
                 let max_memory_bytes = max_memory_mb * 1024 * 1024;
-                info!("Setting max memory limit: {} MB ({} bytes)", max_memory_mb, max_memory_bytes);
+                info!(
+                    "Setting max memory limit: {} MB ({} bytes)",
+                    max_memory_mb, max_memory_bytes
+                );
                 config.max_total_memory = Some(max_memory_bytes);
                 config.enable_resource_limits = true;
             }
@@ -1281,7 +1285,10 @@ impl StreamJobServer {
         }
 
         Err(SqlError::ExecutionError {
-            message: format!("Invalid duration string: '{}'. Expected format like '5s', '100ms', '1m', '1h'", s),
+            message: format!(
+                "Invalid duration string: '{}'. Expected format like '5s', '100ms', '1m', '1h'",
+                s
+            ),
             query: None,
         })
     }
