@@ -26,9 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-use velostream::velostream::datasource::batch_buffer::{
-    ParallelBatchProcessor, RingBatchBuffer,
-};
+use velostream::velostream::datasource::batch_buffer::{ParallelBatchProcessor, RingBatchBuffer};
 use velostream::velostream::datasource::config::types::{BatchConfig, BatchStrategy};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -107,9 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn benchmark_ring_buffer(
-    config: &BenchmarkConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn benchmark_ring_buffer(config: &BenchmarkConfig) -> Result<(), Box<dyn std::error::Error>> {
     println!("📦 Phase 1: RingBatchBuffer Performance");
     println!("========================================");
     println!();
@@ -157,8 +153,14 @@ async fn benchmark_ring_buffer(
             / vec_duration.as_nanos() as f64)
             * 100.0;
 
-        println!("   Standard Vec:      {:?} ({:.0} rec/sec)", vec_duration, vec_throughput);
-        println!("   RingBatchBuffer:   {:?} ({:.0} rec/sec)", ring_duration, ring_throughput);
+        println!(
+            "   Standard Vec:      {:?} ({:.0} rec/sec)",
+            vec_duration, vec_throughput
+        );
+        println!(
+            "   RingBatchBuffer:   {:?} ({:.0} rec/sec)",
+            ring_duration, ring_throughput
+        );
         println!("   Improvement:       {:.1}% faster", improvement);
 
         if improvement >= 15.0 {
@@ -191,7 +193,10 @@ async fn benchmark_parallel_processing(
         })
         .collect();
 
-    println!("📊 Processing {} batches of {} records", num_batches, batch_size);
+    println!(
+        "📊 Processing {} batches of {} records",
+        num_batches, batch_size
+    );
     println!();
 
     // Test 1: Sequential processing
@@ -200,15 +205,18 @@ async fn benchmark_parallel_processing(
 
     processor_seq.process_batches(&batches, |batch| {
         // Simulate processing work
-        let _sum: i64 = batch.iter().filter_map(|r| {
-            r.fields.get("id").and_then(|v| {
-                if let FieldValue::Integer(i) = v {
-                    Some(*i)
-                } else {
-                    None
-                }
+        let _sum: i64 = batch
+            .iter()
+            .filter_map(|r| {
+                r.fields.get("id").and_then(|v| {
+                    if let FieldValue::Integer(i) = v {
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                })
             })
-        }).sum();
+            .sum();
     });
 
     let seq_duration = start.elapsed();
@@ -219,15 +227,18 @@ async fn benchmark_parallel_processing(
     let start = Instant::now();
 
     processor_2.process_batches(&batches, |batch| {
-        let _sum: i64 = batch.iter().filter_map(|r| {
-            r.fields.get("id").and_then(|v| {
-                if let FieldValue::Integer(i) = v {
-                    Some(*i)
-                } else {
-                    None
-                }
+        let _sum: i64 = batch
+            .iter()
+            .filter_map(|r| {
+                r.fields.get("id").and_then(|v| {
+                    if let FieldValue::Integer(i) = v {
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                })
             })
-        }).sum();
+            .sum();
     });
 
     let parallel2_duration = start.elapsed();
@@ -239,26 +250,36 @@ async fn benchmark_parallel_processing(
     let start = Instant::now();
 
     processor_4.process_batches(&batches, |batch| {
-        let _sum: i64 = batch.iter().filter_map(|r| {
-            r.fields.get("id").and_then(|v| {
-                if let FieldValue::Integer(i) = v {
-                    Some(*i)
-                } else {
-                    None
-                }
+        let _sum: i64 = batch
+            .iter()
+            .filter_map(|r| {
+                r.fields.get("id").and_then(|v| {
+                    if let FieldValue::Integer(i) = v {
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                })
             })
-        }).sum();
+            .sum();
     });
 
     let parallel4_duration = start.elapsed();
     let parallel4_throughput = (num_batches * batch_size) as f64 / parallel4_duration.as_secs_f64();
     let speedup4 = seq_duration.as_secs_f64() / parallel4_duration.as_secs_f64();
 
-    println!("   Sequential (1 worker):  {:?} ({:.0} rec/sec)", seq_duration, seq_throughput);
-    println!("   Parallel (2 workers):   {:?} ({:.0} rec/sec) - {:.2}x speedup",
-        parallel2_duration, parallel2_throughput, speedup2);
-    println!("   Parallel (4 workers):   {:?} ({:.0} rec/sec) - {:.2}x speedup",
-        parallel4_duration, parallel4_throughput, speedup4);
+    println!(
+        "   Sequential (1 worker):  {:?} ({:.0} rec/sec)",
+        seq_duration, seq_throughput
+    );
+    println!(
+        "   Parallel (2 workers):   {:?} ({:.0} rec/sec) - {:.2}x speedup",
+        parallel2_duration, parallel2_throughput, speedup2
+    );
+    println!(
+        "   Parallel (4 workers):   {:?} ({:.0} rec/sec) - {:.2}x speedup",
+        parallel4_duration, parallel4_throughput, speedup4
+    );
 
     if speedup4 >= 2.0 {
         println!("   ✅ PASS: Meets 2-4x improvement target");
@@ -291,8 +312,10 @@ async fn benchmark_batch_strategies(
         simulate_batch_strategy(&strategy_fixed, test_count).await?;
     let throughput_fixed = records_fixed as f64 / duration_fixed.as_secs_f64();
 
-    println!("   FixedSize (10K):      {:?} ({:.0} rec/sec)",
-        duration_fixed, throughput_fixed);
+    println!(
+        "   FixedSize (10K):      {:?} ({:.0} rec/sec)",
+        duration_fixed, throughput_fixed
+    );
 
     // Strategy 2: AdaptiveSize
     let strategy_adaptive = BatchConfig {
@@ -312,19 +335,22 @@ async fn benchmark_batch_strategies(
     let improvement_adaptive =
         ((throughput_adaptive - throughput_fixed) / throughput_fixed) * 100.0;
 
-    println!("   AdaptiveSize:         {:?} ({:.0} rec/sec) - {:.1}% improvement",
-        duration_adaptive, throughput_adaptive, improvement_adaptive);
+    println!(
+        "   AdaptiveSize:         {:?} ({:.0} rec/sec) - {:.1}% improvement",
+        duration_adaptive, throughput_adaptive, improvement_adaptive
+    );
 
     // Strategy 3: MegaBatch (high-throughput)
     let strategy_mega = BatchConfig::high_throughput();
 
-    let (records_mega, duration_mega) =
-        simulate_batch_strategy(&strategy_mega, test_count).await?;
+    let (records_mega, duration_mega) = simulate_batch_strategy(&strategy_mega, test_count).await?;
     let throughput_mega = records_mega as f64 / duration_mega.as_secs_f64();
     let improvement_mega = ((throughput_mega - throughput_fixed) / throughput_fixed) * 100.0;
 
-    println!("   MegaBatch (50K):      {:?} ({:.0} rec/sec) - {:.1}% improvement",
-        duration_mega, throughput_mega, improvement_mega);
+    println!(
+        "   MegaBatch (50K):      {:?} ({:.0} rec/sec) - {:.1}% improvement",
+        duration_mega, throughput_mega, improvement_mega
+    );
 
     // Strategy 4: MegaBatch (ultra-throughput)
     let strategy_ultra = BatchConfig::ultra_throughput();
@@ -334,8 +360,10 @@ async fn benchmark_batch_strategies(
     let throughput_ultra = records_ultra as f64 / duration_ultra.as_secs_f64();
     let improvement_ultra = ((throughput_ultra - throughput_fixed) / throughput_fixed) * 100.0;
 
-    println!("   MegaBatch (100K):     {:?} ({:.0} rec/sec) - {:.1}% improvement",
-        duration_ultra, throughput_ultra, improvement_ultra);
+    println!(
+        "   MegaBatch (100K):     {:?} ({:.0} rec/sec) - {:.1}% improvement",
+        duration_ultra, throughput_ultra, improvement_ultra
+    );
 
     println!();
     println!("   📊 Strategy Rankings:");
@@ -366,7 +394,10 @@ async fn benchmark_megabatch_throughput(
     let target_throughput = 8_370_000.0; // 8.37M records/sec target
     let test_count = std::cmp::max(config.record_count, 1_000_000);
 
-    println!("   Target: {:.2}M records/sec", target_throughput / 1_000_000.0);
+    println!(
+        "   Target: {:.2}M records/sec",
+        target_throughput / 1_000_000.0
+    );
     println!("   Test dataset: {} records", test_count);
     println!();
 
@@ -407,8 +438,10 @@ async fn benchmark_megabatch_throughput(
 
     if throughput >= target_throughput {
         println!("   ✅ PASS: Exceeds 8.37M records/sec target!");
-        println!("   🎉 Achievement: {:.1}% above target",
-            ((throughput - target_throughput) / target_throughput) * 100.0);
+        println!(
+            "   🎉 Achievement: {:.1}% above target",
+            ((throughput - target_throughput) / target_throughput) * 100.0
+        );
     } else {
         let percentage = (throughput / target_throughput) * 100.0;
         println!("   ⚠️  WARN: {:.1}% of target throughput", percentage);
@@ -443,12 +476,17 @@ async fn benchmark_table_loading(
         let mega_throughput = table_size as f64 / mega_duration.as_secs_f64();
 
         let improvement = ((standard_duration.as_secs_f64() - mega_duration.as_secs_f64())
-            / standard_duration.as_secs_f64()) * 100.0;
+            / standard_duration.as_secs_f64())
+            * 100.0;
 
-        println!("   Standard (1K batches):  {:?} ({:.0} rec/sec)",
-            standard_duration, standard_throughput);
-        println!("   MegaBatch (50K batches): {:?} ({:.0} rec/sec)",
-            mega_duration, mega_throughput);
+        println!(
+            "   Standard (1K batches):  {:?} ({:.0} rec/sec)",
+            standard_duration, standard_throughput
+        );
+        println!(
+            "   MegaBatch (50K batches): {:?} ({:.0} rec/sec)",
+            mega_duration, mega_throughput
+        );
         println!("   Improvement:             {:.1}% faster", improvement);
         println!();
     }

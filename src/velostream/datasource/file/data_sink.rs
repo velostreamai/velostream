@@ -331,7 +331,9 @@ impl FileDataSink {
                 }
 
                 // Suggest compression for very large batches only if not explicitly set
-                if optimized_config.compression.is_none() && optimized_config.buffer_size_bytes > 10 * 1024 * 1024 {
+                if optimized_config.compression.is_none()
+                    && optimized_config.buffer_size_bytes > 10 * 1024 * 1024
+                {
                     use super::config::CompressionType;
                     optimized_config.compression = Some(CompressionType::Gzip);
                 }

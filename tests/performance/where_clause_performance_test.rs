@@ -30,7 +30,10 @@ impl BenchmarkRecord {
         fields.insert("user_id".to_string(), FieldValue::Integer(42));
         fields.insert("active".to_string(), FieldValue::Boolean(true));
         fields.insert("score".to_string(), FieldValue::Float(95.5));
-        fields.insert("name".to_string(), FieldValue::String("test_user".to_string()));
+        fields.insert(
+            "name".to_string(),
+            FieldValue::String("test_user".to_string()),
+        );
 
         Self { fields }
     }
@@ -71,7 +74,8 @@ fn benchmark_single_clause(where_clause: &str) {
     }
     let eval_time = start.elapsed();
 
-    println!("Clause: {:<20} | Parse: {:>8.2}μs | Eval: {:>8.2}ns/iter",
+    println!(
+        "Clause: {:<20} | Parse: {:>8.2}μs | Eval: {:>8.2}ns/iter",
         where_clause,
         parse_time.as_micros() as f64,
         eval_time.as_nanos() as f64 / ITERATIONS as f64
@@ -93,7 +97,8 @@ fn test_memory_allocation_efficiency() {
     }
     let duration = start.elapsed();
 
-    println!("1000 WHERE clause parses: {:>8.2}μs ({:.2}μs per parse)",
+    println!(
+        "1000 WHERE clause parses: {:>8.2}μs ({:.2}μs per parse)",
         duration.as_micros() as f64,
         duration.as_micros() as f64 / 1000.0
     );
@@ -119,7 +124,8 @@ fn test_regex_compilation_benefits() {
         }
         let duration = start.elapsed();
 
-        println!("Clause: {:<25} | 10K parses: {:>8.2}μs ({:.2}ns per parse)",
+        println!(
+            "Clause: {:<25} | 10K parses: {:>8.2}μs ({:.2}ns per parse)",
             clause,
             duration.as_micros() as f64,
             duration.as_nanos() as f64 / 10_000.0
@@ -152,15 +158,24 @@ fn test_performance_regression() {
     println!("============================");
     println!("Target: <30ns per evaluation (HashMap baseline ~10-15ns + type match ~5-15ns)");
     println!("Actual: {:.2}ns per evaluation", ns_per_eval);
-    println!("Results: {}/{} evaluations returned true", results, ITERATIONS);
+    println!(
+        "Results: {}/{} evaluations returned true",
+        results, ITERATIONS
+    );
 
     // Assert performance target (realistic: HashMap lookup + type match + comparison + variance)
     // Typical performance: 18-27ns, allow up to 30ns for CPU variance
-    assert!(ns_per_eval < 30.0,
-        "Performance regression: {:.2}ns per evaluation exceeds 30ns target", ns_per_eval);
+    assert!(
+        ns_per_eval < 30.0,
+        "Performance regression: {:.2}ns per evaluation exceeds 30ns target",
+        ns_per_eval
+    );
 
     // Assert correctness
-    assert_eq!(results, ITERATIONS, "All evaluations should return true for matching record");
+    assert_eq!(
+        results, ITERATIONS,
+        "All evaluations should return true for matching record"
+    );
 }
 
 /// Test different field types performance
@@ -187,7 +202,8 @@ fn benchmark_field_type_performance() {
         }
         let duration = start.elapsed();
 
-        println!("{:<8}: {:>8.2}ns per evaluation",
+        println!(
+            "{:<8}: {:>8.2}ns per evaluation",
             field_type,
             duration.as_nanos() as f64 / ITERATIONS as f64
         );

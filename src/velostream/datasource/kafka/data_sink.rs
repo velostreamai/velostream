@@ -198,7 +198,8 @@ impl KafkaDataSink {
 
                 // Suggest compression for large batches only if not explicitly set
                 if !producer_config.contains_key("compression.type") {
-                    producer_config.insert("compression.type".to_string(), "zstd".to_string()); // Best compression
+                    producer_config.insert("compression.type".to_string(), "zstd".to_string());
+                    // Best compression
                 }
 
                 // Optimize buffer for large batches

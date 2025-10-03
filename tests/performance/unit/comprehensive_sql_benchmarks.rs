@@ -112,7 +112,8 @@ async fn benchmark_complex_select() {
             // Type conversions and calculations
             match value {
                 FieldValue::Integer(i) => {
-                    transformed_fields.insert(format!("{}_doubled", key), FieldValue::Integer(i * 2));
+                    transformed_fields
+                        .insert(format!("{}_doubled", key), FieldValue::Integer(i * 2));
                 }
                 FieldValue::Float(f) => {
                     transformed_fields.insert(format!("{}_sqrt", key), FieldValue::Float(f.sqrt()));
@@ -437,11 +438,7 @@ async fn benchmark_min_max_aggregations() {
     );
     println!("   Min: {}, Max: {}", min_value, max_value);
 
-    assert!(
-        throughput > 5_000_000.0,
-        "MIN/MAX too slow: {}",
-        throughput
-    );
+    assert!(throughput > 5_000_000.0, "MIN/MAX too slow: {}", throughput);
 
     metrics.report().print();
 }
@@ -673,7 +670,11 @@ async fn benchmark_subquery_in() {
     println!("   Matched: {} records", matched_count);
     println!("   Throughput: {:.0} records/sec", throughput);
 
-    assert!(throughput > 2_000_000.0, "IN subquery too slow: {}", throughput);
+    assert!(
+        throughput > 2_000_000.0,
+        "IN subquery too slow: {}",
+        throughput
+    );
 
     metrics.report().print();
 }
@@ -976,10 +977,7 @@ async fn benchmark_ctas_schema_overhead() {
     let duration = metrics.end("ctas_schema");
     let throughput = target_records.len() as f64 / duration.as_secs_f64();
 
-    println!(
-        "   Schema: {} fields propagated",
-        schema_fields.len()
-    );
+    println!("   Schema: {} fields propagated", schema_fields.len());
     println!(
         "   Created {} records in {:?} ({:.0} records/sec)",
         target_records.len(),
@@ -1058,14 +1056,16 @@ async fn benchmark_financial_precision() {
     }
     let float_duration = metrics.end("f64");
 
-    let improvement_factor =
-        float_duration.as_nanos() as f64 / scaled_duration.as_nanos() as f64;
+    let improvement_factor = float_duration.as_nanos() as f64 / scaled_duration.as_nanos() as f64;
 
     println!(
         "   ScaledInteger: {} ops in {:?}",
         scaled_operations, scaled_duration
     );
-    println!("   f64:           {} ops in {:?}", float_operations, float_duration);
+    println!(
+        "   f64:           {} ops in {:?}",
+        float_operations, float_duration
+    );
     println!("   Performance Improvement: {:.1}x", improvement_factor);
 
     if improvement_factor >= 40.0 {

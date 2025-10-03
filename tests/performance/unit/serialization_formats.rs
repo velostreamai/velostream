@@ -361,7 +361,10 @@ fn test_protobuf_serialization_memory_efficiency() {
     }
 
     assert_eq!(serialized_count, 1000);
-    println!("\n✅ Protobuf serialization memory test: {} iterations", serialized_count);
+    println!(
+        "\n✅ Protobuf serialization memory test: {} iterations",
+        serialized_count
+    );
 }
 
 #[test]
@@ -373,8 +376,14 @@ fn test_protobuf_field_type_support() {
     data.insert("bool_field".to_string(), FieldValue::Boolean(true));
     data.insert("int_field".to_string(), FieldValue::Integer(12345));
     data.insert("float_field".to_string(), FieldValue::Float(123.456));
-    data.insert("string_field".to_string(), FieldValue::String("test".to_string()));
-    data.insert("scaled_int_field".to_string(), FieldValue::ScaledInteger(1234567, 4)); // 123.4567
+    data.insert(
+        "string_field".to_string(),
+        FieldValue::String("test".to_string()),
+    );
+    data.insert(
+        "scaled_int_field".to_string(),
+        FieldValue::ScaledInteger(1234567, 4),
+    ); // 123.4567
 
     // All field types should be representable
     assert_eq!(data.len(), 6);
@@ -393,7 +402,10 @@ fn test_protobuf_large_payload_performance() {
         // In production, this would serialize to protobuf format
     }
 
-    println!("\n✅ Protobuf large payload test: {} fields processed 100 times", large_data.len());
+    println!(
+        "\n✅ Protobuf large payload test: {} fields processed 100 times",
+        large_data.len()
+    );
 }
 
 #[test]
@@ -402,9 +414,9 @@ fn test_protobuf_decimal_precision() {
     let mut data = HashMap::new();
 
     // Test various decimal precisions
-    data.insert("price1".to_string(), FieldValue::ScaledInteger(123456, 2));  // 1234.56
+    data.insert("price1".to_string(), FieldValue::ScaledInteger(123456, 2)); // 1234.56
     data.insert("price2".to_string(), FieldValue::ScaledInteger(9999999, 4)); // 999.9999
-    data.insert("price3".to_string(), FieldValue::ScaledInteger(1, 6));       // 0.000001
+    data.insert("price3".to_string(), FieldValue::ScaledInteger(1, 6)); // 0.000001
 
     // Verify all precision levels are stored
     assert_eq!(data.len(), 3);

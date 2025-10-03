@@ -41,8 +41,8 @@ pub enum BatchStrategy {
     /// High-throughput mega-batch processing (NEW - Phase 4 optimization)
     /// Optimized for maximum throughput with large batch sizes and optional parallelism
     MegaBatch {
-        batch_size: usize, // Large batch size (10K-100K records)
-        parallel: bool, // Enable parallel batch processing
+        batch_size: usize,  // Large batch size (10K-100K records)
+        parallel: bool,     // Enable parallel batch processing
         reuse_buffer: bool, // Use ring buffer for allocation reuse
     },
 }

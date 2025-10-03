@@ -282,10 +282,7 @@ mod tests {
         assert!(processor.is_enabled());
 
         // Test processing (just verify it doesn't panic)
-        let batches = vec![
-            vec![create_test_record(1)],
-            vec![create_test_record(2)],
-        ];
+        let batches = vec![vec![create_test_record(1)], vec![create_test_record(2)]];
 
         processor.process_batches(&batches, |_batch| {
             // Process batch
