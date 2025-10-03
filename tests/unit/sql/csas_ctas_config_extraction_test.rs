@@ -368,7 +368,11 @@ fn test_complex_where_clause_with_config() {
             'trades_source.type' = 'kafka_source',
             'trades_source.bootstrap.servers' = 'localhost:9092',
             'trades_source.topic' = 'trades',
-            'trades_source.group.id' = 'filtered-group'
+            'trades_source.group.id' = 'filtered-group',
+
+            'filtered_trades_sink.type' = 'kafka_sink',
+            'filtered_trades_sink.bootstrap.servers' = 'localhost:9092',
+            'filtered_trades_sink.topic' = 'filtered_trades'
         )
     "#;
 
@@ -403,7 +407,11 @@ fn test_aggregation_with_config() {
             'trades_source.type' = 'kafka_source',
             'trades_source.bootstrap.servers' = 'localhost:9092',
             'trades_source.topic' = 'trades',
-            'trades_source.group.id' = 'agg-group'
+            'trades_source.group.id' = 'agg-group',
+
+            'aggregated_metrics_sink.type' = 'kafka_sink',
+            'aggregated_metrics_sink.bootstrap.servers' = 'localhost:9092',
+            'aggregated_metrics_sink.topic' = 'aggregated_metrics'
         )
     "#;
 
@@ -435,7 +443,11 @@ fn test_window_functions_with_config() {
             'trades_source.type' = 'kafka_source',
             'trades_source.bootstrap.servers' = 'localhost:9092',
             'trades_source.topic' = 'trades',
-            'trades_source.group.id' = 'window-group'
+            'trades_source.group.id' = 'window-group',
+
+            'windowed_data_sink.type' = 'kafka_sink',
+            'windowed_data_sink.bootstrap.servers' = 'localhost:9092',
+            'windowed_data_sink.topic' = 'windowed_data'
         )
     "#;
 
