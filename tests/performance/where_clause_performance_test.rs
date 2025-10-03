@@ -166,7 +166,7 @@ fn test_performance_regression() {
     // Assert performance target (realistic: HashMap lookup + type match + comparison + variance)
     // Typical performance: 18-27ns in release, 200ns in debug builds
     assert!(
-        ns_per_eval < 250.0,  // Increased from 30ns to account for debug builds and CI environments
+        ns_per_eval < 250.0, // Increased from 30ns to account for debug builds and CI environments
         "Performance regression: {:.2}ns per evaluation exceeds 250ns target",
         ns_per_eval
     );
