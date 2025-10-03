@@ -235,6 +235,19 @@ impl StreamExecutionEngine {
         self.performance_monitor.as_ref()
     }
 
+    /// Set streaming configuration (Phase 1B-4 features)
+    ///
+    /// Configures event-time processing, watermarks, circuit breakers, and observability
+    /// from SQL WITH clause properties extracted by StreamJobServer
+    pub fn set_streaming_config(&mut self, config: StreamingConfig) {
+        self.config = config;
+    }
+
+    /// Get reference to current streaming configuration
+    pub fn streaming_config(&self) -> &StreamingConfig {
+        &self.config
+    }
+
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call

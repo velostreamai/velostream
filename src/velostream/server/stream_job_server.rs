@@ -14,7 +14,7 @@ use crate::velostream::server::table_registry::{
 };
 use crate::velostream::sql::{
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
-    execution::performance::PerformanceMonitor, query_analyzer::QueryAnalyzer, SqlApplication,
+    execution::performance::PerformanceMonitor, execution::config::StreamingConfig, query_analyzer::QueryAnalyzer, SqlApplication,
     SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
 };
 use log::{debug, error, info, warn};
@@ -328,6 +328,9 @@ impl StreamJobServer {
         // Extract batch configuration from WITH clauses
         let batch_config = Self::extract_batch_config_from_query(&parsed_query)?;
 
+        // Extract StreamingConfig from WITH clauses (Phase 1B-4 features)
+        let streaming_config = Self::extract_streaming_config_from_query(&parsed_query)?;
+
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
         *counter += 1;
@@ -340,6 +343,9 @@ impl StreamJobServer {
         // Create execution engine for this job with query-driven format
         let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
+
+        // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
+        execution_engine.set_streaming_config(streaming_config);
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -1087,5 +1093,196 @@ impl StreamJobServer {
                 Ok(None)
             }
         }
+    }
+
+    /// Extract StreamingConfig from query WITH clause
+    ///
+    /// Wires Phase 1B-4 configurations from SQL WITH clause to StreamingConfig:
+    /// - Event-time processing and watermarks
+    /// - Circuit breakers and resource limits
+    /// - Observability and tracing
+    fn extract_streaming_config_from_query(
+        query: &StreamingQuery,
+    ) -> Result<StreamingConfig, SqlError> {
+        use std::time::Duration;
+
+        let properties = Self::get_query_properties(query);
+        let mut config = StreamingConfig::default();
+
+        if properties.is_empty() {
+            debug!("No WITH clause properties found, using default StreamingConfig");
+            return Ok(config);
+        }
+
+        // ====================================================================
+        // PHASE 1B: EVENT-TIME & WATERMARKS
+        // ====================================================================
+
+        // Enable watermarks if event-time field is specified
+        if properties.contains_key("event.time.field") {
+            info!("Enabling watermarks - event.time.field detected");
+            config.enable_watermarks = true;
+        }
+
+        // Parse watermark strategy
+        if let Some(strategy_str) = properties.get("watermark.strategy") {
+            use crate::velostream::sql::execution::config::WatermarkStrategy;
+
+            config.watermark_strategy = match strategy_str.as_str() {
+                "bounded_out_of_orderness" => {
+                    info!("Watermark strategy: BoundedOutOfOrderness");
+                    WatermarkStrategy::BoundedOutOfOrderness
+                },
+                "ascending" | "ascending_timestamps" => {
+                    info!("Watermark strategy: AscendingTimestamps");
+                    WatermarkStrategy::AscendingTimestamps
+                },
+                "custom" => {
+                    info!("Watermark strategy: Custom");
+                    WatermarkStrategy::Custom
+                },
+                other => {
+                    warn!("Unknown watermark strategy '{}', using default", other);
+                    WatermarkStrategy::None
+                }
+            };
+        }
+
+        // Parse late data strategy
+        if let Some(late_data_str) = properties.get("late.data.strategy") {
+            use crate::velostream::sql::execution::config::LateDataStrategy;
+
+            config.late_data_strategy = match late_data_str.as_str() {
+                "dead_letter" => {
+                    info!("Late data strategy: DeadLetterQueue");
+                    LateDataStrategy::DeadLetterQueue
+                },
+                "update_previous" | "update_previous_window" => {
+                    info!("Late data strategy: UpdatePreviousWindow");
+                    LateDataStrategy::UpdatePreviousWindow
+                },
+                "include_in_next" | "include_in_next_window" => {
+                    info!("Late data strategy: IncludeInNextWindow");
+                    LateDataStrategy::IncludeInNextWindow
+                },
+                "drop" => {
+                    info!("Late data strategy: Drop");
+                    LateDataStrategy::Drop
+                },
+                other => {
+                    warn!("Unknown late data strategy '{}', using Drop", other);
+                    LateDataStrategy::Drop
+                }
+            };
+        }
+
+        // ====================================================================
+        // PHASE 2: CIRCUIT BREAKERS & RESOURCE LIMITS
+        // ====================================================================
+
+        // Enable circuit breakers
+        if let Some(enabled) = properties.get("circuit.breaker.enabled") {
+            if enabled.eq_ignore_ascii_case("true") {
+                info!("Enabling circuit breakers");
+                config.enable_circuit_breakers = true;
+                config.enable_enhanced_errors = true; // Circuit breakers require enhanced errors
+            }
+        }
+
+        // Enable resource limits
+        if let Some(max_memory_str) = properties.get("max.memory.mb") {
+            if let Ok(max_memory_mb) = max_memory_str.parse::<usize>() {
+                let max_memory_bytes = max_memory_mb * 1024 * 1024;
+                info!("Setting max memory limit: {} MB ({} bytes)", max_memory_mb, max_memory_bytes);
+                config.max_total_memory = Some(max_memory_bytes);
+                config.enable_resource_limits = true;
+            }
+        }
+
+        // Enable resource monitoring
+        if let Some(enabled) = properties.get("resource.monitoring.enabled") {
+            if enabled.eq_ignore_ascii_case("true") {
+                info!("Enabling resource monitoring");
+                config.enable_resource_monitoring = true;
+            }
+        }
+
+        // ====================================================================
+        // PHASE 4: OBSERVABILITY
+        // ====================================================================
+
+        // Enable distributed tracing
+        if let Some(enabled) = properties.get("observability.tracing.enabled") {
+            if enabled.eq_ignore_ascii_case("true") {
+                info!("Enabling distributed tracing");
+                config.enable_distributed_tracing = true;
+            }
+        }
+
+        // Enable Prometheus metrics
+        if let Some(enabled) = properties.get("observability.metrics.enabled") {
+            if enabled.eq_ignore_ascii_case("true") {
+                info!("Enabling Prometheus metrics export");
+                config.enable_prometheus_metrics = true;
+            }
+        }
+
+        // Enable performance profiling
+        if let Some(enabled) = properties.get("observability.profiling.enabled") {
+            if enabled.eq_ignore_ascii_case("true") {
+                info!("Enabling performance profiling");
+                config.enable_performance_profiling = true;
+            }
+        }
+
+        info!(
+            "StreamingConfig extracted: watermarks={}, circuit_breakers={}, tracing={}, metrics={}",
+            config.enable_watermarks,
+            config.enable_circuit_breakers,
+            config.enable_distributed_tracing,
+            config.enable_prometheus_metrics
+        );
+
+        Ok(config)
+    }
+
+    /// Parse duration string (e.g., "5s", "100ms", "1m") to Duration
+    fn parse_duration_string(s: &str) -> Result<Duration, SqlError> {
+        let s = s.trim();
+
+        // Try parsing with units
+        if let Some(num_str) = s.strip_suffix("ms") {
+            if let Ok(ms) = num_str.parse::<u64>() {
+                return Ok(Duration::from_millis(ms));
+            }
+        }
+
+        if let Some(num_str) = s.strip_suffix("s") {
+            if let Ok(secs) = num_str.parse::<u64>() {
+                return Ok(Duration::from_secs(secs));
+            }
+        }
+
+        if let Some(num_str) = s.strip_suffix("m") {
+            if let Ok(mins) = num_str.parse::<u64>() {
+                return Ok(Duration::from_secs(mins * 60));
+            }
+        }
+
+        if let Some(num_str) = s.strip_suffix("h") {
+            if let Ok(hours) = num_str.parse::<u64>() {
+                return Ok(Duration::from_secs(hours * 3600));
+            }
+        }
+
+        // Try parsing as raw seconds
+        if let Ok(secs) = s.parse::<u64>() {
+            return Ok(Duration::from_secs(secs));
+        }
+
+        Err(SqlError::ExecutionError {
+            message: format!("Invalid duration string: '{}'. Expected format like '5s', '100ms', '1m', '1h'", s),
+            query: None,
+        })
     }
 }
