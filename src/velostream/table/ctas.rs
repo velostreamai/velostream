@@ -154,13 +154,20 @@ impl CtasExecutor {
 
         match parsed_query {
             StreamingQuery::CreateTable {
-                name, as_select, properties, ..
+                name,
+                as_select,
+                properties,
+                ..
             } => {
                 // Validate table-level properties first
                 self.validate_properties(&properties)?;
 
                 // Also validate SELECT-level properties (FROM...WITH clause)
-                if let StreamingQuery::Select { properties: select_props, .. } = as_select.as_ref() {
+                if let StreamingQuery::Select {
+                    properties: select_props,
+                    ..
+                } = as_select.as_ref()
+                {
                     if let Some(select_properties) = select_props {
                         self.validate_properties(select_properties)?;
                     }
@@ -168,29 +175,11 @@ impl CtasExecutor {
 
                 // CREATE TABLE AS SELECT - extract source information from the SELECT query
                 let source_info = self.extract_source_from_select(&as_select)?;
-                self.handle_source_info(&name, source_info, &properties, query).await
-            }
-            StreamingQuery::CreateTableInto {
-                name, as_select, properties, ..
-            } => {
-                // CREATE TABLE AS SELECT INTO - similar to above but with INTO clause
-                let properties_map = properties.into_legacy_format();
-
-                // Validate table-level properties first
-                self.validate_properties(&properties_map)?;
-
-                // Also validate SELECT-level properties (FROM...WITH clause)
-                if let StreamingQuery::Select { properties: select_props, .. } = as_select.as_ref() {
-                    if let Some(select_properties) = select_props {
-                        self.validate_properties(select_properties)?;
-                    }
-                }
-
-                let source_info = self.extract_source_from_select(&as_select)?;
-                self.handle_source_info(&name, source_info, &properties_map, query).await
+                self.handle_source_info(&name, source_info, &properties, query)
+                    .await
             }
             _ => Err(SqlError::ExecutionError {
-                message: "Not a CREATE TABLE query. Supported: CREATE TABLE AS SELECT, CREATE TABLE AS SELECT INTO".to_string(),
+                message: "Not a CREATE TABLE query. Supported: CREATE TABLE AS SELECT".to_string(),
                 query: Some(query.to_string()),
             }),
         }

@@ -147,24 +147,6 @@ impl SqlValidator {
             } => {
                 self.validate_create_stream(name, as_select, properties, emit_mode);
             }
-            StreamingQuery::CreateTableInto {
-                name,
-                as_select,
-                properties,
-                emit_mode,
-                ..
-            } => {
-                self.validate_create_table_with_properties(name, as_select, properties, emit_mode);
-            }
-            StreamingQuery::CreateStreamInto {
-                name,
-                as_select,
-                properties,
-                emit_mode,
-                ..
-            } => {
-                self.validate_create_stream_with_properties(name, as_select, properties, emit_mode);
-            }
             _ => {
                 // Other query types - basic validation
                 self.validate_inner_select(query);
@@ -1327,12 +1309,6 @@ impl SubqueryAnalyzer {
                 self.analyze_query(as_select);
             }
             StreamingQuery::CreateTable { as_select, .. } => {
-                self.analyze_query(as_select);
-            }
-            StreamingQuery::CreateStreamInto { as_select, .. } => {
-                self.analyze_query(as_select);
-            }
-            StreamingQuery::CreateTableInto { as_select, .. } => {
                 self.analyze_query(as_select);
             }
             StreamingQuery::InsertInto { .. } => {

@@ -34,7 +34,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "user_analytics");
@@ -97,7 +97,7 @@ fn test_complex_financial_ctas_with_named_sources() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "real_time_positions");
@@ -164,7 +164,7 @@ fn test_market_data_aggregation_ctas() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "market_summary");
@@ -225,7 +225,7 @@ fn test_file_source_to_kafka_sink_ctas() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "processed_logs");
@@ -299,7 +299,7 @@ fn test_multiple_named_sink_config_pattern() {
         );
 
         // Verify the query structure
-        if let Ok(StreamingQuery::CreateTableInto { as_select, .. }) = result {
+        if let Ok(StreamingQuery::CreateTable { as_select, .. }) = result {
             if let StreamingQuery::Select { emit_mode, .. } = *as_select {
                 assert_eq!(
                     emit_mode,
@@ -381,7 +381,7 @@ async fn test_ctas_named_sources_integration_ready() {
 
     // Verify the structure is ready for execution
     match parsed.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "integration_test");

@@ -1042,12 +1042,6 @@ impl StreamJobServer {
             StreamingQuery::CreateStream { properties, .. } => properties.clone(),
             StreamingQuery::CreateTable { properties, .. } => properties.clone(),
             StreamingQuery::StartJob { properties, .. } => properties.clone(),
-            StreamingQuery::CreateStreamInto { properties, .. } => {
-                properties.clone().into_legacy_format()
-            }
-            StreamingQuery::CreateTableInto { properties, .. } => {
-                properties.clone().into_legacy_format()
-            }
             _ => HashMap::new(),
         }
     }

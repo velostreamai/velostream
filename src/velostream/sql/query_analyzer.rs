@@ -199,29 +199,6 @@ impl QueryAnalyzer {
                     });
                 }
             }
-            StreamingQuery::CreateStreamInto {
-                as_select,
-                into_clause,
-                properties,
-                ..
-            } => {
-                // Extract configuration from properties (convert to legacy format)
-                let legacy_props = properties.clone().into_legacy_format();
-
-                // CRITICAL: Add configuration BEFORE analyzing nested SELECT
-                // so that URI + WITH clause integration can access the properties
-                for (key, value) in &legacy_props {
-                    analysis.configuration.insert(key.clone(), value.clone());
-                }
-
-                // CRITICAL FIX: Pass the current analysis context to nested SELECT analysis
-                // This ensures configuration flows from parent to child queries
-                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
-                self.merge_analysis(&mut analysis, nested_analysis);
-
-                // Analyze the INTO clause for sink requirements
-                self.analyze_into_clause(into_clause, &legacy_props, &mut analysis)?;
-            }
             StreamingQuery::CreateTable {
                 as_select,
                 properties,
@@ -234,24 +211,6 @@ impl QueryAnalyzer {
                 // Recursively analyze the nested SELECT with context
                 let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
-            }
-            StreamingQuery::CreateTableInto {
-                as_select,
-                into_clause,
-                properties,
-                ..
-            } => {
-                // Extract configuration from properties (convert to legacy format)
-                let legacy_props = properties.clone().into_legacy_format();
-                for (key, value) in &legacy_props {
-                    analysis.configuration.insert(key.clone(), value.clone());
-                }
-                // Recursively analyze the nested SELECT with context
-                let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
-                self.merge_analysis(&mut analysis, nested_analysis);
-
-                // Analyze the INTO clause for sink requirements
-                self.analyze_into_clause(into_clause, &legacy_props, &mut analysis)?;
             }
             StreamingQuery::Show { .. } => {
                 // SHOW queries don't require consumers/producers

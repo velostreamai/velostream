@@ -139,7 +139,7 @@ async fn test_ctas_executor_with_emit_changes() {
     );
 
     match parsed.unwrap() {
-        StreamingQuery::CreateTableInto { as_select, .. } => {
+        StreamingQuery::CreateTable { as_select, .. } => {
             // Check nested SELECT for EMIT CHANGES
             match *as_select {
                 StreamingQuery::Select { emit_mode, .. } => {
@@ -325,7 +325,7 @@ fn test_ctas_with_named_sources_and_sinks() {
     );
 
     match result.unwrap() {
-        StreamingQuery::CreateTableInto {
+        StreamingQuery::CreateTable {
             name, as_select, ..
         } => {
             assert_eq!(name, "market_analytics");
