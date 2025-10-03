@@ -158,6 +158,10 @@ impl BatchConfigApplicator {
             BatchStrategy::LowLatency { max_wait_time, .. } => {
                 Self::apply_low_latency_kafka(config, *max_wait_time);
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // Use fixed size strategy with large batch size
+                Self::apply_fixed_size_kafka(config, *batch_size, max_batch_size);
+            }
         }
 
         // Apply general timeout setting
@@ -199,6 +203,17 @@ impl BatchConfigApplicator {
                     config.suggest_buffer_size(0); // Immediate write mode
                 } else {
                     config.suggest_buffer_size(4096); // 4KB minimal buffer
+                }
+            }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // Large buffer for high-throughput mega batches
+                let buffer_size = (*batch_size * 4096).min(max_batch_size * 4096);
+                config.suggest_buffer_size(buffer_size as u64);
+
+                // Suggest compression for very large batches
+                if buffer_size > 10 * 1024 * 1024 {
+                    use super::super::file::config::CompressionType;
+                    config.suggest_compression(Some(CompressionType::Gzip));
                 }
             }
         }

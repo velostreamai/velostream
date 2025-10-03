@@ -190,6 +190,21 @@ impl KafkaDataSink {
                     "5".to_string(),
                 ); // Parallel requests
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                let kafka_batch_size = (*batch_size * 2048).min(1024 * 1024); // 2KB per record estimate, max 1MB
+                producer_config.insert("batch.size".to_string(), kafka_batch_size.to_string());
+                producer_config.insert("linger.ms".to_string(), "100".to_string()); // Allow time for batching
+
+                // Suggest compression for large batches only if not explicitly set
+                if !producer_config.contains_key("compression.type") {
+                    producer_config.insert("compression.type".to_string(), "zstd".to_string()); // Best compression
+                }
+
+                // Optimize buffer for large batches
+                let buffer_memory = (*batch_size * 4096).min(128 * 1024 * 1024); // 4KB per record, max 128MB
+                producer_config.insert("buffer.memory".to_string(), buffer_memory.to_string());
+            }
         }
 
         // Apply general batch timeout as request timeout

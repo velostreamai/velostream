@@ -679,12 +679,12 @@ async fn robust_multi_source_job() -> Result<JobExecutionStats, Box<dyn std::err
 
 2. **Memory Management**
    ```rust
-   let batch_config = Some(BatchConfig {
-       strategy: BatchStrategy::MemoryBased,
-       memory_limit_mb: Some(256),
-       max_batch_size: Some(1000),
-       batch_timeout: Some(Duration::from_millis(1000)),
-   });
+   let batch_config = BatchConfig {
+       strategy: BatchStrategy::MemoryBased(256 * 1024 * 1024), // 256 MB in bytes
+       max_batch_size: 1000,
+       batch_timeout: Duration::from_millis(1000),
+       enable_batching: true,
+   };
    ```
 
 ### Error Handling

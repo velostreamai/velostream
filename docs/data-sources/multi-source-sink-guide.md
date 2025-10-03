@@ -293,15 +293,16 @@ WITH (
 #### **Batch Processing Configuration**
 ```yaml
 WITH (
-    # Batch strategy
-    'batch.strategy' = 'AdaptiveSize',
-    'batch.max_size' = '1000',
-    'batch.timeout' = '5000',
-    'batch.memory_limit_mb' = '256',
-    
-    # Per-source batch configuration
-    'kafka_source.batch.size' = '500',
-    'file_source.batch.timeout' = '10000'
+    # Batch strategy configuration
+    'sink.batch.strategy' = 'adaptive_size',
+    'sink.batch.adaptive_max_size' = '1000',
+    'sink.batch.timeout' = '5000',
+    'sink.batch.min_size' = '10',
+    'sink.batch.target_latency' = '100ms',
+
+    # Per-source batch configuration (source-specific settings vary)
+    'source.kafka.fetch.max.bytes' = '1048576',
+    'source.file.read_buffer_size' = '8192'
 )
 ```
 
@@ -1028,8 +1029,8 @@ WITH (
 #### **Memory Management**
 ```sql
 WITH (
-    'batch.memory_limit_mb' = '512',
-    'batch.strategy' = 'MemoryBased',
+    'sink.batch.memory_size' = '536870912',  -- 512 MB in bytes (512 * 1024 * 1024)
+    'sink.batch.strategy' = 'memory_based',
     'source.buffer_size' = '1000'
 )
 ```
@@ -1719,12 +1720,12 @@ Warning: Job memory usage 450MB exceeds recommended limit of 400MB
 **Solutions:**
 ```sql
 -- Reduce batch size
-WITH ('max_batch_size' = '100')
+WITH ('sink.batch.max_size' = '100')
 
--- Use memory-based batching
-WITH ('batch.strategy' = 'MemoryBased', 'batch.memory_limit_mb' = '200')
+-- Use memory-based batching (200 MB = 209715200 bytes)
+WITH ('sink.batch.strategy' = 'memory_based', 'sink.batch.memory_size' = '209715200')
 
--- Reduce window size for temporal joins  
+-- Reduce window size for temporal joins
 WITHIN INTERVAL '1' MINUTE  -- instead of '1' HOUR
 ```
 
