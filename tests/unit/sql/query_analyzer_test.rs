@@ -149,6 +149,11 @@ fn test_create_stream_analysis() {
     properties.insert("source.topic".to_string(), "input_orders".to_string());
     properties.insert("value.serializer".to_string(), "json".to_string());
 
+    // CSAS requires sink configuration
+    properties.insert("processed_orders_sink.type".to_string(), "kafka_sink".to_string());
+    properties.insert("processed_orders_sink.topic".to_string(), "processed_orders".to_string());
+    properties.insert("processed_orders_sink.bootstrap.servers".to_string(), "localhost:9092".to_string());
+
     // Create properties for the nested SELECT with explicit type
     let mut select_properties = HashMap::new();
     select_properties.insert("orders.type".to_string(), "kafka_source".to_string());
