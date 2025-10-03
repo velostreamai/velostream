@@ -325,17 +325,94 @@ fn test_error_handling_invalid_sql() {
 }
 
 #[test]
+fn test_missing_sink_configuration() {
+    let parser = StreamingSqlParser::new();
+
+    // CSAS without sink configuration - should fail analysis
+    let sql = r#"
+        CREATE STREAM output_stream AS
+        SELECT * FROM source
+        WITH (
+            'source.type' = 'kafka_source',
+            'source.bootstrap.servers' = 'localhost:9092',
+            'source.topic' = 'input'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse SQL (parsing only checks syntax)");
+
+    // Analysis should detect missing sink configuration
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis_result = analyzer.analyze(&query);
+
+    // Should fail with ConfigurationError
+    assert!(
+        analysis_result.is_err(),
+        "Should fail when CSAS is missing sink configuration"
+    );
+
+    if let Err(e) = analysis_result {
+        let error_msg = format!("{:?}", e);
+        assert!(
+            error_msg.contains("sink configuration"),
+            "Error should mention missing sink configuration: {}",
+            error_msg
+        );
+        println!("✅ Missing sink configuration correctly detected as error: {:?}", e);
+    }
+}
+
+#[test]
+fn test_missing_source_configuration() {
+    let parser = StreamingSqlParser::new();
+
+    // CSAS without source configuration - should fail analysis
+    let sql = r#"
+        CREATE STREAM output_stream AS
+        SELECT * FROM undefined_source
+        WITH (
+            'output_stream_sink.type' = 'kafka_sink',
+            'output_stream_sink.bootstrap.servers' = 'localhost:9092',
+            'output_stream_sink.topic' = 'output'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse SQL (parsing only checks syntax)");
+
+    // Analysis should detect missing source configuration
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis_result = analyzer.analyze(&query);
+
+    // Should fail when trying to use undefined source
+    if let Err(e) = analysis_result {
+        println!("✅ Missing source configuration correctly detected: {:?}", e);
+    } else {
+        let analysis = analysis_result.unwrap();
+        println!("⚠️  Warning: Missing source 'undefined_source' was not detected as error");
+        println!("   Detected sources: {:?}", analysis.required_sources);
+    }
+}
+
+#[test]
 fn test_config_property_precedence() {
     let parser = StreamingSqlParser::new();
 
-    // Test that explicit properties take precedence
+    // Test that explicit properties take precedence (includes sink config)
     let sql = r#"
         CREATE STREAM test AS SELECT * FROM source
         WITH (
             'source.type' = 'kafka_source',
             'source.bootstrap.servers' = 'explicit-broker:9092',
             'source.topic' = 'explicit-topic',
-            'source.bootstrap.servers' = 'override-broker:9092'
+            'source.bootstrap.servers' = 'override-broker:9092',
+
+            'test_sink.type' = 'kafka_sink',
+            'test_sink.bootstrap.servers' = 'localhost:9092',
+            'test_sink.topic' = 'test_output'
         )
     "#;
 

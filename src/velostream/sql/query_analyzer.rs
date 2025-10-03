@@ -171,6 +171,7 @@ impl QueryAnalyzer {
                 }
             }
             StreamingQuery::CreateStream {
+                name,
                 as_select,
                 properties,
                 ..
@@ -185,6 +186,18 @@ impl QueryAnalyzer {
 
                 // ENHANCEMENT: Detect sinks defined in WITH clause
                 self.detect_sinks_from_config(&mut analysis)?;
+
+                // VALIDATION: CSAS (CREATE STREAM AS SELECT) requires a sink configuration
+                if analysis.required_sinks.is_empty() {
+                    return Err(SqlError::ConfigurationError {
+                        message: format!(
+                            "CREATE STREAM '{}' requires a sink configuration. \
+                            Define a sink in the WITH clause with '{}_sink.type' = 'kafka_sink' (or file_sink/s3_sink). \
+                            Example: WITH ('{}_sink.type' = 'kafka_sink', '{}_sink.topic' = 'output_topic', ...)",
+                            name, name, name, name
+                        ),
+                    });
+                }
             }
             StreamingQuery::CreateStreamInto {
                 as_select,
