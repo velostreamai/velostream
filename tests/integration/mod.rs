@@ -16,8 +16,6 @@ pub mod table;
 pub mod timeout_config_test;
 pub mod transactions_test;
 
-// DataSource functional tests
-pub mod datasource;
 // CTAS integration tests with modern APIs
 pub mod ctas_performance_test;
 pub mod ctas_sql_integration_test;

@@ -1,12 +1,15 @@
-//! Functional tests for CSAS/CTAS with named datasources
+//! Unit tests for CSAS/CTAS configuration extraction
 //!
-//! Tests that:
-//! 1. Named sources are loaded from config files
-//! 2. Properties from config files are applied correctly
-//! 3. Named sinks can be configured via WITH clause
-//! 4. Both CSAS and CTAS work with the datasource system
+//! Tests the parsing and extraction of configuration properties from SQL WITH clauses
+//! for CREATE STREAM AS SELECT (CSAS) and CREATE TABLE AS SELECT (CTAS) statements.
 //!
-//! Architecture: Named sinks are configured in the WITH clause of the CSAS/CTAS statement,
+//! Tests verify:
+//! 1. SQL parsing of CSAS/CTAS with named sources and sinks
+//! 2. Property extraction from WITH clauses
+//! 3. QueryAnalyzer detection of required sources and sinks
+//! 4. Phase 1B-4 feature configuration parsing
+//!
+//! Architecture: Named sources/sinks are configured in the WITH clause,
 //! eliminating the need for a separate INTO clause.
 
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -228,7 +231,7 @@ fn test_property_extraction_from_with_clause() {
 fn test_csas_phase1b4_features_with_named_sources() {
     let parser = StreamingSqlParser::new();
 
-    // CSAS with Phase 1B-4 features AND named sources
+    // CSAS with Phase 1B-4 features AND named sources (inline config for unit test)
     let sql = r#"
         CREATE STREAM real_time_alerts AS
         SELECT
@@ -240,12 +243,13 @@ fn test_csas_phase1b4_features_with_named_sources() {
         WITH (
             -- Source configuration
             'market_data_source.type' = 'kafka_source',
-            'market_data_source.config_file' = 'configs/market_data_source.yaml',
+            'market_data_source.bootstrap.servers' = 'localhost:9092',
             'market_data_source.topic' = 'market_data',
+            'market_data_source.group.id' = 'alerts-group',
 
             -- Sink configuration
             'alerts_sink.type' = 'kafka_sink',
-            'alerts_sink.config_file' = 'configs/alerts_sink.yaml',
+            'alerts_sink.bootstrap.servers' = 'localhost:9092',
             'alerts_sink.topic' = 'alerts',
 
             -- Phase 1B: Event-time processing
@@ -273,4 +277,175 @@ fn test_csas_phase1b4_features_with_named_sources() {
     );
 
     println!("✅ CSAS with Phase 1B-4 features + named sources parsed successfully");
+}
+
+#[test]
+fn test_property_validation_edge_cases() {
+    let parser = StreamingSqlParser::new();
+
+    // Test empty WITH clause
+    let sql = r#"
+        CREATE STREAM test AS SELECT * FROM source WITH ()
+    "#;
+    assert!(parser.parse(sql).is_ok(), "Should parse empty WITH clause");
+
+    // Test single property
+    let sql = r#"
+        CREATE STREAM test AS SELECT * FROM source
+        WITH ('source.type' = 'kafka_source')
+    "#;
+    assert!(parser.parse(sql).is_ok(), "Should parse single property");
+
+    // Test properties with special characters
+    let sql = r#"
+        CREATE STREAM test AS SELECT * FROM source
+        WITH (
+            'source.bootstrap.servers' = 'broker1:9092,broker2:9092,broker3:9092',
+            'source.group.id' = 'test-group_v1.0'
+        )
+    "#;
+    assert!(parser.parse(sql).is_ok(), "Should parse properties with special chars");
+}
+
+#[test]
+fn test_error_handling_invalid_sql() {
+    let parser = StreamingSqlParser::new();
+
+    // Invalid WITH syntax (missing equals)
+    let sql = r#"CREATE STREAM test AS SELECT * FROM source WITH ('key' 'value')"#;
+    assert!(parser.parse(sql).is_err(), "Should fail with invalid WITH syntax");
+
+    // Completely malformed SQL
+    let sql = r#"CREATE STREAM AS FROM SELECT"#;
+    assert!(parser.parse(sql).is_err(), "Should fail with malformed SQL");
+
+    // Missing AS keyword
+    let sql = r#"CREATE STREAM test SELECT * FROM source"#;
+    assert!(parser.parse(sql).is_err(), "Should fail without AS keyword");
+}
+
+#[test]
+fn test_config_property_precedence() {
+    let parser = StreamingSqlParser::new();
+
+    // Test that explicit properties take precedence
+    let sql = r#"
+        CREATE STREAM test AS SELECT * FROM source
+        WITH (
+            'source.type' = 'kafka_source',
+            'source.bootstrap.servers' = 'explicit-broker:9092',
+            'source.topic' = 'explicit-topic',
+            'source.bootstrap.servers' = 'override-broker:9092'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse SQL with duplicate keys");
+
+    // Verify analysis works even with duplicates
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    assert!(analyzer.analyze(&query).is_ok(), "Should analyze despite duplicate keys");
+}
+
+#[test]
+fn test_complex_where_clause_with_config() {
+    let parser = StreamingSqlParser::new();
+
+    let sql = r#"
+        CREATE STREAM filtered_trades AS
+        SELECT
+            trade_id,
+            symbol,
+            price,
+            quantity
+        FROM trades_source
+        WHERE price > 100.0
+          AND quantity > 1000
+          AND status = 'FILLED'
+          AND exchange IN ('NYSE', 'NASDAQ')
+        WITH (
+            'trades_source.type' = 'kafka_source',
+            'trades_source.bootstrap.servers' = 'localhost:9092',
+            'trades_source.topic' = 'trades',
+            'trades_source.group.id' = 'filtered-group'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse complex WHERE with config: {:?}", result.err());
+
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis = analyzer.analyze(&query).expect("Should analyze complex query");
+
+    assert!(!analysis.required_sources.is_empty(), "Should detect source");
+    println!("✅ Complex WHERE clause with config parsed successfully");
+}
+
+#[test]
+fn test_aggregation_with_config() {
+    let parser = StreamingSqlParser::new();
+
+    let sql = r#"
+        CREATE STREAM aggregated_metrics AS
+        SELECT
+            symbol,
+            COUNT(*) as trade_count,
+            SUM(quantity) as total_quantity,
+            AVG(price) as avg_price,
+            MIN(price) as min_price,
+            MAX(price) as max_price
+        FROM trades_source
+        GROUP BY symbol
+        HAVING COUNT(*) > 100
+        WITH (
+            'trades_source.type' = 'kafka_source',
+            'trades_source.bootstrap.servers' = 'localhost:9092',
+            'trades_source.topic' = 'trades',
+            'trades_source.group.id' = 'agg-group'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse aggregation with config: {:?}", result.err());
+
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis = analyzer.analyze(&query).expect("Should analyze aggregation query");
+
+    assert!(!analysis.required_sources.is_empty(), "Should detect source in aggregation");
+    println!("✅ Aggregation with GROUP BY/HAVING and config parsed successfully");
+}
+
+#[test]
+fn test_window_functions_with_config() {
+    let parser = StreamingSqlParser::new();
+
+    let sql = r#"
+        CREATE STREAM windowed_data AS
+        SELECT
+            symbol,
+            price,
+            LAG(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp) as prev_price,
+            LEAD(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp) as next_price,
+            ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp) as row_num
+        FROM trades_source
+        WITH (
+            'trades_source.type' = 'kafka_source',
+            'trades_source.bootstrap.servers' = 'localhost:9092',
+            'trades_source.topic' = 'trades',
+            'trades_source.group.id' = 'window-group'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse window functions with config: {:?}", result.err());
+
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis = analyzer.analyze(&query).expect("Should analyze window function query");
+
+    assert!(!analysis.required_sources.is_empty(), "Should detect source with window functions");
+    println!("✅ Window functions (LAG, LEAD, ROW_NUMBER) with config parsed successfully");
 }

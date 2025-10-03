@@ -36,3 +36,6 @@ pub mod select_statement_matching_test;
 
 // Concatenation operator tests
 pub mod concat_operator_test;
+
+// CSAS/CTAS configuration extraction tests
+pub mod csas_ctas_config_extraction_test;
