@@ -248,6 +248,10 @@ impl DataReader for KafkaDataReader {
                 self.read_low_latency(*max_batch_size, *max_wait_time, *eager_processing)
                     .await
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                self.read_fixed_size(*batch_size).await
+            }
         }
     }
 
@@ -380,6 +384,16 @@ impl KafkaDataReader {
                 consumer_config.enable_auto_commit = true;
                 consumer_config.auto_commit_interval = std::time::Duration::from_millis(50);
                 // Frequent commits
+            }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                let poll_records = (*batch_size).min(batch_config.max_batch_size) as u32;
+                consumer_config.max_poll_records = poll_records;
+
+                // Optimize for high throughput
+                consumer_config.fetch_min_bytes = 1_048_576; // 1MB minimum fetch
+                consumer_config.fetch_max_wait = std::time::Duration::from_millis(500);
+                consumer_config.max_partition_fetch_bytes = 10 * 1024 * 1024; // 10MB per partition
             }
         }
 

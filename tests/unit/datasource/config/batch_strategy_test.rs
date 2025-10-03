@@ -19,7 +19,8 @@ fn test_batch_strategy_default() {
 fn test_batch_config_default() {
     let config = BatchConfig::default();
 
-    assert_eq!(config.max_batch_size, 1000);
+    // Phase 4 optimization: increased from 1000 to 50,000
+    assert_eq!(config.max_batch_size, 50_000);
     assert_eq!(config.batch_timeout, Duration::from_millis(1000));
     assert_eq!(config.enable_batching, true);
 

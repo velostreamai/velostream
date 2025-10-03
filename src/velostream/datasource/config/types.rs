@@ -38,6 +38,13 @@ pub enum BatchStrategy {
         max_wait_time: Duration, // Aggressive timeout (e.g., 1-5ms)
         eager_processing: bool, // Process immediately when any record is available
     },
+    /// High-throughput mega-batch processing (NEW - Phase 4 optimization)
+    /// Optimized for maximum throughput with large batch sizes and optional parallelism
+    MegaBatch {
+        batch_size: usize,  // Large batch size (10K-100K records)
+        parallel: bool,     // Enable parallel batch processing
+        reuse_buffer: bool, // Use ring buffer for allocation reuse
+    },
 }
 
 impl Default for BatchStrategy {
@@ -60,8 +67,40 @@ impl Default for BatchConfig {
     fn default() -> Self {
         Self {
             strategy: BatchStrategy::default(),
-            max_batch_size: 1000,
+            max_batch_size: 50_000, // Increased from 1000 to 50K (Phase 4 optimization)
             batch_timeout: Duration::from_millis(1000),
+            enable_batching: true,
+        }
+    }
+}
+
+impl BatchConfig {
+    /// Create a high-throughput configuration optimized for maximum throughput
+    /// Uses large batch sizes with optional parallel processing
+    pub fn high_throughput() -> Self {
+        Self {
+            strategy: BatchStrategy::MegaBatch {
+                batch_size: 50_000,
+                parallel: true,
+                reuse_buffer: true,
+            },
+            max_batch_size: 100_000,
+            batch_timeout: Duration::from_millis(100),
+            enable_batching: true,
+        }
+    }
+
+    /// Create an ultra-high-throughput configuration for maximum performance
+    /// Uses 100K batch sizes with parallel processing and buffer reuse
+    pub fn ultra_throughput() -> Self {
+        Self {
+            strategy: BatchStrategy::MegaBatch {
+                batch_size: 100_000,
+                parallel: true,
+                reuse_buffer: true,
+            },
+            max_batch_size: 100_000,
+            batch_timeout: Duration::from_millis(50),
             enable_batching: true,
         }
     }

@@ -143,6 +143,17 @@ impl KafkaDataSource {
                 kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string());
                 // Frequent commits
             }
+            BatchStrategy::MegaBatch { batch_size, .. } => {
+                // High-throughput mega-batch processing (Phase 4 optimization)
+                kafka_config.insert("max.poll.records".to_string(), batch_size.to_string());
+                kafka_config.insert("fetch.max.wait.ms".to_string(), "500".to_string()); // Allow time for batch accumulation
+                kafka_config.insert("fetch.min.bytes".to_string(), "1048576".to_string()); // 1MB minimum fetch
+                kafka_config.insert("fetch.max.bytes".to_string(), "104857600".to_string()); // 100MB max fetch
+                kafka_config.insert(
+                    "max.partition.fetch.bytes".to_string(),
+                    "10485760".to_string(),
+                ); // 10MB per partition
+            }
         }
 
         // Always set session.timeout.ms and heartbeat.interval.ms for reliable batching

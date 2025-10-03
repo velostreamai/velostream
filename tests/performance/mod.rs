@@ -19,6 +19,9 @@ pub mod unit; // Component-specific benchmarks // High-throughput and stress tes
 // Legacy modules (maintained for compatibility during transition)
 pub mod consolidated_mod;
 
+// WHERE clause performance benchmarks (now also in comprehensive_sql_benchmarks)
+pub mod where_clause_performance_test;
+
 // Re-export organized structure for easier access
 pub use consolidated_mod::*;
 pub use integration::*;

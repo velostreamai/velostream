@@ -3,6 +3,10 @@
 //! This module contains component-specific benchmarks for individual Velostream components.
 //! Each module focuses on a specific component's performance characteristics.
 
+// Comprehensive SQL benchmarks (consolidates all SQL features)
+pub mod comprehensive_sql_benchmarks;
+
+// Specialized benchmarks
 pub mod financial_precision;
 pub mod kafka_configurations;
 pub mod query_processing;
@@ -10,6 +14,7 @@ pub mod serialization_formats;
 pub mod sql_execution;
 
 // Re-export commonly used benchmarks
+pub use comprehensive_sql_benchmarks::*;
 pub use financial_precision::*;
 pub use kafka_configurations::*;
 pub use query_processing::*;
