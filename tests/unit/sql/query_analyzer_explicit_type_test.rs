@@ -453,24 +453,23 @@ fn test_integration_sql_parsing_with_explicit_types() {
     // SQL with explicit type configuration
     let sql = r#"
         CREATE STREAM processed_orders AS
-        SELECT 
+        SELECT
             o.order_id,
             c.customer_name,
             o.amount * 1.1 as total_with_tax
         FROM orders o
         JOIN customers c ON o.customer_id = c.customer_id
-        INTO processed_sink
         WITH (
             'orders.type' = 'kafka_source',
             'orders.bootstrap.servers' = 'localhost:9092',
             'orders.topic' = 'raw-orders',
-            
+
             'customers.type' = 'file_source',
             'customers.path' = '/data/customers.csv',
-            
-            'processed_sink.type' = 'kafka_sink',
-            'processed_sink.bootstrap.servers' = 'localhost:9092',
-            'processed_sink.topic' = 'processed-orders'
+
+            'processed_orders_sink.type' = 'kafka_sink',
+            'processed_orders_sink.bootstrap.servers' = 'localhost:9092',
+            'processed_orders_sink.topic' = 'processed-orders'
         )
     "#;
 
@@ -496,7 +495,7 @@ fn test_integration_sql_parsing_with_explicit_types() {
 
     // Verify sink was correctly identified
     assert_eq!(analysis.required_sinks.len(), 1);
-    assert_eq!(analysis.required_sinks[0].name, "processed_sink");
+    assert_eq!(analysis.required_sinks[0].name, "processed_orders_sink");
     assert_eq!(analysis.required_sinks[0].sink_type, DataSinkType::Kafka);
 }
 
