@@ -152,24 +152,6 @@ pub enum StreamingQuery {
         /// Emission mode for continuous query results
         emit_mode: Option<EmitMode>,
     },
-    /// CREATE STREAM AS SELECT ... INTO statement for source-to-sink streaming.
-    ///
-    /// Creates a streaming job that transforms data from a source and writes
-    /// to a specified sink. Supports multi-config files and environment variables.
-    CreateStreamInto {
-        /// Name of the streaming transformation job
-        name: String,
-        /// Optional column definitions with types
-        columns: Option<Vec<ColumnDef>>,
-        /// SELECT query that defines the transformation
-        as_select: Box<StreamingQuery>,
-        /// Target sink specification
-        into_clause: IntoClause,
-        /// Enhanced configuration properties with multi-config support
-        properties: ConfigProperties,
-        /// Emission mode for continuous query results
-        emit_mode: Option<EmitMode>,
-    },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
     /// Creates a materialized table (Table) that maintains the current
@@ -184,25 +166,6 @@ pub enum StreamingQuery {
         as_select: Box<StreamingQuery>,
         /// Table properties (retention, compaction, etc.)
         properties: HashMap<String, String>,
-        /// Emission mode for continuous query results
-        emit_mode: Option<EmitMode>,
-    },
-    /// CREATE TABLE AS SELECT ... INTO statement for source-to-sink table creation.
-    ///
-    /// Creates a materialized table job that transforms data from a source and writes
-    /// to a specified sink. Maintains state like regular tables but with configurable
-    /// sources and sinks. Ideal for creating materialized views from external sources.
-    CreateTableInto {
-        /// Name of the table transformation job
-        name: String,
-        /// Optional column definitions with types
-        columns: Option<Vec<ColumnDef>>,
-        /// SELECT query that defines the transformation
-        as_select: Box<StreamingQuery>,
-        /// Target sink specification
-        into_clause: IntoClause,
-        /// Enhanced configuration properties with multi-config support
-        properties: ConfigProperties,
         /// Emission mode for continuous query results
         emit_mode: Option<EmitMode>,
     },
@@ -811,8 +774,6 @@ impl StreamingQuery {
             StreamingQuery::Select { window, .. } => window.is_some(),
             StreamingQuery::CreateStream { as_select, .. } => as_select.has_window(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.has_window(),
-            StreamingQuery::CreateStreamInto { as_select, .. } => as_select.has_window(),
-            StreamingQuery::CreateTableInto { as_select, .. } => as_select.has_window(),
             StreamingQuery::Show { .. } => false, // SHOW commands don't use windows
             StreamingQuery::StartJob { query, .. } => query.has_window(),
             StreamingQuery::StopJob { .. } => false, // STOP commands don't use windows
@@ -853,8 +814,6 @@ impl StreamingQuery {
             }
             StreamingQuery::CreateStream { as_select, .. } => as_select.get_columns(),
             StreamingQuery::CreateTable { as_select, .. } => as_select.get_columns(),
-            StreamingQuery::CreateStreamInto { as_select, .. } => as_select.get_columns(),
-            StreamingQuery::CreateTableInto { as_select, .. } => as_select.get_columns(),
             StreamingQuery::Show { .. } => Vec::new(), // SHOW commands don't reference columns
             StreamingQuery::StartJob { query, .. } => query.get_columns(),
             StreamingQuery::StopJob { .. } => Vec::new(), // STOP commands don't reference columns

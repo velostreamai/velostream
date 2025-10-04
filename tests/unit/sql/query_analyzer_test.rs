@@ -149,6 +149,20 @@ fn test_create_stream_analysis() {
     properties.insert("source.topic".to_string(), "input_orders".to_string());
     properties.insert("value.serializer".to_string(), "json".to_string());
 
+    // CSAS requires sink configuration
+    properties.insert(
+        "processed_orders_sink.type".to_string(),
+        "kafka_sink".to_string(),
+    );
+    properties.insert(
+        "processed_orders_sink.topic".to_string(),
+        "processed_orders".to_string(),
+    );
+    properties.insert(
+        "processed_orders_sink.bootstrap.servers".to_string(),
+        "localhost:9092".to_string(),
+    );
+
     // Create properties for the nested SELECT with explicit type
     let mut select_properties = HashMap::new();
     select_properties.insert("orders.type".to_string(), "kafka_source".to_string());
@@ -191,82 +205,6 @@ fn test_create_stream_analysis() {
     // Should have configuration from properties
     assert!(!analysis.configuration.is_empty());
     assert_eq!(analysis.configuration.get("source.type").unwrap(), "kafka");
-}
-
-#[test]
-fn test_create_stream_into_analysis() {
-    let analyzer = QueryAnalyzer::new("test-group".to_string());
-
-    let mut properties = HashMap::new();
-    properties.insert("source.type".to_string(), "kafka".to_string());
-    properties.insert("sink.type".to_string(), "kafka".to_string());
-    properties.insert("sink.topic".to_string(), "output_topic".to_string());
-
-    // Create properties for the nested SELECT with explicit type
-    let mut select_properties = HashMap::new();
-    select_properties.insert("input_stream.type".to_string(), "kafka_source".to_string());
-    select_properties.insert("input_stream.topic".to_string(), "input".to_string());
-    select_properties.insert(
-        "input_stream.bootstrap.servers".to_string(),
-        "localhost:9092".to_string(),
-    );
-
-    let select_query = StreamingQuery::Select {
-        fields: vec![SelectField::Wildcard],
-        from: StreamSource::Stream("input_stream".to_string()),
-        from_alias: None,
-        joins: None,
-        where_clause: None,
-        group_by: None,
-        having: None,
-        window: None,
-        order_by: None,
-        limit: None,
-        emit_mode: None,
-        properties: Some(select_properties),
-    };
-
-    let mut sink_properties = HashMap::new();
-    sink_properties.insert("output_sink.type".to_string(), "kafka_sink".to_string());
-    sink_properties.insert("output_sink.topic".to_string(), "output".to_string());
-    sink_properties.insert(
-        "output_sink.bootstrap.servers".to_string(),
-        "localhost:9092".to_string(),
-    );
-
-    let into_clause = IntoClause {
-        sink_name: "output_sink".to_string(),
-        sink_properties,
-    };
-
-    let config_props = ConfigProperties {
-        inline_properties: properties.clone(),
-        source_config: None,
-        sink_config: None,
-        monitoring_config: None,
-        security_config: None,
-    };
-
-    let query = StreamingQuery::CreateStreamInto {
-        name: "stream_with_sink".to_string(),
-        columns: None,
-        as_select: Box::new(select_query),
-        into_clause,
-        properties: config_props,
-        emit_mode: None,
-    };
-
-    let analysis = analyzer.analyze(&query).unwrap();
-
-    // Should have both source and sink
-    assert_eq!(analysis.required_sources.len(), 1);
-    assert_eq!(analysis.required_sinks.len(), 1);
-
-    let source = &analysis.required_sources[0];
-    assert_eq!(source.name, "input_stream");
-
-    let sink = &analysis.required_sinks[0];
-    assert_eq!(sink.name, "output_sink");
 }
 
 #[test]

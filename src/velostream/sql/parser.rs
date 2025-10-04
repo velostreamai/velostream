@@ -2979,34 +2979,7 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_for_create_table to avoid consuming the WITH clause that belongs to CREATE STREAM
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
-        // Check for INTO clause (new syntax)
-        if self.current_token().token_type == TokenType::Into {
-            let into_clause = self.parse_into_clause()?;
-
-            // Enhanced WITH properties for multi-config support
-            let properties = if self.current_token().token_type == TokenType::With {
-                self.parse_enhanced_with_properties()?
-            } else {
-                ConfigProperties::default()
-            };
-
-            // Parse optional EMIT clause for CREATE STREAM INTO
-            let emit_mode = self.parse_emit_clause()?;
-
-            // Consume optional semicolon
-            self.consume_semicolon();
-
-            return Ok(StreamingQuery::CreateStreamInto {
-                name,
-                columns,
-                as_select,
-                into_clause,
-                properties,
-                emit_mode,
-            });
-        }
-
-        // Fallback to existing CREATE STREAM syntax (backward compatibility)
+        // Parse WITH properties for sink configuration
         let properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {
@@ -3048,34 +3021,7 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
-        // Check for INTO clause (new syntax)
-        if self.current_token().token_type == TokenType::Into {
-            let into_clause = self.parse_into_clause()?;
-
-            // Enhanced WITH properties for multi-config support
-            let properties = if self.current_token().token_type == TokenType::With {
-                self.parse_enhanced_with_properties()?
-            } else {
-                ConfigProperties::default()
-            };
-
-            // Parse optional EMIT clause for CREATE TABLE INTO
-            let emit_mode = self.parse_emit_clause()?;
-
-            // Consume optional semicolon
-            self.consume_semicolon();
-
-            return Ok(StreamingQuery::CreateTableInto {
-                name,
-                columns,
-                as_select,
-                into_clause,
-                properties,
-                emit_mode,
-            });
-        }
-
-        // Fallback to existing CREATE TABLE syntax (backward compatibility)
+        // Parse WITH properties
         let mut properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
         } else {

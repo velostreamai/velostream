@@ -400,8 +400,6 @@ impl StreamExecutionEngine {
             }
             StreamingQuery::CreateStream { name, .. } => format!("create_stream_{}", name),
             StreamingQuery::CreateTable { name, .. } => format!("create_table_{}", name),
-            StreamingQuery::CreateStreamInto { name, .. } => format!("create_stream_into_{}", name),
-            StreamingQuery::CreateTableInto { name, .. } => format!("create_table_into_{}", name),
             StreamingQuery::Show { .. } => "show_query".to_string(),
             _ => "unknown_query".to_string(),
         }
@@ -935,12 +933,6 @@ impl StreamExecutionEngine {
                 self.query_matches_stream(as_select, stream_name)
             }
             StreamingQuery::CreateTable { as_select, .. } => {
-                self.query_matches_stream(as_select, stream_name)
-            }
-            StreamingQuery::CreateStreamInto { as_select, .. } => {
-                self.query_matches_stream(as_select, stream_name)
-            }
-            StreamingQuery::CreateTableInto { as_select, .. } => {
                 self.query_matches_stream(as_select, stream_name)
             }
             StreamingQuery::Show { .. } => false, // SHOW commands don't match streams

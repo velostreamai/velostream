@@ -55,14 +55,13 @@ SELECT
 FROM market_data_et
          WINDOW TUMBLING (SIZE 1 SECOND)
 GROUP BY symbol, TUMBLING(event_time, INTERVAL '1' SECOND)
-INTO market_data_clean
 WITH (
-    'market_data_clean.type' = 'kafka_sink',
-    'market_data_clean.config_file' = 'configs/market_data_clean_sink.yaml'
+    'market_data_clean_sink.type' = 'kafka_sink',
+    'market_data_clean_sink.config_file' = 'configs/market_data_clean_sink.yaml',
 
     'market_data_et.type' = 'kafka_source',
     'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
-    );
+);
 
 -- ====================================================================================
 -- PHASE 3: ADVANCED WINDOW FUNCTIONS - Price Movement Detection
@@ -114,20 +113,19 @@ WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 HAVING COUNT(*) > 10  -- At least 10 trades in window
    AND STDDEV(price) > AVG(price) * 0.01  -- Volatility > 1% of avg price
    AND MAX(volume) > AVG(volume) * 2      -- Volume spike detected
-INTO price_alerts_sink
 WITH (
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
     'circuit.breaker.timeout' = '60s',
-    
+
     -- Phase 4: Observability integration
     'observability.metrics.enabled' = 'true',
     'observability.tracing.enabled' = 'true',
     'observability.span.name' = 'price_movement_detection',
-    
+
     'price_alerts_sink.type' = 'kafka_sink',
-    'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml'
+    'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml',
 
     'market_data_et.type' = 'kafka_source',
     'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
@@ -226,14 +224,13 @@ HAVING EXISTS (
     AND m2.volume > 10000
 )
 AND COUNT(*) >= 5  -- Minimum 5 trades in window
-INTO volume_spikes_sink
 WITH (
     -- Phase 2: Comprehensive resource management
     'max.memory.mb' = '1024',
     'max.groups' = '50000',
     'spill.to.disk' = 'true',
     'memory.pressure.threshold' = '0.8',
-    
+
     -- Phase 2: Circuit breaker with advanced configuration
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '3',
@@ -241,21 +238,21 @@ WITH (
     'circuit.breaker.timeout' = '120s',
     'circuit.breaker.slow.call.threshold' = '10s',
     'circuit.breaker.slow.call.rate.threshold' = '0.5',
-    
+
     -- Phase 2: Retry configuration with exponential backoff
     'retry.max.attempts' = '5',
     'retry.backoff.strategy' = 'exponential',
     'retry.initial.delay' = '100ms',
     'retry.max.delay' = '30s',
     'retry.multiplier' = '2.0',
-    
+
     -- Phase 4: Advanced observability
     'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true', 
+    'observability.tracing.enabled' = 'true',
     'observability.profiling.enabled' = 'true',
     'observability.span.name' = 'volume_spike_analysis',
     'prometheus.histogram.buckets' = '0.1,0.5,1.0,5.0,10.0,30.0',
-    
+
     'volume_spikes_sink.type' = 'kafka_sink',
     'volume_spikes_sink.config_file' = 'configs/volume_spikes_sink.yaml'
 );
@@ -371,7 +368,6 @@ HAVING (
      AND ABS(p3.position_size * COALESCE(m.price, 0)) > 250000) > 3
 )
 AND COUNT(*) >= 1  -- At least one position in session
-INTO risk_alerts_sink
 WITH (
     -- Phase 2: Full resource management and fault tolerance
     'max.memory.mb' = '2048',
@@ -379,23 +375,23 @@ WITH (
     'max.joins' = '50000',
     'spill.to.disk' = 'true',
     'join.timeout' = '60s',
-    
+
     -- Circuit breaker for critical risk monitoring
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '2',  -- Very sensitive
-    'circuit.breaker.success.threshold' = '10', 
+    'circuit.breaker.success.threshold' = '10',
     'circuit.breaker.timeout' = '30s',
-    
+
     -- Aggressive retry for risk data
     'retry.max.attempts' = '10',
     'retry.backoff.strategy' = 'exponential',
     'retry.initial.delay' = '50ms',
     'retry.max.delay' = '10s',
-    
+
     -- Dead letter queue for failed risk calculations
     'dead.letter.queue.enabled' = 'true',
     'dead.letter.queue.topic' = 'risk-calculation-failures',
-    
+
     -- Phase 4: Critical system observability
     'observability.metrics.enabled' = 'true',
     'observability.tracing.enabled' = 'true',
@@ -403,7 +399,7 @@ WITH (
     'observability.span.name' = 'risk_management_monitor',
     'observability.alerts.enabled' = 'true',
     'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0',
-    
+
     'risk_alerts_sink.type' = 'kafka_sink',
     'risk_alerts_sink.config_file' = 'configs/risk_alerts_sink.yaml'
 );
@@ -465,10 +461,9 @@ SELECT
 FROM order_book_stream
 WHERE timestamp >= timestamp() - INTERVAL '1' MINUTE
 GROUP BY symbol
-HAVING SUM(quantity) > 10000 
-    AND (SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7 
+HAVING SUM(quantity) > 10000
+    AND (SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
          OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7)
-INTO order_imbalance_sink
 WITH (
     'order_book_stream.type' = 'kafka_source',
     'order_book_stream.config_file' = 'configs/order_book_source.yaml',
@@ -494,10 +489,9 @@ SELECT
     timestamp() as opportunity_time
 FROM market_data_stream_a a
 JOIN market_data_stream_b b ON a.symbol = b.symbol
-WHERE a.bid_price > b.ask_price 
+WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
     AND LEAST(a.bid_size, b.ask_size) > 50000
-INTO arbitrage_sink
 WITH (
     'market_data_stream_a.type' = 'kafka_source',
     'market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',

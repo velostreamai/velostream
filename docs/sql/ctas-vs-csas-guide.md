@@ -120,13 +120,13 @@ GROUP BY group_column
 [WINDOW TUMBLING(INTERVAL 5 MINUTES)]
 EMIT CHANGES;
 
--- CTAS with INTO clause (advanced)
-CREATE TABLE table_name INTO sink_name AS
+-- CTAS with named sink (advanced)
+CREATE TABLE table_name AS
 SELECT columns
 FROM source_stream
 WITH (
-    source_config = 'kafka_source.yaml',
-    sink_config = 'warehouse_sink.yaml'
+    'source_stream.config_file' = 'kafka_source.yaml',
+    'table_name_sink.config_file' = 'warehouse_sink.yaml'
 )
 EMIT CHANGES;
 ```
@@ -219,7 +219,7 @@ Creates a **continuous stream transformation** that forwards transformed data to
 4. **Format Transformation**
    ```sql
    -- Convert JSON to Avro for downstream systems
-   CREATE STREAM avro_orders INTO orders_avro_topic AS
+   CREATE STREAM avro_orders AS
    SELECT
        order_id,
        customer_id,
@@ -227,8 +227,12 @@ Creates a **continuous stream transformation** that forwards transformed data to
        status
    FROM json_orders_stream
    WITH (
-       'sink.format' = 'avro',
-       'sink.schema.registry.url' = 'http://schema-registry:8081'
+       'json_orders_stream.type' = 'kafka_source',
+       'json_orders_stream.topic' = 'orders_json',
+       'avro_orders_sink.type' = 'kafka_sink',
+       'avro_orders_sink.topic' = 'orders_avro',
+       'avro_orders_sink.format' = 'avro',
+       'avro_orders_sink.schema.registry.url' = 'http://schema-registry:8081'
    )
    EMIT CHANGES;
    ```
@@ -283,14 +287,17 @@ FROM source_stream
 WHERE field1 IS NOT NULL
 EMIT CHANGES;
 
--- CSAS with INTO clause
-CREATE STREAM stream_name INTO topic_name AS
+-- CSAS with named sink
+CREATE STREAM stream_name AS
 SELECT columns
 FROM source_stream
 WITH (
-    'sink.bootstrap.servers' = 'kafka:9092',
-    'sink.topic' = 'output-topic',
-    'sink.format' = 'json'
+    'source_stream.type' = 'kafka_source',
+    'source_stream.topic' = 'input_topic',
+    'stream_name_sink.type' = 'kafka_sink',
+    'stream_name_sink.bootstrap.servers' = 'kafka:9092',
+    'stream_name_sink.topic' = 'output_topic',
+    'stream_name_sink.format' = 'json'
 )
 EMIT CHANGES;
 ```
