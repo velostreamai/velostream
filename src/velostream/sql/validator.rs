@@ -255,7 +255,7 @@ impl SqlValidator {
         self.validate_inner_select(as_select);
     }
 
-    /// Validate CREATE TABLE with INTO clause
+    /// Validate CREATE TABLE with named sink configuration
     fn validate_create_table_with_properties(
         &self,
         name: &str,
@@ -287,7 +287,7 @@ impl SqlValidator {
         self.validate_inner_select(as_select);
     }
 
-    /// Validate CREATE STREAM with INTO clause
+    /// Validate CREATE STREAM with named sink configuration
     fn validate_create_stream_with_properties(
         &self,
         name: &str,
@@ -716,8 +716,8 @@ impl SqlValidator {
             current_query.push_str(line);
             current_query.push('\n');
 
-            // Check for query termination
-            if trimmed.ends_with(";") || trimmed.contains("EMIT CHANGES") {
+            // Check for query termination - only on semicolon
+            if trimmed.ends_with(";") {
                 if !current_query.trim().is_empty() {
                     queries.push((current_query.trim().to_string(), query_start_line - 1));
                 }
@@ -1658,8 +1658,8 @@ impl SubqueryAnalyzer {
             current_query.push_str(line);
             current_query.push('\n');
 
-            // Check for query termination
-            if trimmed.ends_with(";") || trimmed.contains("EMIT CHANGES") {
+            // Check for query termination - only on semicolon
+            if trimmed.ends_with(";") {
                 if !current_query.trim().is_empty() {
                     queries.push((current_query.trim().to_string(), query_start_line - 1));
                 }

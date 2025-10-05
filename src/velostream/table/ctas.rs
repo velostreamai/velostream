@@ -185,7 +185,7 @@ impl CtasExecutor {
         }
     }
 
-    /// Handle source info creation - eliminates duplication between CreateTable and CreateTableInto
+    /// Handle source info creation - processes source configuration for CreateTable queries
     async fn handle_source_info(
         &self,
         table_name: &str,

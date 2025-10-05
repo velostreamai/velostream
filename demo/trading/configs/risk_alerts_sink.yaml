@@ -1,0 +1,30 @@
+# Risk Alerts Sink - Trading risk management alerts
+# Critical alerts for position limits, loss limits, and risk exposure
+
+datasink:
+  type: kafka
+
+  producer_config:
+    bootstrap.servers: "broker:9092"
+    retries: 5
+    acks: "all"
+    linger.ms: 0
+    compression.type: "lz4"
+    max_in_flight_requests_per_connection: 1
+    batch.size: 16384
+
+  schema:
+    key.format: string
+    value.format: avro
+    schema.registry.url: "http://schema-registry:8081"
+
+  topic:
+    name: "risk-alerts"
+    partitions: 6
+    replication.factor: 3
+
+  headers:
+    source_system: "velostream"
+    alert_type: "risk_management"
+    priority: "critical"
+    compliance: "FR-047"

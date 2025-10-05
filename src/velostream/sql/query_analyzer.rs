@@ -180,6 +180,7 @@ impl QueryAnalyzer {
                 for (key, value) in properties {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
+
                 // Recursively analyze the nested SELECT with context
                 let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);

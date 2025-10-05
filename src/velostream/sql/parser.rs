@@ -1389,6 +1389,14 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Window {
             self.advance();
             window = Some(self.parse_window_spec()?);
+
+            // Check for incorrect clause order: WINDOW before GROUP BY
+            if self.current_token().token_type == TokenType::GroupBy {
+                return Err(SqlError::ParseError {
+                    message: "Syntax error: WINDOW clause must come AFTER GROUP BY clause. Correct order: SELECT ... FROM ... GROUP BY ... WINDOW ...".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
         }
 
         let mut order_by = None;
@@ -1411,28 +1419,7 @@ impl<'a> TokenParser<'a> {
             StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
-        // Parse optional EMIT clause
-        let mut emit_mode = None;
-        if self.current_token().token_type == TokenType::Emit {
-            self.advance();
-            match self.current_token().token_type {
-                TokenType::Changes => {
-                    self.advance();
-                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Changes);
-                }
-                TokenType::Final => {
-                    self.advance();
-                    emit_mode = Some(crate::velostream::sql::ast::EmitMode::Final);
-                }
-                _ => {
-                    return Err(SqlError::ParseError {
-                        message: "Expected CHANGES or FINAL after EMIT".to_string(),
-                        position: Some(self.current),
-                    });
-                }
-            }
-        }
-
+        // DO NOT parse EMIT clause here - let CREATE STREAM/TABLE parser handle it
         // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
 
         Ok(StreamingQuery::Select {
@@ -1446,7 +1433,7 @@ impl<'a> TokenParser<'a> {
             window,
             order_by,
             limit,
-            emit_mode,
+            emit_mode: None, // EMIT is parsed at CREATE STREAM/TABLE level
             properties: _from_with_options, // WITH clause options from FROM source
         })
     }
@@ -2979,20 +2966,33 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_for_create_table to avoid consuming the WITH clause that belongs to CREATE STREAM
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
-        // Parse WITH properties for sink configuration
-        let properties = if self.current_token().token_type == TokenType::With {
-            self.parse_with_properties()?
-        } else {
-            HashMap::new()
-        };
-
-        // For CREATE STREAM AS SELECT, the EMIT clause should be in the SELECT, not at CREATE STREAM level
-        // Only parse EMIT at this level if it exists (which would be unusual)
+        // Parse EMIT clause first (if present) - must come before WITH per SQL standard
         let emit_mode = if self.current_token().token_type == TokenType::Emit {
             self.parse_emit_clause()?
         } else {
             None
         };
+
+        // Parse WITH properties for sink configuration (comes after EMIT)
+        let mut properties = if self.current_token().token_type == TokenType::With {
+            self.parse_with_properties()?
+        } else {
+            HashMap::new()
+        };
+
+        // Extract properties from the SELECT statement (FROM clause WITH properties)
+        if let StreamingQuery::Select {
+            properties: select_props,
+            ..
+        } = as_select.as_ref()
+        {
+            if let Some(select_properties) = select_props {
+                // Merge SELECT properties into stream properties
+                for (key, value) in select_properties {
+                    properties.insert(key.clone(), value.clone());
+                }
+            }
+        }
 
         // Consume optional semicolon
         self.consume_semicolon();

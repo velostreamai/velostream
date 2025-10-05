@@ -62,7 +62,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
+        _ => panic!("Expected CreateTable query with named sink"),
     }
 }
 
@@ -127,7 +127,7 @@ fn test_complex_financial_ctas_with_named_sources() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
+        _ => panic!("Expected CreateTable query with named sink"),
     }
 }
 
@@ -192,7 +192,7 @@ fn test_market_data_aggregation_ctas() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
+        _ => panic!("Expected CreateTable query with named sink"),
     }
 }
 
@@ -251,7 +251,7 @@ fn test_file_source_to_kafka_sink_ctas() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
+        _ => panic!("Expected CreateTable query with named sink"),
     }
 }
 
@@ -409,7 +409,7 @@ async fn test_ctas_named_sources_integration_ready() {
                 _ => panic!("Expected SELECT query"),
             }
         }
-        _ => panic!("Expected CreateTableInto query (INTO clause present)"),
+        _ => panic!("Expected CreateTable query with named sink"),
     }
 
     println!("✅ CTAS with named sources and sinks is integration-ready");

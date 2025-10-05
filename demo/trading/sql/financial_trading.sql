@@ -25,6 +25,7 @@ SELECT
     exchange,
     trade_id
 FROM market_data_stream
+EMIT CHANGES
 WITH (
     -- Phase 1B: Configure event-time processing
     'event.time.field' = 'trade_timestamp',
@@ -32,12 +33,12 @@ WITH (
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '5s',  -- 5s tolerance for market data
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
-    
+
     'market_data_stream.type' = 'kafka_source',
     'market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
-    'market_data_et.type' = 'kafka_sink',
-    'market_data_et.config_file' = 'configs/market_data_et_sink.yaml'
+    'market_data_ts.type' = 'kafka_sink',
+    'market_data_ts.config_file' = 'configs/market_data_et_sink.yaml'
 );
 
 CREATE STREAM tick_buckets AS
@@ -52,15 +53,16 @@ SELECT
     COUNT(*) as trade_count,
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
-FROM market_data_et
-         WINDOW TUMBLING (SIZE 1 SECOND)
-GROUP BY symbol, TUMBLING(event_time, INTERVAL '1' SECOND)
+FROM market_data_ts
+GROUP BY symbol
+WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
+EMIT CHANGES
 WITH (
-    'market_data_clean_sink.type' = 'kafka_sink',
-    'market_data_clean_sink.config_file' = 'configs/market_data_clean_sink.yaml',
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
 
-    'market_data_et.type' = 'kafka_source',
-    'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
+    'tick_buckets.type' = 'kafka_sink',
+    'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml'
 );
 
 -- ====================================================================================
@@ -106,14 +108,18 @@ SELECT
     END as movement_severity,
     
     NOW() as detection_time
-FROM market_data_et
+FROM market_data_ts
 -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 -- Phase 3: Complex HAVING clause with multiple conditions
 HAVING COUNT(*) > 10  -- At least 10 trades in window
    AND STDDEV(price) > AVG(price) * 0.01  -- Volatility > 1% of avg price
    AND MAX(volume) > AVG(volume) * 2      -- Volume spike detected
+EMIT CHANGES
 WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
+
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
@@ -124,11 +130,8 @@ WITH (
     'observability.tracing.enabled' = 'true',
     'observability.span.name' = 'price_movement_detection',
 
-    'price_alerts_sink.type' = 'kafka_sink',
-    'price_alerts_sink.config_file' = 'configs/price_alerts_sink.yaml',
-
-    'market_data_et.type' = 'kafka_source',
-    'market_data_et.config_file' = 'configs/market_data_et_source.yaml'
+    'advanced_price_movement_alerts.type' = 'kafka_sink',
+    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml'
 );
 
 -- ====================================================================================
@@ -213,18 +216,23 @@ SELECT
     END as spike_classification,
     
     NOW() as detection_time
-FROM market_data_with_event_time
+FROM market_data_ts
 -- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
 WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
 -- Phase 3: Complex subquery in HAVING clause
 HAVING EXISTS (
-    SELECT 1 FROM market_data_with_event_time m2 
-    WHERE m2.symbol = market_data_with_event_time.symbol
-    AND m2.event_time >= market_data_with_event_time.event_time - INTERVAL '1' MINUTE
+    SELECT 1 FROM market_data_ts m2
+    WHERE m2.symbol = market_data_ts.symbol
+    AND m2.event_time >= market_data_ts.event_time - INTERVAL '1' MINUTE
     AND m2.volume > 10000
 )
 AND COUNT(*) >= 5  -- Minimum 5 trades in window
+EMIT CHANGES
 WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
+
+
     -- Phase 2: Comprehensive resource management
     'max.memory.mb' = '1024',
     'max.groups' = '50000',
@@ -253,8 +261,8 @@ WITH (
     'observability.span.name' = 'volume_spike_analysis',
     'prometheus.histogram.buckets' = '0.1,0.5,1.0,5.0,10.0,30.0',
 
-    'volume_spikes_sink.type' = 'kafka_sink',
-    'volume_spikes_sink.config_file' = 'configs/volume_spikes_sink.yaml'
+    'volume_spike_analysis.type' = 'kafka_sink',
+    'volume_spike_analysis.config_file' = 'configs/volume_spikes_sink.yaml'
 );
 
 -- ====================================================================================
@@ -273,15 +281,19 @@ SELECT
     position_timestamp,
     TIMESTAMP(position_timestamp) as event_time
 FROM trading_positions_stream
+EMIT CHANGES
 WITH (
     'event.time.field' = 'position_timestamp',
     'event.time.format' = 'yyyy-MM-dd HH:mm:ss.SSS',
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '2s',  -- Stricter for positions
     'late.data.strategy' = 'update_previous',  -- Update positions
-    
+
     'trading_positions_stream.type' = 'kafka_source',
-    'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml'
+    'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
+
+    'trading_positions_with_event_time.type' = 'kafka_sink',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml'
 );
 
 CREATE STREAM comprehensive_risk_monitor AS
@@ -351,23 +363,24 @@ SELECT
     NOW() as risk_check_time
 FROM trading_positions_with_event_time p
 -- Phase 1B+3: Time-based join with tolerance window
-LEFT JOIN market_data_with_event_time m ON p.symbol = m.symbol
-    AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND 
+LEFT JOIN market_data_ts m ON p.symbol = m.symbol
+    AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND
                          AND p.event_time + INTERVAL '30' SECOND
 -- Phase 1B: Event-time windows with session semantics (4-hour session gap)
 WINDOW SESSION(4h)
 -- Phase 3: Complex HAVING with nested aggregations and subqueries
 HAVING (
     -- High-value positions
-    ABS(p.position_size * COALESCE(m.price, 0)) > 100000 
+    ABS(p.position_size * COALESCE(m.price, 0)) > 100000
     OR p.current_pnl < -10000
-    OR 
+    OR
     -- Traders with multiple large positions
     (SELECT COUNT(*) FROM trading_positions_with_event_time p3
-     WHERE p3.trader_id = p.trader_id 
+     WHERE p3.trader_id = p.trader_id
      AND ABS(p3.position_size * COALESCE(m.price, 0)) > 250000) > 3
 )
 AND COUNT(*) >= 1  -- At least one position in session
+EMIT CHANGES
 WITH (
     -- Phase 2: Full resource management and fault tolerance
     'max.memory.mb' = '2048',
@@ -400,8 +413,8 @@ WITH (
     'observability.alerts.enabled' = 'true',
     'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0',
 
-    'risk_alerts_sink.type' = 'kafka_sink',
-    'risk_alerts_sink.config_file' = 'configs/risk_alerts_sink.yaml'
+    'comprehensive_risk_monitor.type' = 'kafka_sink',
+    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml'
 );
 
 -- ====================================================================================
@@ -464,11 +477,13 @@ GROUP BY symbol
 HAVING SUM(quantity) > 10000
     AND (SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
          OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7)
+EMIT CHANGES
 WITH (
     'order_book_stream.type' = 'kafka_source',
     'order_book_stream.config_file' = 'configs/order_book_source.yaml',
-    'order_imbalance_sink.type' = 'kafka_sink',
-    'order_imbalance_sink.config_file' = 'configs/order_imbalance_sink.yaml'
+
+    'order_flow_imbalance_detection.type' = 'kafka_sink',
+    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml'
 );
 
 -- ====================================================================================
@@ -492,11 +507,14 @@ JOIN market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
     AND LEAST(a.bid_size, b.ask_size) > 50000
+EMIT CHANGES
 WITH (
     'market_data_stream_a.type' = 'kafka_source',
     'market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
+
     'market_data_stream_b.type' = 'kafka_source',
     'market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
-    'arbitrage_sink.type' = 'kafka_sink',
-    'arbitrage_sink.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
+
+    'arbitrage_opportunities_detection.type' = 'kafka_sink',
+    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
 );
