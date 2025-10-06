@@ -24,6 +24,395 @@
 
 ---
 
+## 🔥 **CRITICAL BUG: HAVING Clause BinaryOp Support**
+
+**Identified**: October 6, 2025
+**Priority**: **🔴 CRITICAL** - Production queries failing
+**Status**: 🚨 **BLOCKING** - Financial trading demo queries cannot execute
+**Impact**: **💥 MAJOR** - 6/8 trading queries fail at runtime
+**Severity**: **P0** - Parser accepts queries but runtime rejects them
+
+### **Problem Statement**
+
+The SQL execution engine's HAVING clause evaluator (`evaluate_having_value_expression`) has **incomplete expression support**, causing runtime failures for queries that pass validation. This creates a critical gap between parse-time validation and runtime execution.
+
+**Failing Query Pattern**:
+```sql
+-- This query PARSES successfully but FAILS at runtime
+SELECT
+    symbol,
+    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) AS buy_volume,
+    SUM(quantity) AS total_volume
+FROM order_book_stream
+GROUP BY symbol
+HAVING SUM(quantity) > 10000                                    -- ❌ FAILS
+   AND SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END)   -- ❌ FAILS
+       / SUM(quantity) > 0.7                                    -- ❌ FAILS (BinaryOp)
+```
+
+**Runtime Error**:
+```
+ExecutionError: Unsupported expression in HAVING clause: BinaryOp {
+    left: Function { name: "SUM", args: [Column("quantity")] },
+    op: GreaterThan,
+    right: Literal(Integer(10000))
+}
+```
+
+### **Root Cause Analysis**
+
+**File**: [`src/velostream/sql/execution/processors/select.rs:1268`](../src/velostream/sql/execution/processors/select.rs#L1268)
+
+The `evaluate_having_value_expression` function only handles:
+- ✅ `Expr::Function` - Aggregate functions (SUM, AVG, etc.)
+- ✅ `Expr::Literal` - Constants (10000, "string", etc.)
+- ❌ `Expr::BinaryOp` - **NOT SUPPORTED** (arithmetic operations)
+- ❌ `Expr::Case` - **NOT SUPPORTED** (CASE expressions)
+- ❌ `Expr::Column` - **NOT SUPPORTED** (alias references)
+
+```rust
+// Current implementation (INCOMPLETE)
+fn evaluate_having_value_expression(
+    expr: &Expr,
+    accumulator: &GroupAccumulator,
+    fields: &[SelectField],
+) -> Result<FieldValue, SqlError> {
+    match expr {
+        Expr::Function { name, args } => { /* ... works ... */ }
+        Expr::Literal(literal) => { /* ... works ... */ }
+        _ => Err(SqlError::ExecutionError {  // ← ALL OTHER TYPES FAIL HERE
+            message: format!("Unsupported expression in HAVING clause: {:?}", expr),
+            query: None,
+        }),
+    }
+}
+```
+
+**Why Validator Missed This**:
+- **File**: [`src/bin/velo-cli/commands/validate.rs`](../src/bin/velo-cli/commands/validate.rs)
+- Validator only performs **parse-time validation** (syntax checking)
+- Does NOT perform **semantic validation** (runtime capability checking)
+- Parser accepts `BinaryOp` expressions as syntactically valid SQL
+- Runtime executor rejects them due to incomplete implementation
+
+### **Production Impact**
+
+**Demo**: `demo/trading/sql/financial_trading.sql`
+- **Query #7** (Order Flow Imbalance): ❌ 5,045 failures
+- **Query #1** (Market Data TS): ❌ 4,845 failures
+- **Query #5** (Trading Positions): ❌ 1,969 failures
+- **Query #8** (Arbitrage): ✅ Working (2,392 records, 100% success)
+
+**Error Rate**: 75% of queries failing (6 out of 8)
+
+### **Technical Architecture**
+
+**Two HAVING Evaluation Paths**:
+
+1. **Non-GROUP BY Path** ([`select.rs:534`](../src/velostream/sql/execution/processors/select.rs#L534))
+   - Uses `ExpressionEvaluator::evaluate_expression()`
+   - Expects pre-computed aggregates in record fields
+   - Works with simple field lookups
+
+2. **GROUP BY Path** ([`select.rs:940`](../src/velostream/sql/execution/processors/select.rs#L940)) ← **OUR CASE**
+   - Uses `evaluate_having_expression()` (specialized)
+   - Has access to `GroupAccumulator` with aggregate state
+   - Should support complex expressions **BUT DOESN'T**
+
+### **Implementation Plan**
+
+#### **Phase 1: Add BinaryOp Support**
+**LoE**: **2 days** (1 day implementation + 1 day testing)
+**Files**: `src/velostream/sql/execution/processors/select.rs`
+**Lines**: 1268-1303 (function `evaluate_having_value_expression`)
+
+**Changes Required**:
+```rust
+// Add new match arm for BinaryOp
+Expr::BinaryOp { left, op, right } => {
+    use crate::velostream::sql::ast::BinaryOperator;
+
+    // Recursively evaluate operands
+    let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
+    let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
+
+    // Perform operation using FieldValue methods
+    match op {
+        BinaryOperator::Add => left_val.add(&right_val),
+        BinaryOperator::Subtract => left_val.subtract(&right_val),
+        BinaryOperator::Multiply => left_val.multiply(&right_val),
+        BinaryOperator::Divide => left_val.divide(&right_val),
+        BinaryOperator::Modulo => left_val.modulo(&right_val),
+        _ => Err(SqlError::ExecutionError {
+            message: format!("Unsupported operator in HAVING: {:?}", op),
+            query: None,
+        }),
+    }
+}
+```
+
+**Test Coverage**:
+- `tests/unit/sql/execution/having_clause_test.rs::test_having_simple_aggregate_comparison`
+- `tests/unit/sql/execution/having_clause_test.rs::test_having_division_in_aggregate`
+- `tests/unit/sql/execution/having_clause_test.rs::test_having_complex_arithmetic`
+
+**Acceptance Criteria**:
+- ✅ `HAVING SUM(quantity) > 10000` works
+- ✅ `HAVING SUM(a) / SUM(b) > 0.7` works
+- ✅ `HAVING (SUM(a) + SUM(b)) * 2 > 1000` works
+
+#### **Phase 2: Add Column Alias Support**
+**LoE**: **1 day** (4 hours implementation + 4 hours testing)
+**Files**: Same as Phase 1
+
+**New Helper Function**:
+```rust
+/// Look up aggregated field by alias (around line 1350)
+fn lookup_aggregated_field(
+    name: &str,
+    accumulator: &GroupAccumulator,
+    fields: &[SelectField],
+) -> Result<FieldValue, SqlError> {
+    // Find SELECT field with matching alias
+    // Evaluate its aggregate expression
+    // Return computed value
+}
+```
+
+**Test Coverage**:
+- `tests/unit/sql/execution/having_clause_test.rs::test_having_column_alias_reference`
+
+**Acceptance Criteria**:
+- ✅ `HAVING total_volume > 10000` works (using alias instead of `SUM(quantity)`)
+- ✅ Alias resolution works for all aggregate functions
+
+#### **Phase 3: Add CASE Expression Support**
+**LoE**: **2 days** (1 day implementation + 1 day testing)
+**Files**: Same as Phase 1
+
+**New Helper Function**:
+```rust
+/// Evaluate CASE in HAVING context (around line 1380)
+fn evaluate_case_in_having(
+    conditions: &[(Expr, Expr)],
+    else_result: &Option<Box<Expr>>,
+    accumulator: &GroupAccumulator,
+    fields: &[SelectField],
+) -> Result<FieldValue, SqlError> {
+    // Evaluate each condition sequentially
+    // Return first matching result
+    // Fall back to else_result or NULL
+}
+```
+
+**Test Coverage**:
+- `tests/unit/sql/execution/having_clause_test.rs::test_having_case_expression_in_aggregate`
+
+**Acceptance Criteria**:
+- ✅ `HAVING SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) > 5000` works
+- ✅ Nested CASE expressions supported
+
+#### **Phase 4: Improve Args Matching for CASE**
+**LoE**: **1.5 days** (1 day implementation + 0.5 day testing)
+**Files**: `src/velostream/sql/execution/processors/select.rs`
+**Lines**: ~1520 (function `args_match`)
+
+**Problem**: Current `args_match` returns `false` for CASE expressions, preventing accumulator key lookup
+
+**Solution**:
+```rust
+fn args_match(args1: &[Expr], args2: &[Expr]) -> bool {
+    // ... existing code ...
+    match (arg1, arg2) {
+        (Expr::Column(n1), Expr::Column(n2)) => n1 == n2,
+        (Expr::Case { .. }, Expr::Case { .. }) => {
+            Self::case_expressions_match(arg1, arg2)  // NEW
+        }
+        (Expr::Literal(l1), Expr::Literal(l2)) => {
+            Self::literals_match(l1, l2)  // NEW
+        }
+        (Expr::BinaryOp { .. }, Expr::BinaryOp { .. }) => {
+            Self::binary_ops_match(arg1, arg2)  // NEW
+        }
+        _ => false,
+    }
+}
+```
+
+**Test Coverage**:
+- `tests/unit/sql/execution/having_clause_test.rs::test_args_match_case_expressions`
+- `tests/unit/sql/execution/having_clause_test.rs::test_args_match_binary_ops`
+
+**Acceptance Criteria**:
+- ✅ CASE expressions match correctly in SELECT/HAVING
+- ✅ Complex nested expressions match correctly
+- ✅ Accumulator keys resolve for all expression types
+
+#### **Phase 5: Enhance SQL Validator**
+**LoE**: **2 days** (1 day implementation + 1 day testing)
+**Files**: `src/bin/velo-cli/commands/validate.rs`
+
+**Add Semantic Validation**:
+```rust
+fn validate_having_clause_support(expr: &Expr) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    match expr {
+        Expr::BinaryOp { left, right, .. } => {
+            errors.extend(validate_having_clause_support(left));
+            errors.extend(validate_having_clause_support(right));
+        }
+        Expr::Function { args, .. } => {
+            for arg in args {
+                errors.extend(validate_having_clause_support(arg));
+            }
+        }
+        Expr::Case { conditions, else_result } => {
+            // Validate all branches
+        }
+        Expr::Column(_) | Expr::Literal(_) => { /* Supported */ }
+        unsupported => {
+            errors.push(format!(
+                "Unsupported expression in HAVING: {:?}. \
+                 Only aggregates, arithmetic, CASE, columns, and literals are supported.",
+                unsupported
+            ));
+        }
+    }
+
+    errors
+}
+```
+
+**Test Coverage**:
+- `tests/unit/bin/velo_cli/validate_test.rs::test_validator_catches_unsupported_having`
+
+**Acceptance Criteria**:
+- ✅ Validator catches unsupported HAVING expressions at parse-time
+- ✅ Clear error messages guide users to supported syntax
+- ✅ No false positives (supported expressions not flagged)
+
+#### **Phase 6: Integration Testing**
+**LoE**: **1.5 days** (1 day testing + 0.5 day fixes)
+**Files**: `tests/integration/sql/having_clause_integration_test.rs` (NEW)
+
+**Test Scenarios**:
+1. Order Flow Imbalance query (from trading demo)
+2. Multiple CASE expressions in HAVING
+3. Complex nested arithmetic
+4. Alias references
+5. Mixed expression types
+
+**Acceptance Criteria**:
+- ✅ All 8 trading demo queries execute successfully
+- ✅ Zero runtime errors for supported HAVING patterns
+- ✅ Performance benchmarks within acceptable range
+
+### **Total Level of Effort**
+
+| Phase | Days | Tasks |
+|-------|------|-------|
+| Phase 1: BinaryOp Support | 2.0 | Core implementation + basic tests |
+| Phase 2: Alias Support | 1.0 | Helper function + tests |
+| Phase 3: CASE Support | 2.0 | CASE evaluation + tests |
+| Phase 4: Args Matching | 1.5 | Improve matching logic |
+| Phase 5: Validator | 2.0 | Semantic validation |
+| Phase 6: Integration | 1.5 | End-to-end testing |
+| **TOTAL** | **10 days** | **~2 calendar weeks** |
+
+**Breakdown**:
+- **Implementation**: 6 days (60%)
+- **Testing**: 4 days (40%)
+- **Risk Buffer**: Already included in estimates
+
+### **Success Metrics**
+
+| Metric | Current | Target | Measurement |
+|--------|---------|--------|-------------|
+| **Passing Trading Queries** | 25% (2/8) | 100% (8/8) | All queries execute |
+| **HAVING Failures** | 11,859 errors | 0 errors | Zero runtime failures |
+| **Validator Accuracy** | 0% | 100% | Catches all unsupported patterns |
+| **Test Coverage** | 0 tests | 15+ tests | Comprehensive coverage |
+| **Error Clarity** | ❌ Cryptic | ✅ Clear | Actionable error messages |
+
+### **Risk Mitigation**
+
+**Technical Risks**:
+- ✅ **FieldValue operations exist** - All arithmetic already implemented
+- ✅ **Pattern established** - `evaluate_having_expression` shows the way
+- ⚠️ **Edge cases** - Complex nested expressions may need debugging
+- ⚠️ **Performance** - Recursive evaluation could be slow (mitigation: benchmark early)
+
+**Testing Risks**:
+- ✅ **Real queries available** - Trading demo provides test cases
+- ✅ **Failure patterns known** - We have exact error logs
+- ⚠️ **Regression risk** - Could break existing queries (mitigation: comprehensive test suite)
+
+**Timeline Risks**:
+- ⚠️ **Dependencies** - None (standalone feature)
+- ⚠️ **Scope creep** - Could discover more unsupported patterns (mitigation: phased approach)
+
+### **Documentation References**
+
+**Source Files**:
+- [`src/velostream/sql/execution/processors/select.rs`](../src/velostream/sql/execution/processors/select.rs) - HAVING evaluation (lines 1199-1303)
+- [`src/velostream/sql/execution/expression/evaluator.rs`](../src/velostream/sql/execution/expression/evaluator.rs) - Expression evaluation (line 83)
+- [`src/velostream/sql/execution/expression/functions.rs`](../src/velostream/sql/execution/expression/functions.rs) - Aggregate functions
+- [`src/bin/velo-cli/commands/validate.rs`](../src/bin/velo-cli/commands/validate.rs) - SQL validator
+
+**Test Files**:
+- `tests/unit/sql/execution/having_clause_test.rs` (NEW) - Unit tests
+- `tests/integration/sql/having_clause_integration_test.rs` (NEW) - Integration tests
+- `demo/trading/sql/financial_trading.sql` - Real-world test case (Query #7)
+
+**Related Documentation**:
+- `demo/trading/DEMO-IMPROVEMENTS.md` - Demo resilience improvements
+- `docs/sql/functions/` - SQL function reference
+- `CLAUDE.md` - Development guidelines
+
+### **Dependencies**
+
+**Upstream**: None - Standalone bug fix
+**Downstream**: None - Does not block other work
+**Parallel Work**: Can proceed alongside other features
+
+### **Acceptance Criteria Summary**
+
+**Must Have** (Blocking release):
+- ✅ `HAVING SUM(quantity) > 10000` works
+- ✅ `HAVING SUM(a) / SUM(b) > 0.7` works
+- ✅ `HAVING SUM(CASE...) > 1000` works
+- ✅ All 8 trading demo queries execute
+- ✅ Zero runtime HAVING failures
+- ✅ Validator catches unsupported patterns
+
+**Should Have** (High priority):
+- ✅ Column alias support (`HAVING total_volume > 10000`)
+- ✅ Complex nested arithmetic
+- ✅ Clear error messages for unsupported cases
+- ✅ Comprehensive test coverage (15+ tests)
+
+**Nice to Have** (Future enhancement):
+- ⚠️ Performance optimization for deep recursion
+- ⚠️ Support for additional expression types (subqueries, etc.)
+- ⚠️ Query rewrite hints for optimization
+
+### **Next Steps**
+
+1. **Create branch**: `fix/having-clause-binaryop-support`
+2. **Phase 1**: Implement BinaryOp support (2 days)
+3. **Validate**: Run trading demo, verify Query #7 works
+4. **Phase 2-4**: Add remaining expression types (4.5 days)
+5. **Phase 5**: Enhance validator (2 days)
+6. **Phase 6**: Integration testing (1.5 days)
+7. **Merge**: Create PR with comprehensive test coverage
+
+**Start Date**: October 7, 2025
+**Target Completion**: October 21, 2025 (2 weeks)
+**Priority**: **🔴 P0 - CRITICAL**
+
+---
+
 ## 🚀 **NEW ARCHITECTURE: Generic Table Loading System**
 
 **Identified**: September 29, 2024
