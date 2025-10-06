@@ -1675,14 +1675,139 @@ impl SelectProcessor {
                         return false;
                     }
                 }
+                // Phase 4: Support CASE expression matching
+                (Expr::Case { .. }, Expr::Case { .. }) => {
+                    if !Self::case_expressions_match(arg1, arg2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support literal matching
+                (Expr::Literal(l1), Expr::Literal(l2)) => {
+                    if !Self::literals_match(l1, l2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support binary operation matching
+                (Expr::BinaryOp { .. }, Expr::BinaryOp { .. }) => {
+                    if !Self::binary_ops_match(arg1, arg2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support function matching
+                (Expr::Function { name: n1, args: a1 }, Expr::Function { name: n2, args: a2 }) => {
+                    if n1 != n2 || !Self::args_match(a1, a2) {
+                        return false;
+                    }
+                }
                 _ => {
-                    // For simplicity, assume other expressions match if they're the same type
-                    // A more sophisticated implementation would do deeper comparison
+                    // Different expression types don't match
                     return false;
                 }
             }
         }
         true
+    }
+
+    /// Check if two CASE expressions are structurally equivalent (Phase 4)
+    fn case_expressions_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (
+                Expr::Case {
+                    when_clauses: w1,
+                    else_clause: e1,
+                },
+                Expr::Case {
+                    when_clauses: w2,
+                    else_clause: e2,
+                },
+            ) => {
+                // Check same number of WHEN clauses
+                if w1.len() != w2.len() {
+                    return false;
+                }
+
+                // Check each WHEN clause matches
+                for ((cond1, result1), (cond2, result2)) in w1.iter().zip(w2.iter()) {
+                    if !Self::expressions_match(cond1, cond2) {
+                        return false;
+                    }
+                    if !Self::expressions_match(result1, result2) {
+                        return false;
+                    }
+                }
+
+                // Check ELSE clauses match
+                match (e1, e2) {
+                    (Some(else1), Some(else2)) => Self::expressions_match(else1, else2),
+                    (None, None) => true,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if two expressions are structurally equivalent (Phase 4 helper)
+    fn expressions_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (Expr::Column(n1), Expr::Column(n2)) => n1 == n2,
+            (Expr::Literal(l1), Expr::Literal(l2)) => Self::literals_match(l1, l2),
+            (Expr::BinaryOp { .. }, Expr::BinaryOp { .. }) => Self::binary_ops_match(expr1, expr2),
+            (Expr::Case { .. }, Expr::Case { .. }) => Self::case_expressions_match(expr1, expr2),
+            (
+                Expr::Function {
+                    name: n1, args: a1, ..
+                },
+                Expr::Function {
+                    name: n2, args: a2, ..
+                },
+            ) => n1 == n2 && Self::args_match(a1, a2),
+            _ => false,
+        }
+    }
+
+    /// Check if two literals are equivalent (Phase 4)
+    fn literals_match(lit1: &LiteralValue, lit2: &LiteralValue) -> bool {
+        use LiteralValue::*;
+        match (lit1, lit2) {
+            (Integer(i1), Integer(i2)) => i1 == i2,
+            (Float(f1), Float(f2)) => (f1 - f2).abs() < f64::EPSILON,
+            (String(s1), String(s2)) => s1 == s2,
+            (Boolean(b1), Boolean(b2)) => b1 == b2,
+            (Null, Null) => true,
+            (Decimal(d1), Decimal(d2)) => d1 == d2,
+            (Interval { value: v1, unit: u1 }, Interval { value: v2, unit: u2 }) => {
+                v1 == v2 && u1 == u2
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if two binary operations are structurally equivalent (Phase 4)
+    fn binary_ops_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (
+                Expr::BinaryOp {
+                    left: l1,
+                    op: op1,
+                    right: r1,
+                },
+                Expr::BinaryOp {
+                    left: l2,
+                    op: op2,
+                    right: r2,
+                },
+            ) => {
+                // Operators must match
+                if op1 != op2 {
+                    return false;
+                }
+
+                // Recursively check left and right operands
+                Self::expressions_match(l1, l2) && Self::expressions_match(r1, r2)
+            }
+            _ => false,
+        }
     }
 
     /// Convert FieldValue to boolean for HAVING clause evaluation
