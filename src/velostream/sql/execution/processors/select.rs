@@ -1296,6 +1296,31 @@ impl SelectProcessor {
                     }),
                 }
             }
+            // Support arithmetic operations in HAVING clause (e.g., SUM(a) / SUM(b) > 0.7)
+            Expr::BinaryOp { left, op, right } => {
+                use crate::velostream::sql::ast::BinaryOperator;
+
+                // Recursively evaluate left and right operands
+                let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
+                let right_val =
+                    Self::evaluate_having_value_expression(right, accumulator, fields)?;
+
+                // Perform the arithmetic operation using FieldValue methods
+                match op {
+                    BinaryOperator::Add => left_val.add(&right_val),
+                    BinaryOperator::Subtract => left_val.subtract(&right_val),
+                    BinaryOperator::Multiply => left_val.multiply(&right_val),
+                    BinaryOperator::Divide => left_val.divide(&right_val),
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Unsupported binary operator in HAVING value expression: {:?}. \
+                             Only +, -, *, / are supported.",
+                            op
+                        ),
+                        query: None,
+                    }),
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression in HAVING clause: {:?}", expr),
                 query: None,

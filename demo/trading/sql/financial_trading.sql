@@ -469,20 +469,23 @@ WITH (
 -- ====================================================================================
 
 CREATE STREAM order_flow_imbalance_detection AS
-SELECT 
+SELECT
     symbol,
-    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) as buy_volume,
-    SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) as sell_volume,
-    SUM(quantity) as total_volume,
-    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) as buy_ratio,
-    SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) as sell_ratio,
-    timestamp() as analysis_time
+    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) AS buy_volume,
+    SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) AS sell_volume,
+    SUM(quantity) AS total_volume,
+    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) AS buy_ratio,
+    SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) AS sell_ratio,
+    TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
 FROM order_book_stream
-WHERE timestamp >= timestamp() - INTERVAL '1' MINUTE
 GROUP BY symbol
-HAVING SUM(quantity) > 10000
-    AND (SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
-         OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7)
+HAVING
+    SUM(quantity) > 10000
+   AND (
+    SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
+    OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
+    )
+WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 EMIT CHANGES
 WITH (
     'order_book_stream.type' = 'kafka_source',
