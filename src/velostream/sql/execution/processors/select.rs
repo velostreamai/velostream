@@ -1321,11 +1321,70 @@ impl SelectProcessor {
                     }),
                 }
             }
+            // Phase 2: Support column aliases in HAVING clause
+            // Example: SELECT SUM(quantity) as total ... HAVING total > 10000
+            Expr::Column(name) => {
+                // Look for a SELECT field with matching alias
+                Self::lookup_aggregated_field_by_alias(name, accumulator, fields)
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression in HAVING clause: {:?}", expr),
                 query: None,
             }),
         }
+    }
+
+    /// Look up an aggregated field by its alias (Phase 2 implementation)
+    ///
+    /// When HAVING references a column name, check if it's an alias for an aggregate
+    /// expression in the SELECT clause and compute its value.
+    fn lookup_aggregated_field_by_alias(
+        alias: &str,
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<FieldValue, SqlError> {
+        use crate::velostream::sql::ast::SelectField;
+
+        // Search through SELECT fields for matching alias
+        for field in fields {
+            match field {
+                SelectField::AliasedColumn { column, alias: field_alias } if field_alias == alias => {
+                    // Simple aliased column - not an aggregate, shouldn't be in HAVING
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Column alias '{}' in HAVING clause references non-aggregate column '{}'. \
+                             HAVING requires aggregate expressions.",
+                            alias, column
+                        ),
+                        query: None,
+                    });
+                }
+                SelectField::Expression { expr, alias: Some(field_alias) } if field_alias == alias => {
+                    // Found matching alias - evaluate the aggregate expression
+                    return Self::evaluate_having_value_expression(expr, accumulator, fields);
+                }
+                _ => continue,
+            }
+        }
+
+        // No matching alias found - might be a column reference (which is an error in HAVING without GROUP BY)
+        Err(SqlError::ExecutionError {
+            message: format!(
+                "Column '{}' in HAVING clause is not an aggregate or aliased aggregate expression. \
+                 Available aliases: {}",
+                alias,
+                fields
+                    .iter()
+                    .filter_map(|f| match f {
+                        SelectField::Expression { alias: Some(a), .. } => Some(a.as_str()),
+                        SelectField::AliasedColumn { alias: a, .. } => Some(a.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            query: None,
+        })
     }
 
     /// Extract aggregate functions from expressions and compute their values

@@ -1930,6 +1930,178 @@ mod tests {
         });
     }
 
+    // ========================================================================
+    // HAVING CLAUSE COLUMN ALIAS TESTS - Phase 2 Implementation
+    // ========================================================================
+    // These tests verify column alias support in HAVING clauses, allowing
+    // references to aliased aggregate expressions
+
+    #[test]
+    fn test_having_column_alias_simple() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create test records
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::Integer(1));
+        fields1.insert("amount".to_string(), FieldValue::Float(300.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
+        fields2.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record2 = create_stream_record_with_fields(fields2, 2);
+
+        // Test using alias 'total' in HAVING instead of SUM(amount)
+        let query = parser
+            .parse(
+                "
+            SELECT customer_id, SUM(amount) as total
+            FROM orders
+            GROUP BY customer_id
+            HAVING total > 250
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute_with_record(&query, record1).await.unwrap();
+            engine.execute_with_record(&query, record2).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+
+            // Only customer 1 should pass (300 > 250)
+            assert_eq!(results.len(), 1, "Only customer 1 should pass HAVING");
+
+            let result = &results[0];
+            match result.fields.get("customer_id") {
+                Some(FieldValue::Integer(id)) => {
+                    assert_eq!(*id, 1);
+                    match result.fields.get("total") {
+                        Some(FieldValue::Float(total)) => {
+                            assert_eq!(*total, 300.0);
+                        }
+                        _ => panic!("Expected Float value for total"),
+                    }
+                }
+                _ => panic!("Expected customer_id=1"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_having_column_alias_with_arithmetic() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        let mut fields1 = HashMap::new();
+        fields1.insert("product_id".to_string(), FieldValue::Integer(1));
+        fields1.insert("revenue".to_string(), FieldValue::Float(1000.0));
+        fields1.insert("cost".to_string(), FieldValue::Float(600.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("product_id".to_string(), FieldValue::Integer(2));
+        fields2.insert("revenue".to_string(), FieldValue::Float(500.0));
+        fields2.insert("cost".to_string(), FieldValue::Float(400.0));
+        let record2 = create_stream_record_with_fields(fields2, 2);
+
+        // Test using multiple aliases in arithmetic expression
+        let query = parser
+            .parse(
+                "
+            SELECT product_id, SUM(revenue) as total_revenue, SUM(cost) as total_cost
+            FROM sales
+            GROUP BY product_id
+            HAVING total_revenue - total_cost > 300
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute_with_record(&query, record1).await.unwrap();
+            engine.execute_with_record(&query, record2).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "product_id").await;
+
+            // Only product 1: 1000-600=400 > 300 ✓
+            // Product 2: 500-400=100 NOT > 300 ✗
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+            match result.fields.get("product_id") {
+                Some(FieldValue::Integer(id)) => {
+                    assert_eq!(*id, 1);
+                    match (result.fields.get("total_revenue"), result.fields.get("total_cost")) {
+                        (Some(FieldValue::Float(rev)), Some(FieldValue::Float(cost))) => {
+                            assert_eq!(*rev, 1000.0);
+                            assert_eq!(*cost, 600.0);
+                        }
+                        _ => panic!("Expected Float values"),
+                    }
+                }
+                _ => panic!("Expected product_id=1"),
+            }
+        });
+    }
+
+    #[test]
+    fn test_having_column_alias_mixed_with_aggregates() {
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        let mut fields1 = HashMap::new();
+        fields1.insert("region".to_string(), FieldValue::String("US".to_string()));
+        fields1.insert("sales".to_string(), FieldValue::Float(1000.0));
+        fields1.insert("orders".to_string(), FieldValue::Float(100.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("region".to_string(), FieldValue::String("EU".to_string()));
+        fields2.insert("sales".to_string(), FieldValue::Float(500.0));
+        fields2.insert("orders".to_string(), FieldValue::Float(200.0));
+        let record2 = create_stream_record_with_fields(fields2, 2);
+
+        // Mix alias with direct aggregate function
+        let query = parser
+            .parse(
+                "
+            SELECT region, SUM(sales) as total_sales, SUM(orders) as total_orders
+            FROM regional_sales
+            GROUP BY region
+            HAVING total_sales + total_orders > 1000
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute_with_record(&query, record1).await.unwrap();
+            engine.execute_with_record(&query, record2).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "region").await;
+
+            // US: 1000+100 = 1100 > 1000 ✓
+            // EU: 500+200 = 700 NOT > 1000 ✗
+            assert_eq!(results.len(), 1);
+
+            let result = &results[0];
+            match result.fields.get("region") {
+                Some(FieldValue::String(r)) if r == "US" => {
+                    match result.fields.get("total_sales") {
+                        Some(FieldValue::Float(sales)) => {
+                            assert_eq!(*sales, 1000.0);
+                        }
+                        _ => panic!("Expected Float for total_sales"),
+                    }
+                }
+                _ => panic!("Expected region=US"),
+            }
+        });
+    }
+
     #[test]
     fn test_having_multiple_binaryop_operations() {
         let rt = Runtime::new().unwrap();
