@@ -795,28 +795,51 @@ impl SqlValidator {
         }
     }
 
+    /// Check if bootstrap.servers exists in any of the standard Kafka config locations
+    fn has_bootstrap_servers(&self, properties: &HashMap<String, String>) -> bool {
+        properties.contains_key("bootstrap.servers")
+            || properties.contains_key("datasource.consumer_config.bootstrap.servers")
+            || properties.contains_key("datasource.config.bootstrap.servers")
+            || properties.contains_key("datasink.producer_config.bootstrap.servers")
+            || properties.contains_key("datasink.config.bootstrap.servers")
+    }
+
+    /// Check if topic exists in any of the standard Kafka config locations
+    fn has_topic(&self, properties: &HashMap<String, String>) -> bool {
+        properties.contains_key("topic")
+            || properties.contains_key("topic.name")
+            || properties.contains_key("datasource.config.topic")
+            || properties.contains_key("datasink.config.topic")
+            || properties.contains_key("datasource.topic.name")
+            || properties.contains_key("datasink.topic.name")
+    }
+
     fn validate_kafka_source_config(
         &self,
         properties: &HashMap<String, String>,
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
         let mut missing_keys = Vec::new();
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_keys.push(key.to_string());
-            }
+        // Check for bootstrap.servers in multiple possible locations
+        if !self.has_bootstrap_servers(properties) {
+            missing_keys.push("bootstrap.servers".to_string());
+        }
+
+        // Check for topic in multiple possible locations
+        if !self.has_topic(properties) {
+            missing_keys.push("topic".to_string());
         }
 
         if !missing_keys.is_empty() {
             result.missing_source_configs.push(ConfigurationIssue {
                 name: name.to_string(),
-                required_keys: required_keys.iter().map(|s| s.to_string()).collect(),
+                required_keys: vec!["bootstrap.servers".to_string(), "topic".to_string()],
                 missing_keys,
                 has_batch_config: properties.contains_key("batch.size")
-                    || properties.contains_key("max.poll.records"),
+                    || properties.contains_key("max.poll.records")
+                    || properties.contains_key("datasource.consumer_config.max.poll.records"),
                 has_failure_strategy: properties.contains_key("failure_strategy"),
             });
             result.is_valid = false;
@@ -829,22 +852,26 @@ impl SqlValidator {
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["bootstrap.servers", "topic"];
         let mut missing_keys = Vec::new();
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_keys.push(key.to_string());
-            }
+        // Check for bootstrap.servers in multiple possible locations
+        if !self.has_bootstrap_servers(properties) {
+            missing_keys.push("bootstrap.servers".to_string());
+        }
+
+        // Check for topic in multiple possible locations
+        if !self.has_topic(properties) {
+            missing_keys.push("topic".to_string());
         }
 
         if !missing_keys.is_empty() {
             result.missing_sink_configs.push(ConfigurationIssue {
                 name: name.to_string(),
-                required_keys: required_keys.iter().map(|s| s.to_string()).collect(),
+                required_keys: vec!["bootstrap.servers".to_string(), "topic".to_string()],
                 missing_keys,
                 has_batch_config: properties.contains_key("batch.size")
-                    || properties.contains_key("linger.ms"),
+                    || properties.contains_key("linger.ms")
+                    || properties.contains_key("datasink.producer_config.batch.size"),
                 has_failure_strategy: properties.contains_key("failure_strategy"),
             });
             result.is_valid = false;

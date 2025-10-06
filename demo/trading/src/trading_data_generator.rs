@@ -181,11 +181,33 @@ impl TradingSimulator {
                     .insert("exchange", &exchange)
                     .insert("symbol", &market_data.symbol);
 
-                // Send to market_data topic
+                // Send to market_data_stream topic
                 match self
                     .producer
                     .send_to_topic(
-                        "market_data",
+                        "market_data_stream",
+                        Some(&market_data.symbol),
+                        &serde_json::to_value(&market_data)?,
+                        headers.clone(),
+                        None,
+                    )
+                    .await
+                {
+                    Ok(_delivery) => {}
+                    Err(e) => warn!("Failed to send market data: {}", e),
+                }
+
+                // Also send to exchange-specific topics for arbitrage detection
+                let exchange_topic = match exchange.as_str() {
+                    "NYSE" => "market_data_stream_a",
+                    "NASDAQ" => "market_data_stream_b",
+                    _ => continue, // Skip other exchanges for now
+                };
+
+                match self
+                    .producer
+                    .send_to_topic(
+                        exchange_topic,
                         Some(&market_data.symbol),
                         &serde_json::to_value(&market_data)?,
                         headers,
@@ -194,7 +216,7 @@ impl TradingSimulator {
                     .await
                 {
                     Ok(_delivery) => {}
-                    Err(e) => warn!("Failed to send market data: {}", e),
+                    Err(e) => warn!("Failed to send market data to {}: {}", exchange_topic, e),
                 }
             }
         }
@@ -241,7 +263,7 @@ impl TradingSimulator {
                     match self
                         .producer
                         .send_to_topic(
-                            "trading_positions",
+                            "trading_positions_stream",
                             Some(&format!("{}_{}", trader, symbol)),
                             &serde_json::to_value(&position)?,
                             headers,
@@ -297,7 +319,7 @@ impl TradingSimulator {
                     match self
                         .producer
                         .send_to_topic(
-                            "order_book_updates",
+                            "order_book_stream",
                             Some(&format!("{}_{}", symbol, side)),
                             &serde_json::to_value(&order_update)?,
                             headers,

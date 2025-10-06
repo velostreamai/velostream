@@ -38,7 +38,7 @@ WITH (
     'market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
-    'market_data_ts.config_file' = 'configs/market_data_et_sink.yaml'
+    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml'
 );
 
 CREATE STREAM tick_buckets AS
@@ -59,7 +59,7 @@ WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
     'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml'
@@ -109,16 +109,16 @@ SELECT
     
     NOW() as detection_time
 FROM market_data_ts
--- Phase 1B: Event-time based windowing (1-minute tumbling windows)
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 -- Phase 3: Complex HAVING clause with multiple conditions
 HAVING COUNT(*) > 10  -- At least 10 trades in window
    AND STDDEV(price) > AVG(price) * 0.01  -- Volatility > 1% of avg price
    AND MAX(volume) > AVG(volume) * 2      -- Volume spike detected
+-- Phase 1B: Event-time based windowing (1-minute tumbling windows)
+WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
@@ -217,8 +217,6 @@ SELECT
     
     NOW() as detection_time
 FROM market_data_ts
--- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
-WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
 -- Phase 3: Complex subquery in HAVING clause
 HAVING EXISTS (
     SELECT 1 FROM market_data_ts m2
@@ -227,10 +225,12 @@ HAVING EXISTS (
     AND m2.volume > 10000
 )
 AND COUNT(*) >= 5  -- Minimum 5 trades in window
+-- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
+WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_et_source.yaml',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
 
     -- Phase 2: Comprehensive resource management
@@ -366,8 +366,6 @@ FROM trading_positions_with_event_time p
 LEFT JOIN market_data_ts m ON p.symbol = m.symbol
     AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND
                          AND p.event_time + INTERVAL '30' SECOND
--- Phase 1B: Event-time windows with session semantics (4-hour session gap)
-WINDOW SESSION(4h)
 -- Phase 3: Complex HAVING with nested aggregations and subqueries
 HAVING (
     -- High-value positions
@@ -380,8 +378,16 @@ HAVING (
      AND ABS(p3.position_size * COALESCE(m.price, 0)) > 250000) > 3
 )
 AND COUNT(*) >= 1  -- At least one position in session
+-- Phase 1B: Event-time windows with session semantics (4-hour session gap)
+WINDOW SESSION(4h)
 EMIT CHANGES
 WITH (
+    -- Source configurations
+    'trading_positions_with_event_time.type' = 'kafka_source',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
     -- Phase 2: Full resource management and fault tolerance
     'max.memory.mb' = '2048',
     'max.groups' = '100000',

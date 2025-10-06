@@ -13,6 +13,9 @@ datasource:
     auto.commit.interval.ms: 100
     session.timeout.ms: 6000
     heartbeat.interval.ms: 2000
+
+    # Note: librdkafka automatically retries topic subscription indefinitely
+    # with built-in metadata refresh. No explicit retry config needed.
     
   # Common schema settings
   schema:

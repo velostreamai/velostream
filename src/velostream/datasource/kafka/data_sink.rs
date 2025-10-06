@@ -44,8 +44,15 @@ impl KafkaDataSink {
 
         let brokers = get_sink_prop("brokers")
             .or_else(|| get_sink_prop("bootstrap.servers"))
+            .or_else(|| {
+                props
+                    .get("datasink.producer_config.bootstrap.servers")
+                    .cloned()
+            })
             .unwrap_or_else(|| "localhost:9092".to_string());
-        let topic = get_sink_prop("topic").unwrap_or_else(|| format!("{}_output", job_name));
+        let topic = get_sink_prop("topic")
+            .or_else(|| props.get("datasink.topic.name").cloned())
+            .unwrap_or_else(|| format!("{}_output", job_name));
 
         // Create filtered config with sink. properties
         let mut sink_config = HashMap::new();
@@ -338,17 +345,29 @@ impl KafkaDataSink {
         let mut warnings = Vec::new();
         let mut recommendations = Vec::new();
 
-        // Build required configuration keys
-        let bootstrap_servers_key = format!(
+        // Check for bootstrap.servers in standard Kafka producer_config location
+        let has_bootstrap_servers = properties.contains_key(&format!(
             "{}.{}.{}",
             DATASINK_PREFIX, PRODUCER_CONFIG, BOOTSTRAP_SERVERS
-        );
-        let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
+        ));
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                errors.push(missing_required_msg(name, key));
-            }
+        if !has_bootstrap_servers {
+            errors.push(format!(
+                "Missing required property for sink '{}': 'datasink.producer_config.bootstrap.servers'. \
+                This should be defined in your YAML config file under datasink -> producer_config -> bootstrap.servers",
+                name
+            ));
+        }
+
+        // Check for topic in standard Kafka location
+        let has_topic = properties.contains_key(&format!("{}.topic.name", DATASINK_PREFIX));
+
+        if !has_topic {
+            errors.push(format!(
+                "Missing required property for sink '{}': 'datasink.topic.name'. \
+                This should be defined in your YAML config file under datasink -> topic -> name",
+                name
+            ));
         }
 
         // Recommended properties with fallback support

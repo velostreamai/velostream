@@ -39,8 +39,15 @@ impl KafkaDataSource {
 
         let brokers = get_source_prop("brokers")
             .or_else(|| get_source_prop("bootstrap.servers"))
+            .or_else(|| {
+                props
+                    .get("datasource.consumer_config.bootstrap.servers")
+                    .cloned()
+            })
             .unwrap_or_else(|| "localhost:9092".to_string());
-        let topic = get_source_prop("topic").unwrap_or_else(|| default_topic.to_string());
+        let topic = get_source_prop("topic")
+            .or_else(|| props.get("datasource.topic.name").cloned())
+            .unwrap_or_else(|| default_topic.to_string());
         let group_id =
             get_source_prop("group_id").unwrap_or_else(|| format!("velo-sql-{}", job_name));
 
@@ -412,26 +419,37 @@ impl KafkaDataSource {
             )
         }
 
-        // Build required configuration keys
-        let bootstrap_servers_key = format!(
-            "{}.{}.{}",
-            DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS
-        );
-        let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
-
-        // Recommended properties with fallback support
-        let recommended_keys = vec![(GROUP_ID_DOT, GROUP_ID_UNDERSCORE)];
-
         let mut missing_required = Vec::new();
         let mut missing_recommended = Vec::new();
         let mut warnings = Vec::new();
 
-        // Check required properties
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_required.push(missing_required_msg(name, key));
-            }
+        // Check for bootstrap.servers in standard Kafka consumer_config location
+        let has_bootstrap_servers = properties.contains_key(&format!(
+            "{}.{}.{}",
+            DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS
+        ));
+
+        if !has_bootstrap_servers {
+            missing_required.push(format!(
+                "Missing required property for source '{}': 'datasource.consumer_config.bootstrap.servers'. \
+                This should be defined in your YAML config file under datasource -> consumer_config -> bootstrap.servers",
+                name
+            ));
         }
+
+        // Check for topic in standard Kafka location
+        let has_topic = properties.contains_key(&format!("{}.topic.name", DATASOURCE_PREFIX));
+
+        if !has_topic {
+            missing_required.push(format!(
+                "Missing required property for source '{}': 'datasource.topic.name'. \
+                This should be defined in your YAML config file under datasource -> topic -> name",
+                name
+            ));
+        }
+
+        // Recommended properties with fallback support
+        let recommended_keys = vec![(GROUP_ID_DOT, GROUP_ID_UNDERSCORE)];
 
         // Check recommended properties with fallback support
         for (dot_key, underscore_key) in &recommended_keys {

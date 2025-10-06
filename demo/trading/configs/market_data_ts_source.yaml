@@ -1,12 +1,12 @@
 # Market Data Topic Configuration
 # Ultra-low latency market data feed specialization
 
-extends: common_kafka_sink.yaml
+extends: common_kafka_source.yaml
 
 # Topic-specific settings
 topic:
-  name: "market_data_et"
-  
+  name: "market_data_ts"
+
 
 # Performance profile override
 performance_profile: ultra_low_latency
@@ -15,7 +15,7 @@ performance_profile: ultra_low_latency
 schema:
   key.field: symbol
   value.serializer: "avro"
-  value.schema.file: "schemas/market_data_et.avsc"
+  value.schema.file: "schemas/market_data_ts.avsc"
   
   # Alternative inline schema definition:
   # avro.schema: |

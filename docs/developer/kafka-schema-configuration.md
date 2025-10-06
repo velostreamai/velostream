@@ -106,22 +106,28 @@ value.serializer: "auto"      # Auto-detect format
 datasource:
   type: kafka
   consumer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "financial_data"
-    group_id: "analytics_group"
-    
-    # Serialization configuration
-    value.serializer: "avro"
-    avro.schema: |
-      {
-        "type": "record",
-        "name": "Transaction",
-        "fields": [
-          {"name": "id", "type": "string"},
-          {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
-          {"name": "timestamp", "type": "long"}
-        ]
-      }
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "financial_data"
+
+  # Consumer group configuration
+  group.id: "analytics_group"
+
+  # Serialization configuration
+  schema:
+    value.format: avro
+
+  avro.schema: |
+    {
+      "type": "record",
+      "name": "Transaction",
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "amount", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+        {"name": "timestamp", "type": "long"}
+      ]
+    }
 ```
 
 ### Protobuf with File Schema
@@ -129,13 +135,19 @@ datasource:
 datasource:
   type: kafka
   consumer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "user_events"
-    group_id: "events_processor"
-    
-    # Serialization configuration
-    value.serializer: "protobuf"
-    protobuf.schema.file: "./schemas/user_event.proto"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "user_events"
+
+  # Consumer group configuration
+  group.id: "events_processor"
+
+  # Serialization configuration
+  schema:
+    value.format: protobuf
+
+  protobuf.schema.file: "./schemas/user_event.proto"
 ```
 
 ### JSON without Schema
@@ -143,12 +155,17 @@ datasource:
 datasource:
   type: kafka
   consumer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "logs"
-    group_id: "log_processor"
-    
-    # JSON doesn't require schema
-    value.serializer: "json"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "logs"
+
+  # Consumer group configuration
+  group.id: "log_processor"
+
+  # Serialization configuration
+  schema:
+    value.format: json
 ```
 
 ## Schema Registry Integration
@@ -159,19 +176,21 @@ For centralized schema management, configure Schema Registry:
 datasource:
   type: kafka
   consumer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "managed_topic"
-    group_id: "managed_consumer"
-    
-    # Schema Registry configuration
-    schema_registry:
-      url: "http://schema-registry:8081"
-      # Optional authentication
-      auth_username: "registry_user"
-      auth_password: "registry_pass"
-    
-    # Format still needs to be specified
-    value.serializer: "avro"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "managed_topic"
+
+  # Consumer group configuration
+  group.id: "managed_consumer"
+
+  # Schema Registry configuration
+  schema:
+    value.format: avro
+    schema.registry.url: "http://schema-registry:8081"
+    # Optional authentication
+    registry.auth.username: "registry_user"
+    registry.auth.password: "registry_pass"
 ```
 
 ## Financial Precision Best Practices
@@ -247,12 +266,16 @@ When writing data TO Kafka topics, the same schema configuration patterns apply 
 datasink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "processed_data"
-    
-    # JSON serialization
-    value.serializer: "json"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "processed_data"
+
+  # Serialization configuration
+  schema:
+    key.format: string
     key.field: "id"  # Use 'id' field as message key
+    value.format: json
 ```
 
 #### Avro Sink with Schema
@@ -260,23 +283,28 @@ datasink:
 datasink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "financial_results"
-    
-    # Avro serialization
-    value.serializer: "avro"
-    avro.schema: |
-      {
-        "type": "record",
-        "name": "FinancialResult",
-        "fields": [
-          {"name": "symbol", "type": "string"},
-          {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
-          {"name": "volume", "type": "long"},
-          {"name": "calculated_at", "type": "long"}
-        ]
-      }
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "financial_results"
+
+  # Serialization configuration
+  schema:
+    key.format: string
     key.field: "symbol"
+    value.format: avro
+
+  avro.schema: |
+    {
+      "type": "record",
+      "name": "FinancialResult",
+      "fields": [
+        {"name": "symbol", "type": "string"},
+        {"name": "price", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+        {"name": "volume", "type": "long"},
+        {"name": "calculated_at", "type": "long"}
+      ]
+    }
 ```
 
 #### Protobuf Sink with Schema
@@ -284,20 +312,25 @@ datasink:
 datasink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "analytics_output"
-    
-    # Protobuf serialization
-    value.serializer: "protobuf"
-    protobuf.schema: |
-      syntax = "proto3";
-      message AnalyticsResult {
-        string metric_name = 1;
-        double value = 2;
-        int64 timestamp = 3;
-        map<string, string> tags = 4;
-      }
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "analytics_output"
+
+  # Serialization configuration
+  schema:
+    key.format: string
     key.field: "metric_name"
+    value.format: protobuf
+
+  protobuf.schema: |
+    syntax = "proto3";
+    message AnalyticsResult {
+      string metric_name = 1;
+      double value = 2;
+      int64 timestamp = 3;
+      map<string, string> tags = 4;
+    }
 ```
 
 ### Sink Schema File Configuration
@@ -307,10 +340,15 @@ datasink:
 datasink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "user_profiles"
-    value.serializer: "avro"
-    avro.schema.file: "./schemas/user_profile.avsc"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "user_profiles"
+
+  schema:
+    value.format: avro
+
+  avro.schema.file: "./schemas/user_profile.avsc"
 ```
 
 #### Protobuf Schema File
@@ -318,10 +356,15 @@ datasink:
 datasink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "events"
-    value.serializer: "protobuf"
-    protobuf.schema.file: "./schemas/event.proto"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "events"
+
+  schema:
+    value.format: protobuf
+
+  protobuf.schema.file: "./schemas/event.proto"
 ```
 
 ### Complete Source-to-Sink Pipeline
@@ -331,18 +374,28 @@ datasink:
 source:
   type: kafka
   consumer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "raw_transactions"
-    group_id: "processor_group"
-    value.serializer: "avro"
-    avro.schema.file: "./schemas/transaction.avsc"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "raw_transactions"
+
+  group.id: "processor_group"
+
+  schema:
+    value.format: avro
+
+  avro.schema.file: "./schemas/transaction.avsc"
 
 sink:
   type: kafka
   producer_config:
-    bootstrap_servers: "localhost:9092"
-    topic: "processed_analytics"
-    value.serializer: "protobuf"
+    bootstrap.servers: "localhost:9092"
+
+  topic:
+    name: "processed_analytics"
+
+  schema:
+    value.format: protobuf
     protobuf.schema: |
       syntax = "proto3";
       message ProcessedAnalytics {
