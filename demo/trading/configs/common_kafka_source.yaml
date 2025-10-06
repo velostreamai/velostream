@@ -8,7 +8,9 @@ datasource:
   # Standard consumer configuration for trading system
   consumer_config:
     bootstrap.servers: "broker:9092"
-    auto.offset.reset: "latest"
+    # Use 'earliest' for demos to process all existing data from topic start
+    # Use 'latest' in production to only process new messages after subscription
+    auto.offset.reset: "earliest"
     enable.auto.commit: true
     auto.commit.interval.ms: 100
     session.timeout.ms: 6000
