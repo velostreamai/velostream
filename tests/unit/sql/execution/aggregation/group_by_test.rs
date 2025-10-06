@@ -2158,4 +2158,74 @@ mod tests {
             }
         });
     }
+
+    // ============================================================================
+    // Phase 3: CASE Expression Tests
+    // ============================================================================
+
+    #[test]
+    fn test_having_case_simple_binary_result() {
+        // Test: HAVING CASE WHEN SUM(amount) > 200 THEN 1 ELSE 0 END = 1
+        // Only groups where SUM(amount) > 200 should pass
+
+        let rt = Runtime::new().unwrap();
+        let (mut engine, mut receiver) = create_test_engine();
+        let parser = StreamingSqlParser::new();
+
+        // Create records: Customer 1 has 300, Customer 2 has 150
+        let mut fields1 = HashMap::new();
+        fields1.insert("customer_id".to_string(), FieldValue::String("customer_1".to_string()));
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("customer_id".to_string(), FieldValue::String("customer_1".to_string()));
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0));
+        let record2 = create_stream_record_with_fields(fields2, 2);
+
+        let mut fields3 = HashMap::new();
+        fields3.insert("customer_id".to_string(), FieldValue::String("customer_2".to_string()));
+        fields3.insert("amount".to_string(), FieldValue::Float(75.0));
+        let record3 = create_stream_record_with_fields(fields3, 3);
+
+        let mut fields4 = HashMap::new();
+        fields4.insert("customer_id".to_string(), FieldValue::String("customer_2".to_string()));
+        fields4.insert("amount".to_string(), FieldValue::Float(75.0));
+        let record4 = create_stream_record_with_fields(fields4, 4);
+
+        let query = parser
+            .parse(
+                "
+            SELECT customer_id, SUM(amount) as total
+            FROM sales
+            GROUP BY customer_id
+            HAVING CASE WHEN SUM(amount) > 200 THEN 1 ELSE 0 END = 1
+        ",
+            )
+            .unwrap();
+
+        rt.block_on(async {
+            engine.execute_with_record(&query, record1).await.unwrap();
+            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, record4).await.unwrap();
+
+            let results = collect_latest_group_results(&mut receiver, "customer_id").await;
+
+            // Only customer_1 (300 > 200) should pass
+            assert_eq!(results.len(), 1, "Only one group should pass HAVING");
+
+            let result = &results[0];
+            match result.fields.get("customer_id") {
+                Some(FieldValue::String(id)) if id == "customer_1" => {
+                    match result.fields.get("total") {
+                        Some(FieldValue::Float(amt)) => assert_eq!(*amt, 300.0),
+                        _ => panic!("Unexpected type for total"),
+                    }
+                }
+                _ => panic!("Expected customer_1"),
+            }
+        });
+    }
+
 }

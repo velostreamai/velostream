@@ -1327,6 +1327,33 @@ impl SelectProcessor {
                 // Look for a SELECT field with matching alias
                 Self::lookup_aggregated_field_by_alias(name, accumulator, fields)
             }
+            // Phase 3: Support CASE expressions in HAVING clause
+            // Example: HAVING CASE WHEN SUM(x) > 100 THEN 1 ELSE 0 END = 1
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Evaluate each WHEN clause in order
+                for (condition, result) in when_clauses {
+                    // Evaluate the condition expression (returns bool)
+                    let condition_result =
+                        Self::evaluate_having_expression(condition, accumulator, fields)?;
+
+                    // Check if condition is true
+                    if condition_result {
+                        // Condition matched - evaluate and return the result expression
+                        return Self::evaluate_having_value_expression(result, accumulator, fields);
+                    }
+                }
+
+                // No WHEN clause matched - evaluate ELSE clause if present
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_having_value_expression(else_expr, accumulator, fields)
+                } else {
+                    // No ELSE clause - return NULL
+                    Ok(FieldValue::Null)
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression in HAVING clause: {:?}", expr),
                 query: None,
