@@ -1302,8 +1302,7 @@ impl SelectProcessor {
 
                 // Recursively evaluate left and right operands
                 let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
-                let right_val =
-                    Self::evaluate_having_value_expression(right, accumulator, fields)?;
+                let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
 
                 // Perform the arithmetic operation using FieldValue methods
                 match op {
@@ -1375,7 +1374,10 @@ impl SelectProcessor {
         // Search through SELECT fields for matching alias
         for field in fields {
             match field {
-                SelectField::AliasedColumn { column, alias: field_alias } if field_alias == alias => {
+                SelectField::AliasedColumn {
+                    column,
+                    alias: field_alias,
+                } if field_alias == alias => {
                     // Simple aliased column - not an aggregate, shouldn't be in HAVING
                     return Err(SqlError::ExecutionError {
                         message: format!(
@@ -1386,7 +1388,10 @@ impl SelectProcessor {
                         query: None,
                     });
                 }
-                SelectField::Expression { expr, alias: Some(field_alias) } if field_alias == alias => {
+                SelectField::Expression {
+                    expr,
+                    alias: Some(field_alias),
+                } if field_alias == alias => {
                     // Found matching alias - evaluate the aggregate expression
                     return Self::evaluate_having_value_expression(expr, accumulator, fields);
                 }
@@ -1776,9 +1781,16 @@ impl SelectProcessor {
             (Boolean(b1), Boolean(b2)) => b1 == b2,
             (Null, Null) => true,
             (Decimal(d1), Decimal(d2)) => d1 == d2,
-            (Interval { value: v1, unit: u1 }, Interval { value: v2, unit: u2 }) => {
-                v1 == v2 && u1 == u2
-            }
+            (
+                Interval {
+                    value: v1,
+                    unit: u1,
+                },
+                Interval {
+                    value: v2,
+                    unit: u2,
+                },
+            ) => v1 == v2 && u1 == u2,
             _ => false,
         }
     }

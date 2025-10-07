@@ -1620,13 +1620,20 @@ mod tests {
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
             // Only customer 1 should pass (10 > 8)
-            assert_eq!(results.len(), 1, "Only customer 1 should pass HAVING clause");
+            assert_eq!(
+                results.len(),
+                1,
+                "Only customer 1 should pass HAVING clause"
+            );
 
             let result = &results[0];
             match result.fields.get("customer_id") {
                 Some(FieldValue::Integer(id)) => {
                     assert_eq!(*id, 1);
-                    match (result.fields.get("total_revenue"), result.fields.get("total_cost")) {
+                    match (
+                        result.fields.get("total_revenue"),
+                        result.fields.get("total_cost"),
+                    ) {
                         (Some(FieldValue::Float(rev)), Some(FieldValue::Float(cost))) => {
                             assert_eq!(*rev, 1000.0);
                             assert_eq!(*cost, 100.0);
@@ -1753,7 +1760,11 @@ mod tests {
             // Wait, let me recalculate: Product 1: revenue=250, profit=50, total=300 (NOT > 300)
             // Product 2: revenue=80, profit=10, total=90 (NOT > 300)
             // Actually both fail! Let me adjust the threshold to > 250
-            assert_eq!(results.len(), 0, "No products should pass with threshold > 300");
+            assert_eq!(
+                results.len(),
+                0,
+                "No products should pass with threshold > 300"
+            );
         });
     }
 
@@ -1799,7 +1810,10 @@ mod tests {
             match result.fields.get("product_id") {
                 Some(FieldValue::Integer(id)) => {
                     assert_eq!(*id, 1);
-                    match (result.fields.get("total_revenue"), result.fields.get("total_profit")) {
+                    match (
+                        result.fields.get("total_revenue"),
+                        result.fields.get("total_profit"),
+                    ) {
                         (Some(FieldValue::Float(rev)), Some(FieldValue::Float(prof))) => {
                             assert_eq!(*rev, 250.0);
                             assert_eq!(*prof, 50.0);
@@ -1856,7 +1870,10 @@ mod tests {
             match result.fields.get("account_id") {
                 Some(FieldValue::Integer(id)) => {
                     assert_eq!(*id, 1);
-                    match (result.fields.get("total_credits"), result.fields.get("total_debits")) {
+                    match (
+                        result.fields.get("total_credits"),
+                        result.fields.get("total_debits"),
+                    ) {
                         (Some(FieldValue::Float(cr)), Some(FieldValue::Float(db))) => {
                             assert_eq!(*cr, 500.0);
                             assert_eq!(*db, 100.0);
@@ -1913,7 +1930,10 @@ mod tests {
             match result.fields.get("trader_id") {
                 Some(FieldValue::Integer(id)) => {
                     assert_eq!(*id, 1);
-                    match (result.fields.get("total_profit"), result.fields.get("total_trades")) {
+                    match (
+                        result.fields.get("total_profit"),
+                        result.fields.get("total_trades"),
+                    ) {
                         (Some(FieldValue::Float(profit)), Some(FieldValue::Float(trades))) => {
                             assert_eq!(*profit, 300.0);
                             assert_eq!(*trades, 30.0);
@@ -2034,7 +2054,10 @@ mod tests {
             match result.fields.get("product_id") {
                 Some(FieldValue::Integer(id)) => {
                     assert_eq!(*id, 1);
-                    match (result.fields.get("total_revenue"), result.fields.get("total_cost")) {
+                    match (
+                        result.fields.get("total_revenue"),
+                        result.fields.get("total_cost"),
+                    ) {
                         (Some(FieldValue::Float(rev)), Some(FieldValue::Float(cost))) => {
                             assert_eq!(*rev, 1000.0);
                             assert_eq!(*cost, 600.0);
@@ -2174,22 +2197,34 @@ mod tests {
 
         // Create records: Customer 1 has 300, Customer 2 has 150
         let mut fields1 = HashMap::new();
-        fields1.insert("customer_id".to_string(), FieldValue::String("customer_1".to_string()));
+        fields1.insert(
+            "customer_id".to_string(),
+            FieldValue::String("customer_1".to_string()),
+        );
         fields1.insert("amount".to_string(), FieldValue::Float(100.0));
         let record1 = create_stream_record_with_fields(fields1, 1);
 
         let mut fields2 = HashMap::new();
-        fields2.insert("customer_id".to_string(), FieldValue::String("customer_1".to_string()));
+        fields2.insert(
+            "customer_id".to_string(),
+            FieldValue::String("customer_1".to_string()),
+        );
         fields2.insert("amount".to_string(), FieldValue::Float(200.0));
         let record2 = create_stream_record_with_fields(fields2, 2);
 
         let mut fields3 = HashMap::new();
-        fields3.insert("customer_id".to_string(), FieldValue::String("customer_2".to_string()));
+        fields3.insert(
+            "customer_id".to_string(),
+            FieldValue::String("customer_2".to_string()),
+        );
         fields3.insert("amount".to_string(), FieldValue::Float(75.0));
         let record3 = create_stream_record_with_fields(fields3, 3);
 
         let mut fields4 = HashMap::new();
-        fields4.insert("customer_id".to_string(), FieldValue::String("customer_2".to_string()));
+        fields4.insert(
+            "customer_id".to_string(),
+            FieldValue::String("customer_2".to_string()),
+        );
         fields4.insert("amount".to_string(), FieldValue::Float(75.0));
         let record4 = create_stream_record_with_fields(fields4, 4);
 
@@ -2227,5 +2262,4 @@ mod tests {
             }
         });
     }
-
 }
