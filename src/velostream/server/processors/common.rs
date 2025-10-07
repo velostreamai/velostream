@@ -607,6 +607,15 @@ async fn create_kafka_writer(
     sink_name: &str,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
+    // Extract brokers from properties
+    let brokers = props
+        .get("bootstrap.servers")
+        .or_else(|| props.get("brokers"))
+        .or_else(|| props.get("kafka.brokers"))
+        .or_else(|| props.get("producer_config.bootstrap.servers"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "localhost:9092".to_string());
+
     // Extract topic name from properties, or use sink name as default
     let topic = props
         .get("topic")
@@ -615,18 +624,18 @@ async fn create_kafka_writer(
         .unwrap_or_else(|| sink_name.to_string());
 
     info!(
-        "Creating Kafka writer for sink '{}' with topic '{}'",
-        sink_name, topic
+        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}'",
+        sink_name, brokers, topic
     );
 
     // Let KafkaDataSink handle its own configuration extraction
     let mut datasink = KafkaDataSink::from_properties(props, sink_name);
 
-    // Initialize with Kafka SinkConfig using extracted topic
+    // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
     let config = SinkConfig::Kafka {
-        brokers: "localhost:9092".to_string(),
+        brokers,
         topic,
-        properties: HashMap::new(),
+        properties: props.clone(),
     };
     datasink
         .initialize(config)

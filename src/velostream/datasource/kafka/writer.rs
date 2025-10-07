@@ -342,6 +342,8 @@ impl KafkaDataWriter {
                     // Check for schema file path (dot notation preferred, underscore fallback)
                     if let Some(schema_file) = properties
                         .get("avro.schema.file")
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("avro_schema_file"))
                         .or_else(|| properties.get("schema_file"))
@@ -366,6 +368,8 @@ impl KafkaDataWriter {
                     if let Some(schema_file) = properties
                         .get("protobuf.schema.file")
                         .or_else(|| properties.get("proto.schema.file"))
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("protobuf_schema_file"))
                         .or_else(|| properties.get("schema_file"))
