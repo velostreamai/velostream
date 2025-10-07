@@ -572,13 +572,13 @@ WITH (
 )
 EMIT CHANGES;
 
--- Custom datetime format
+-- Custom datetime format with milliseconds
 CREATE STREAM logs_with_event_time AS
 SELECT level, message, event_time
 FROM file:///logs/app.log
 WITH (
     'event.time.field' = 'timestamp',
-    'event.time.format' = '%Y-%m-%d %H:%M:%S'
+    'event.time.format' = '%Y-%m-%d %H:%M:%S%.3f'
 )
 EMIT CHANGES;
 ```
@@ -590,7 +590,8 @@ EMIT CHANGES;
 | ISO 8601 / RFC 3339 | `iso8601` | `"2024-01-15T10:30:00Z"` |
 | Epoch milliseconds | `epoch_millis` | `1705318200000` |
 | Epoch seconds | `epoch_seconds` or `epoch` | `1705318200` |
-| Custom chrono format | `%Y-%m-%d %H:%M:%S` | `"2024-01-15 10:30:00"` |
+| Custom with milliseconds | `%Y-%m-%d %H:%M:%S%.3f` | `"2024-01-15 10:30:00.123"` |
+| Custom without milliseconds | `%Y-%m-%d %H:%M:%S` | `"2024-01-15 10:30:00"` |
 | Auto-detect | Omit format property | Tries epoch, then ISO 8601 |
 
 See [Watermarks & Time Semantics Guide](watermarks-time-semantics.md) for complete event-time documentation.
@@ -1078,7 +1079,8 @@ The `WITH` clause configures table and stream behavior. Properties are specified
 | `iso8601` or `ISO8601` | ISO 8601 / RFC 3339 timestamps | `"2024-01-15T10:30:00Z"` |
 | `epoch_millis` | Unix epoch milliseconds | `1705318200000` |
 | `epoch_seconds` or `epoch` | Unix epoch seconds | `1705318200` |
-| `%Y-%m-%d %H:%M:%S` | Custom chrono format | `"2024-01-15 10:30:00"` |
+| `%Y-%m-%d %H:%M:%S%.3f` | Custom with milliseconds | `"2024-01-15 10:30:00.123"` |
+| `%Y-%m-%d %H:%M:%S` | Custom without milliseconds | `"2024-01-15 10:30:00"` |
 | _(omit)_ | Auto-detection | Tries epoch, then ISO 8601 |
 
 See [Watermarks & Time Semantics Guide](watermarks-time-semantics.md#event-time-format-options) for complete format documentation.

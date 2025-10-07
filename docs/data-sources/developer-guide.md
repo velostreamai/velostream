@@ -1702,13 +1702,17 @@ EMIT CHANGES;
 | ISO 8601 / RFC 3339 | `iso8601` or `ISO8601` | `2024-01-15T10:30:00Z` |
 | Epoch milliseconds | `epoch_millis` | `1705318200000` |
 | Epoch seconds | `epoch_seconds` or `epoch` | `1705318200` |
-| Custom chrono format | `%Y-%m-%d %H:%M:%S` | `2024-01-15 10:30:00` |
+| Custom with milliseconds | `%Y-%m-%d %H:%M:%S%.3f` | `2024-01-15 10:30:00.123` |
+| Custom without milliseconds | `%Y-%m-%d %H:%M:%S` | `2024-01-15 10:30:00` |
 | Auto-detection | Omit format property | Tries epoch millis, then ISO 8601 |
 
 **Notes:**
 - **ISO 8601**: Supports all RFC 3339 timestamps with timezone offsets
 - **Epoch formats**: Accepts integer or string values (e.g., `1705318200` or `"1705318200"`)
 - **Custom formats**: Use [chrono format specifiers](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
+  - `%.3f` - Milliseconds (e.g., `.123`)
+  - `%.6f` - Microseconds (e.g., `.123456`)
+  - `%.9f` - Nanoseconds (e.g., `.123456789`)
 - **Auto-detection**: Falls back gracefully if parsing fails (logs warning, sets `event_time` to None)
 
 ### Troubleshooting
