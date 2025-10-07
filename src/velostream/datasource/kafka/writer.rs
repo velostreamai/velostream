@@ -74,6 +74,7 @@ impl KafkaDataWriter {
         let key_field = properties
             .get("key.field")
             .or_else(|| properties.get("message.key.field"))
+            .or_else(|| properties.get("schema.key.field"))
             .cloned();
 
         // Extract schema based on format
@@ -112,6 +113,7 @@ impl KafkaDataWriter {
         let key_field = properties
             .get("key.field")
             .or_else(|| properties.get("message.key.field"))
+            .or_else(|| properties.get("schema.key.field"))
             .cloned();
 
         // Extract schema based on format

@@ -423,8 +423,10 @@ sink:
 
 ### Sink (Producer) Keys
 - `value.serializer` - Format: "json", "avro", "protobuf"
-- `key.field` - Field name to use as Kafka message key
-- `message.key.field` - Alternative key field specification
+- **Key Field Extraction** (checked in priority order):
+  1. `key.field` - Field name to use as Kafka message key (highest priority)
+  2. `message.key.field` - Alternative key field specification
+  3. `schema.key.field` - Nested schema configuration (for YAML `schema:` sections)
 - Schema keys same as source (avro.schema, protobuf.schema, etc.)
 
 ### Schema Registry Keys (Both Source & Sink)

@@ -502,7 +502,110 @@ WITH ('orders.config_file' = 'configs/prod_orders.yaml')
 - [Compression Independence](compression-independence.md)
 - [Event-Time Extraction](../sql/watermarks-time-semantics.md)
 
+## Multi-Source Processor Data Loss Fix (v5.2.0)
+
+**Critical Bug Fixed**: Multi-source processors were processing records through SQL engine but never writing output to sinks, causing silent data loss and violating transactional guarantees.
+
+### Problem (Before v5.2.0)
+Both `SimpleJobProcessor` and `TransactionalJobProcessor` had critical bugs in multi-source batch processing:
+
+1. **No Sink Writes**: Used `execute_with_record()` which doesn't return SQL output
+   - Records were processed successfully
+   - SQL transformations were applied
+   - **But output was never written to Kafka sinks**
+   - Result: 100% data loss for multi-source jobs
+
+2. **Infinite Loops**: Processors never checked if sources finished
+   - Loop only exited on shutdown signal
+   - Required manual termination even when all data processed
+   - Result: Hung processes in production
+
+### Solution (v5.2.0)
+
+**Files Changed**:
+- `src/velostream/server/processors/simple.rs`
+- `src/velostream/server/processors/transactional.rs`
+
+**Key Changes**:
+```rust
+// OLD (BROKEN) - Never captures output
+for record in batch {
+    engine_lock.execute_with_record(query, record).await?;
+}
+// Output records lost!
+
+// NEW (FIXED) - Captures and writes output
+let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+all_output_records.extend(batch_result.output_records);
+
+// Write to all sinks
+for sink_name in &sink_names {
+    context.write_batch_to(sink_name, all_output_records.clone()).await?;
+}
+```
+
+**Exit Condition Fix**:
+```rust
+// Check if all sources have finished processing
+let sources_finished = {
+    let source_names = context.list_sources();
+    let mut all_finished = true;
+    for source_name in source_names {
+        match context.has_more_data(&source_name).await {
+            Ok(has_more) => {
+                if has_more {
+                    all_finished = false;
+                    break;
+                }
+            }
+            // ... error handling
+        }
+    }
+    all_finished
+};
+
+if sources_finished {
+    info!("All sources have finished - no more data to process");
+    break;
+}
+```
+
+### Verification
+
+**Demo Test**: Trading demo (`demo/trading/`)
+```bash
+./start-demo.sh 1
+
+# Check sink topics have data
+docker exec simple-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic market_data_ts \
+  --from-beginning --max-messages 5
+```
+
+**Result**: ✅ Sinks now receive data correctly
+
+**Unit Tests**:
+- `tests/unit/server/processors/multi_source_sink_write_test.rs` - Simple processor
+- `tests/unit/server/processors/transactional_multi_source_sink_write_test.rs` - Transactional processor
+
+### Impact
+
+- **Severity**: Critical - 100% data loss in multi-source jobs
+- **Affected Versions**: v5.0.0 - v5.1.0
+- **Fixed In**: v5.2.0
+- **Processors Affected**: Both Simple and Transactional
+- **Transactional Violation**: Transactions committed but output discarded
+
 ## Changelog
+
+### v5.2.0 (October 7, 2025)
+- 🚨 **CRITICAL FIX**: Multi-source processors now write output to sinks
+- ✅ Fixed silent data loss in `SimpleJobProcessor::process_multi_source_batch()`
+- ✅ Fixed silent data loss in `TransactionalJobProcessor::process_multi_source_transactional_batch()`
+- ✅ Added source completion checks - processors exit cleanly when sources finish
+- ✅ Comprehensive unit tests for sink write verification
+- ✅ Support for `schema.key.field` in nested YAML configurations
 
 ### v5.1.0 (October 7, 2025)
 - ✅ Use named source/sink as default topic name
@@ -515,3 +618,4 @@ WITH ('orders.config_file' = 'configs/prod_orders.yaml')
 - ⚠️ Hardcoded "default" topic in some paths
 - ⚠️ Warning-only for suspicious names
 - ⚠️ Silent data loss possible
+- ⚠️ Multi-source processors didn't write to sinks (critical bug)
