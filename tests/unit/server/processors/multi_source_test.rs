@@ -64,22 +64,27 @@ impl DataReader for MockDataReader {
         if batch_size == 0 {
             return Ok(vec![]);
         }
-        
+
         let end_index = self.current_index + batch_size;
         let batch = self.records[self.current_index..end_index].to_vec();
         self.current_index = end_index;
-        
-        Ok(batch)
-    }
 
-    async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.current_index < self.records.len())
+        Ok(batch)
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Mock commit - just log
         println!("MockDataReader '{}' committed at index {}", self.name, self.current_index);
         Ok(())
+    }
+
+    async fn seek(&mut self, _offset: velostream::velostream::datasource::SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Mock seek - not implemented for testing
+        Ok(())
+    }
+
+    async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.current_index < self.records.len())
     }
 
     fn supports_transactions(&self) -> bool {
@@ -132,14 +137,42 @@ impl MockDataWriter {
 
 #[async_trait]
 impl DataWriter for MockDataWriter {
+    async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("MockDataWriter '{}' writing 1 record", self.name);
+        self.written_records.push(record);
+        Ok(())
+    }
+
     async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("MockDataWriter '{}' writing {} records", self.name, records.len());
         self.written_records.extend(records);
         Ok(())
     }
 
+    async fn update(&mut self, _key: &str, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Mock update - just write the record
+        self.written_records.push(record);
+        Ok(())
+    }
+
+    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Mock delete - no-op
+        Ok(())
+    }
+
     async fn flush(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("MockDataWriter '{}' flushed {} records", self.name, self.written_records.len());
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("MockDataWriter '{}' committed", self.name);
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("MockDataWriter '{}' rolled back", self.name);
+        self.written_records.clear();
         Ok(())
     }
 
@@ -347,10 +380,10 @@ async fn test_multi_source_creation_helpers() {
     ];
 
     let batch_config = Some(BatchConfig {
-        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize,
-        max_batch_size: Some(100),
-        batch_timeout: Some(Duration::from_millis(1000)),
-        memory_limit_mb: Some(50),
+        strategy: velostream::velostream::datasource::BatchStrategy::FixedSize(100),
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(1000),
+        enable_batching: true,
     });
 
     // Test source creation (will fail without actual sources but tests interface)

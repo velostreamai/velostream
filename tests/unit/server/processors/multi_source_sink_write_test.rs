@@ -211,7 +211,7 @@ async fn test_multi_source_processor_writes_to_sinks() {
         Box::new(mock_writer) as Box<dyn DataWriter>,
     );
 
-    let (output_sender, output_receiver) = mpsc::unbounded_channel();
+    let (output_sender, _output_receiver) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
 
     let parser = StreamingSqlParser::new();
@@ -228,7 +228,6 @@ async fn test_multi_source_processor_writes_to_sinks() {
             query,
             "test-sink-writes".to_string(),
             shutdown_rx,
-            output_receiver,
         ).await
     });
 
