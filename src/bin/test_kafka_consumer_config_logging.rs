@@ -27,6 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(fixed_size_config),
         None,
+        None, // event_time_config
     )
     .await;
 
@@ -49,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(low_latency_config),
         None,
+        None, // event_time_config
     )
     .await;
 
@@ -71,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(adaptive_config),
         None,
+        None, // event_time_config
     )
     .await;
 
@@ -89,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SerializationFormat::Json,
         Some(memory_config),
         None,
+        None, // event_time_config
     )
     .await;
 

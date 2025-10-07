@@ -139,6 +139,9 @@ impl KafkaDataWriter {
         properties: &HashMap<String, String>,
         batch_config: Option<BatchConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // FAIL FAST: Validate topic is properly configured
+        Self::validate_topic_configuration(&topic)?;
+
         // Validate schema requirements based on format
         Self::validate_schema_requirements(&format, schema)?;
 
@@ -196,6 +199,51 @@ impl KafkaDataWriter {
         );
 
         Ok(writer)
+    }
+
+    /// FAIL FAST: Validate topic configuration to prevent silent data loss
+    ///
+    /// This prevents the catastrophic bug where records are processed successfully
+    /// but written to a misconfigured topic that doesn't exist, causing silent data
+    /// loss with no error messages.
+    fn validate_topic_configuration(topic: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Check for empty topic name - ALWAYS fail
+        if topic.is_empty() {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka sink topic name is empty.\n\
+                 \n\
+                 A valid Kafka topic name MUST be configured. Please configure via:\n\
+                 1. YAML config file: 'topic.name: <topic_name>'\n\
+                 2. SQL properties: '<sink_name>.topic = <topic_name>'\n\
+                 3. Direct parameter when creating KafkaDataWriter\n\
+                 \n\
+                 This validation prevents silent data loss from writing to misconfigured topics."
+            ).into());
+        }
+
+        // Warn about suspicious topic names that might indicate misconfiguration
+        // These are common fallback/placeholder values that suggest config wasn't loaded
+        let suspicious_names = [
+            "default", "test", "temp", "placeholder", "undefined",
+            "null", "none", "example", "my-topic", "topic-name"
+        ];
+
+        if suspicious_names.contains(&topic.to_lowercase().as_str()) {
+            log::warn!(
+                "SUSPICIOUS TOPIC NAME: Kafka sink configured to write to topic '{}'. \
+                 This is a common placeholder/fallback value that may indicate \
+                 configuration was not properly loaded. If this is intentional, ignore this warning. \
+                 Otherwise, check that your config file is being read correctly.",
+                topic
+            );
+        }
+
+        log::info!(
+            "KafkaDataWriter: Topic validation passed - will write to topic '{}'",
+            topic
+        );
+
+        Ok(())
     }
 
     /// Validate that required schemas are provided for formats that need them
