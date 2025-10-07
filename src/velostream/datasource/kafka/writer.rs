@@ -218,14 +218,23 @@ impl KafkaDataWriter {
                  3. Direct parameter when creating KafkaDataWriter\n\
                  \n\
                  This validation prevents silent data loss from writing to misconfigured topics."
-            ).into());
+            )
+            .into());
         }
 
         // Warn about suspicious topic names that might indicate misconfiguration
         // These are common fallback/placeholder values that suggest config wasn't loaded
         let suspicious_names = [
-            "default", "test", "temp", "placeholder", "undefined",
-            "null", "none", "example", "my-topic", "topic-name"
+            "default",
+            "test",
+            "temp",
+            "placeholder",
+            "undefined",
+            "null",
+            "none",
+            "example",
+            "my-topic",
+            "topic-name",
         ];
 
         if suspicious_names.contains(&topic.to_lowercase().as_str()) {

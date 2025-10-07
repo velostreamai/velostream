@@ -275,6 +275,7 @@ impl SimpleJobProcessor {
         );
 
         // Step 4: Write processed data to sink if we have one
+        let mut sink_write_failed = false;
         if let Some(w) = writer.as_mut() {
             if should_commit && !batch_result.output_records.is_empty() {
                 debug!(
@@ -300,6 +301,8 @@ impl SimpleJobProcessor {
                             e
                         );
 
+                        sink_write_failed = true;
+
                         // Apply backoff and return error to trigger retry at batch level
                         if matches!(
                             self.config.failure_strategy,
@@ -311,8 +314,12 @@ impl SimpleJobProcessor {
                             );
                             tokio::time::sleep(self.config.retry_backoff).await;
                             return Err(format!("Sink write failed, will retry: {}", e).into());
+                        } else if matches!(self.config.failure_strategy, FailureStrategy::FailBatch)
+                        {
+                            warn!("Job '{}': Sink write failed with FailBatch strategy - batch will fail",
+                                  job_name);
                         } else {
-                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})", 
+                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})",
                                   job_name, self.config.failure_strategy);
                         }
                     }
@@ -321,7 +328,7 @@ impl SimpleJobProcessor {
         }
 
         // Step 5: Commit with simple semantics (no rollback if sink fails)
-        if should_commit {
+        if should_commit && !sink_write_failed {
             self.commit_simple(reader, writer, job_name).await?;
 
             // Update stats from batch result
@@ -334,28 +341,37 @@ impl SimpleJobProcessor {
                 );
             }
         } else {
-            // Batch failed or RetryWithBackoff strategy triggered
-            match self.config.failure_strategy {
-                FailureStrategy::RetryWithBackoff => {
-                    warn!(
-                        "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
-                        job_name, batch_result.records_failed
-                    );
-                    stats.batches_failed += 1;
-                    // Return error to trigger retry at the calling level
-                    return Err(format!(
-                        "Batch processing failed with {} record failures - will retry with backoff",
-                        batch_result.records_failed
-                    )
-                    .into());
-                }
-                _ => {
-                    // FailBatch strategy - don't commit, just log
-                    warn!(
-                        "Job '{}': Skipping commit due to {} batch failures",
-                        job_name, batch_result.records_failed
-                    );
-                    stats.batches_failed += 1;
+            // Batch failed due to SQL processing errors or sink write failures
+            if sink_write_failed {
+                warn!(
+                    "Job '{}': Batch failed due to sink write failure (strategy: {:?})",
+                    job_name, self.config.failure_strategy
+                );
+                stats.batches_failed += 1;
+            } else {
+                // Batch failed or RetryWithBackoff strategy triggered
+                match self.config.failure_strategy {
+                    FailureStrategy::RetryWithBackoff => {
+                        warn!(
+                            "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
+                            job_name, batch_result.records_failed
+                        );
+                        stats.batches_failed += 1;
+                        // Return error to trigger retry at the calling level
+                        return Err(format!(
+                            "Batch processing failed with {} record failures - will retry with backoff",
+                            batch_result.records_failed
+                        )
+                        .into());
+                    }
+                    _ => {
+                        // FailBatch strategy - don't commit, just log
+                        warn!(
+                            "Job '{}': Skipping commit due to {} batch failures",
+                            job_name, batch_result.records_failed
+                        );
+                        stats.batches_failed += 1;
+                    }
                 }
             }
         }
