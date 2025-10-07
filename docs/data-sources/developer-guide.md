@@ -1494,11 +1494,246 @@ impl PositionMonitor {
 - Network partitions
 - Manual intervention needs
 
+## 🕒 Event-Time Configuration Architecture
+
+Velostream provides centralized event-time configuration through the `SourceConfig` enum, enabling automatic event-time extraction across all data sources without code duplication.
+
+### Architecture Overview
+
+Event-time configuration is handled at three levels:
+
+1. **Configuration Parsing** - `SourceConfig` parses event-time config from URI parameters or properties
+2. **Initialization** - Data sources receive `event_time_config` via `initialize()` method
+3. **Record Processing** - Readers extract event-time from record fields using the config
+
+```mermaid
+graph LR
+    URI[Data Source URI] --> DSU[DataSourceUri::to_source_config]
+    DSU --> ETC[EventTimeConfig::from_properties]
+    ETC --> SC[SourceConfig]
+    SC --> DS[DataSource::initialize]
+    DS --> Reader[Reader with event_time_config]
+    Reader --> SR[StreamRecord with event_time]
+```
+
+### SourceConfig Structure
+
+All `SourceConfig` variants include an `event_time_config` field:
+
+```rust
+pub enum SourceConfig {
+    Kafka {
+        brokers: String,
+        topic: String,
+        group_id: Option<String>,
+        properties: HashMap<String, String>,
+        batch_config: BatchConfig,
+        event_time_config: Option<EventTimeConfig>,  // Centralized config
+    },
+    File {
+        path: String,
+        format: FileFormat,
+        properties: HashMap<String, String>,
+        batch_config: BatchConfig,
+        event_time_config: Option<EventTimeConfig>,  // Centralized config
+    },
+    // Similar for S3, Database, ClickHouse, Generic...
+}
+```
+
+### EventTimeConfig
+
+The configuration struct that defines how to extract event-time from records:
+
+```rust
+pub struct EventTimeConfig {
+    /// Field name containing the timestamp
+    pub field_name: String,
+
+    /// Optional format string for parsing
+    pub format: Option<String>,
+}
+
+impl EventTimeConfig {
+    /// Parse from properties (called by SourceConfig construction)
+    pub fn from_properties(props: &HashMap<String, String>) -> Option<Self> {
+        props.get("event.time.field").map(|field_name| {
+            EventTimeConfig {
+                field_name: field_name.clone(),
+                format: props.get("event.time.format").cloned(),
+            }
+        })
+    }
+}
+```
+
+### Configuration via URI Parameters
+
+Event-time config is automatically parsed from data source URIs:
+
+```rust
+// Kafka source with event-time extraction
+let uri = "kafka://localhost:9092/trades?event.time.field=timestamp&event.time.format=iso8601";
+let source_config = DataSourceUri::parse(uri)?.to_source_config()?;
+
+// File source with event-time extraction
+let uri = "file:///data/trades.json?event.time.field=trade_time&event.time.format=%Y-%m-%d %H:%M:%S";
+let source_config = DataSourceUri::parse(uri)?.to_source_config()?;
+```
+
+### Implementing Event-Time Support in Custom Data Sources
+
+#### Step 1: Store EventTimeConfig in DataSource
+
+```rust
+pub struct MyCustomDataSource {
+    config: MyConfig,
+    event_time_config: Option<EventTimeConfig>,  // Add this field
+}
+```
+
+#### Step 2: Extract from SourceConfig in initialize()
+
+```rust
+#[async_trait]
+impl DataSource for MyCustomDataSource {
+    async fn initialize(
+        &mut self,
+        config: SourceConfig,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match config {
+            SourceConfig::Generic {
+                source_type,
+                properties,
+                batch_config,
+                event_time_config,  // Extract event_time_config
+                ..
+            } => {
+                // Store event_time_config (already parsed!)
+                self.event_time_config = event_time_config;
+
+                // Parse other config...
+                Ok(())
+            }
+            _ => Err("Expected Generic configuration".into()),
+        }
+    }
+}
+```
+
+#### Step 3: Pass to Reader
+
+```rust
+async fn create_reader(&self) -> Result<Box<dyn DataReader>, Box<dyn Error + Send + Sync>> {
+    let reader = MyCustomReader::new(
+        self.config.clone(),
+        self.event_time_config.clone(),  // Pass to reader
+    ).await?;
+    Ok(Box::new(reader))
+}
+```
+
+#### Step 4: Extract Event-Time in Reader
+
+```rust
+impl DataReader for MyCustomReader {
+    async fn read_next(&mut self) -> Option<StreamRecord> {
+        let fields = self.fetch_record_fields()?;
+
+        // Extract event_time using helper
+        let event_time = if let Some(ref config) = self.event_time_config {
+            use crate::velostream::datasource::extract_event_time;
+            match extract_event_time(&fields, config) {
+                Ok(dt) => Some(dt),
+                Err(e) => {
+                    log::warn!("Failed to extract event_time: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        Some(StreamRecord {
+            data: fields,
+            timestamp: chrono::Utc::now().naive_utc(),
+            event_time,  // Set extracted event_time
+            headers: None,
+        })
+    }
+}
+```
+
+### SQL Configuration Example
+
+Event-time configuration works seamlessly with CTAS:
+
+```sql
+CREATE STREAM enriched_trades AS
+SELECT
+    symbol,
+    price,
+    volume,
+    AVG(price) OVER (
+        PARTITION BY symbol
+        ORDER BY event_time
+        RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+    ) as moving_avg_5m
+FROM kafka://localhost:9092/trades
+WITH (
+    'event.time.field' = 'trade_timestamp',
+    'event.time.format' = 'iso8601'
+)
+EMIT CHANGES;
+```
+
+### Benefits of Centralized Configuration
+
+✅ **No Code Duplication** - EventTimeConfig parsed once at SourceConfig level
+✅ **Consistent Behavior** - All data sources use same event-time extraction logic
+✅ **Easy to Extend** - New data sources automatically support event-time
+✅ **Backward Compatible** - `event_time_config` is optional, defaults to None
+✅ **Testable** - Clear separation between config parsing and usage
+
+### Common Timestamp Formats
+
+| Format | Configuration Value | Example |
+|--------|-------------------|---------|
+| ISO 8601 | `iso8601` | `2024-01-15T10:30:00Z` |
+| Unix timestamp (seconds) | `unix` | `1705318200` |
+| Unix timestamp (milliseconds) | `unix_ms` | `1705318200000` |
+| Custom format | `%Y-%m-%d %H:%M:%S` | `2024-01-15 10:30:00` |
+| RFC 3339 | `rfc3339` | `2024-01-15T10:30:00+00:00` |
+
+### Troubleshooting
+
+**Event-time is always None:**
+- Check that `event.time.field` matches the field name in your data
+- Verify the timestamp field is present in the record
+- Check logs for "Failed to extract event_time" warnings
+
+**Timestamp parsing errors:**
+- Ensure `event.time.format` matches your timestamp format exactly
+- Use chrono format specifiers for custom formats
+- Test with a single record to isolate parsing issues
+
+**Performance considerations:**
+- Event-time extraction is performed on every record
+- Use efficient timestamp formats (unix timestamps are fastest)
+- Consider caching format parsers if implementing custom extraction
+
+### See Also
+
+- [Watermarks & Time Semantics Guide](../sql/watermarks-time-semantics.md) - Event-time processing, watermarks, late data
+- [Window Functions](../sql/functions/window.md) - Event-time based windowing
+- [Advanced Configuration Guide](../advanced-configuration-guide.md) - URI-based configuration
+
 ### Implementation Status
 
 | Feature | Kafka | File | S3 | Database |
 |---------|-------|------|-----|----------|
 | Basic Reading | ✅ | 🔧 | 🔧 | 🔧 |
+| Event-Time Extraction | ✅ | ✅ | ✅* | ✅* |
 | Position Tracking | ✅ | 📋 | 📋 | 📋 |
 | Auto-commit | ✅ | 📋 | N/A | N/A |
 | Manual Seek | ✅ | 📋 | 📋 | 📋 |
@@ -1509,8 +1744,11 @@ impl PositionMonitor {
 
 **Legend:**
 - ✅ Implemented
+- ✅* Supported via SourceConfig (requires reader implementation)
 - 🔧 In Progress
 - 📋 Planned
 - N/A Not Applicable
 
-This comprehensive guide shows how different data sources handle position tracking, update detection, and interaction models, helping you choose the right approach for your streaming requirements.
+**Note:** Event-Time Extraction is now centralized in `SourceConfig` and automatically available to all data sources. S3 and Database are marked ✅* because the configuration infrastructure is complete, but reader implementations need to be updated to use it (following the same pattern as Kafka and File).
+
+This comprehensive guide shows how different data sources handle position tracking, update detection, event-time extraction, and interaction models, helping you choose the right approach for your streaming requirements.
