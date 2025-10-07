@@ -475,7 +475,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
         DataSourceType::Kafka => {
             create_kafka_reader(
                 &requirement.properties,
-                &requirement.name,  // Use source name, not default_topic
+                &requirement.name, // Use source name, not default_topic
                 &config.job_name,
                 &config.batch_config,
             )
@@ -586,7 +586,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
         DataSinkType::Kafka => {
             create_kafka_writer(
                 &requirement.properties,
-                &requirement.name,  // Use sink name, not job name
+                &requirement.name, // Use sink name, not job name
                 &config.batch_config,
             )
             .await
@@ -721,7 +721,7 @@ pub async fn create_multi_source_readers(
         // Use requirement.name as the default topic for this source
         let source_config = DataSourceConfig {
             requirement: requirement.clone(),
-            default_topic: requirement.name.clone(),  // Use source name as default
+            default_topic: requirement.name.clone(), // Use source name as default
             job_name: job_name.to_string(),
             batch_config: batch_config.clone(),
         };

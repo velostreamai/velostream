@@ -51,10 +51,7 @@ async fn test_default_topic_name_fails_fast() {
     .await;
 
     // Then: Should FAIL FAST with configuration error
-    assert!(
-        result.is_err(),
-        "Should fail when topic name is 'default'"
-    );
+    assert!(result.is_err(), "Should fail when topic name is 'default'");
 
     let err_msg = format!("{}", result.err().unwrap());
     assert!(

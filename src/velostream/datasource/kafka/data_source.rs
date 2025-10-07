@@ -82,22 +82,29 @@ impl KafkaDataSource {
     fn validate_topic_name(topic: &str) -> Result<(), String> {
         // Check for empty topic name
         if topic.is_empty() {
-            return Err(
-                "CONFIGURATION ERROR: Kafka source topic name is empty.\n\
+            return Err("CONFIGURATION ERROR: Kafka source topic name is empty.\n\
                  \n\
                  A valid Kafka topic name MUST be configured. Please configure via:\n\
                  1. YAML config file: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
                  2. SQL properties: '<source_name>.topic = <topic_name>'\n\
                  3. Named source in SQL: FROM <source_name> (uses source_name as topic)\n\
                  \n\
-                 This validation prevents reading from misconfigured topics.".to_string()
-            );
+                 This validation prevents reading from misconfigured topics."
+                .to_string());
         }
 
         // Warn about suspicious topic names that might indicate misconfiguration
         let suspicious_names = [
-            "default", "test", "temp", "placeholder", "undefined",
-            "null", "none", "example", "my-topic", "topic-name",
+            "default",
+            "test",
+            "temp",
+            "placeholder",
+            "undefined",
+            "null",
+            "none",
+            "example",
+            "my-topic",
+            "topic-name",
         ];
 
         if suspicious_names.contains(&topic.to_lowercase().as_str()) {
