@@ -248,6 +248,81 @@ impl StreamExecutionEngine {
         &self.config
     }
 
+    // =============================================================================
+    // STATE ACCESSORS FOR EXTERNAL BATCH PROCESSING
+    // =============================================================================
+    // These methods enable external processors to access and manage engine state
+    // for low-latency batch processing without holding engine locks.
+    //
+    // Usage Pattern:
+    // 1. Get state once at batch start (minimal lock time)
+    // 2. Process batch with local state copies
+    // 3. Sync state back once at batch end
+    //
+    // Thread Safety: Callers must hold engine lock when calling these methods
+
+    /// Get GROUP BY states for external processing
+    ///
+    /// Returns a reference to the internal GROUP BY state HashMap.
+    /// Used by batch processors to access state without holding locks during processing.
+    ///
+    /// # Thread Safety
+    /// Caller must hold the engine lock. The returned reference is only valid
+    /// while the lock is held.
+    pub fn get_group_states(&self) -> &HashMap<String, GroupByState> {
+        &self.group_states
+    }
+
+    /// Set GROUP BY states after external processing
+    ///
+    /// Replaces the engine's GROUP BY state with the provided state.
+    /// Used by batch processors to sync state back after processing.
+    ///
+    /// # Thread Safety
+    /// Caller must hold the engine lock.
+    pub fn set_group_states(&mut self, states: HashMap<String, GroupByState>) {
+        self.group_states = states;
+    }
+
+    /// Get window states for external processing
+    ///
+    /// Returns window states from all active queries as a vector of (query_id, state) pairs.
+    /// Used by batch processors to access window state without holding locks.
+    ///
+    /// # Thread Safety
+    /// Caller must hold the engine lock. The returned vector is owned and can be
+    /// used after the lock is released.
+    pub fn get_window_states(&self) -> Vec<(String, WindowState)> {
+        self.active_queries
+            .iter()
+            .filter_map(|(query_id, execution)| {
+                execution
+                    .window_state
+                    .clone()
+                    .map(|state| (query_id.clone(), state))
+            })
+            .collect()
+    }
+
+    /// Set window states after external processing
+    ///
+    /// Updates window states in active queries based on provided (query_id, state) pairs.
+    /// Used by batch processors to sync window state back after processing.
+    ///
+    /// # Thread Safety
+    /// Caller must hold the engine lock.
+    ///
+    /// # Note
+    /// Only updates states for query_ids that exist in active_queries.
+    /// New query_ids are ignored (queries must be registered first).
+    pub fn set_window_states(&mut self, states: Vec<(String, WindowState)>) {
+        for (query_id, window_state) in states {
+            if let Some(execution) = self.active_queries.get_mut(&query_id) {
+                execution.window_state = Some(window_state);
+            }
+        }
+    }
+
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
