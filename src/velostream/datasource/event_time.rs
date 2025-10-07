@@ -166,15 +166,18 @@ pub fn extract_event_time(
     fields: &HashMap<String, FieldValue>,
     config: &EventTimeConfig,
 ) -> Result<DateTime<Utc>, EventTimeError> {
-    let field_value = fields.get(&config.field_name).ok_or_else(|| {
-        EventTimeError::MissingField {
-            field: config.field_name.clone(),
-            available_fields: fields.keys().cloned().collect(),
-        }
-    })?;
+    let field_value =
+        fields
+            .get(&config.field_name)
+            .ok_or_else(|| EventTimeError::MissingField {
+                field: config.field_name.clone(),
+                available_fields: fields.keys().cloned().collect(),
+            })?;
 
     let datetime = match &config.format {
-        Some(TimestampFormat::EpochMillis) => extract_epoch_millis(field_value, &config.field_name)?,
+        Some(TimestampFormat::EpochMillis) => {
+            extract_epoch_millis(field_value, &config.field_name)?
+        }
         Some(TimestampFormat::EpochSeconds) => {
             extract_epoch_seconds(field_value, &config.field_name)?
         }
@@ -277,20 +280,17 @@ fn extract_custom_format(
         }
     };
 
-    let naive_dt = NaiveDateTime::parse_from_str(s, format).map_err(|e| {
-        EventTimeError::ParseError {
+    let naive_dt =
+        NaiveDateTime::parse_from_str(s, format).map_err(|e| EventTimeError::ParseError {
             value: s.clone(),
             format: format.to_string(),
             error: e.to_string(),
-        }
-    })?;
+        })?;
 
     naive_dt
         .and_local_timezone(Utc)
         .single()
-        .ok_or(EventTimeError::AmbiguousTimezone {
-            value: s.clone(),
-        })
+        .ok_or(EventTimeError::AmbiguousTimezone { value: s.clone() })
 }
 
 /// Auto-detect timestamp format from field value
@@ -344,10 +344,7 @@ pub enum EventTimeError {
 
     /// Timestamp value is invalid for the specified format
     #[error("Invalid timestamp value '{value}' for format '{format}'")]
-    InvalidTimestamp {
-        value: String,
-        format: &'static str,
-    },
+    InvalidTimestamp { value: String, format: &'static str },
 
     /// Failed to parse timestamp value
     #[error("Failed to parse '{value}' as {format}: {error}")]
@@ -405,10 +402,7 @@ mod tests {
     fn test_event_time_config_from_properties() {
         let mut props = HashMap::new();
         props.insert("event.time.field".to_string(), "timestamp".to_string());
-        props.insert(
-            "event.time.format".to_string(),
-            "epoch_millis".to_string(),
-        );
+        props.insert("event.time.format".to_string(), "epoch_millis".to_string());
 
         let config = EventTimeConfig::from_properties(&props).unwrap();
         assert_eq!(config.field_name, "timestamp");
@@ -434,15 +428,10 @@ mod tests {
     #[test]
     fn test_extract_epoch_millis() {
         let mut fields = HashMap::new();
-        fields.insert(
-            "timestamp".to_string(),
-            FieldValue::Integer(1696723200000),
-        );
+        fields.insert("timestamp".to_string(), FieldValue::Integer(1696723200000));
 
-        let config = EventTimeConfig::new(
-            "timestamp".to_string(),
-            Some(TimestampFormat::EpochMillis),
-        );
+        let config =
+            EventTimeConfig::new("timestamp".to_string(), Some(TimestampFormat::EpochMillis));
 
         let dt = extract_event_time(&fields, &config).unwrap();
         assert_eq!(dt.timestamp_millis(), 1696723200000);
@@ -453,8 +442,7 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("ts".to_string(), FieldValue::Integer(1696723200));
 
-        let config =
-            EventTimeConfig::new("ts".to_string(), Some(TimestampFormat::EpochSeconds));
+        let config = EventTimeConfig::new("ts".to_string(), Some(TimestampFormat::EpochSeconds));
 
         let dt = extract_event_time(&fields, &config).unwrap();
         assert_eq!(dt.timestamp(), 1696723200);
@@ -468,8 +456,7 @@ mod tests {
             FieldValue::String("2023-10-08T00:00:00Z".to_string()),
         );
 
-        let config =
-            EventTimeConfig::new("event_time".to_string(), Some(TimestampFormat::ISO8601));
+        let config = EventTimeConfig::new("event_time".to_string(), Some(TimestampFormat::ISO8601));
 
         let dt = extract_event_time(&fields, &config).unwrap();
         assert_eq!(dt.timestamp(), 1696723200);
@@ -478,10 +465,7 @@ mod tests {
     #[test]
     fn test_auto_detect_epoch_millis() {
         let mut fields = HashMap::new();
-        fields.insert(
-            "timestamp".to_string(),
-            FieldValue::Integer(1696723200000),
-        );
+        fields.insert("timestamp".to_string(), FieldValue::Integer(1696723200000));
 
         let config = EventTimeConfig::new("timestamp".to_string(), None);
 
@@ -526,10 +510,8 @@ mod tests {
             FieldValue::String("not a number".to_string()),
         );
 
-        let config = EventTimeConfig::new(
-            "timestamp".to_string(),
-            Some(TimestampFormat::EpochMillis),
-        );
+        let config =
+            EventTimeConfig::new("timestamp".to_string(), Some(TimestampFormat::EpochMillis));
 
         let result = extract_event_time(&fields, &config);
         assert!(result.is_err());

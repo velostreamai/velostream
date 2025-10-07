@@ -624,7 +624,6 @@ impl ConnectionString {
                     event_time_config,
                 })
             }
-
         }
     }
 

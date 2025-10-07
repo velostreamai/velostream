@@ -48,9 +48,7 @@ pub mod types;
 pub use config::{BatchConfig, BatchStrategy, FileFormat, SinkConfig, SourceConfig};
 
 // Re-export event-time extraction types
-pub use event_time::{
-    extract_event_time, EventTimeConfig, EventTimeError, TimestampFormat,
-};
+pub use event_time::{extract_event_time, EventTimeConfig, EventTimeError, TimestampFormat};
 
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};

@@ -225,7 +225,16 @@ impl KafkaDataReader {
             ..Default::default()
         });
 
-        Self::new_with_schema(brokers, topic, group_id, format, batch_config, schema_json, None).await
+        Self::new_with_schema(
+            brokers,
+            topic,
+            group_id,
+            format,
+            batch_config,
+            schema_json,
+            None,
+        )
+        .await
     }
 }
 

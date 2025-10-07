@@ -455,7 +455,8 @@ impl DataSource for FileDataSource {
             config.clone(),
             crate::velostream::datasource::BatchConfig::default(),
             self.event_time_config.clone(),
-        ).await?;
+        )
+        .await?;
         Ok(Box::new(reader))
     }
 
@@ -469,7 +470,12 @@ impl DataSource for FileDataSource {
             )) as Box<dyn Error + Send + Sync>
         })?;
 
-        let reader = FileReader::new_with_batch_config(config.clone(), batch_config, self.event_time_config.clone()).await?;
+        let reader = FileReader::new_with_batch_config(
+            config.clone(),
+            batch_config,
+            self.event_time_config.clone(),
+        )
+        .await?;
         Ok(Box::new(reader))
     }
 
