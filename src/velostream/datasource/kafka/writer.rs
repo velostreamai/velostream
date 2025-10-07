@@ -63,6 +63,7 @@ impl KafkaDataWriter {
         // Extract format from properties
         let format_str = properties
             .get("value.serializer")
+            .or_else(|| properties.get("schema.value.serializer"))
             .or_else(|| properties.get("serializer.format"))
             .or_else(|| properties.get("format"))
             .map(|s| s.as_str())
@@ -102,6 +103,7 @@ impl KafkaDataWriter {
         // Extract format from properties
         let format_str = properties
             .get("value.serializer")
+            .or_else(|| properties.get("schema.value.serializer"))
             .or_else(|| properties.get("serializer.format"))
             .or_else(|| properties.get("format"))
             .map(|s| s.as_str())

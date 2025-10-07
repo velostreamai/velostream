@@ -497,10 +497,12 @@ impl QueryAnalyzer {
         // Check for config_file and load YAML configuration
         let config_file_key = format!("{}.config_file", table_name);
         if let Some(config_file_path) = config.get(&config_file_key) {
+            log::info!("Loading config file '{}' for sink '{}' (via analyze_sink)", config_file_path, table_name);
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
                     // Use recursive flattening to properly handle all nested structures
                     flatten_yaml_value(&yaml_config.config, "", &mut properties);
+                    log::info!("Loaded YAML config for sink '{}' with {} properties", table_name, properties.len());
                 }
                 Err(e) => {
                     return Err(SqlError::ConfigurationError {
@@ -514,6 +516,7 @@ impl QueryAnalyzer {
         }
 
         // Add all sink-specific properties (e.g., "kafka_sink.bootstrap.servers")
+        // These SQL properties will override YAML properties with the same key
         for (key, value) in config {
             if key.starts_with(&sink_prefix) {
                 // Convert to standard property format (remove sink name prefix)
@@ -958,16 +961,28 @@ impl QueryAnalyzer {
 
                 // Check if there's a config_file to load
                 if let Some(config_file) = properties.get("config_file").cloned() {
+                    log::info!("Loading config file '{}' for sink '{}'", config_file, sink_name);
                     // Load and merge YAML configuration
                     match super::config::yaml_loader::load_yaml_config(&config_file) {
                         Ok(yaml_config) => {
-                            // Use recursive flattening to properly handle all nested structures
-                            flatten_yaml_value(&yaml_config.config, "", &mut properties);
+                            // Flatten YAML first, then SQL properties will override
+                            let mut yaml_properties = HashMap::new();
+                            flatten_yaml_value(&yaml_config.config, "", &mut yaml_properties);
+
+                            // Merge: YAML provides defaults, SQL properties override
+                            for (yaml_key, yaml_value) in yaml_properties {
+                                if !properties.contains_key(&yaml_key) {
+                                    properties.insert(yaml_key, yaml_value);
+                                }
+                            }
+                            log::info!("Loaded {} properties from config file '{}'", properties.len(), config_file);
                         }
                         Err(e) => {
                             log::warn!("Failed to load sink config file '{}': {}", config_file, e);
                         }
                     }
+                } else {
+                    log::info!("No config_file specified for sink '{}'", sink_name);
                 }
 
                 // Create sink requirement
