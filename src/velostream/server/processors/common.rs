@@ -475,7 +475,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
         DataSourceType::Kafka => {
             create_kafka_reader(
                 &requirement.properties,
-                &config.default_topic,
+                &requirement.name,  // Use source name, not default_topic
                 &config.job_name,
                 &config.batch_config,
             )
@@ -494,12 +494,25 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
 /// Create a Kafka datasource reader
 async fn create_kafka_reader(
     props: &HashMap<String, String>,
-    default_topic: &str,
+    source_name: &str,
     job_name: &str,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSourceCreationResult {
+    // Extract topic name from properties, or use source name as default
+    let topic = props
+        .get("topic")
+        .or_else(|| props.get("source.topic"))
+        .or_else(|| props.get("datasource.topic.name"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| source_name.to_string());
+
+    info!(
+        "Creating Kafka reader for source '{}' with topic '{}'",
+        source_name, topic
+    );
+
     // Let KafkaDataSource handle its own configuration extraction
-    let mut datasource = KafkaDataSource::from_properties(props, default_topic, job_name);
+    let mut datasource = KafkaDataSource::from_properties(props, &topic, job_name);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -573,7 +586,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
         DataSinkType::Kafka => {
             create_kafka_writer(
                 &requirement.properties,
-                &config.job_name,
+                &requirement.name,  // Use sink name, not job name
                 &config.batch_config,
             )
             .await
@@ -591,16 +604,28 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
 /// Create a Kafka datasink writer
 async fn create_kafka_writer(
     props: &HashMap<String, String>,
-    job_name: &str,
+    sink_name: &str,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
-    // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, job_name);
+    // Extract topic name from properties, or use sink name as default
+    let topic = props
+        .get("topic")
+        .or_else(|| props.get("topic.name"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| sink_name.to_string());
 
-    // Initialize with Kafka SinkConfig
+    info!(
+        "Creating Kafka writer for sink '{}' with topic '{}'",
+        sink_name, topic
+    );
+
+    // Let KafkaDataSink handle its own configuration extraction
+    let mut datasink = KafkaDataSink::from_properties(props, sink_name);
+
+    // Initialize with Kafka SinkConfig using extracted topic
     let config = SinkConfig::Kafka {
         brokers: "localhost:9092".to_string(),
-        topic: "default".to_string(),
+        topic,
         properties: HashMap::new(),
     };
     datasink
@@ -675,7 +700,6 @@ async fn create_file_writer(
 /// Create multiple datasource readers from analysis requirements
 pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
-    default_topic: &str,
     job_name: &str,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSourceCreationResult {
@@ -694,9 +718,10 @@ pub async fn create_multi_source_readers(
             source_name, requirement.source_type
         );
 
+        // Use requirement.name as the default topic for this source
         let source_config = DataSourceConfig {
             requirement: requirement.clone(),
-            default_topic: default_topic.to_string(),
+            default_topic: requirement.name.clone(),  // Use source name as default
             job_name: job_name.to_string(),
             batch_config: batch_config.clone(),
         };

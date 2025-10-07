@@ -238,13 +238,25 @@ impl KafkaDataWriter {
         ];
 
         if suspicious_names.contains(&topic.to_lowercase().as_str()) {
-            log::warn!(
-                "SUSPICIOUS TOPIC NAME: Kafka sink configured to write to topic '{}'. \
-                 This is a common placeholder/fallback value that may indicate \
-                 configuration was not properly loaded. If this is intentional, ignore this warning. \
-                 Otherwise, check that your config file is being read correctly.",
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka sink configured with suspicious topic name '{}'.\n\
+                 \n\
+                 This is a common placeholder/fallback value that indicates configuration \
+                 was not properly loaded.\n\
+                 \n\
+                 Valid topic names should be:\n\
+                 1. Extracted from sink name in SQL: CREATE STREAM <sink_name> ...\n\
+                 2. Configured in YAML: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
+                 \n\
+                 Common misconfiguration causes:\n\
+                 - YAML file not found or not loaded\n\
+                 - Missing 'topic' or 'topic.name' in YAML\n\
+                 - Hardcoded fallback value not updated\n\
+                 \n\
+                 This validation prevents silent data loss from writing to misconfigured topics.",
                 topic
-            );
+            )
+            .into());
         }
 
         log::info!(

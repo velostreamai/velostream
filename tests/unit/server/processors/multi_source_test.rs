@@ -442,7 +442,7 @@ async fn test_multi_source_creation_helpers() {
 
     // Test source creation (will fail without actual sources but tests interface)
     let result =
-        create_multi_source_readers(&sources, "default-topic", "test-creation", &batch_config)
+        create_multi_source_readers(&sources, "test-creation", &batch_config)
             .await;
 
     match result {

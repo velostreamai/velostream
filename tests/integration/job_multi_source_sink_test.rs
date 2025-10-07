@@ -100,7 +100,7 @@ async fn test_create_multi_source_readers() {
 
     // This will fail in CI without actual Kafka, but tests the creation logic
     let result =
-        create_multi_source_readers(&sources, "default-topic", "test-job", &batch_config).await;
+        create_multi_source_readers(&sources, "test-job", &batch_config).await;
 
     match result {
         Ok(readers) => {
@@ -354,7 +354,7 @@ async fn test_error_handling_partial_source_failures() {
     });
 
     let result =
-        create_multi_source_readers(&sources, "default-topic", "test-error-handling", &None).await;
+        create_multi_source_readers(&sources, "test-error-handling", &None).await;
 
     // Should fail gracefully and provide meaningful error message
     match result {
@@ -407,7 +407,7 @@ async fn test_batch_config_propagation_multi_source() {
     });
 
     let result =
-        create_multi_source_readers(&sources, "default", "test-batch-config", &batch_config).await;
+        create_multi_source_readers(&sources, "test-batch-config", &batch_config).await;
 
     // Test that batch config is properly propagated (will fail in CI but tests the interface)
     match result {
@@ -533,7 +533,6 @@ async fn test_complete_multi_source_workflow() {
     if !analysis.required_sources.is_empty() {
         let result = create_multi_source_readers(
             &analysis.required_sources,
-            "default-topic",
             "workflow-test",
             &None,
         )

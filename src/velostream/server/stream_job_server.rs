@@ -432,7 +432,6 @@ impl StreamJobServer {
             // Use multi-source processing for all jobs (handles single-source as special case)
             match create_multi_source_readers(
                 &analysis.required_sources,
-                &topic_clone,
                 &job_name,
                 &batch_config_clone,
             )
