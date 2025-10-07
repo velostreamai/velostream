@@ -33,23 +33,22 @@ fn test_create_table_with_emit_changes_parsing() {
         } => {
             assert_eq!(name, "real_time_orders");
 
-            // CREATE TABLE doesn't parse EMIT CHANGES at top level currently
-            // It's parsed in the nested SELECT query
+            // Parser now sets EMIT CHANGES at CREATE TABLE level
             assert_eq!(
-                emit_mode, None,
-                "CREATE TABLE doesn't have EMIT CHANGES at top level"
+                emit_mode,
+                Some(EmitMode::Changes),
+                "CREATE TABLE with EMIT CHANGES should have emit_mode set"
             );
 
-            // Verify the nested SELECT has EMIT CHANGES
+            // The nested SELECT inherits EMIT from parent, doesn't have its own
             match *as_select {
                 StreamingQuery::Select {
                     emit_mode: nested_emit,
                     ..
                 } => {
                     assert_eq!(
-                        nested_emit,
-                        Some(EmitMode::Changes),
-                        "Nested SELECT should also have EMIT CHANGES"
+                        nested_emit, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                 }
                 _ => panic!("Expected nested SELECT query"),
@@ -191,8 +190,9 @@ fn test_create_table_emit_final_with_window() {
         } => {
             assert_eq!(name, "hourly_summary");
             assert_eq!(
-                emit_mode, None,
-                "CREATE TABLE doesn't have EMIT at top level"
+                emit_mode,
+                Some(EmitMode::Final),
+                "CREATE TABLE with EMIT FINAL should have emit_mode set"
             );
 
             // Verify window exists in nested SELECT
@@ -288,8 +288,9 @@ fn test_create_stream_with_emit_changes() {
         } => {
             assert_eq!(name, "high_value_orders");
             assert_eq!(
-                emit_mode, None,
-                "CREATE STREAM doesn't have EMIT at top level"
+                emit_mode,
+                Some(EmitMode::Changes),
+                "CREATE STREAM with EMIT CHANGES should have emit_mode set"
             );
         }
         _ => panic!("Expected CreateStream query"),
@@ -398,8 +399,9 @@ fn test_ctas_emit_changes_cdc_semantics() {
         } => {
             assert_eq!(name, "real_time_positions");
             assert_eq!(
-                emit_mode, None,
-                "CREATE TABLE doesn't have EMIT at top level"
+                emit_mode,
+                Some(EmitMode::Changes),
+                "CREATE TABLE with EMIT CHANGES should have emit_mode set"
             );
 
             // This represents a CDC table that updates in real-time
