@@ -46,11 +46,7 @@ fn test_basic_ctas_with_named_source_and_sink() {
                     from,
                     ..
                 } => {
-                    assert_eq!(
-                        emit_mode,
-                        Some(EmitMode::Changes),
-                        "Should have EMIT CHANGES"
-                    );
+                    assert_eq!(emit_mode, None, "Nested SELECT doesn't have EMIT (at parent level)");
                     assert!(group_by.is_some(), "Should have GROUP BY");
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
@@ -111,7 +107,7 @@ fn test_complex_financial_ctas_with_named_sources() {
                     fields,
                     ..
                 } => {
-                    assert_eq!(emit_mode, Some(EmitMode::Changes));
+                    assert_eq!(emit_mode, None, "Nested SELECT doesn't have EMIT");
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) => {
                             // Good - have named source
@@ -178,7 +174,7 @@ fn test_market_data_aggregation_ctas() {
                     group_by,
                     ..
                 } => {
-                    assert_eq!(emit_mode, Some(EmitMode::Changes));
+                    assert_eq!(emit_mode, None, "Nested SELECT doesn't have EMIT");
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) => {
                             // Good - have source
@@ -238,7 +234,7 @@ fn test_file_source_to_kafka_sink_ctas() {
                     group_by,
                     ..
                 } => {
-                    assert_eq!(emit_mode, Some(EmitMode::Changes));
+                    assert_eq!(emit_mode, None, "Nested SELECT doesn't have EMIT");
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
                             // Good - have file source
@@ -303,8 +299,8 @@ fn test_multiple_named_sink_config_pattern() {
             if let StreamingQuery::Select { emit_mode, .. } = *as_select {
                 assert_eq!(
                     emit_mode,
-                    Some(EmitMode::Changes),
-                    "Sink '{}' should have EMIT CHANGES",
+                    None,
+                    "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level) for sink '{}'",
                     sink_name
                 );
             }
@@ -395,8 +391,8 @@ async fn test_ctas_named_sources_integration_ready() {
                 } => {
                     assert_eq!(
                         emit_mode,
-                        Some(EmitMode::Changes),
-                        "Should be ready for real-time execution"
+                        None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {

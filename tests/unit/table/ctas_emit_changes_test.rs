@@ -94,9 +94,8 @@ fn test_create_table_into_with_emit_changes() {
                     ..
                 } => {
                     assert_eq!(
-                        nested_emit,
-                        Some(EmitMode::Changes),
-                        "Nested SELECT should have EMIT CHANGES"
+                        nested_emit, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent level)"
                     );
                 }
                 _ => panic!("Expected nested SELECT"),
@@ -139,13 +138,12 @@ async fn test_ctas_executor_with_emit_changes() {
 
     match parsed.unwrap() {
         StreamingQuery::CreateTable { as_select, .. } => {
-            // Check nested SELECT for EMIT CHANGES
+            // Check nested SELECT (EMIT is at CREATE TABLE level)
             match *as_select {
                 StreamingQuery::Select { emit_mode, .. } => {
                     assert_eq!(
-                        emit_mode,
-                        Some(EmitMode::Changes),
-                        "SELECT in CTAS should have EMIT CHANGES"
+                        emit_mode, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                 }
                 _ => panic!("Expected SELECT query"),
@@ -204,9 +202,8 @@ fn test_create_table_emit_final_with_window() {
                 } => {
                     assert!(window.is_some(), "EMIT FINAL requires WINDOW clause");
                     assert_eq!(
-                        nested_emit,
-                        Some(EmitMode::Final),
-                        "Nested SELECT should have EMIT FINAL"
+                        nested_emit, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                 }
                 _ => panic!("Expected nested SELECT"),
@@ -348,11 +345,10 @@ fn test_ctas_with_named_sources_and_sinks() {
                         _ => panic!("Should have FROM clause with named source"),
                     }
 
-                    // Should have EMIT CHANGES
+                    // Nested SELECT doesn't have EMIT (it's at parent level)
                     assert_eq!(
-                        emit_mode,
-                        Some(EmitMode::Changes),
-                        "Should have EMIT CHANGES for real-time analytics"
+                        emit_mode, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
 
                     // Should have WHERE and GROUP BY
@@ -416,9 +412,8 @@ fn test_ctas_emit_changes_cdc_semantics() {
                     assert!(group_by.is_some(), "Should have GROUP BY");
                     assert!(where_clause.is_some(), "Should have WHERE clause");
                     assert_eq!(
-                        nested_emit,
-                        Some(EmitMode::Changes),
-                        "Should emit changes immediately for real-time position tracking"
+                        nested_emit, None,
+                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                 }
                 _ => panic!("Expected SELECT query"),
