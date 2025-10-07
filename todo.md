@@ -1,8 +1,8 @@
 # Velostream Active Development TODO
 
-**Last Updated**: October 6, 2025
-**Status**: ✅ **MAJOR MILESTONE** - HAVING Clause Enhancement Complete
-**Current Priority**: **🎯 READY: Financial Trading Demo Production-Ready**
+**Last Updated**: October 7, 2025
+**Status**: 🚨 **CRITICAL BUG** - Multi-Source Sink Writing Not Working
+**Current Priority**: **🔥 FIX: Processor Architecture Refactor for Low-Latency Sink Writes**
 
 **Related Files**:
 - 📋 **Archive**: [todo-consolidated.md](todo-consolidated.md) - Full historical TODO with completed work
@@ -11,6 +11,709 @@
 ---
 
 ## 🎯 **CURRENT STATUS & NEXT PRIORITIES**
+
+### **🚨 CRITICAL BUG: Multi-Source Processor Sink Writing Not Working - October 7, 2025**
+
+**Identified**: October 7, 2025
+**Priority**: **🔥 CRITICAL** - Blocking multi-source stream processing
+**Status**: ❌ **BROKEN** - Records processed but never written to sinks
+**Test**: `tests/unit/server/processors/multi_source_sink_write_test.rs` (FAILING)
+**Impact**: Multi-source jobs process records but produce NO OUTPUT
+
+#### **Root Cause Analysis**
+
+**The Bug**: `process_batch_with_output()` uses wrong execution path
+**File**: `src/velostream/server/processors/common.rs:196-258`
+
+```rust
+// CURRENT (BROKEN) - Line 226
+match engine_lock.execute_with_record(query, record.clone()).await {
+    Ok(()) => {
+        records_processed += 1;
+        output_records.push(record);  // ← WRONG! Pushes INPUT, not SQL output
+    }
+```
+
+**What happens**:
+1. ✅ `execute_with_record()` processes record through SQL engine
+2. ✅ SQL result sent to `engine.output_sender` (for terminal display)
+3. ❌ `process_batch_with_output()` ignores `output_sender` and pushes **input record** to `output_records`
+4. ❌ Sinks receive input records instead of SQL query results
+5. ❌ For transformations (aggregations, projections), sinks get WRONG data
+
+**Architecture Confusion**:
+- **Path 1 (Terminal/Display)**: `execute_with_record()` → `output_sender` → Terminal
+- **Path 2 (Sink Writes)**: Should be `QueryProcessor::process_query()` → `ProcessorResult.record` → Sinks
+- **Current code incorrectly mixes both paths**
+
+#### **Why This Matters for GROUP BY/Windows**
+
+**Question**: If we bypass `output_sender`, how do GROUP BY aggregates work?
+
+**Answer**: ✅ **They work PERFECTLY** because they use `ProcessorContext.group_by_states`, NOT `output_sender`
+
+**GROUP BY State Management**:
+```rust
+// File: src/velostream/sql/execution/processors/context.rs:33
+pub struct ProcessorContext {
+    /// GROUP BY processing state
+    pub group_by_states: HashMap<String, GroupByState>,
+    // ...
+}
+
+// File: src/velostream/sql/execution/engine.rs:353-358
+// Share state with processor
+context.group_by_states = self.group_states.clone();
+let result = QueryProcessor::process_query(query, record, &mut context)?;
+// Sync state back
+self.group_states = std::mem::take(&mut context.group_by_states);
+```
+
+**GROUP BY Emission Modes** (File: `src/velostream/sql/execution/processors/select.rs:952-984`):
+
+1. **EMIT CHANGES (Default)**: Returns result on EVERY record via `ProcessorResult.record`
+   ```rust
+   EmitMode::Changes => {
+       Ok(ProcessorResult {
+           record: Some(final_record),  // ← RETURNED, not sent to output_sender
+           should_count: true,
+       })
+   }
+   ```
+
+2. **EMIT FINAL**: Accumulates state, returns `None` until explicit flush
+   ```rust
+   EmitMode::Final => {
+       Ok(ProcessorResult {
+           record: None,  // ← No emission per-record
+           should_count: false,
+       })
+   }
+   ```
+
+**When `output_sender` IS used**:
+- ✅ Explicit `flush_group_by_results()` calls (engine.rs:972-1157)
+- ✅ Terminal/CLI display output
+- ✅ Window close triggers
+- ❌ **NOT used for batch processing sink writes**
+
+#### **Implementation Plan: Low-Latency Direct Processing**
+
+**Strategy**: Replace `execute_with_record()` with direct `QueryProcessor::process_query()` calls
+
+**Benefits**:
+- ✅ Eliminates engine lock contention
+- ✅ Removes channel overhead
+- ✅ Direct path: input → SQL → sink (minimal latency)
+- ✅ Correct SQL results (not input passthroughs)
+- ✅ GROUP BY/Windows work via `ProcessorContext` state
+- ✅ Matches high-performance pattern at engine.rs:1231-1237
+
+---
+
+### **Phase 1: Core Refactor (High Priority - 2 days)**
+
+**Goal**: Fix `process_batch_with_output()` to use direct processor calls
+
+#### **Task 1.1: Add State Accessors to Engine**
+**File**: `src/velostream/sql/execution/engine.rs`
+**Lines**: Add after line 200
+
+```rust
+impl StreamExecutionEngine {
+    /// Get GROUP BY states for external processing
+    pub fn get_group_states(&self) -> &HashMap<String, GroupByState> {
+        &self.group_states
+    }
+
+    /// Set GROUP BY states after external processing
+    pub fn set_group_states(&mut self, states: HashMap<String, GroupByState>) {
+        self.group_states = states;
+    }
+
+    /// Get window states for external processing
+    pub fn get_window_states(&self) -> &Vec<(String, WindowState)> {
+        // Access from context or engine storage
+        &self.persistent_window_states
+    }
+
+    /// Set window states after external processing
+    pub fn set_window_states(&mut self, states: Vec<(String, WindowState)>) {
+        self.persistent_window_states = states;
+    }
+}
+```
+
+**Deliverables**:
+- [ ] Add 4 state accessor methods
+- [ ] Add unit tests for state get/set operations
+- [ ] Document thread-safety considerations
+
+---
+
+#### **Task 1.2: Refactor `process_batch_with_output()`**
+**File**: `src/velostream/server/processors/common.rs`
+**Lines**: Replace lines 196-258
+
+```rust
+/// Process a batch of records and capture SQL engine output for sink writing
+/// Uses direct QueryProcessor calls for low-latency processing
+pub async fn process_batch_with_output(
+    batch: Vec<StreamRecord>,
+    engine: &Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
+    query: &StreamingQuery,
+    job_name: &str,
+) -> BatchProcessingResultWithOutput {
+    let batch_start = Instant::now();
+    let batch_size = batch.len();
+    let mut records_processed = 0;
+    let mut records_failed = 0;
+    let mut error_details = Vec::new();
+    let mut output_records = Vec::new();
+
+    // Get shared state ONCE at batch start (minimal lock time)
+    let (mut group_states, mut window_states) = {
+        let engine_lock = engine.lock().await;
+        (
+            engine_lock.get_group_states().clone(),
+            engine_lock.get_window_states().clone(),
+        )
+    };
+
+    // Generate query ID for state management
+    let query_id = generate_query_id(query);
+
+    // Process batch WITHOUT holding engine lock
+    for (index, record) in batch.into_iter().enumerate() {
+        // Create lightweight context with shared state
+        let mut context = ProcessorContext::new();
+        context.group_by_states = group_states.clone();
+        context.persistent_window_states = window_states.clone();
+
+        // Direct processing (no engine lock, no output_sender)
+        match QueryProcessor::process_query(query, &record, &mut context) {
+            Ok(result) => {
+                records_processed += 1;
+
+                // Collect outputs for sink writing (ACTUAL SQL results)
+                if let Some(output) = result.record {
+                    output_records.push(output);
+                }
+
+                // Update shared state for next iteration
+                group_states = context.group_by_states;
+                window_states = context.persistent_window_states;
+            }
+            Err(e) => {
+                records_failed += 1;
+                error_details.push(ProcessingError {
+                    record_index: index,
+                    error_message: format!("{:?}", e),
+                    recoverable: is_recoverable_error(&e),
+                });
+                warn!(
+                    "Job '{}' failed to process record {}: {:?}",
+                    job_name, index, e
+                );
+            }
+        }
+    }
+
+    // Sync state back to engine ONCE at batch end
+    {
+        let mut engine_lock = engine.lock().await;
+        engine_lock.set_group_states(group_states);
+        engine_lock.set_window_states(window_states);
+    }
+
+    BatchProcessingResultWithOutput {
+        records_processed,
+        records_failed,
+        processing_time: batch_start.elapsed(),
+        batch_size,
+        error_details,
+        output_records,  // ← CORRECT SQL results for sink writes!
+    }
+}
+
+/// Generate a consistent query ID for state management
+fn generate_query_id(query: &StreamingQuery) -> String {
+    match query {
+        StreamingQuery::Select { from, window, .. } => {
+            let base = format!(
+                "select_{}",
+                match from {
+                    StreamSource::Stream(name) | StreamSource::Table(name) => name,
+                    StreamSource::Uri(uri) => uri,
+                    StreamSource::Subquery(_) => "subquery",
+                }
+            );
+            if window.is_some() {
+                format!("{}_windowed", base)
+            } else {
+                base
+            }
+        }
+        StreamingQuery::CreateStream { name, .. } => format!("create_stream_{}", name),
+        StreamingQuery::CreateTable { name, .. } => format!("create_table_{}", name),
+        _ => "unknown_query".to_string(),
+    }
+}
+```
+
+**Key Changes**:
+1. **Line 209-215**: Get state once, minimize lock time
+2. **Line 221**: Create lightweight context (no engine dependency)
+3. **Line 226**: Direct `QueryProcessor::process_query()` call (no `execute_with_record()`)
+4. **Line 232**: Collect **ACTUAL** SQL results (not input records)
+5. **Line 238-239**: Update shared state for next iteration
+6. **Line 250-254**: Sync state back once at end
+
+**Deliverables**:
+- [ ] Refactor `process_batch_with_output()` (complete rewrite)
+- [ ] Add `generate_query_id()` helper function
+- [ ] Remove placeholder comments about "TODO: capture actual SQL output"
+- [ ] Update all call sites (verify no breaking changes)
+
+---
+
+#### **Task 1.3: Update Test to Verify Fix**
+**File**: `tests/unit/server/processors/multi_source_sink_write_test.rs`
+**Lines**: Update assertions at lines 252-266
+
+```rust
+// CRITICAL: Verify sink writes (this is what was missing and caused the bug)
+let written_count = writer_clone.get_written_count();
+println!("Records written to sink: {}", written_count);
+
+assert!(
+    written_count > 0,
+    "REGRESSION: Records were processed (stats.records_processed={}) but NOT written to sink! \
+     This is the bug we fixed - processor must write output to sinks.",
+    stats.records_processed
+);
+
+// Ideally, all processed records should be written (for simple passthrough queries)
+assert_eq!(
+    written_count, stats.records_processed as usize,
+    "All processed records should be written to sink"
+);
+
+// NEW: Verify records are SQL OUTPUT, not input passthrough
+let written_records = writer_clone.get_written_records();
+for (i, record) in written_records.iter().enumerate() {
+    // For SELECT * queries, output should match input
+    // But verify it went through SQL processing
+    assert!(record.fields.len() > 0, "Record {} should have fields", i);
+    debug!("Written record {}: {:?}", i, record);
+}
+```
+
+**Deliverables**:
+- [ ] Add detailed assertion messages
+- [ ] Add debug logging for written records
+- [ ] Verify test PASSES after refactor
+- [ ] Add MockDataWriter method to get written records (if needed)
+
+---
+
+### **Phase 2: Comprehensive Testing (2 days)**
+
+**Goal**: Ensure refactor works for all query types
+
+#### **Task 2.1: Unit Tests for Direct Processing**
+**File**: `tests/unit/server/processors/direct_processing_test.rs` (NEW)
+
+**Test Cases**:
+```rust
+#[tokio::test]
+async fn test_simple_select_direct_processing() {
+    // Given: SELECT * FROM source query
+    // When: process_batch_with_output() called
+    // Then: Output records match SQL result
+}
+
+#[tokio::test]
+async fn test_group_by_emit_changes_direct_processing() {
+    // Given: SELECT COUNT(*) FROM source GROUP BY field WITH (EMIT = CHANGES)
+    // When: Processing 10 records with 3 groups
+    // Then: 10 output records (one per input, updated aggregates)
+}
+
+#[tokio::test]
+async fn test_group_by_emit_final_direct_processing() {
+    // Given: SELECT COUNT(*) FROM source GROUP BY field WITH (EMIT = FINAL)
+    // When: Processing 10 records
+    // Then: 0 output records (state accumulated, no emission)
+}
+
+#[tokio::test]
+async fn test_window_aggregation_direct_processing() {
+    // Given: SELECT COUNT(*) FROM source WINDOW TUMBLING(5 SECONDS)
+    // When: Processing records in window
+    // Then: No output until window closes
+}
+
+#[tokio::test]
+async fn test_projection_query_direct_processing() {
+    // Given: SELECT field1, field2 * 2 AS doubled FROM source
+    // When: Processing records
+    // Then: Output has only projected fields with transformation
+}
+
+#[tokio::test]
+async fn test_filter_query_direct_processing() {
+    // Given: SELECT * FROM source WHERE value > 100
+    // When: Processing 10 records (5 match filter)
+    // Then: 5 output records
+}
+
+#[tokio::test]
+async fn test_state_synchronization_across_batches() {
+    // Given: GROUP BY query with EMIT CHANGES
+    // When: Processing 3 batches with same group keys
+    // Then: Aggregates accumulate correctly across batches
+}
+
+#[tokio::test]
+async fn test_error_handling_preserves_state() {
+    // Given: Batch with 1 failing record in middle
+    // When: Processing batch
+    // Then: State preserved, subsequent records processed correctly
+}
+```
+
+**Deliverables**:
+- [ ] Create 8+ unit tests for direct processing
+- [ ] Test all query types (SELECT, GROUP BY, WINDOW, projections, filters)
+- [ ] Verify state management across batches
+- [ ] Test error scenarios
+
+---
+
+#### **Task 2.2: Integration Tests for Multi-Source**
+**File**: `tests/integration/multi_source_sink_integration_test.rs` (NEW)
+
+**Test Cases**:
+```rust
+#[tokio::test]
+async fn test_multi_source_simple_union() {
+    // Given: 2 Kafka sources with different data
+    // When: SELECT * FROM source1 UNION SELECT * FROM source2
+    // Then: All records written to sink
+}
+
+#[tokio::test]
+async fn test_multi_source_aggregation() {
+    // Given: 3 sources with numeric data
+    // When: SELECT source, SUM(value) FROM sources GROUP BY source
+    // Then: Aggregated results written to sink
+}
+
+#[tokio::test]
+async fn test_multi_sink_fanout() {
+    // Given: 1 source, 3 sinks
+    // When: Processing records
+    // Then: All sinks receive all records
+}
+
+#[tokio::test]
+async fn test_backpressure_handling() {
+    // Given: Fast source, slow sink
+    // When: Processing large batch
+    // Then: Batches processed without loss, backpressure respected
+}
+```
+
+**Deliverables**:
+- [ ] Create 4+ integration tests
+- [ ] Test multi-source scenarios
+- [ ] Test multi-sink scenarios
+- [ ] Verify backpressure handling
+
+---
+
+#### **Task 2.3: Performance Benchmarks**
+**File**: `tests/performance/batch_processing_benchmark.rs`
+
+**Benchmarks**:
+```rust
+#[bench]
+fn bench_old_execute_with_record_path(b: &mut Bencher) {
+    // Measure old path: execute_with_record() + engine lock
+}
+
+#[bench]
+fn bench_new_direct_processing_path(b: &mut Bencher) {
+    // Measure new path: direct QueryProcessor calls
+}
+
+#[bench]
+fn bench_group_by_state_sync(b: &mut Bencher) {
+    // Measure state sync overhead
+}
+
+#[bench]
+fn bench_large_batch_processing(b: &mut Bencher) {
+    // 10K records with GROUP BY
+}
+```
+
+**Success Criteria**:
+- Direct processing ≥ 2x faster (no lock contention)
+- State sync overhead < 5% of batch time
+- Large batches (10K+ records) scale linearly
+
+**Deliverables**:
+- [ ] Create 4 performance benchmarks
+- [ ] Compare old vs new implementation
+- [ ] Document performance improvements
+- [ ] Verify linear scaling
+
+---
+
+### **Phase 3: Documentation & Cleanup (1 day)**
+
+#### **Task 3.1: Update Architecture Documentation**
+**File**: `docs/architecture/processor-execution-flow.md` (NEW)
+
+**Sections**:
+```markdown
+# Processor Execution Flow
+
+## Two Distinct Execution Paths
+
+### Path 1: Terminal/Interactive (uses output_sender)
+- **Purpose**: CLI query results, REPL display
+- **Flow**: User Query → engine.execute_with_record() → output_sender → Terminal Display
+- **Use Cases**: Interactive queries, debugging, testing
+
+### Path 2: Batch Processing (direct QueryProcessor)
+- **Purpose**: Multi-source stream processing, sink writes
+- **Flow**: Batch → QueryProcessor::process_query() → ProcessorResult.record → Sink Writes
+- **Use Cases**: Production pipelines, low-latency processing
+
+## State Management
+
+### GROUP BY State
+- **Storage**: ProcessorContext.group_by_states
+- **Scope**: Query-specific, persisted across batches
+- **Synchronization**: Clone on batch start, sync back on batch end
+
+### Window State
+- **Storage**: ProcessorContext.persistent_window_states
+- **Scope**: Query-specific, time-based
+- **Synchronization**: Same pattern as GROUP BY
+
+## Performance Characteristics
+
+| Aspect | Path 1 (Interactive) | Path 2 (Batch) |
+|--------|---------------------|----------------|
+| **Latency** | Medium (lock + channel) | Low (direct) |
+| **Throughput** | Low (sequential) | High (batched) |
+| **Lock Contention** | High | Minimal (2 locks per batch) |
+| **Use Case** | CLI, debugging | Production pipelines |
+```
+
+**Deliverables**:
+- [ ] Create architecture documentation
+- [ ] Diagram execution paths
+- [ ] Document state management patterns
+- [ ] Add performance characteristics
+
+---
+
+#### **Task 3.2: Update Code Comments**
+**Files**:
+- `src/velostream/server/processors/common.rs`
+- `src/velostream/server/processors/simple.rs`
+- `src/velostream/sql/execution/engine.rs`
+
+**Updates**:
+- Remove placeholder TODOs about "capture actual SQL output"
+- Add comments explaining direct processing rationale
+- Document state synchronization pattern
+- Add examples for common query types
+
+**Deliverables**:
+- [ ] Remove 5+ obsolete TODO comments
+- [ ] Add 10+ explanatory comments
+- [ ] Update module-level documentation
+
+---
+
+#### **Task 3.3: Update CLAUDE.md**
+**File**: `CLAUDE.md`
+
+Add section:
+```markdown
+## Processor Architecture: Direct vs Interactive Processing
+
+### Two Execution Paths
+
+**Interactive Path** (CLI, REPL, testing):
+```rust
+engine.execute_with_record(query, record).await?;
+// Results sent to output_sender for display
+```
+
+**Batch Processing Path** (production, low-latency):
+```rust
+let result = QueryProcessor::process_query(query, &record, &mut context)?;
+if let Some(output) = result.record {
+    write_to_sink(output).await?;
+}
+```
+
+### When to Use Each Path
+
+- **Use Interactive Path**:
+  - CLI/REPL query execution
+  - Unit tests checking SQL correctness
+  - Debugging query behavior
+
+- **Use Batch Processing Path**:
+  - Multi-source stream processing
+  - High-throughput pipelines
+  - Low-latency requirements
+  - Sink writing operations
+
+### State Management Pattern
+
+GROUP BY and Window aggregations use `ProcessorContext` for state:
+
+```rust
+// Get state once
+let mut group_states = engine.lock().await.get_group_states().clone();
+
+// Process batch
+for record in batch {
+    let mut context = ProcessorContext::new();
+    context.group_by_states = group_states.clone();
+
+    let result = QueryProcessor::process_query(query, &record, &mut context)?;
+
+    group_states = context.group_by_states;  // Update for next iteration
+}
+
+// Sync back once
+engine.lock().await.set_group_states(group_states);
+```
+```
+
+**Deliverables**:
+- [ ] Add processor architecture section to CLAUDE.md
+- [ ] Document when to use each path
+- [ ] Add state management examples
+- [ ] Update testing guidelines
+
+---
+
+### **Phase 4: Remove output_receiver Parameter (Optional Cleanup - 1 day)**
+
+**Goal**: Clean up vestigial `output_receiver` parameter
+
+#### **Task 4.1: Remove Unused Parameter**
+**Files**:
+- `src/velostream/server/processors/simple.rs:39`
+- `src/velostream/server/processors/transactional.rs:47`
+
+**Change**:
+```rust
+// BEFORE
+pub async fn process_multi_job(
+    &self,
+    readers: HashMap<String, Box<dyn DataReader>>,
+    writers: HashMap<String, Box<dyn DataWriter>>,
+    engine: Arc<Mutex<StreamExecutionEngine>>,
+    query: StreamingQuery,
+    job_name: String,
+    mut shutdown_rx: mpsc::Receiver<()>,
+    _output_receiver: mpsc::UnboundedReceiver<StreamRecord>,  // ← UNUSED
+) -> Result<JobExecutionStats, ...> {
+
+// AFTER
+pub async fn process_multi_job(
+    &self,
+    readers: HashMap<String, Box<dyn DataReader>>,
+    writers: HashMap<String, Box<dyn DataWriter>>,
+    engine: Arc<Mutex<StreamExecutionEngine>>,
+    query: StreamingQuery,
+    job_name: String,
+    mut shutdown_rx: mpsc::Receiver<()>,
+    // Removed: output_receiver no longer needed for batch processing
+) -> Result<JobExecutionStats, ...> {
+```
+
+**Deliverables**:
+- [ ] Remove `_output_receiver` parameter from both processors
+- [ ] Update all call sites (tests, job server, etc.)
+- [ ] Add migration note in CHANGELOG
+- [ ] Verify backward compatibility
+
+---
+
+### **Success Metrics**
+
+| Metric | Current (Broken) | Target | Measurement |
+|--------|------------------|--------|-------------|
+| **Test Pass Rate** | 0% (FAILING) | 100% | `multi_source_sink_write_test.rs` passes |
+| **Sink Write Correctness** | 0% (input records) | 100% (SQL results) | Output records match SQL query results |
+| **Latency** | High (lock + channel) | Low (direct) | ≥2x faster batch processing |
+| **Lock Contention** | High (per-record) | Minimal (per-batch) | 2 locks per batch vs N locks per batch |
+| **GROUP BY Correctness** | Unknown | 100% | Aggregates work across batches |
+| **State Sync Overhead** | N/A | < 5% | State sync time / total batch time |
+
+---
+
+### **Timeline & Milestones**
+
+| Phase | Duration | Completion Date | Key Deliverable |
+|-------|----------|-----------------|-----------------|
+| **Phase 1: Core Refactor** | 2 days | Oct 9, 2025 | `process_batch_with_output()` fixed |
+| **Phase 2: Testing** | 2 days | Oct 11, 2025 | 12+ tests passing |
+| **Phase 3: Documentation** | 1 day | Oct 12, 2025 | Architecture docs complete |
+| **Phase 4: Cleanup** | 1 day | Oct 13, 2025 | Parameter removal (optional) |
+
+**Total**: 5-6 days (depending on Phase 4)
+
+---
+
+### **Risk Assessment**
+
+🟡 **Medium Risk**:
+- Breaking change to core execution path
+- State management complexity
+- Potential regressions in GROUP BY/Window queries
+
+**Mitigation**:
+- ✅ Comprehensive test suite (20+ tests)
+- ✅ Performance benchmarks to verify improvements
+- ✅ Gradual rollout (Phase 1 → Phase 2 → Phase 3)
+- ✅ Detailed documentation for maintenance
+
+**Rollback Plan**:
+- Keep old `execute_with_record()` path available
+- Feature flag for direct processing
+- Comprehensive regression testing
+
+---
+
+### **Implementation References**
+
+**Key Files**:
+- `src/velostream/server/processors/common.rs:196-258` - Core refactor location
+- `src/velostream/sql/execution/engine.rs:353-358` - State sync pattern
+- `src/velostream/sql/execution/processors/select.rs:668-984` - GROUP BY emission
+- `src/velostream/sql/execution/processors/context.rs:33` - State storage
+- `tests/unit/server/processors/multi_source_sink_write_test.rs` - Verification test
+
+**Existing Patterns**:
+- `engine.rs:1231-1237` - Direct QueryProcessor usage (high-performance path)
+- `engine.rs:1352-1360` - Writer integration example
+- `simple.rs:449-563` - Current batch processing (to be fixed)
+
+---
 
 ### **✅ Recent Completions - October 6, 2025**
 - ✅ **HAVING Clause Enhancement Complete**: Phases 1-4 implemented (11,859 errors → 0)
