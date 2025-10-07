@@ -68,6 +68,40 @@ impl SimpleJobProcessor {
                 break;
             }
 
+            // Check if all sources have finished processing
+            let sources_finished = {
+                let source_names = context.list_sources();
+                let mut all_finished = true;
+                for source_name in source_names {
+                    match context.has_more_data(&source_name).await {
+                        Ok(has_more) => {
+                            if has_more {
+                                all_finished = false;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to check has_more for source '{}': {:?}",
+                                job_name, source_name, e
+                            );
+                            // On error, assume source has more data to avoid premature exit
+                            all_finished = false;
+                            break;
+                        }
+                    }
+                }
+                all_finished
+            };
+
+            if sources_finished {
+                info!(
+                    "Job '{}': All sources have finished - no more data to process",
+                    job_name
+                );
+                break;
+            }
+
             // Process from all sources
             match self
                 .process_multi_source_batch(&mut context, &engine, &query, &job_name, &mut stats)
@@ -439,9 +473,18 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
+        let sink_names = context.list_sinks();
+        if sink_names.is_empty() {
+            debug!(
+                "Job '{}': No sinks configured - processed records will not be written",
+                job_name
+            );
+        }
+
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
-        let _all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> = Vec::new();
+        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+            Vec::new();
 
         // Process records from each source
         for source_name in &source_names {
@@ -464,57 +507,64 @@ impl SimpleJobProcessor {
                 source_name
             );
 
-            // Process batch through SQL engine using execute_with_sources
-            {
-                let mut engine_lock = engine.lock().await;
+            // Process batch through SQL engine and capture output records
+            // Use process_batch_with_output to get actual query results
+            let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
 
-                for record in batch {
-                    match engine_lock.execute_with_record(query, record).await {
-                        Ok(()) => {
-                            total_records_processed += 1;
-                        }
-                        Err(e) => {
-                            total_records_failed += 1;
-                            match self.config.failure_strategy {
-                                FailureStrategy::LogAndContinue => {
-                                    warn!(
-                                        "Job '{}': Record processing failed (continuing): {:?}",
-                                        job_name, e
-                                    );
-                                }
-                                FailureStrategy::FailBatch => {
-                                    error!(
-                                        "Job '{}': Record processing failed (failing batch): {:?}",
-                                        job_name, e
-                                    );
-                                    return Err(format!(
-                                        "Batch failed due to record processing error: {:?}",
-                                        e
-                                    )
-                                    .into());
-                                }
-                                FailureStrategy::RetryWithBackoff => {
-                                    error!(
-                                        "Job '{}': Record processing failed (will retry): {:?}",
-                                        job_name, e
-                                    );
-                                    return Err(format!(
-                                        "Record processing failed, will retry: {:?}",
-                                        e
-                                    )
-                                    .into());
-                                }
-                                FailureStrategy::SendToDLQ => {
-                                    warn!("Job '{}': Record processing failed, would send to DLQ (not implemented): {:?}", job_name, e);
-                                    // TODO: Implement DLQ functionality
-                                }
-                            }
-                        }
+            total_records_processed += batch_result.records_processed;
+            total_records_failed += batch_result.records_failed;
+
+            debug!(
+                "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
+                job_name,
+                source_name,
+                batch_result.records_processed,
+                batch_result.records_failed,
+                batch_result.output_records.len()
+            );
+
+            // Collect output records for writing to sinks
+            all_output_records.extend(batch_result.output_records);
+
+            // Handle failures according to strategy
+            if batch_result.records_failed > 0 {
+                match self.config.failure_strategy {
+                    FailureStrategy::LogAndContinue => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures (continuing)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                    }
+                    FailureStrategy::FailBatch => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (failing batch)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        return Err(format!(
+                            "Batch failed due to {} record processing errors from source '{}'",
+                            batch_result.records_failed, source_name
+                        )
+                        .into());
+                    }
+                    FailureStrategy::RetryWithBackoff => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (will retry)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        return Err(format!(
+                            "Record processing failed for source '{}', will retry",
+                            source_name
+                        )
+                        .into());
+                    }
+                    FailureStrategy::SendToDLQ => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        // TODO: Implement DLQ functionality
                     }
                 }
-
-                // Sync state back to context
-                // Context state already updated by engine.execute_batch() above
             }
         }
 
@@ -523,6 +573,54 @@ impl SimpleJobProcessor {
             should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
 
         if should_commit {
+            // Write output records to all sinks
+            if !all_output_records.is_empty() && !sink_names.is_empty() {
+                debug!(
+                    "Job '{}': Writing {} output records to {} sink(s)",
+                    job_name,
+                    all_output_records.len(),
+                    sink_names.len()
+                );
+
+                for sink_name in &sink_names {
+                    match context
+                        .write_batch_to(sink_name, all_output_records.clone())
+                        .await
+                    {
+                        Ok(()) => {
+                            debug!(
+                                "Job '{}': Successfully wrote {} records to sink '{}'",
+                                job_name,
+                                all_output_records.len(),
+                                sink_name
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to write {} records to sink '{}': {:?}",
+                                job_name,
+                                all_output_records.len(),
+                                sink_name,
+                                e
+                            );
+                            if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                                return Err(format!(
+                                    "Failed to write to sink '{}': {:?}",
+                                    sink_name, e
+                                )
+                                .into());
+                            }
+                        }
+                    }
+                }
+            } else if !all_output_records.is_empty() {
+                debug!(
+                    "Job '{}': Processed {} output records but no sinks configured",
+                    job_name,
+                    all_output_records.len()
+                );
+            }
+
             // Commit all sources
             for source_name in &source_names {
                 if let Err(e) = context.commit_source(source_name).await {
@@ -552,8 +650,8 @@ impl SimpleJobProcessor {
             stats.records_failed += total_records_failed as u64;
 
             debug!(
-                "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed",
-                job_name, total_records_processed, total_records_failed
+                "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed, {} written to sinks",
+                job_name, total_records_processed, total_records_failed, all_output_records.len()
             );
         } else {
             stats.batches_failed += 1;

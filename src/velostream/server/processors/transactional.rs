@@ -91,6 +91,40 @@ impl TransactionalJobProcessor {
                 break;
             }
 
+            // Check if all sources have finished processing
+            let sources_finished = {
+                let source_names = context.list_sources();
+                let mut all_finished = true;
+                for source_name in source_names {
+                    match context.has_more_data(&source_name).await {
+                        Ok(has_more) => {
+                            if has_more {
+                                all_finished = false;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to check has_more for source '{}': {:?}",
+                                job_name, source_name, e
+                            );
+                            // On error, assume source has more data to avoid premature exit
+                            all_finished = false;
+                            break;
+                        }
+                    }
+                }
+                all_finished
+            };
+
+            if sources_finished {
+                info!(
+                    "Job '{}': All sources have finished - no more data to process",
+                    job_name
+                );
+                break;
+            }
+
             // Process transactional batch from all sources
             match self
                 .process_multi_source_transactional_batch(
@@ -647,6 +681,8 @@ impl TransactionalJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         let mut processing_successful = true;
+        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+            Vec::new();
 
         // Process records from all sources within the transaction
         for source_name in &source_names {
@@ -668,53 +704,102 @@ impl TransactionalJobProcessor {
                 source_name
             );
 
-            // Process batch through SQL engine
-            {
-                let mut engine_lock = engine.lock().await;
+            // Process batch through SQL engine and capture output records
+            // Use process_batch_with_output to get actual query results
+            let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
 
-                for record in batch {
-                    match engine_lock.execute_with_record(query, record).await {
-                        Ok(()) => {
-                            total_records_processed += 1;
-                        }
-                        Err(e) => {
-                            total_records_failed += 1;
-                            error!(
-                                "Job '{}': Record processing failed within transaction: {:?}",
-                                job_name, e
-                            );
+            total_records_processed += batch_result.records_processed;
+            total_records_failed += batch_result.records_failed;
 
-                            match self.config.failure_strategy {
-                                FailureStrategy::FailBatch => {
-                                    processing_successful = false;
-                                    break; // Exit record processing loop
-                                }
-                                FailureStrategy::LogAndContinue => {
-                                    warn!(
-                                        "Job '{}': Record failed but continuing within transaction",
-                                        job_name
-                                    );
-                                }
-                                FailureStrategy::RetryWithBackoff => {
-                                    processing_successful = false;
-                                    break; // Exit to retry
-                                }
-                                FailureStrategy::SendToDLQ => {
-                                    warn!("Job '{}': Record failed, would send to DLQ (not implemented)", job_name);
-                                    // TODO: Implement DLQ functionality
-                                }
-                            }
-                        }
+            debug!(
+                "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
+                job_name,
+                source_name,
+                batch_result.records_processed,
+                batch_result.records_failed,
+                batch_result.output_records.len()
+            );
+
+            // Collect output records for writing to sinks
+            all_output_records.extend(batch_result.output_records);
+
+            // Handle failures according to strategy
+            if batch_result.records_failed > 0 {
+                match self.config.failure_strategy {
+                    FailureStrategy::FailBatch => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (failing batch)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        processing_successful = false;
+                        break; // Exit source processing loop
+                    }
+                    FailureStrategy::LogAndContinue => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures (continuing within transaction)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                    }
+                    FailureStrategy::RetryWithBackoff => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (will retry)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        processing_successful = false;
+                        break; // Exit to retry
+                    }
+                    FailureStrategy::SendToDLQ => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        // TODO: Implement DLQ functionality
                     }
                 }
-
-                // Sync state
-                // Context state already updated by engine.execute_batch() above
             }
+        }
 
-            if !processing_successful {
-                break; // Exit source processing loop
+        // Write output records to all sinks within the transaction
+        if processing_successful && !all_output_records.is_empty() && !sink_names.is_empty() {
+            debug!(
+                "Job '{}': Writing {} output records to {} sink(s) within transaction",
+                job_name,
+                all_output_records.len(),
+                sink_names.len()
+            );
+
+            for sink_name in &sink_names {
+                match context
+                    .write_batch_to(sink_name, all_output_records.clone())
+                    .await
+                {
+                    Ok(()) => {
+                        debug!(
+                            "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
+                            job_name,
+                            all_output_records.len(),
+                            sink_name
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Job '{}': Failed to write {} records to sink '{}' within transaction: {:?}",
+                            job_name,
+                            all_output_records.len(),
+                            sink_name,
+                            e
+                        );
+                        processing_successful = false;
+                        break; // Exit sink write loop - will abort transaction
+                    }
+                }
             }
+        } else if processing_successful && !all_output_records.is_empty() {
+            debug!(
+                "Job '{}': Processed {} output records but no sinks configured",
+                job_name,
+                all_output_records.len()
+            );
         }
 
         // Determine transaction outcome
