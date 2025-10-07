@@ -1749,6 +1749,6 @@ EMIT CHANGES;
 - 📋 Planned
 - N/A Not Applicable
 
-**Note:** Event-Time Extraction is now centralized in `SourceConfig` and automatically available to all data sources. S3 and Database are marked ✅* because the configuration infrastructure is complete, but reader implementations need to be updated to use it (following the same pattern as Kafka and File).
+**Note:** Event-Time Extraction is centralized in `SourceConfig` and automatically available to all data sources. S3 and Database are marked ✅* because the configuration infrastructure is complete, but reader implementations need to be updated to use it (following the same pattern as Kafka and File).
 
 This comprehensive guide shows how different data sources handle position tracking, update detection, event-time extraction, and interaction models, helping you choose the right approach for your streaming requirements.
