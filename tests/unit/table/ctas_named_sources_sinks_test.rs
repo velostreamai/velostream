@@ -46,7 +46,10 @@ fn test_basic_ctas_with_named_source_and_sink() {
                     from,
                     ..
                 } => {
-                    assert_eq!(emit_mode, None, "Nested SELECT doesn't have EMIT (at parent level)");
+                    assert_eq!(
+                        emit_mode, None,
+                        "Nested SELECT doesn't have EMIT (at parent level)"
+                    );
                     assert!(group_by.is_some(), "Should have GROUP BY");
                     match from {
                         StreamSource::Stream(_) | StreamSource::Table(_) | StreamSource::Uri(_) => {
@@ -390,8 +393,7 @@ async fn test_ctas_named_sources_integration_ready() {
                     ..
                 } => {
                     assert_eq!(
-                        emit_mode,
-                        None,
+                        emit_mode, None,
                         "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                     match from {

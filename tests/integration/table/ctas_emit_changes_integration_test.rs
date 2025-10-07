@@ -174,8 +174,7 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                     ..
                 } => {
                     assert_eq!(
-                        emit_mode,
-                        None,
+                        emit_mode, None,
                         "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
                     );
                     assert!(group_by.is_some(), "Should have GROUP BY clause");

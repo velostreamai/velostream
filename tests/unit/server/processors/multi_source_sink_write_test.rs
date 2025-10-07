@@ -5,17 +5,17 @@ This test verifies that the multi-source processor actually writes processed rec
 addressing the bug where records were processed but never written.
 */
 
-use velostream::velostream::server::processors::{
-    SimpleJobProcessor, JobProcessingConfig, FailureStrategy,
-};
-use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
-use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
-use velostream::velostream::datasource::{DataReader, DataWriter};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
-use async_trait::async_trait;
+use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::{
+    FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
+};
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
+use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 
 /// Mock DataReader for testing
 #[derive(Debug)]
@@ -31,7 +31,10 @@ impl MockDataReader {
         for i in 0..record_count {
             let mut fields = HashMap::new();
             fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert("name".to_string(), FieldValue::String(format!("record_{}", i)));
+            fields.insert(
+                "name".to_string(),
+                FieldValue::String(format!("record_{}", i)),
+            );
             fields.insert("source".to_string(), FieldValue::String(name.to_string()));
 
             records.push(StreamRecord {
@@ -54,7 +57,9 @@ impl MockDataReader {
 
 #[async_trait]
 impl DataReader for MockDataReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let batch_size = 5.min(self.records.len() - self.current_index);
         if batch_size == 0 {
             return Ok(vec![]);
@@ -67,7 +72,10 @@ impl DataReader for MockDataReader {
         Ok(batch)
     }
 
-    async fn seek(&mut self, _offset: velostream::velostream::datasource::types::SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        _offset: velostream::velostream::datasource::types::SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -83,7 +91,9 @@ impl DataReader for MockDataReader {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -122,18 +132,32 @@ impl MockDataWriter {
 
 #[async_trait]
 impl DataWriter for MockDataWriter {
-    async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.written_records.lock().unwrap().push(record);
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!("MockDataWriter '{}' writing {} records", self.name, records.len());
+    async fn write_batch(
+        &mut self,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!(
+            "MockDataWriter '{}' writing {} records",
+            self.name,
+            records.len()
+        );
         self.written_records.lock().unwrap().extend(records);
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -159,7 +183,9 @@ impl DataWriter for MockDataWriter {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -221,14 +247,16 @@ async fn test_multi_source_processor_writes_to_sinks() {
 
     // Run processor
     let job_handle = tokio::spawn(async move {
-        processor.process_multi_job(
-            readers,
-            writers,
-            engine,
-            query,
-            "test-sink-writes".to_string(),
-            shutdown_rx,
-        ).await
+        processor
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "test-sink-writes".to_string(),
+                shutdown_rx,
+            )
+            .await
     });
 
     // Let it process
@@ -248,8 +276,14 @@ async fn test_multi_source_processor_writes_to_sinks() {
 
     // Verify processing stats
     println!("Processor stats: {:?}", stats);
-    assert!(stats.batches_processed > 0, "Should have processed at least one batch");
-    assert!(stats.records_processed > 0, "Should have processed some records");
+    assert!(
+        stats.batches_processed > 0,
+        "Should have processed at least one batch"
+    );
+    assert!(
+        stats.records_processed > 0,
+        "Should have processed some records"
+    );
 
     // CRITICAL: Verify sink writes (this is what was missing and caused the bug to go undetected)
     let written_count = writer_clone.get_written_count();
@@ -270,7 +304,10 @@ async fn test_multi_source_processor_writes_to_sinks() {
 
     // NEW: Verify records are SQL OUTPUT, not input passthrough
     let written_records = writer_clone.get_written_records();
-    println!("Verifying {} written records are SQL output (not input passthrough)", written_records.len());
+    println!(
+        "Verifying {} written records are SQL output (not input passthrough)",
+        written_records.len()
+    );
 
     for (i, record) in written_records.iter().enumerate() {
         // For SELECT * queries, output should match input BUT went through SQL processing
@@ -283,16 +320,17 @@ async fn test_multi_source_processor_writes_to_sinks() {
 
         // For this test with MockDataReader, we expect fields: id, name, source
         assert!(
-            record.fields.contains_key("id") ||
-            record.fields.contains_key("name") ||
-            record.fields.contains_key("source"),
+            record.fields.contains_key("id")
+                || record.fields.contains_key("name")
+                || record.fields.contains_key("source"),
             "Record {} should contain expected fields from SQL query: {:?}",
             i,
             record.fields.keys().collect::<Vec<_>>()
         );
 
         // Debug log for verification
-        if i < 3 {  // Only log first 3 to avoid spam
+        if i < 3 {
+            // Only log first 3 to avoid spam
             println!(
                 "  Record {}: fields={:?}, timestamp={}, offset={}",
                 i,
@@ -303,5 +341,8 @@ async fn test_multi_source_processor_writes_to_sinks() {
         }
     }
 
-    println!("✅ All {} records verified as SQL query output (not input passthroughs)", written_records.len());
+    println!(
+        "✅ All {} records verified as SQL query output (not input passthroughs)",
+        written_records.len()
+    );
 }

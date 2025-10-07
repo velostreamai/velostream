@@ -4,21 +4,21 @@
 Unit tests for the multi-source processing capabilities of SimpleJobProcessor and TransactionalJobProcessor.
 */
 
-use velostream::velostream::server::processors::{
-    SimpleJobProcessor, TransactionalJobProcessor, JobProcessingConfig, FailureStrategy,
-    create_multi_source_readers, create_multi_sink_writers,
-};
-use velostream::velostream::sql::query_analyzer::{
-    DataSourceRequirement, DataSinkRequirement, DataSourceType, DataSinkType,
-};
-use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
-use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
-use velostream::velostream::datasource::{DataReader, DataWriter, BatchConfig};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
-use async_trait::async_trait;
+use velostream::velostream::datasource::{BatchConfig, DataReader, DataWriter};
+use velostream::velostream::server::processors::{
+    create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
+    SimpleJobProcessor, TransactionalJobProcessor,
+};
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
+use velostream::velostream::sql::query_analyzer::{
+    DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType,
+};
+use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 
 /// Mock DataReader for testing
 #[derive(Debug)]
@@ -35,19 +35,22 @@ impl MockDataReader {
         for i in 0..record_count {
             let mut fields = HashMap::new();
             fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert("name".to_string(), FieldValue::String(format!("record_{}", i)));
+            fields.insert(
+                "name".to_string(),
+                FieldValue::String(format!("record_{}", i)),
+            );
             fields.insert("source".to_string(), FieldValue::String(name.to_string()));
-            
+
             records.push(StreamRecord {
                 fields,
                 headers: HashMap::new(),
-        event_time: None,
+                event_time: None,
                 timestamp: 1640995200000 + (i as i64 * 1000),
                 offset: i as i64,
                 partition: 0,
             });
         }
-        
+
         Self {
             name: name.to_string(),
             records,
@@ -59,7 +62,9 @@ impl MockDataReader {
 
 #[async_trait]
 impl DataReader for MockDataReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let batch_size = 5.min(self.records.len() - self.current_index);
         if batch_size == 0 {
             return Ok(vec![]);
@@ -74,11 +79,17 @@ impl DataReader for MockDataReader {
 
     async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Mock commit - just log
-        println!("MockDataReader '{}' committed at index {}", self.name, self.current_index);
+        println!(
+            "MockDataReader '{}' committed at index {}",
+            self.name, self.current_index
+        );
         Ok(())
     }
 
-    async fn seek(&mut self, _offset: velostream::velostream::datasource::SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        _offset: velostream::velostream::datasource::SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Mock seek - not implemented for testing
         Ok(())
     }
@@ -91,7 +102,9 @@ impl DataReader for MockDataReader {
         self.supports_transactions
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if self.supports_transactions {
             println!("MockDataReader '{}' began transaction", self.name);
             Ok(true)
@@ -137,19 +150,33 @@ impl MockDataWriter {
 
 #[async_trait]
 impl DataWriter for MockDataWriter {
-    async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("MockDataWriter '{}' writing 1 record", self.name);
         self.written_records.push(record);
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<StreamRecord>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!("MockDataWriter '{}' writing {} records", self.name, records.len());
+    async fn write_batch(
+        &mut self,
+        records: Vec<StreamRecord>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!(
+            "MockDataWriter '{}' writing {} records",
+            self.name,
+            records.len()
+        );
         self.written_records.extend(records);
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Mock update - just write the record
         self.written_records.push(record);
         Ok(())
@@ -161,7 +188,11 @@ impl DataWriter for MockDataWriter {
     }
 
     async fn flush(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        println!("MockDataWriter '{}' flushed {} records", self.name, self.written_records.len());
+        println!(
+            "MockDataWriter '{}' flushed {} records",
+            self.name,
+            self.written_records.len()
+        );
         Ok(())
     }
 
@@ -180,7 +211,9 @@ impl DataWriter for MockDataWriter {
         self.supports_transactions
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if self.supports_transactions {
             println!("MockDataWriter '{}' began transaction", self.name);
             Ok(true)
@@ -248,14 +281,16 @@ async fn test_simple_processor_multi_source_processing() {
 
     // Test processing with timeout to avoid infinite loop
     let job_handle = tokio::spawn(async move {
-        processor.process_multi_job(
-            readers,
-            writers,
-            engine,
-            query,
-            "test-multi-simple".to_string(),
-            shutdown_rx,
-        ).await
+        processor
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "test-multi-simple".to_string(),
+                shutdown_rx,
+            )
+            .await
     });
 
     // Let it process for a short time
@@ -273,9 +308,12 @@ async fn test_simple_processor_multi_source_processing() {
 
     let stats = job_result.unwrap();
     println!("Simple processor stats: {:?}", stats);
-    
+
     // Should have processed some batches
-    assert!(stats.batches_processed > 0, "Should have processed at least one batch");
+    assert!(
+        stats.batches_processed > 0,
+        "Should have processed at least one batch"
+    );
 }
 
 #[tokio::test]
@@ -318,20 +356,24 @@ async fn test_transactional_processor_multi_source_processing() {
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
-    let query = parser.parse("SELECT * FROM test_stream WITH ('use_transactions' = 'true')").unwrap();
+    let query = parser
+        .parse("SELECT * FROM test_stream WITH ('use_transactions' = 'true')")
+        .unwrap();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     // Test transactional processing
     let job_handle = tokio::spawn(async move {
-        processor.process_multi_job(
-            readers,
-            writers,
-            engine,
-            query,
-            "test-multi-transactional".to_string(),
-            shutdown_rx,
-        ).await
+        processor
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "test-multi-transactional".to_string(),
+                shutdown_rx,
+            )
+            .await
     });
 
     // Let it process transactions
@@ -342,16 +384,25 @@ async fn test_transactional_processor_multi_source_processing() {
 
     // Wait for completion
     let result = tokio::time::timeout(Duration::from_secs(3), job_handle).await;
-    assert!(result.is_ok(), "Transactional job should complete within timeout");
+    assert!(
+        result.is_ok(),
+        "Transactional job should complete within timeout"
+    );
 
     let job_result = result.unwrap().unwrap();
-    assert!(job_result.is_ok(), "Transactional job processing should succeed");
+    assert!(
+        job_result.is_ok(),
+        "Transactional job processing should succeed"
+    );
 
     let stats = job_result.unwrap();
     println!("Transactional processor stats: {:?}", stats);
-    
+
     // Should have processed some batches transactionally
-    assert!(stats.batches_processed > 0, "Should have processed at least one batch");
+    assert!(
+        stats.batches_processed > 0,
+        "Should have processed at least one batch"
+    );
 }
 
 #[tokio::test]
@@ -362,7 +413,10 @@ async fn test_multi_source_creation_helpers() {
             source_type: DataSourceType::Kafka,
             properties: {
                 let mut props = HashMap::new();
-                props.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+                props.insert(
+                    "bootstrap.servers".to_string(),
+                    "localhost:9092".to_string(),
+                );
                 props.insert("topic".to_string(), "test-topic".to_string());
                 props
             },
@@ -387,17 +441,18 @@ async fn test_multi_source_creation_helpers() {
     });
 
     // Test source creation (will fail without actual sources but tests interface)
-    let result = create_multi_source_readers(
-        &sources,
-        "default-topic",
-        "test-creation",
-        &batch_config,
-    ).await;
+    let result =
+        create_multi_source_readers(&sources, "default-topic", "test-creation", &batch_config)
+            .await;
 
     match result {
         Ok(readers) => {
             println!("Created {} readers", readers.len());
-            assert_eq!(readers.len(), sources.len(), "Should create reader for each source");
+            assert_eq!(
+                readers.len(),
+                sources.len(),
+                "Should create reader for each source"
+            );
         }
         Err(e) => {
             println!("Expected creation failure: {}", e);
@@ -405,7 +460,8 @@ async fn test_multi_source_creation_helpers() {
             let error_msg = e.to_string();
             assert!(
                 error_msg.contains("kafka_source") || error_msg.contains("file_source"),
-                "Error should reference source names: {}", error_msg
+                "Error should reference source names: {}",
+                error_msg
             );
         }
     }
@@ -419,7 +475,10 @@ async fn test_multi_sink_creation_helpers() {
             sink_type: DataSinkType::Kafka,
             properties: {
                 let mut props = HashMap::new();
-                props.insert("bootstrap.servers".to_string(), "localhost:9092".to_string());
+                props.insert(
+                    "bootstrap.servers".to_string(),
+                    "localhost:9092".to_string(),
+                );
                 props.insert("topic".to_string(), "output-topic".to_string());
                 props
             },
@@ -438,11 +497,7 @@ async fn test_multi_sink_creation_helpers() {
 
     let batch_config = None;
 
-    let result = create_multi_sink_writers(
-        &sinks,
-        "test-sink-creation",
-        &batch_config,
-    ).await;
+    let result = create_multi_sink_writers(&sinks, "test-sink-creation", &batch_config).await;
 
     match result {
         Ok(writers) => {
@@ -490,14 +545,16 @@ async fn test_error_handling_in_multi_source_processing() {
 
     // Test error handling with empty sources
     let job_handle = tokio::spawn(async move {
-        processor.process_multi_job(
-            readers,
-            writers,
-            engine,
-            query,
-            "test-error-handling".to_string(),
-            shutdown_rx,
-        ).await
+        processor
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "test-error-handling".to_string(),
+                shutdown_rx,
+            )
+            .await
     });
 
     // Should complete quickly with no data
@@ -508,7 +565,10 @@ async fn test_error_handling_in_multi_source_processing() {
     assert!(result.is_ok(), "Error handling job should complete");
 
     let job_result = result.unwrap().unwrap();
-    assert!(job_result.is_ok(), "Job should handle empty sources gracefully");
+    assert!(
+        job_result.is_ok(),
+        "Job should handle empty sources gracefully"
+    );
 }
 
 #[tokio::test]
@@ -538,8 +598,10 @@ async fn test_processor_configuration_handling() {
     ];
 
     for (i, config) in configs.iter().enumerate() {
-        println!("Testing configuration {}: transactions={}, strategy={:?}", 
-                 i, config.use_transactions, config.failure_strategy);
+        println!(
+            "Testing configuration {}: transactions={}, strategy={:?}",
+            i, config.use_transactions, config.failure_strategy
+        );
 
         if config.use_transactions {
             let processor = TransactionalJobProcessor::new(config.clone());

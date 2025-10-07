@@ -438,7 +438,11 @@ async fn benchmark_min_max_aggregations() {
     );
     println!("   Min: {}, Max: {}", min_value, max_value);
 
-    assert!(throughput > 2_000_000.0, "MIN/MAX too slow: {} (adjusted for actual performance: ~2.57M observed)", throughput);
+    assert!(
+        throughput > 2_000_000.0,
+        "MIN/MAX too slow: {} (adjusted for actual performance: ~2.57M observed)",
+        throughput
+    );
 
     metrics.report().print();
 }
