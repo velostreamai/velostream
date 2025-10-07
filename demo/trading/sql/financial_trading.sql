@@ -15,21 +15,21 @@
 -- Demonstrates late data detection and proper windowing based on trade execution time
 
 CREATE STREAM market_data_ts AS
-SELECT 
+SELECT
     symbol,
     price,
     volume,
-    trade_timestamp,
+    timestamp,
     -- Extract event-time from trade execution timestamp
-    TIMESTAMP(trade_timestamp) as event_time,
+    timestamp as event_time,
     exchange,
     trade_id
 FROM market_data_stream
 EMIT CHANGES
 WITH (
     -- Phase 1B: Configure event-time processing
-    'event.time.field' = 'trade_timestamp',
-    'event.time.format' = 'yyyy-MM-dd HH:mm:ss.SSS',
+    'event.time.field' = 'timestamp',
+    'event.time.format' = 'epoch_millis',
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '5s',  -- 5s tolerance for market data
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
@@ -273,18 +273,18 @@ WITH (
 
 -- First create positions stream with event-time processing
 CREATE STREAM trading_positions_with_event_time AS
-SELECT 
+SELECT
     trader_id,
     symbol,
     position_size,
     current_pnl,
-    position_timestamp,
-    TIMESTAMP(position_timestamp) as event_time
+    timestamp,
+    timestamp as event_time
 FROM trading_positions_stream
 EMIT CHANGES
 WITH (
-    'event.time.field' = 'position_timestamp',
-    'event.time.format' = 'yyyy-MM-dd HH:mm:ss.SSS',
+    'event.time.field' = 'timestamp',
+    'event.time.format' = 'epoch_millis',
     'watermark.strategy' = 'bounded_out_of_orderness',
     'watermark.max_out_of_orderness' = '2s',  -- Stricter for positions
     'late.data.strategy' = 'update_previous',  -- Update positions
