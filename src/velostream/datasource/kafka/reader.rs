@@ -1,6 +1,8 @@
 //! Unified Kafka data reader implementation
 
-use crate::velostream::datasource::{BatchConfig, BatchStrategy, DataReader, SourceOffset};
+use crate::velostream::datasource::{
+    BatchConfig, BatchStrategy, DataReader, EventTimeConfig, SourceOffset,
+};
 use crate::velostream::kafka::{serialization::StringSerializer, KafkaConsumer};
 
 // Removed unused imports - AvroSerializer and ProtoSerializer don't exist
@@ -22,6 +24,7 @@ pub struct KafkaDataReader {
     consumer:
         KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, SerializationCodec>,
     batch_config: BatchConfig,
+    event_time_config: Option<EventTimeConfig>,
     // State for adaptive batching
     current_batch_start: Option<Instant>,
     adaptive_state: AdaptiveBatchState,
@@ -115,6 +118,7 @@ impl KafkaDataReader {
         format: SerializationFormat,
         batch_config: Option<BatchConfig>,
         passed_schema_json: Option<&str>,
+        event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Create codec using robust factory pattern
         let codec = Self::create_serialization_codec(&format, passed_schema_json)?;
@@ -149,6 +153,7 @@ impl KafkaDataReader {
         Ok(Self {
             consumer,
             batch_config,
+            event_time_config,
             current_batch_start: None,
             adaptive_state: AdaptiveBatchState::new(initial_size),
         })
@@ -162,6 +167,7 @@ impl KafkaDataReader {
         format: SerializationFormat,
         batch_config: BatchConfig,
         passed_schema_json: Option<&str>,
+        event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Self::new_with_schema(
             brokers,
@@ -170,6 +176,7 @@ impl KafkaDataReader {
             format,
             Some(batch_config),
             passed_schema_json,
+            event_time_config,
         )
         .await
     }
@@ -192,6 +199,7 @@ impl KafkaDataReader {
             group_id,
             SerializationFormat::Json,
             batch_config,
+            None,
             None,
         )
         .await
@@ -217,7 +225,7 @@ impl KafkaDataReader {
             ..Default::default()
         });
 
-        Self::new_with_schema(brokers, topic, group_id, format, batch_config, schema_json).await
+        Self::new_with_schema(brokers, topic, group_id, format, batch_config, schema_json, None).await
     }
 }
 
@@ -657,6 +665,20 @@ impl KafkaDataReader {
             fields.insert("key".to_string(), FieldValue::Null);
         }
 
+        // Extract event_time if configured
+        let event_time = if let Some(ref config) = self.event_time_config {
+            use crate::velostream::datasource::extract_event_time;
+            match extract_event_time(&fields, config) {
+                Ok(dt) => Some(dt),
+                Err(e) => {
+                    log::warn!("Failed to extract event_time: {}. Falling back to None", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(StreamRecord {
             fields,
             timestamp: message
@@ -665,7 +687,7 @@ impl KafkaDataReader {
             offset: message.offset(),
             partition: message.partition(),
             headers: message.take_headers().into_map(),
-            event_time: None,
+            event_time,
         })
     }
 

@@ -2,7 +2,7 @@
 
 use crate::velostream::datasource::traits::DataReader;
 use crate::velostream::datasource::types::SourceOffset;
-use crate::velostream::datasource::{BatchConfig, BatchStrategy};
+use crate::velostream::datasource::{BatchConfig, BatchStrategy, EventTimeConfig};
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -20,6 +20,7 @@ use super::error::FileDataSourceError;
 pub struct FileReader {
     config: FileSourceConfig,
     batch_config: BatchConfig,
+    event_time_config: Option<EventTimeConfig>,
     current_file: Option<BufReader<File>>,
     current_position: u64,
     line_number: usize,
@@ -72,13 +73,14 @@ impl FileAdaptiveBatchState {
 impl FileReader {
     /// Create a new file reader with configuration
     pub async fn new(config: FileSourceConfig) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_batch_config(config, BatchConfig::default()).await
+        Self::new_with_batch_config(config, BatchConfig::default(), None).await
     }
 
     /// Create a new file reader with configuration and batch config
     pub async fn new_with_batch_config(
         config: FileSourceConfig,
         batch_config: BatchConfig,
+        event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let initial_size = match &batch_config.strategy {
             BatchStrategy::FixedSize(size) => *size,
@@ -90,6 +92,7 @@ impl FileReader {
         let mut reader = Self {
             config,
             batch_config,
+            event_time_config,
             current_file: None,
             current_position: 0,
             line_number: 0,
@@ -304,6 +307,25 @@ impl FileReader {
         }
     }
 
+    /// Extract event_time from fields if configured
+    fn extract_event_time_from_fields(
+        &self,
+        fields: &HashMap<String, FieldValue>,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        if let Some(ref config) = self.event_time_config {
+            use crate::velostream::datasource::extract_event_time;
+            match extract_event_time(fields, config) {
+                Ok(dt) => Some(dt),
+                Err(e) => {
+                    log::warn!("Failed to extract event_time: {}. Falling back to None", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
     /// Parse a CSV line into a StreamRecord with proper RFC 4180 compliance
     fn parse_csv_line(&self, line: &str) -> Result<StreamRecord, Box<dyn Error + Send + Sync>> {
         let parsed_fields = self.parse_csv_fields(line)?;
@@ -326,13 +348,16 @@ impl FileReader {
             fields.insert(field_name, field_val);
         }
 
+        // Extract event_time if configured
+        let event_time = self.extract_event_time_from_fields(&fields);
+
         Ok(StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
-            event_time: None,
+            event_time,
         })
     }
 
@@ -510,13 +535,16 @@ impl FileReader {
                         }
                     }
 
+                    // Extract event_time if configured
+                    let event_time = self.extract_event_time_from_fields(&fields);
+
                     let record = StreamRecord {
                         fields,
                         timestamp: chrono::Utc::now().timestamp_millis(),
                         offset: self.current_position as i64,
                         partition: 0,
                         headers: HashMap::new(),
-                        event_time: None,
+                        event_time,
                     };
 
                     self.records_read += 1;
@@ -1112,13 +1140,16 @@ impl FileReader {
             fields.insert(field_name, field_value);
         }
 
+        // Extract event_time if configured
+        let event_time = self.extract_event_time_from_fields(&fields);
+
         let record = StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
-            event_time: None,
+            event_time,
         };
 
         Ok(Some(record))
@@ -1152,13 +1183,16 @@ impl FileReader {
             }
         }
 
+        // Extract event_time if configured
+        let event_time = self.extract_event_time_from_fields(&fields);
+
         let record = StreamRecord {
             fields,
             timestamp: chrono::Utc::now().timestamp_millis(),
             offset: self.current_position as i64,
             partition: 0,
             headers: HashMap::new(),
-            event_time: None,
+            event_time,
         };
 
         Ok(Some(record))

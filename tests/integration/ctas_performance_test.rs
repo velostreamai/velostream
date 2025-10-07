@@ -311,6 +311,7 @@ async fn test_bulk_load_throughput_scaling() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         };
 
         let _ = source_mut
@@ -369,6 +370,7 @@ async fn test_incremental_loading_latency() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let _ = source_mut
@@ -445,6 +447,7 @@ async fn test_memory_efficiency_under_load() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let _ = source_mut
@@ -532,6 +535,7 @@ async fn test_concurrent_loading_throughput() {
                 group_id: Some(format!("test-group-{}", source_id)),
                 properties: HashMap::new(),
                 batch_config: BatchConfig::default(),
+                event_time_config: None,
             };
 
             let _ = source_mut
@@ -626,6 +630,7 @@ async fn test_backpressure_handling() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let _ = source_mut
@@ -705,6 +710,7 @@ async fn test_optimal_batch_size_discovery() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         };
 
         let _ = source_mut
@@ -785,6 +791,7 @@ async fn test_sustained_high_volume_loading() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let _ = source_mut
@@ -894,6 +901,7 @@ async fn test_error_recovery_during_performance_test() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         };
 
         let _ = source_mut.initialize(config).await?;

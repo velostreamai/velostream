@@ -304,6 +304,7 @@ async fn test_connection_failure() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let result = source_clone.initialize(config).await;
@@ -430,6 +431,7 @@ async fn test_retry_logic_success() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         };
 
         result = source_clone.initialize(config).await;
@@ -472,6 +474,7 @@ async fn test_retry_exhaustion() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         };
 
         match source_clone.initialize(config).await {
@@ -545,6 +548,7 @@ async fn test_end_to_end_error_recovery() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     let result1 = source1.initialize(config.clone()).await;
@@ -610,6 +614,7 @@ async fn test_concurrent_error_handling() {
                 group_id: Some(format!("test-group-{}", i)),
                 properties: HashMap::new(),
                 batch_config: BatchConfig::default(),
+                event_time_config: None,
             };
 
             let mut source_mut = source;

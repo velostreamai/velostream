@@ -20,6 +20,7 @@ pub struct KafkaDataSource {
     topic: String,
     group_id: Option<String>,
     config: HashMap<String, String>,
+    event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
 }
 
 impl KafkaDataSource {
@@ -69,6 +70,7 @@ impl KafkaDataSource {
             topic,
             group_id: Some(group_id),
             config: source_config,
+            event_time_config: None,
         }
     }
 
@@ -183,6 +185,7 @@ impl KafkaDataSource {
             topic,
             group_id: None,
             config: HashMap::new(),
+            event_time_config: None,
         }
     }
 
@@ -206,6 +209,7 @@ impl KafkaDataSource {
             group_id: self.group_id.clone(),
             properties: self.config.clone(),
             batch_config: Default::default(),
+            event_time_config: self.event_time_config.clone(),
         }
     }
 
@@ -267,6 +271,7 @@ impl KafkaDataSource {
                 ..Default::default()
             }),
             schema.as_deref(), // Pass schema if available
+            self.event_time_config.clone(),
         )
         .await
     }
@@ -301,6 +306,7 @@ impl KafkaDataSource {
             format,
             batch_config,
             schema.as_deref(), // Pass schema if available
+            self.event_time_config.clone(),
         )
         .await
     }
@@ -487,11 +493,13 @@ impl DataSource for KafkaDataSource {
                 group_id,
                 properties,
                 batch_config,
+                event_time_config,
                 ..
             } => {
                 self.brokers = brokers;
                 self.topic = topic;
                 self.group_id = group_id;
+                self.event_time_config = event_time_config;
 
                 // Start with provided properties
                 let mut kafka_config = properties;
@@ -1063,6 +1071,7 @@ impl Default for KafkaDataSource {
             topic: "default_topic".to_string(),
             group_id: Some("default_group".to_string()),
             config: HashMap::new(),
+            event_time_config: None,
         }
     }
 }
