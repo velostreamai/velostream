@@ -420,7 +420,10 @@ impl AvroCodec {
             let type_name = type_obj.get("type").and_then(|t| t.as_str());
 
             // Decimal is bytes or fixed type with precision and scale
-            if has_precision && scale_value.is_some() && (type_name == Some("bytes") || type_name == Some("fixed")) {
+            if has_precision
+                && scale_value.is_some()
+                && (type_name == Some("bytes") || type_name == Some("fixed"))
+            {
                 let scale = scale_value.unwrap();
                 if scale <= 255 {
                     return Some(scale as u8);
