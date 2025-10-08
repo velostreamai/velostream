@@ -239,7 +239,10 @@ async fn test_transactional_processor_multi_job_interface() {
     .await;
 
     // Should complete immediately since no sources to process
-    assert!(result.is_ok(), "Should complete immediately with no sources");
+    assert!(
+        result.is_ok(),
+        "Should complete immediately with no sources"
+    );
 
     // Signal shutdown (may already be dropped if task completed)
     let _ = shutdown_tx.send(()).await;
