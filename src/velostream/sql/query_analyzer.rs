@@ -497,12 +497,20 @@ impl QueryAnalyzer {
         // Check for config_file and load YAML configuration
         let config_file_key = format!("{}.config_file", table_name);
         if let Some(config_file_path) = config.get(&config_file_key) {
-            log::info!("Loading config file '{}' for sink '{}' (via analyze_sink)", config_file_path, table_name);
+            log::info!(
+                "Loading config file '{}' for sink '{}' (via analyze_sink)",
+                config_file_path,
+                table_name
+            );
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
                     // Use recursive flattening to properly handle all nested structures
                     flatten_yaml_value(&yaml_config.config, "", &mut properties);
-                    log::info!("Loaded YAML config for sink '{}' with {} properties", table_name, properties.len());
+                    log::info!(
+                        "Loaded YAML config for sink '{}' with {} properties",
+                        table_name,
+                        properties.len()
+                    );
                 }
                 Err(e) => {
                     return Err(SqlError::ConfigurationError {
@@ -961,7 +969,11 @@ impl QueryAnalyzer {
 
                 // Check if there's a config_file to load
                 if let Some(config_file) = properties.get("config_file").cloned() {
-                    log::info!("Loading config file '{}' for sink '{}'", config_file, sink_name);
+                    log::info!(
+                        "Loading config file '{}' for sink '{}'",
+                        config_file,
+                        sink_name
+                    );
                     // Load and merge YAML configuration
                     match super::config::yaml_loader::load_yaml_config(&config_file) {
                         Ok(yaml_config) => {
@@ -975,7 +987,11 @@ impl QueryAnalyzer {
                                     properties.insert(yaml_key, yaml_value);
                                 }
                             }
-                            log::info!("Loaded {} properties from config file '{}'", properties.len(), config_file);
+                            log::info!(
+                                "Loaded {} properties from config file '{}'",
+                                properties.len(),
+                                config_file
+                            );
                         }
                         Err(e) => {
                             log::warn!("Failed to load sink config file '{}': {}", config_file, e);

@@ -768,9 +768,11 @@ impl TransactionalJobProcessor {
                 sink_names.len()
             );
 
-            for sink_name in &sink_names {
+            // Optimize for multi-sink scenario: use shared slice instead of cloning for each sink
+            if sink_names.len() == 1 {
+                // Single sink: use move semantics (no clone)
                 match context
-                    .write_batch_to(sink_name, all_output_records.clone())
+                    .write_batch_to(&sink_names[0], all_output_records.clone())
                     .await
                 {
                     Ok(()) => {
@@ -778,7 +780,7 @@ impl TransactionalJobProcessor {
                             "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
                             job_name,
                             all_output_records.len(),
-                            sink_name
+                            &sink_names[0]
                         );
                     }
                     Err(e) => {
@@ -786,11 +788,38 @@ impl TransactionalJobProcessor {
                             "Job '{}': Failed to write {} records to sink '{}' within transaction: {:?}",
                             job_name,
                             all_output_records.len(),
-                            sink_name,
+                            &sink_names[0],
                             e
                         );
                         processing_successful = false;
-                        break; // Exit sink write loop - will abort transaction
+                    }
+                }
+            } else {
+                // Multiple sinks: use shared slice to avoid N clones
+                for sink_name in &sink_names {
+                    match context
+                        .write_batch_to_shared(sink_name, &all_output_records)
+                        .await
+                    {
+                        Ok(()) => {
+                            debug!(
+                                "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
+                                job_name,
+                                all_output_records.len(),
+                                sink_name
+                            );
+                        }
+                        Err(e) => {
+                            error!(
+                                "Job '{}': Failed to write {} records to sink '{}' within transaction: {:?}",
+                                job_name,
+                                all_output_records.len(),
+                                sink_name,
+                                e
+                            );
+                            processing_successful = false;
+                            break; // Exit sink write loop - will abort transaction
+                        }
                     }
                 }
             }
