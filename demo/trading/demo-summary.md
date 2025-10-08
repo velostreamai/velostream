@@ -18,12 +18,13 @@
    - Order flow imbalance detection
    - Arbitrage opportunity identification
 
-3. **Demo Script** (`demo/trading/run_demo.sh`)
-   - Automated setup and execution
-   - Kafka topic creation
-   - SQL job deployment
+3. **Demo Script** (`demo/trading/start-demo.sh`)
+   - Automated setup and execution with flexible options
+   - Kafka topic creation and validation
+   - SQL job deployment (8 streaming queries)
    - Real-time monitoring
    - Graceful cleanup
+   - Quick start mode, dashboard setup, interactive mode
 
 4. **Visualization Dashboard** (`demo/trading/dashboard.py`)
    - Real-time price charts
@@ -41,19 +42,22 @@
 ## 🏃‍♂️ Quick Start
 
 ```bash
-# 1. Run the demo
+# 1. Run the demo (with dashboard setup)
 cd demo/trading
-./run_demo.sh
+./start-demo.sh -d
 
-# 2. Setup dashboard (in another terminal)
-./setup_dashboard.sh
-
-# 3. Start visualization
+# 2. Start visualization (in another terminal)
 source dashboard_env/bin/activate
 python3 dashboard.py
 
-# 4. Stop everything when done
-./stop_demo.sh
+# 3. Stop everything when done
+./stop-demo.sh
+
+# Quick 1-minute demo:
+./start-demo.sh -q
+
+# Interactive mode:
+./start-demo.sh -i
 ```
 
 **Important:** Always activate the virtual environment before running the dashboard!

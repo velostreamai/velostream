@@ -344,7 +344,7 @@ export SQL_SERVER_PORT=8081
 #### Python Dependencies
 ```bash
 # The setup script creates a virtual environment automatically
-./setup_dashboard.sh
+./start-demo.sh -d
 
 # If you need to manually recreate the environment:
 rm -rf dashboard_env
@@ -360,7 +360,7 @@ pip install -r requirements.txt
 
 #### Dashboard Not Updating
 - **Check virtual environment**: Ensure you activated it with `source dashboard_env/bin/activate`
-- **Dependencies missing**: Run `./setup_dashboard.sh` to install/update dependencies
+- **Dependencies missing**: Run `./start-demo.sh -d` to install/update dependencies
 - **No data**: Ensure Kafka topics have data: `docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-console-consumer --bootstrap-server localhost:9092 --topic market_data --max-messages 5`
 - **Connection issues**: Verify dashboard is connecting to correct Kafka brokers
 - **Font cache**: First run may take 30-60 seconds while matplotlib builds font cache
