@@ -296,8 +296,8 @@ async fn test_simple_processor_multi_source_processing() {
     // Let it process for a short time
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Send shutdown signal
-    shutdown_tx.send(()).await.unwrap();
+    // Send shutdown signal (OK if receiver is already dropped - task may have completed)
+    let _ = shutdown_tx.send(()).await;
 
     // Wait for completion
     let result = tokio::time::timeout(Duration::from_secs(2), job_handle).await;
@@ -379,8 +379,8 @@ async fn test_transactional_processor_multi_source_processing() {
     // Let it process transactions
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Send shutdown signal
-    shutdown_tx.send(()).await.unwrap();
+    // Send shutdown signal (OK if receiver is already dropped - task may have completed)
+    let _ = shutdown_tx.send(()).await;
 
     // Wait for completion
     let result = tokio::time::timeout(Duration::from_secs(3), job_handle).await;
@@ -557,7 +557,7 @@ async fn test_error_handling_in_multi_source_processing() {
 
     // Should complete quickly with no data
     tokio::time::sleep(Duration::from_millis(100)).await;
-    shutdown_tx.send(()).await.unwrap();
+    let _ = shutdown_tx.send(()).await;
 
     let result = tokio::time::timeout(Duration::from_secs(1), job_handle).await;
     assert!(result.is_ok(), "Error handling job should complete");

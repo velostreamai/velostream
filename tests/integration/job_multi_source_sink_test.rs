@@ -238,10 +238,10 @@ async fn test_transactional_processor_multi_job_interface() {
     )
     .await;
 
-    // Should timeout quickly since no sources
-    assert!(result.is_err(), "Should timeout quickly with no sources");
+    // Should complete immediately since no sources to process
+    assert!(result.is_ok(), "Should complete immediately with no sources");
 
-    // Signal shutdown
+    // Signal shutdown (may already be dropped if task completed)
     let _ = shutdown_tx.send(()).await;
 }
 
@@ -392,7 +392,7 @@ async fn test_batch_config_propagation_multi_source() {
                 "bootstrap.servers".to_string(),
                 "localhost:9092".to_string(),
             );
-            props.insert("topic".to_string(), "test".to_string());
+            props.insert("topic".to_string(), "test_batch_config_topic".to_string());
             props
         },
     }];

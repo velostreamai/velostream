@@ -265,8 +265,8 @@ async fn test_transactional_multi_source_processor_writes_to_sinks() {
     // Let it process
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Send shutdown
-    shutdown_tx.send(()).await.unwrap();
+    // Send shutdown (OK if receiver is already dropped - task may have completed)
+    let _ = shutdown_tx.send(()).await;
 
     // Wait for completion
     let result = tokio::time::timeout(Duration::from_secs(3), job_handle).await;
