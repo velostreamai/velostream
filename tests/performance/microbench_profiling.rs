@@ -34,6 +34,7 @@ impl ProfilingMetrics {
             write_time: Arc::new(StdMutex::new(Vec::new())),
             lock_time: Arc::new(StdMutex::new(Vec::new())),
             total_batches: Arc::new(StdMutex::new(0)),
+            framework_time: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
