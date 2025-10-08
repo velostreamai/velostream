@@ -56,26 +56,46 @@ This will build the main Velostream project and create symlinks for easy access.
 ### 2. Start the Demo
 
 ```bash
-./run_demo.sh
+./start-demo.sh
 ```
 
 The script will:
 - Check/build binaries if needed
 - Start Kafka and create necessary topics
-- Launch the multi-job SQL server with 5 trading analytics jobs
-- Generate realistic trading data for 5 minutes
+- Deploy 8 streaming SQL queries
+- Generate realistic trading data (default: 10 minutes)
 - Display sample alerts and data
 
 **Quick Options:**
 ```bash
-make run           # Build and run full demo
-make run-short     # Build and run 1-minute demo
-DEMO_DURATION=1 ./run_demo.sh  # Custom duration
+# Quick 1-minute demo
+./start-demo.sh -q
+./start-demo.sh --quick
+
+# Custom duration (in minutes)
+./start-demo.sh 5
+
+# Interactive/foreground mode
+./start-demo.sh -i
+
+# Release builds (optimized)
+./start-demo.sh -r 30
+
+# Setup dashboard environment
+./start-demo.sh -d
+
+# Combine options
+./start-demo.sh -q -d    # Quick demo + dashboard setup
 ```
 
 **To stop the demo:**
 ```bash
-./stop_demo.sh
+./stop-demo.sh
+```
+
+**Get help:**
+```bash
+./start-demo.sh --help
 ```
 
 ### 2. Monitor with Velostream CLI
@@ -115,13 +135,22 @@ The demo automatically starts Grafana with pre-configured dashboards:
 
 ### 4. Launch the Python Visualization Dashboard
 
-In a separate terminal:
+The dashboard can be set up automatically when starting the demo:
+
+```bash
+# Option 1: Setup dashboard when starting demo
+./start-demo.sh -d
+
+# Option 2: Manual setup (if needed)
+python3 -m venv dashboard_env
+source dashboard_env/bin/activate
+pip install -r requirements.txt
+```
+
+Then in a separate terminal:
 
 ```bash
 cd demo/trading
-
-# Setup virtual environment and install dependencies
-./setup_dashboard.sh
 
 # Activate virtual environment and start dashboard
 source dashboard_env/bin/activate
