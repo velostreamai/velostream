@@ -26,43 +26,57 @@ use velostream::velostream::server::processors::{
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 
-/// Mock DataReader for benchmarking
+/// Mock DataReader for benchmarking (zero-copy with pre-allocated batches)
 #[derive(Debug)]
 pub struct BenchmarkDataReader {
     pub name: String,
-    pub records: Vec<StreamRecord>,
-    pub current_index: usize,
-    pub batch_size: usize,
+    pub batches: Vec<Vec<StreamRecord>>,
+    pub current_batch_index: usize,
 }
 
 impl BenchmarkDataReader {
     pub fn new(name: &str, record_count: usize, batch_size: usize) -> Self {
-        let mut records = Vec::with_capacity(record_count);
-        for i in 0..record_count {
-            let mut fields = HashMap::new();
-            fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert(
-                "name".to_string(),
-                FieldValue::String(format!("record_{}", i)),
-            );
-            fields.insert("source".to_string(), FieldValue::String(name.to_string()));
-            fields.insert("value".to_string(), FieldValue::Float((i as f64) * 1.5));
+        let num_batches = (record_count + batch_size - 1) / batch_size;
+        let mut batches = Vec::with_capacity(num_batches);
 
-            records.push(StreamRecord {
-                fields,
-                headers: HashMap::new(),
-                event_time: None,
-                timestamp: 1640995200000 + (i as i64 * 1000),
-                offset: i as i64,
-                partition: 0,
-            });
+        // Pre-allocate all batches for zero-copy reads
+        let mut records_remaining = record_count;
+        for batch_idx in 0..num_batches {
+            let current_batch_size = batch_size.min(records_remaining);
+            let mut batch = Vec::with_capacity(current_batch_size);
+
+            for i in 0..current_batch_size {
+                let record_id = batch_idx * batch_size + i;
+                let mut fields = HashMap::new();
+                fields.insert("id".to_string(), FieldValue::Integer(record_id as i64));
+                fields.insert(
+                    "name".to_string(),
+                    FieldValue::String(format!("record_{}", record_id)),
+                );
+                fields.insert("source".to_string(), FieldValue::String(name.to_string()));
+                fields.insert(
+                    "value".to_string(),
+                    FieldValue::Float((record_id as f64) * 1.5),
+                );
+
+                batch.push(StreamRecord {
+                    fields,
+                    headers: HashMap::new(),
+                    event_time: None,
+                    timestamp: 1640995200000 + (record_id as i64 * 1000),
+                    offset: record_id as i64,
+                    partition: 0,
+                });
+            }
+
+            batches.push(batch);
+            records_remaining -= current_batch_size;
         }
 
         Self {
             name: name.to_string(),
-            records,
-            current_index: 0,
-            batch_size,
+            batches,
+            current_batch_index: 0,
         }
     }
 }
@@ -72,16 +86,13 @@ impl DataReader for BenchmarkDataReader {
     async fn read(
         &mut self,
     ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let remaining = self.records.len() - self.current_index;
-        let batch_size = self.batch_size.min(remaining);
-
-        if batch_size == 0 {
+        if self.current_batch_index >= self.batches.len() {
             return Ok(vec![]);
         }
 
-        let end_index = self.current_index + batch_size;
-        let batch = self.records[self.current_index..end_index].to_vec();
-        self.current_index = end_index;
+        // Zero-copy: move the batch out using mem::take (replaces with empty Vec)
+        let batch = std::mem::take(&mut self.batches[self.current_batch_index]);
+        self.current_batch_index += 1;
 
         Ok(batch)
     }
@@ -94,7 +105,7 @@ impl DataReader for BenchmarkDataReader {
     }
 
     async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.current_index < self.records.len())
+        Ok(self.current_batch_index < self.batches.len())
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -120,40 +131,43 @@ impl DataReader for BenchmarkDataReader {
     }
 }
 
-/// Mock DataWriter with performance metrics
+/// Mock DataWriter with performance metrics (optimized: minimal allocations)
 #[derive(Debug, Clone)]
 pub struct BenchmarkDataWriter {
     pub name: String,
-    pub written_records: Arc<StdMutex<Vec<StreamRecord>>>,
-    pub write_times: Arc<StdMutex<Vec<Duration>>>,
-    pub batch_count: Arc<StdMutex<usize>>,
+    pub written_count: Arc<std::sync::atomic::AtomicUsize>, // Atomic instead of Mutex
+    pub batch_count: Arc<std::sync::atomic::AtomicUsize>,
+    pub total_write_time: Arc<std::sync::atomic::AtomicU64>, // Store as nanos
 }
 
 impl BenchmarkDataWriter {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
-            written_records: Arc::new(StdMutex::new(Vec::new())),
-            write_times: Arc::new(StdMutex::new(Vec::new())),
-            batch_count: Arc::new(StdMutex::new(0)),
+            written_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            batch_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_write_time: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
     pub fn get_written_count(&self) -> usize {
-        self.written_records.lock().unwrap().len()
+        self.written_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn get_batch_count(&self) -> usize {
-        *self.batch_count.lock().unwrap()
+        self.batch_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn get_average_write_time(&self) -> Duration {
-        let times = self.write_times.lock().unwrap();
-        if times.is_empty() {
+        let batch_count = self.get_batch_count();
+        if batch_count == 0 {
             return Duration::from_nanos(0);
         }
-        let total: Duration = times.iter().sum();
-        total / times.len() as u32
+        let total_nanos = self
+            .total_write_time
+            .load(std::sync::atomic::Ordering::Relaxed);
+        Duration::from_nanos(total_nanos / batch_count as u64)
     }
 
     pub fn get_metrics(&self) -> BenchmarkMetrics {
@@ -173,12 +187,17 @@ impl BenchmarkDataWriter {
 impl DataWriter for BenchmarkDataWriter {
     async fn write(
         &mut self,
-        record: StreamRecord,
+        _record: StreamRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
-        self.written_records.lock().unwrap().push(record);
-        self.write_times.lock().unwrap().push(start.elapsed());
-        *self.batch_count.lock().unwrap() += 1;
+        self.written_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.batch_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.total_write_time.fetch_add(
+            start.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Ok(())
     }
 
@@ -187,9 +206,16 @@ impl DataWriter for BenchmarkDataWriter {
         records: Vec<StreamRecord>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
-        self.written_records.lock().unwrap().extend(records);
-        self.write_times.lock().unwrap().push(start.elapsed());
-        *self.batch_count.lock().unwrap() += 1;
+        let count = records.len();
+        // Don't store records, just count them (zero memory overhead)
+        self.written_count
+            .fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+        self.batch_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.total_write_time.fetch_add(
+            start.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Ok(())
     }
 
@@ -267,7 +293,10 @@ impl BenchmarkResult {
         println!("  Records:  {}", self.total_records);
         println!("\nPerformance:");
         println!("  Duration:           {:?}", self.duration);
-        println!("  Throughput:         {:.2} records/sec", self.records_per_second);
+        println!(
+            "  Throughput:         {:.2} records/sec",
+            self.records_per_second
+        );
         println!("  Total Batches:      {}", self.total_batches);
         println!("  Avg Batch Time:     {:?}", self.avg_batch_write_time);
         println!("  Success Rate:       {:.2}%", self.success_rate * 100.0);
@@ -301,8 +330,11 @@ async fn benchmark_simple_processor(
         let source_name = format!("source_{}", i);
         readers.insert(
             source_name.clone(),
-            Box::new(BenchmarkDataReader::new(&source_name, records_per_source, batch_size))
-                as Box<dyn DataReader>,
+            Box::new(BenchmarkDataReader::new(
+                &source_name,
+                records_per_source,
+                batch_size,
+            )) as Box<dyn DataReader>,
         );
     }
 
@@ -347,8 +379,10 @@ async fn benchmark_simple_processor(
     // Collect metrics from all sinks
     let total_records: usize = writer_clones.iter().map(|w| w.get_written_count()).sum();
     let total_batches: usize = writer_clones.iter().map(|w| w.get_batch_count()).sum();
-    let avg_write_times: Vec<Duration> =
-        writer_clones.iter().map(|w| w.get_average_write_time()).collect();
+    let avg_write_times: Vec<Duration> = writer_clones
+        .iter()
+        .map(|w| w.get_average_write_time())
+        .collect();
     let avg_batch_write_time = if !avg_write_times.is_empty() {
         avg_write_times.iter().sum::<Duration>() / avg_write_times.len() as u32
     } else {
@@ -398,8 +432,11 @@ async fn benchmark_transactional_processor(
         let source_name = format!("source_{}", i);
         readers.insert(
             source_name.clone(),
-            Box::new(BenchmarkDataReader::new(&source_name, records_per_source, batch_size))
-                as Box<dyn DataReader>,
+            Box::new(BenchmarkDataReader::new(
+                &source_name,
+                records_per_source,
+                batch_size,
+            )) as Box<dyn DataReader>,
         );
     }
 
@@ -444,8 +481,10 @@ async fn benchmark_transactional_processor(
     // Collect metrics from all sinks
     let total_records: usize = writer_clones.iter().map(|w| w.get_written_count()).sum();
     let total_batches: usize = writer_clones.iter().map(|w| w.get_batch_count()).sum();
-    let avg_write_times: Vec<Duration> =
-        writer_clones.iter().map(|w| w.get_average_write_time()).collect();
+    let avg_write_times: Vec<Duration> = writer_clones
+        .iter()
+        .map(|w| w.get_average_write_time())
+        .collect();
     let avg_batch_write_time = if !avg_write_times.is_empty() {
         avg_write_times.iter().sum::<Duration>() / avg_write_times.len() as u32
     } else {
@@ -485,6 +524,120 @@ async fn benchmark_2_sinks_100_records() {
     println!(
         "  Simple vs Transactional throughput: {:.2}x",
         simple.records_per_second / transactional.records_per_second
+    );
+}
+
+#[tokio::test]
+async fn benchmark_realistic_1source_1sink_100k() {
+    println!("\n=== REALISTIC Benchmark: 1 Source → 1 Sink, 100K Records ===");
+    println!("This represents the most common streaming pattern");
+
+    let simple = benchmark_simple_processor(1, 1, 100_000, 500).await;
+    simple.print();
+
+    let transactional = benchmark_transactional_processor(1, 1, 100_000, 500).await;
+    transactional.print();
+
+    println!("\n📊 Comparison:");
+    println!(
+        "  Simple vs Transactional throughput: {:.2}x",
+        simple.records_per_second / transactional.records_per_second
+    );
+    println!(
+        "  Total records: {} (~{} MB)",
+        simple.total_records,
+        simple.total_records * 200 / 1_000_000
+    );
+    println!(
+        "  Processing time difference: {:.2}ms",
+        (transactional.duration.as_secs_f64() - simple.duration.as_secs_f64()) * 1000.0
+    );
+}
+
+#[tokio::test]
+async fn benchmark_realistic_1source_1sink_1m() {
+    println!("\n=== REALISTIC HEAVY LOAD: 1 Source → 1 Sink, 1M Records ===");
+    println!("Sustained high-throughput single stream processing");
+
+    let simple = benchmark_simple_processor(1, 1, 1_000_000, 1000).await;
+    simple.print();
+
+    let transactional = benchmark_transactional_processor(1, 1, 1_000_000, 1000).await;
+    transactional.print();
+
+    println!("\n🔥 High-Throughput Results:");
+    println!(
+        "  Simple: {:.2}M records/sec",
+        simple.records_per_second / 1_000_000.0
+    );
+    println!(
+        "  Transactional: {:.2}M records/sec",
+        transactional.records_per_second / 1_000_000.0
+    );
+    println!(
+        "  Overhead: {:.1}ms ({:.1}%)",
+        (transactional.duration.as_secs_f64() - simple.duration.as_secs_f64()) * 1000.0,
+        ((transactional.duration.as_secs_f64() / simple.duration.as_secs_f64()) - 1.0) * 100.0
+    );
+    println!(
+        "  Data volume: ~{} MB",
+        simple.total_records * 200 / 1_000_000
+    );
+}
+
+#[tokio::test]
+async fn benchmark_realistic_dual_sink() {
+    println!("\n=== REALISTIC: 1 Source → 2 Sinks (e.g., Kafka + DB) ===");
+    println!("Common pattern: write to both message queue and database");
+
+    let simple = benchmark_simple_processor(1, 2, 100_000, 500).await;
+    simple.print();
+
+    let transactional = benchmark_transactional_processor(1, 2, 100_000, 500).await;
+    transactional.print();
+
+    println!("\n📊 Dual-Sink Performance:");
+    println!(
+        "  Simple throughput: {:.2}K records/sec",
+        simple.records_per_second / 1000.0
+    );
+    println!(
+        "  Transactional throughput: {:.2}K records/sec",
+        transactional.records_per_second / 1000.0
+    );
+    println!(
+        "  Transaction overhead: {:.1}%",
+        ((transactional.duration.as_secs_f64() / simple.duration.as_secs_f64()) - 1.0) * 100.0
+    );
+}
+
+#[tokio::test]
+async fn benchmark_extreme_scale_1m_records() {
+    println!("\n=== EXTREME SCALE Benchmark: 16 Sinks, 1M Records per Source ===");
+    println!("⚠️  This test processes 16 MILLION records across 16 sinks");
+
+    let simple = benchmark_simple_processor(4, 16, 1_000_000, 1000).await;
+    simple.print();
+
+    let transactional = benchmark_transactional_processor(4, 16, 1_000_000, 1000).await;
+    transactional.print();
+
+    println!("\n🔥 EXTREME SCALE RESULTS:");
+    println!(
+        "  Simple: {:.2}M records/sec",
+        simple.records_per_second / 1_000_000.0
+    );
+    println!(
+        "  Transactional: {:.2}M records/sec",
+        transactional.records_per_second / 1_000_000.0
+    );
+    println!(
+        "  Throughput advantage: {:.2}x",
+        simple.records_per_second / transactional.records_per_second
+    );
+    println!(
+        "  Data volume: ~{} MB",
+        simple.total_records * 200 / 1_000_000
     );
 }
 

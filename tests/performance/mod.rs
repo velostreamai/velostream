@@ -24,9 +24,10 @@ pub mod where_clause_performance_test;
 
 // Individual performance test modules (these ARE discoverable and clickable in IDEs)
 pub mod avro_decimal_roundtrip_test;
+pub mod microbench_multi_sink_write;
+pub mod microbench_profiling;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
-pub mod microbench_multi_sink_write;
 
 // Re-export organized structure for easier access
 pub use consolidated_mod::*;
