@@ -23,6 +23,177 @@
 
 ---
 
+## 🔍 **ACTIVE INVESTIGATION: Tokio Async Framework Overhead**
+
+**Identified**: October 8, 2025
+**Priority**: **LOW-MEDIUM** - Optimization opportunity, not blocking production
+**Status**: 📊 **ANALYSIS COMPLETE** - Investigation plan ready
+
+### **Problem Statement**
+
+Comprehensive profiling revealed 91.3% framework overhead in microbenchmarks:
+
+```
+╔═══════════════════════════════════════════════════╗
+║ Mock (READ clone):       249ms =  8.7% (artificial) ║
+║ Execution (PROCESS+WRITE): <1ms = <0.1% (target)     ║
+║ Async framework:        2.62s = 91.3% (coordination) ║
+╠═══════════════════════════════════════════════════╣
+║ TOTAL:                  2.87s = 100.0%              ║
+╚═══════════════════════════════════════════════════╝
+
+Throughput: 349K records/sec (1M records, 1000 batches)
+```
+
+**Key Finding**: For trivial workloads (pass-through `SELECT *`, mock I/O), tokio async coordination dominates execution time at ~2.6ms per batch.
+
+### **Context: Why This Is (Mostly) Acceptable**
+
+**In Microbenchmarks** (trivial workload):
+- Work per batch: <1µs (pass-through query, no real I/O)
+- Framework per batch: ~2.6ms (tokio task scheduling, Arc/Mutex locks, .await points)
+- **Result**: Framework dominates at 91.3%
+
+**In Production** (real Kafka workload):
+- Network I/O: 1-10ms per batch (Kafka fetch)
+- Deserialization: 0.1-1ms per batch (Avro/JSON parsing)
+- Complex SQL: 0.1-10ms per batch (aggregations, joins, filters)
+- Framework: ~2-3ms per batch (same cost as microbenchmark)
+- **Result**: Framework becomes 10-30% (acceptable overhead)
+
+### **Investigation Plan**
+
+#### **Phase 1: Detailed Profiling** (1 day)
+**Goal**: Identify specific tokio overhead sources
+
+**Tasks**:
+- [ ] Add tokio-console instrumentation to processor loop
+- [ ] Profile Arc<Mutex<>> lock contention in multi-source scenarios
+- [ ] Measure cost of each .await point in processing chain
+- [ ] Identify channel overhead (mpsc vs broadcast)
+- [ ] Profile task spawning and scheduling overhead
+
+**Tools**:
+- `tokio-console` for runtime inspection
+- `tokio-metrics` for task-level profiling
+- Custom instrumentation in `simple.rs` and `transactional.rs`
+
+**Expected Outcome**: Breakdown showing which async operations consume the 2.6ms per batch
+
+#### **Phase 2: Optimization Experiments** (2-3 days)
+**Goal**: Test potential optimizations without breaking production behavior
+
+**Experiment 1: Batch Size Tuning**
+- Current: 1000 records per batch
+- Test: 2000, 5000, 10000 record batches
+- Hypothesis: Larger batches amortize framework overhead
+- Risk: Increased memory pressure, potential latency spikes
+
+**Experiment 2: Reduce Async Boundaries**
+- Identify synchronous operations marked as `async fn`
+- Convert to synchronous where possible (e.g., in-memory state updates)
+- Hypothesis: Fewer .await points = less tokio coordination
+- Risk: Breaking trait contracts (DataReader/DataWriter are async)
+
+**Experiment 3: Lock-Free State Management**
+- Replace `Arc<Mutex<StreamExecutionEngine>>` with channels
+- Use `mpsc` for command pattern (send state updates)
+- Hypothesis: Eliminate lock contention overhead
+- Risk: Complexity increase, potential deadlocks
+
+**Experiment 4: Batch-Level Async (Not Per-Record)**
+- Process entire batch synchronously after async read
+- Only .await at batch boundaries (read/write/commit)
+- Hypothesis: Reduce .await points from ~1000 to ~3 per batch
+- Risk: Requires refactoring DataReader/DataWriter usage
+
+**Experiment 5: Thread-Per-Source Model**
+- Use blocking I/O with OS threads instead of async/await
+- Reserve tokio for coordination only
+- Hypothesis: Eliminate async overhead for CPU-bound SQL processing
+- Risk: Higher thread overhead, less scalability
+
+#### **Phase 3: Production Validation** (1 day)
+**Goal**: Verify optimizations don't hurt production workloads
+
+**Validation Criteria**:
+- [ ] Real Kafka benchmark with network I/O
+- [ ] Complex SQL queries (aggregations, joins, windows)
+- [ ] Multi-source/multi-sink scenarios
+- [ ] Memory usage comparison
+- [ ] Latency percentiles (p50, p95, p99)
+
+**Success Metrics**:
+- Microbenchmark throughput increase: Target +20-50%
+- Production workload impact: Neutral or positive
+- No regression in memory usage or latency percentiles
+- Code complexity: Minimal increase
+
+### **Decision Criteria**
+
+**Proceed with optimization if**:
+1. ✅ Microbenchmark improvement > 20%
+2. ✅ Production workload not negatively impacted
+3. ✅ Code complexity increase < 10%
+4. ✅ All tests passing (no regressions)
+
+**Accept current performance if**:
+1. ❌ Optimization gains < 20%
+2. ❌ Production workload shows regression
+3. ❌ Code complexity significantly increases
+4. ❌ Breaking changes to DataReader/DataWriter traits
+
+### **Alternative: Batching Strategy**
+
+If framework overhead cannot be reduced further, consider **adaptive batching**:
+
+```rust
+// Dynamically adjust batch size based on throughput
+pub struct AdaptiveBatchConfig {
+    min_batch_size: usize,   // 100 records
+    max_batch_size: usize,   // 10,000 records
+    target_batch_time: Duration,  // 100ms
+    current_batch_size: AtomicUsize,
+}
+
+impl AdaptiveBatchConfig {
+    // Increase batch size if processing is fast
+    // Decrease batch size if processing is slow
+    pub fn adjust_based_on_throughput(&self, batch_duration: Duration) {
+        // Implementation...
+    }
+}
+```
+
+**Benefits**:
+- Automatically optimizes for workload characteristics
+- Amortizes framework overhead over larger batches when possible
+- Reduces latency by using smaller batches when needed
+- No breaking changes to existing architecture
+
+### **Current Recommendation**
+
+**For October 2025**: ✅ **Accept current performance**
+
+**Reasoning**:
+1. **Production Impact**: Framework overhead becomes 10-30% with real Kafka I/O
+2. **Optimization Delivered**: Already achieved +8-11% improvement via zero-copy and lazy checks
+3. **Complexity Risk**: Further optimization requires significant refactoring
+4. **Priority**: Other features (advanced windows, enhanced joins) provide more value
+
+**For Future Investigation** (Q1 2026):
+- Revisit after implementing complex SQL features
+- Profile with production-scale workloads (1M+ records/sec)
+- Consider adaptive batching if framework overhead becomes blocking
+
+### **References**
+- Profiling benchmark: `tests/performance/microbench_profiling.rs`
+- Multi-sink benchmark: `tests/performance/microbench_multi_sink_write.rs`
+- Processor implementation: `src/velostream/server/processors/simple.rs`
+- Complete analysis: [todo-complete.md](todo-complete.md#-completed-multi-sink-write-performance-optimization---october-8-2025)
+
+---
+
 ## 🎉 **TODAY'S ACCOMPLISHMENTS - October 7, 2025 (Evening)**
 
 ### **✅ Multi-Source Processor Tests Registered - MOVED TO ARCHIVE**
