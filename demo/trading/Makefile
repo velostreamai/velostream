@@ -18,12 +18,12 @@ build:
 # Run the trading demo
 run: build
 	@echo "🚀 Starting Velostream Trading Demo..."
-	./run_demo.sh
+	./start-demo.sh
 
 # Run a short demo (1 minute)
 run-short: build
 	@echo "🚀 Starting short Velostream Trading Demo (1 minute)..."
-	DEMO_DURATION=1 ./run_demo.sh
+	./start-demo.sh -q
 
 # Clean demo artifacts (leaves main project build alone)
 clean:
