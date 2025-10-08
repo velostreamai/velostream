@@ -17,13 +17,17 @@
 CREATE STREAM market_data_ts AS
 SELECT
     symbol,
-    price,
-    volume,
-    timestamp,
-    -- Extract event-time from trade execution timestamp
-    timestamp as event_time,
     exchange,
-    trade_id
+    timestamp,
+    timestamp as event_timestamp,
+    price,
+    bid_price,
+    ask_price,
+    bid_size,
+    ask_size,
+    volume,
+    vwap,
+    market_cap
 FROM market_data_stream
 EMIT CHANGES
 WITH (
