@@ -6,6 +6,7 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
+use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -51,6 +52,143 @@ impl SimpleJobProcessor {
     /// Get reference to the job processing configuration
     pub fn get_config(&self) -> &JobProcessingConfig {
         &self.config
+    }
+
+    /// Register counter metrics from SQL annotations
+    async fn register_counter_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Extract counter annotations from the query
+        let counter_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations,
+                ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Counter)
+                .collect::<Vec<_>>(),
+            _ => return Ok(()), // Only CreateStream queries have annotations
+        };
+
+        if counter_annotations.is_empty() {
+            debug!("Job '{}': No counter metrics to register", job_name);
+            return Ok(());
+        }
+
+        // Register each counter metric with the metrics provider
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for annotation in counter_annotations {
+                            let help = annotation
+                                .help
+                                .as_deref()
+                                .unwrap_or("SQL-annotated counter metric");
+
+                            metrics.register_counter_metric(
+                                &annotation.name,
+                                help,
+                                &annotation.labels,
+                            )?;
+
+                            info!(
+                                "Job '{}': Registered counter metric '{}' with labels {:?}",
+                                job_name, annotation.name, annotation.labels
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "Job '{}': No metrics provider available for annotation registration",
+                            job_name
+                        );
+                    }
+                }
+            }
+        } else {
+            debug!(
+                "Job '{}': No observability manager - skipping metric registration",
+                job_name
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Emit counter metrics for processed records
+    async fn emit_counter_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        // Extract counter annotations from the query
+        let counter_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations,
+                ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Counter)
+                .collect::<Vec<_>>(),
+            _ => return, // Only CreateStream queries have annotations
+        };
+
+        if counter_annotations.is_empty() || output_records.is_empty() {
+            return;
+        }
+
+        // Emit metrics for each output record
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for record in output_records {
+                            for annotation in &counter_annotations {
+                                // Extract label values from the record
+                                let label_values: Vec<String> = annotation
+                                    .labels
+                                    .iter()
+                                    .filter_map(|label_name| {
+                                        record.fields.get(label_name).map(|value| {
+                                            // Convert FieldValue to String for label
+                                            value.to_display_string()
+                                        })
+                                    })
+                                    .collect();
+
+                                // Only emit if we have all required labels
+                                if label_values.len() == annotation.labels.len() {
+                                    if let Err(e) =
+                                        metrics.emit_counter(&annotation.name, &label_values)
+                                    {
+                                        debug!(
+                                            "Job '{}': Failed to emit counter '{}': {:?}",
+                                            job_name, annotation.name, e
+                                        );
+                                    } else {
+                                        debug!(
+                                            "Job '{}': Emitted counter '{}' with labels {:?}",
+                                            job_name, annotation.name, label_values
+                                        );
+                                    }
+                                } else {
+                                    debug!(
+                                        "Job '{}': Skipping counter '{}' - missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Process records from multiple datasources with multiple sinks (multi-source/sink processing)
@@ -231,6 +369,14 @@ impl SimpleJobProcessor {
 
         // Log detailed information about the source and sink types
         log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
+
+        // Register counter metrics from SQL annotations
+        if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
 
         if reader.supports_transactions()
             || writer
@@ -432,6 +578,10 @@ impl SimpleJobProcessor {
             "Job '{}': SQL processing complete - {} records processed, {} failed",
             job_name, batch_result.records_processed, batch_result.records_failed
         );
+
+        // Emit counter metrics for successfully processed records
+        self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+            .await;
 
         // Step 3: Handle results based on failure strategy
         let should_commit = should_commit_batch(
