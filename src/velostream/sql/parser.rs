@@ -103,6 +103,9 @@ use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
 use std::time::Duration;
 
+// FR-073 Phase 1: Metric annotation parser
+pub mod annotations;
+
 /// Main parser for streaming SQL queries.
 ///
 /// The `StreamingSqlParser` handles the complete parsing pipeline from SQL text to AST.
@@ -449,13 +452,14 @@ impl StreamingSqlParser {
     /// }
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
-        let tokens = self.tokenize(sql)?;
-        self.parse_tokens_with_context(tokens, sql)
+        // FR-073 Phase 1: Use tokenize_with_comments to extract annotations
+        let (tokens, comments) = self.tokenize_with_comments(sql)?;
+        self.parse_tokens_with_context(tokens, sql, comments)
     }
 
     // Keep the old method for backward compatibility
     fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
-        self.parse_tokens_with_context(tokens, "")
+        self.parse_tokens_with_context(tokens, "", Vec::new())
     }
 
     fn tokenize(&self, sql: &str) -> Result<Vec<Token>, SqlError> {
@@ -884,8 +888,9 @@ impl StreamingSqlParser {
         &self,
         tokens: Vec<Token>,
         sql_text: &str,
+        comments: Vec<Token>,
     ) -> Result<StreamingQuery, SqlError> {
-        let mut parser = TokenParser::new(tokens, sql_text);
+        let mut parser = TokenParser::new(tokens, sql_text, comments);
 
         match parser.current_token().token_type {
             TokenType::Select => parser.parse_select(),
@@ -907,14 +912,17 @@ struct TokenParser<'a> {
     tokens: Vec<Token>,
     current: usize,
     sql_text: &'a str,
+    // FR-073 Phase 1: Store comments for annotation parsing
+    comments: Vec<Token>,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: Vec<Token>, sql_text: &'a str) -> Self {
+    fn new(tokens: Vec<Token>, sql_text: &'a str, comments: Vec<Token>) -> Self {
         Self {
             tokens,
             current: 0,
             sql_text,
+            comments,
         }
     }
 
@@ -3093,12 +3101,32 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
+        // FR-073 Phase 1: Extract and parse metric annotations from comments
+        // Get comments that appear before this CREATE STREAM statement
+        let create_position = if self.current > 0 && self.current < self.tokens.len() {
+            self.tokens[self.current - 1].position
+        } else if !self.tokens.is_empty() {
+            self.tokens[0].position
+        } else {
+            0
+        };
+
+        let preceding_comment_texts =
+            StreamingSqlParser::extract_preceding_comments(&self.comments, create_position);
+
+        let metric_annotations = annotations::parse_metric_annotations(&preceding_comment_texts)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to parse metric annotations: {}", e);
+                Vec::new()
+            });
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
             as_select,
             properties,
             emit_mode,
+            metric_annotations,
         })
     }
 

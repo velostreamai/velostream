@@ -563,6 +563,7 @@ fn test_csas_validation() {
         as_select: Box::new(create_basic_select()),
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),
+        metric_annotations: Vec::new(), // FR-073 Phase 1
     };
 
     validator.validate(&query);
@@ -581,6 +582,7 @@ fn test_csas_empty_name() {
         as_select: Box::new(create_basic_select()),
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),
+        metric_annotations: Vec::new(), // FR-073 Phase 1
     };
 
     validator.validate(&query);

@@ -151,6 +151,8 @@ pub enum StreamingQuery {
         properties: HashMap<String, String>,
         /// Emission mode for continuous query results
         emit_mode: Option<EmitMode>,
+        /// Metric annotations from SQL comments (FR-073 Phase 1)
+        metric_annotations: Vec<crate::velostream::sql::parser::annotations::MetricAnnotation>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
