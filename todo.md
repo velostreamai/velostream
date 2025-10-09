@@ -25,7 +25,7 @@
   - Fixed Grafana dashboard datasource UIDs and metric names
   - Grafana "Velostream Overview" dashboard fully functional
   - All metrics properly exported on port 9091
-  - See [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md) for complete feature specification
+  - See [docs/feature/FR-073-UNIFIED-OBSERVABILITY.md](docs/feature/FR-073-UNIFIED-OBSERVABILITY.md) for complete feature specification
 
 ### **October 8, 2025**
 - ✅ **Multi-Sink Write Performance Optimization** (commit 10832d3)
@@ -1670,14 +1670,14 @@ WITH (
 **Dependencies**: Stream-Table joins completion
 **Status**: ❌ **PENDING** (depends on Priority 1)
 
-### 🌟 **PRIORITY 6: SQL-Based Metrics Annotation (FR-073)**
+### 🌟 **PRIORITY 6: Unified Metrics, Lineage, and AI-Assisted Observability (FR-073)**
 **Timeline**: 7 weeks (2 weeks MVP)
 **Dependencies**: ✅ ObservabilityManager infrastructure complete
-**Status**: 📋 **RFC ENHANCED** - Comprehensive implementation plan ready
+**Status**: 📋 **RFC ENHANCED** - Comprehensive implementation plan ready with AI-native vision
 **Priority**: 🔥 **HIGH** - Major competitive differentiator vs Apache Flink/Arroyo/Materialize
-**Updated**: October 9, 2025 (Evening) - Enhanced with detailed technical specs (commit 9213215)
+**Updated**: October 9, 2025 (Evening) - Enhanced with AI-native capabilities and renamed for broader scope
 
-**Overview**: Enable declarative Prometheus metrics definition directly in SQL using `@metric` annotations, eliminating need for separate metrics exporter services.
+**Overview**: Enable comprehensive observability through three integrated pillars: (1) Declarative Prometheus metrics via `@metric` annotations, (2) Automatic data lineage tracking, (3) AI-assisted anomaly detection and query optimization.
 
 **Key Innovation**:
 ```sql
@@ -1737,10 +1737,11 @@ SELECT * FROM market_data WHERE volume > avg_volume * 2.0;
 - ⚡ Version control integration (metrics + logic together)
 - 🔍 Future: Auto-generated dashboards, trace-to-metric correlation
 
-**RFC Document**: [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md)
+**RFC Document**: [docs/feature/FR-073-UNIFIED-OBSERVABILITY.md](docs/feature/FR-073-UNIFIED-OBSERVABILITY.md)
 - **Enhanced**: October 9, 2025 - Added detailed implementation specs, strategic differentiation
-- **Content**: Complete code examples, file locations, test specifications, LOE estimates
-- **Size**: 2,260 lines with comprehensive technical details
+- **Updated**: October 9, 2025 - Renamed to reflect expanded scope (Unified Metrics, Lineage, and AI-Assisted Observability)
+- **Content**: Complete code examples, file locations, test specifications, LOE estimates, AI-native vision
+- **Size**: 3,135 lines with comprehensive technical details and 18-month roadmap
 
 **Next Steps**:
 1. ✅ RFC enhancement complete (commit 9213215)

@@ -1,12 +1,21 @@
-# Feature Request: SQL-Based Metrics Annotation for Business Observability
+# Feature Request: FR-073 - Unified Metrics, Lineage, and AI-Assisted Observability in VeloStream
 
 ## Overview
 
-Enable SQL queries to annotate their outputs with Prometheus metrics declarations, allowing business-level observability to be defined declaratively alongside the SQL logic that generates the events. This creates a self-documenting, integrated approach to both stream processing and observability.
+Enable comprehensive observability in VeloStream through three integrated pillars:
 
-**Competitive Advantage**: This feature provides a significant edge over Apache Flink, which requires separate Java/Scala code for custom metrics. Velostream users can define metrics directly in SQL, making observability a first-class citizen of the streaming pipeline.
+1. **SQL Metrics Annotation**: Declarative Prometheus metrics defined directly in SQL comments using `@metric` annotations
+2. **Lineage Tracking**: Automatic data lineage capture showing how data flows through transformations, aggregations, and joins
+3. **AI-Assisted Observability**: Intelligent anomaly detection, query optimization recommendations, and predictive capacity planning
 
-“This moves Velostream toward a unified SQL + Observability model, where every query is both a transformation and a self-monitoring entity.”
+This creates a self-documenting, autonomous streaming system where SQL queries are both transformations and self-monitoring, self-optimizing entities.
+
+**Competitive Advantage**: This feature provides a significant edge over Apache Flink, Arroyo, and Materialize:
+- **vs Flink**: No separate Java/Scala code required for metrics or lineage
+- **vs Arroyo/Materialize**: Built-in AI capabilities for autonomous monitoring and optimization
+- **Unique Value**: SQL-native observability with AI-assisted insights and automatic lineage tracking
+
+"This positions Velostream as the AI-Native Streaming Engine, where every query is both a transformation and an intelligent, self-monitoring entity with full lineage visibility."
 
 ## Current State
 
