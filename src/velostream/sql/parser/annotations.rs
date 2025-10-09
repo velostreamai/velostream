@@ -1,4 +1,4 @@
-// === FR-073 Phase 1: Metric Annotation Parser ===
+// Metric Annotation Parser
 //
 // This module parses @metric annotations from SQL comments to enable
 // declarative Prometheus metrics defined directly in SQL files.

@@ -1,5 +1,3 @@
-// FR-073 Phase 1: Unit tests for metric annotation parsing
-
 use velostream::velostream::sql::parser::annotations::{
     parse_metric_annotations, MetricAnnotation, MetricType,
 };

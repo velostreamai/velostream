@@ -103,7 +103,6 @@ use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
 use std::time::Duration;
 
-// FR-073 Phase 1: Metric annotation parser
 pub mod annotations;
 
 /// Main parser for streaming SQL queries.
@@ -147,8 +146,7 @@ pub struct StreamingSqlParser {
 /// Each token type represents a different category of SQL syntax element,
 /// from keywords and operators to literals and punctuation.
 ///
-/// Public for FR-073 metric annotation support - allows external code
-/// to identify comment tokens.
+/// Public to allow external code to identify comment tokens.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // SQL Keywords
@@ -272,7 +270,7 @@ pub enum TokenType {
     Unbounded, // UNBOUNDED
     Over,      // OVER
 
-    // Comments (FR-073: Preserve for annotation parsing)
+    // Comments preserved for annotation parsing
     SingleLineComment, // -- comment text
     MultiLineComment,  // /* comment text */
 
@@ -287,8 +285,7 @@ pub enum TokenType {
 /// and consumed by the parser. Position information enables detailed
 /// error reporting.
 ///
-/// Public for FR-073 metric annotation support - allows external code
-/// to access comment tokens for parsing metric annotations.
+/// Public to allow external code to access comment tokens for parsing metric annotations.
 #[derive(Debug, Clone)]
 pub struct Token {
     /// The type of this token (keyword, operator, literal, etc.)
@@ -452,7 +449,7 @@ impl StreamingSqlParser {
     /// }
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
-        // FR-073 Phase 1: Use tokenize_with_comments to extract annotations
+        // Use tokenize_with_comments to extract annotations
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
         self.parse_tokens_with_context(tokens, sql, comments)
     }
@@ -544,7 +541,7 @@ impl StreamingSqlParser {
                     chars.next();
                     position += 1;
                     if let Some(&'-') = chars.peek() {
-                        // Single-line comment, preserve the text (FR-073)
+                        // Single-line comment, preserve the text
                         chars.next(); // consume second '-'
                         position += 1;
 
@@ -579,7 +576,7 @@ impl StreamingSqlParser {
                     chars.next();
                     position += 1;
                     if let Some(&'*') = chars.peek() {
-                        // Multi-line comment, preserve the text (FR-073)
+                        // Multi-line comment, preserve the text
                         chars.next(); // consume '*'
                         position += 1;
 
@@ -823,7 +820,7 @@ impl StreamingSqlParser {
         Ok(tokens)
     }
 
-    /// Tokenize SQL and separate comments from other tokens (FR-073)
+    /// Tokenize SQL and separate comments from other tokens
     ///
     /// Returns a tuple of (non-comment tokens, comment tokens).
     /// Comments are extracted with their position information for annotation parsing.
@@ -865,7 +862,7 @@ impl StreamingSqlParser {
         Ok((tokens, comments))
     }
 
-    /// Extract comments that appear before a CREATE statement (FR-073)
+    /// Extract comments that appear before a CREATE statement
     ///
     /// This method extracts consecutive comments that appear immediately before
     /// a CREATE STREAM or CREATE TABLE statement, which can contain metric annotations.
@@ -912,7 +909,7 @@ struct TokenParser<'a> {
     tokens: Vec<Token>,
     current: usize,
     sql_text: &'a str,
-    // FR-073 Phase 1: Store comments for annotation parsing
+    // Store comments for annotation parsing
     comments: Vec<Token>,
 }
 
@@ -3101,7 +3098,7 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
-        // FR-073 Phase 1: Extract and parse metric annotations from comments
+        // Extract and parse metric annotations from comments
         // Get comments that appear before this CREATE STREAM statement
         let create_position = if self.current > 0 && self.current < self.tokens.len() {
             self.tokens[self.current - 1].position
