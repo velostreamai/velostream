@@ -9,10 +9,11 @@ use prometheus::{
     register_int_gauge_with_registry, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts,
     HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Prometheus metrics provider for comprehensive monitoring
-#[derive(Debug)]
 pub struct MetricsProvider {
     config: PrometheusConfig,
     registry: Registry,
@@ -20,6 +21,8 @@ pub struct MetricsProvider {
     streaming_metrics: StreamingMetrics,
     system_metrics: SystemMetrics,
     active: bool,
+    // Dynamic SQL-annotated metrics
+    dynamic_counters: Arc<Mutex<HashMap<String, IntCounterVec>>>,
 }
 
 impl MetricsProvider {
@@ -47,6 +50,7 @@ impl MetricsProvider {
             streaming_metrics,
             system_metrics,
             active: true,
+            dynamic_counters: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -140,6 +144,119 @@ impl MetricsProvider {
         self.active = false;
         log::debug!("📊 Prometheus metrics stopped");
         Ok(())
+    }
+
+    /// Register a dynamic counter metric from SQL annotations
+    ///
+    /// # Arguments
+    /// * `name` - Metric name (must follow Prometheus naming rules)
+    /// * `help` - Help text description
+    /// * `label_names` - Names of labels for this counter
+    ///
+    /// # Returns
+    /// * `Ok(())` - Metric successfully registered
+    /// * `Err(SqlError)` - Registration failed (metric already exists or invalid name)
+    pub fn register_counter_metric(
+        &self,
+        name: &str,
+        help: &str,
+        label_names: &[String],
+    ) -> Result<(), SqlError> {
+        if !self.active {
+            return Err(SqlError::ConfigurationError {
+                message: "Metrics provider is not active".to_string(),
+            });
+        }
+
+        let mut counters =
+            self.dynamic_counters
+                .lock()
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to acquire lock on dynamic counters: {}", e),
+                })?;
+
+        // Check if metric already registered
+        if counters.contains_key(name) {
+            log::debug!("📊 Counter metric '{}' already registered, skipping", name);
+            return Ok(());
+        }
+
+        // Convert Vec<String> to Vec<&str> for registration
+        let label_refs: Vec<&str> = label_names.iter().map(|s| s.as_str()).collect();
+
+        // Register the counter with the registry
+        let counter = register_int_counter_vec_with_registry!(
+            Opts::new(name, help),
+            &label_refs,
+            &self.registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register counter '{}': {}", name, e),
+        })?;
+
+        counters.insert(name.to_string(), counter);
+
+        log::info!(
+            "📊 Registered dynamic counter metric: name={}, labels={:?}",
+            name,
+            label_names
+        );
+
+        Ok(())
+    }
+
+    /// Emit a counter metric increment with labels
+    ///
+    /// # Arguments
+    /// * `name` - Metric name (must be previously registered)
+    /// * `label_values` - Values for labels (must match registration order)
+    ///
+    /// # Returns
+    /// * `Ok(())` - Counter incremented successfully
+    /// * `Err(SqlError)` - Metric not found or label mismatch
+    pub fn emit_counter(&self, name: &str, label_values: &[String]) -> Result<(), SqlError> {
+        if !self.active {
+            return Ok(()); // Silently skip if not active
+        }
+
+        let counters = self
+            .dynamic_counters
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on dynamic counters: {}", e),
+            })?;
+
+        let counter = counters
+            .get(name)
+            .ok_or_else(|| SqlError::ConfigurationError {
+                message: format!("Counter metric '{}' not registered", name),
+            })?;
+
+        // Convert Vec<String> to Vec<&str> for label lookup
+        let label_refs: Vec<&str> = label_values.iter().map(|s| s.as_str()).collect();
+
+        counter.with_label_values(&label_refs).inc();
+
+        log::trace!(
+            "📊 Emitted counter: name={}, labels={:?}",
+            name,
+            label_values
+        );
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for MetricsProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricsProvider")
+            .field("active", &self.active)
+            .field("config", &self.config)
+            .field(
+                "dynamic_counters_count",
+                &self.dynamic_counters.lock().map(|c| c.len()).unwrap_or(0),
+            )
+            .finish()
     }
 }
 
@@ -534,5 +651,220 @@ mod tests {
 
         let system_metrics = SystemMetrics::new(&registry, &config);
         assert!(system_metrics.is_ok());
+    }
+
+    // === Dynamic Counter Metrics Tests ===
+
+    #[tokio::test]
+    async fn test_register_counter_metric_basic() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        let result = provider.register_counter_metric(
+            "test_events_total",
+            "Total number of test events",
+            &vec![],
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_register_counter_metric_with_labels() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        let labels = vec!["status".to_string(), "source".to_string()];
+        let result = provider.register_counter_metric(
+            "test_requests_total",
+            "Total number of test requests",
+            &labels,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_register_counter_idempotent() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register once
+        let result1 = provider.register_counter_metric("test_metric_total", "Test metric", &vec![]);
+        assert!(result1.is_ok());
+
+        // Register again (should succeed but not duplicate)
+        let result2 = provider.register_counter_metric("test_metric_total", "Test metric", &vec![]);
+        assert!(result2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_emit_counter_basic() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register counter
+        provider
+            .register_counter_metric("test_events_total", "Test events", &vec![])
+            .unwrap();
+
+        // Emit counter
+        let result = provider.emit_counter("test_events_total", &vec![]);
+        assert!(result.is_ok());
+
+        // Verify metric appears in output
+        let metrics_text = provider.get_metrics_text().unwrap();
+        assert!(metrics_text.contains("test_events_total"));
+        assert!(metrics_text.contains(" 1")); // Value should be 1
+    }
+
+    #[tokio::test]
+    async fn test_emit_counter_with_labels() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register counter with labels
+        let labels = vec!["status".to_string(), "source".to_string()];
+        provider
+            .register_counter_metric("test_requests_total", "Test requests", &labels)
+            .unwrap();
+
+        // Emit counter with label values
+        let label_values = vec!["success".to_string(), "api".to_string()];
+        let result = provider.emit_counter("test_requests_total", &label_values);
+        assert!(result.is_ok());
+
+        // Emit again to increment
+        let result = provider.emit_counter("test_requests_total", &label_values);
+        assert!(result.is_ok());
+
+        // Verify metric appears in output with labels
+        let metrics_text = provider.get_metrics_text().unwrap();
+        assert!(metrics_text.contains("test_requests_total"));
+        assert!(metrics_text.contains("status=\"success\""));
+        assert!(metrics_text.contains("source=\"api\""));
+        assert!(metrics_text.contains(" 2")); // Value should be 2
+    }
+
+    #[tokio::test]
+    async fn test_emit_counter_multiple_label_combinations() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register counter with labels
+        let labels = vec!["status".to_string()];
+        provider
+            .register_counter_metric("test_status_total", "Test status", &labels)
+            .unwrap();
+
+        // Emit with different label values
+        provider
+            .emit_counter("test_status_total", &vec!["success".to_string()])
+            .unwrap();
+        provider
+            .emit_counter("test_status_total", &vec!["success".to_string()])
+            .unwrap();
+        provider
+            .emit_counter("test_status_total", &vec!["error".to_string()])
+            .unwrap();
+
+        // Verify both label combinations appear
+        let metrics_text = provider.get_metrics_text().unwrap();
+        assert!(metrics_text.contains("test_status_total"));
+        assert!(metrics_text.contains("status=\"success\""));
+        assert!(metrics_text.contains("status=\"error\""));
+    }
+
+    #[tokio::test]
+    async fn test_emit_counter_before_register_error() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Try to emit before registering (should fail)
+        let result = provider.emit_counter("unregistered_metric", &vec![]);
+        assert!(result.is_err());
+
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("not registered"));
+    }
+
+    #[tokio::test]
+    async fn test_register_counter_when_inactive() {
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Shutdown provider
+        provider.shutdown().await.unwrap();
+
+        // Try to register (should fail)
+        let result = provider.register_counter_metric("test_metric", "Test", &vec![]);
+        assert!(result.is_err());
+
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("not active"));
+    }
+
+    #[tokio::test]
+    async fn test_emit_counter_when_inactive_succeeds_silently() {
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register while active
+        provider
+            .register_counter_metric("test_metric", "Test", &vec![])
+            .unwrap();
+
+        // Shutdown provider
+        provider.shutdown().await.unwrap();
+
+        // Try to emit (should succeed silently)
+        let result = provider.emit_counter("test_metric", &vec![]);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_counter_in_metrics_export() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register and emit a dynamic counter
+        provider
+            .register_counter_metric(
+                "velo_trading_volume_spikes_total",
+                "Total number of volume spikes",
+                &vec!["symbol".to_string(), "spike_ratio".to_string()],
+            )
+            .unwrap();
+
+        provider
+            .emit_counter(
+                "velo_trading_volume_spikes_total",
+                &vec!["AAPL".to_string(), "2.5".to_string()],
+            )
+            .unwrap();
+        provider
+            .emit_counter(
+                "velo_trading_volume_spikes_total",
+                &vec!["AAPL".to_string(), "2.5".to_string()],
+            )
+            .unwrap();
+        provider
+            .emit_counter(
+                "velo_trading_volume_spikes_total",
+                &vec!["GOOGL".to_string(), "3.2".to_string()],
+            )
+            .unwrap();
+
+        // Verify metrics export
+        let metrics_text = provider.get_metrics_text().unwrap();
+        assert!(metrics_text.contains("velo_trading_volume_spikes_total"));
+        assert!(metrics_text.contains("symbol=\"AAPL\""));
+        assert!(metrics_text.contains("spike_ratio=\"2.5\""));
+        assert!(metrics_text.contains("symbol=\"GOOGL\""));
+        assert!(metrics_text.contains("spike_ratio=\"3.2\""));
+
+        // AAPL should have value 2, GOOGL should have value 1
+        assert!(metrics_text.contains(" 2"));
+        assert!(metrics_text.contains(" 1"));
     }
 }
