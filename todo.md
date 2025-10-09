@@ -9,13 +9,23 @@
 ## 📋 **RECENT COMPLETIONS**
 
 ### **October 9, 2025**
+- ✅ **Enhanced FR-073 RFC with Comprehensive Implementation Plan** (commit 9213215)
+  - Added strategic differentiation section: Dual-Plane Observability (Prometheus + ClickHouse)
+  - Integrated OpenTelemetry distributed tracing vision
+  - Added detailed 6-phase implementation plan with complete code examples
+  - Comprehensive technical specifications: ~2,300 LOC, 39 tests, 14 files, 7 weeks
+  - Level of effort breakdown by phase with file locations and test counts
+  - MVP scope defined: 2 weeks for counter metrics only
+  - Complete documentation requirements (12 deliverables)
+  - RFC now ready for implementation with zero ambiguity
+
 - ✅ **Complete Observability and Grafana Dashboard Integration** (commits 8cf22db, 66a6b55)
   - Fixed shared ObservabilityManager initialization using `.with_prometheus_metrics()` builder
   - Added operation-labeled metrics (deserialization, serialization, sql_processing)
   - Fixed Grafana dashboard datasource UIDs and metric names
   - Grafana "Velostream Overview" dashboard fully functional
   - All metrics properly exported on port 9091
-  - See [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md) for future enhancement roadmap
+  - See [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md) for complete feature specification
 
 ### **October 8, 2025**
 - ✅ **Multi-Sink Write Performance Optimization** (commit 10832d3)
@@ -1663,8 +1673,9 @@ WITH (
 ### 🌟 **PRIORITY 6: SQL-Based Metrics Annotation (FR-073)**
 **Timeline**: 7 weeks (2 weeks MVP)
 **Dependencies**: ✅ ObservabilityManager infrastructure complete
-**Status**: 📋 **RFC APPROVED** - Ready for implementation
-**Priority**: 🔥 **HIGH** - Major competitive differentiator vs Apache Flink
+**Status**: 📋 **RFC ENHANCED** - Comprehensive implementation plan ready
+**Priority**: 🔥 **HIGH** - Major competitive differentiator vs Apache Flink/Arroyo/Materialize
+**Updated**: October 9, 2025 (Evening) - Enhanced with detailed technical specs (commit 9213215)
 
 **Overview**: Enable declarative Prometheus metrics definition directly in SQL using `@metric` annotations, eliminating need for separate metrics exporter services.
 
@@ -1673,43 +1684,70 @@ WITH (
 -- @metric: velo_trading_volume_spikes_total
 -- @metric_type: counter
 -- @metric_labels: symbol, spike_ratio
+-- @metric_condition: volume > hourly_avg_volume * 2.0
 CREATE STREAM volume_spikes AS
 SELECT * FROM market_data WHERE volume > avg_volume * 2.0;
 ```
 
-**Competitive Advantage**:
-- Flink requires separate Java/Scala code for custom metrics
-- Velostream makes metrics first-class SQL feature
-- Reduces implementation from 50+ lines → 5 lines
-- Self-documenting pipelines with co-located observability
+**Strategic Differentiation**:
+- **Dual-Plane Observability**: Prometheus (live) + ClickHouse (historical analytics)
+- **OpenTelemetry Integration**: End-to-end tracing for debugging and latency analysis
+- **Unified Observability Layer**: Metrics, logs, and traces all SQL-driven
+- **Competitive Edge**: Flink requires Java/Scala code, Velostream uses declarative SQL
 
-**Implementation Plan**:
-- **Phase 1** (Weeks 1-2): SQL parser enhancement for @metric annotations
-- **Phase 2** (Weeks 3-4): Metrics runtime integration
-- **Phase 3** (Week 5): Label extraction from record fields
-- **Phase 4** (Week 6): Condition evaluation for filtered metrics
-- **Phase 5** (Week 7): Metrics registry enhancement
+**Detailed Implementation Plan** (Now Available):
+- ✅ **Phase 1** (1.5 weeks, ~400 LOC): SQL parser with annotations.rs module
+  - Complete MetricAnnotation parser implementation
+  - StreamDefinition integration
+  - 8 comprehensive unit tests
 
-**MVP Scope** (2 weeks):
-- Counter metrics only
-- Basic @metric annotation syntax
-- Simple label extraction
-- Integration with existing ObservabilityManager
+- ✅ **Phase 2** (2 weeks, ~600 LOC): Runtime metrics emission
+  - Metrics emission in process_batch()
+  - MetricsProvider enhancements
+  - 12 unit tests + 3 integration tests
+
+- ✅ **Phase 3** (0.5 weeks, ~200 LOC): Label extraction utilities
+  - extract_metric_labels() function
+  - Field value to label conversion
+  - 6 unit tests
+
+- ✅ **Phase 4** (1 week, ~350 LOC): Condition evaluation
+  - Expression parser with comparison/arithmetic/logical operators
+  - Record filtering by SQL conditions
+  - 8 unit tests
+
+- ✅ **Phase 5** (1 week, ~250 LOC): Enhanced metrics registry
+  - Lifecycle management (register/unregister)
+  - Prometheus naming validation
+  - 5 unit tests
+
+- ✅ **Phase 6** (1 week, ~500 LOC): Comprehensive documentation
+  - User guide and API reference
+  - Tutorial and migration guide
+  - 12 documentation deliverables
+
+**Level of Effort**:
+- **Total**: 7 weeks, ~2,300 LOC, 39 tests, 14 files
+- **MVP**: 2 weeks (counter metrics only)
 
 **Benefits**:
 - 🚀 Eliminates separate metrics exporter services
 - 📊 Makes Grafana "Trading Demo" dashboard instantly functional
 - 🎯 Self-documenting SQL with built-in observability
 - ⚡ Version control integration (metrics + logic together)
+- 🔍 Future: Auto-generated dashboards, trace-to-metric correlation
 
 **RFC Document**: [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md)
+- **Enhanced**: October 9, 2025 - Added detailed implementation specs, strategic differentiation
+- **Content**: Complete code examples, file locations, test specifications, LOE estimates
+- **Size**: 2,260 lines with comprehensive technical details
 
 **Next Steps**:
-1. Review RFC with stakeholders
-2. Create detailed implementation plan
-3. Prototype counter metrics annotation (MVP)
-4. Demo to validate approach
-5. Full implementation (all metric types)
+1. ✅ RFC enhancement complete (commit 9213215)
+2. Review enhanced RFC with stakeholders
+3. Approve phased rollout strategy (Prometheus → Prometheus+ClickHouse → Unified Layer)
+4. Begin Phase 1 implementation (annotation parser)
+5. Develop MVP for financial trading demo validation
 
 ---
 
