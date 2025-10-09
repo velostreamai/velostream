@@ -2495,6 +2495,643 @@ SQL expression to filter which records emit metrics (optional)
 3. **Impact Analysis**: Show which dashboards/alerts use each metric
 4. **A/B Testing**: Compare metrics before/after SQL changes
 
+---
+
+## FUTURE DIRECTION: AI-Native Streaming Engine
+
+Building on SQL-based metrics annotation, Velostream can evolve into an **AI-native streaming engine** that provides autonomous monitoring, intelligent optimization, and predictive analytics capabilities that fundamentally differentiate it from Apache Flink, Arroyo, and Materialize.
+
+### 1. Intelligent Anomaly Detection on Metrics
+
+**Vision**: Velostream continuously runs its own metrics through built-in streaming ML models for real-time anomaly detection.
+
+**Implementation**:
+```sql
+-- @metric: velo_trading_price_volatility
+-- @metric_type: gauge
+-- @metric_field: price_volatility
+-- @ai: anomaly_detector                    -- NEW: AI annotation
+-- @ai.model: "EWMAOutlier"                  -- Exponential Weighted Moving Average
+-- @ai.sensitivity: 3.0                      -- Z-score threshold
+-- @ai.emit_stream: "volatility_anomalies"  -- Output anomaly events
+CREATE STREAM volatility_tracking AS
+SELECT
+    symbol,
+    STDDEV(price) OVER (
+        PARTITION BY symbol
+        ORDER BY event_time
+        RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+    ) as price_volatility
+FROM market_data;
+
+-- Anomalies automatically emitted to this stream
+CREATE STREAM volatility_anomalies AS
+SELECT stream_name, operator_id, metric_name, metric_value, anomaly_score
+FROM system_metrics
+WHERE anomaly_score > 3.0;
+```
+
+**Detection Capabilities**:
+- **Latency Spikes**: Detect sudden operator or partition lag
+- **CPU/Memory Saturation**: Identify resource saturation patterns
+- **Throughput Degradation**: Flag unexplained throughput drops
+- **Watermark Skew**: Detect time alignment issues
+
+**Built-in Models**:
+- **Online Z-Score**: Simple statistical outlier detection
+- **Robust MAD** (Median Absolute Deviation): Resistant to outliers
+- **EWMA** (Exponential Weighted Moving Average): Adaptive thresholding
+- **Bayesian Change-Point Detection**: Structural shift identification
+- **Isolation Forest**: Multivariate anomaly detection
+
+**Autonomous Capabilities**:
+```sql
+-- Self-monitoring and self-correcting
+-- @ai: adaptive_threshold
+-- @ai.action: "adjust_watermark"
+-- @ai.target: "watermark_interval"
+CREATE STREAM watermark_optimizer AS
+SELECT
+    stream_name,
+    AVG(lag_ms) as avg_lag,
+    CASE
+        WHEN avg_lag > 1000 THEN 'increase_interval'
+        WHEN avg_lag < 100 THEN 'decrease_interval'
+    END as recommended_action
+FROM stream_lag_metrics
+GROUP BY stream_name;
+```
+
+**Integration Points**:
+- Grafana dashboards with anomaly overlays
+- Slack/PagerDuty alerting
+- Self-tuning parameter adjustment (watermarks, batch sizes)
+- Automatic capacity scaling triggers
+
+**Competitive Advantage**: **Autonomic capabilities** - Velostream becomes self-monitoring and self-correcting, reducing operational overhead and preventing incidents before they impact users.
+
+---
+
+### 2. AI for Query Optimization
+
+**Vision**: LLM-powered "SQL Copilot" that analyzes running queries and provides intelligent optimization recommendations.
+
+**Capabilities**:
+
+#### 2.1 Pipeline Fusion Analysis
+```
+Copilot Analysis:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Optimization Opportunity Detected
+
+Streams: volume_analysis, price_analysis
+Common Pattern: Both partition by symbol and window by 1 minute
+
+💡 Recommendation: Fuse pipelines to reduce Kafka reads by 50%
+
+Suggested SQL:
+CREATE STREAM fused_analysis AS
+SELECT
+    symbol,
+    AVG(volume) as avg_volume,
+    AVG(price) as avg_price
+FROM market_data
+GROUP BY symbol, TUMBLE(event_time, INTERVAL '1' MINUTE);
+
+Impact:
+  ✅ -50% Kafka consumer overhead
+  ✅ -30% memory footprint
+  ✅ +40% throughput
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### 2.2 Materialized View Reuse
+```
+Copilot Analysis:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Redundant Computation Detected
+
+Query: risk_alerts (current)
+Reusable Table: trader_positions (existing)
+
+💡 Recommendation: Reuse existing materialized view
+
+Performance Impact:
+  ✅ Eliminate duplicate aggregation (saves 200ms/batch)
+  ✅ Reduce memory by 500MB
+  ✅ Use existing state instead of rebuilding
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### 2.3 Index and Partitioning Suggestions
+```
+Copilot Analysis:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Join Performance Issue Detected
+
+Query: SELECT * FROM trades JOIN positions ON trader_id
+Join Type: Hash Join
+Throughput: 12K records/sec (below 40K target)
+
+💡 Recommendation: Add partitioning by trader_id
+
+Impact:
+  ✅ +230% throughput (12K → 40K records/sec)
+  ✅ Reduce join latency from 50ms → 15ms
+  ✅ Enable partition-wise parallel join
+
+Suggested Kafka Topic Config:
+  partitions: 16
+  partition.key: trader_id
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Implementation Architecture**:
+```
+┌─────────────────────────────────────────────────────┐
+│          Velostream SQL Copilot Engine              │
+├─────────────────────────────────────────────────────┤
+│                                                       │
+│  ┌──────────────┐    ┌────────────────┐            │
+│  │   Query AST  │───▶│  Execution     │            │
+│  │   Analyzer   │    │  Plan Metrics  │            │
+│  └──────────────┘    └────────────────┘            │
+│         │                     │                      │
+│         ▼                     ▼                      │
+│  ┌─────────────────────────────────────┐            │
+│  │  LLM Fine-Tuned on Velostream       │            │
+│  │  - Execution plans                   │            │
+│  │  - Operator metrics                  │            │
+│  │  - Historical optimizations          │            │
+│  └─────────────────────────────────────┘            │
+│         │                                             │
+│         ▼                                             │
+│  ┌──────────────────────────────────┐               │
+│  │  Recommendations:                 │               │
+│  │  • Pipeline fusion                │               │
+│  │  • Materialized view reuse        │               │
+│  │  • Partitioning optimization      │               │
+│  │  • Index suggestions              │               │
+│  └──────────────────────────────────┘               │
+│         │                                             │
+│         ▼                                             │
+│  ┌──────────────────────────────────┐               │
+│  │  Output:                          │               │
+│  │  • REPL interactive suggestions   │               │
+│  │  • Grafana dashboard integration  │               │
+│  │  • CLI optimization reports       │               │
+│  └──────────────────────────────────┘               │
+└─────────────────────────────────────────────────────┘
+```
+
+**User Experience**:
+```bash
+$ velo-cli optimize --analyze financial_trading.sql
+
+🤖 Velostream SQL Copilot - Optimization Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Analyzing 8 streams across 450 lines of SQL...
+
+✅ 3 optimization opportunities found
+
+1. Pipeline Fusion (HIGH IMPACT)
+   Streams: volume_analysis + price_analysis
+   Savings: 50% Kafka reads, 30% memory
+
+2. Materialized View Reuse (MEDIUM IMPACT)
+   Query: risk_alerts
+   Reuse: trader_positions table
+   Savings: 200ms/batch, 500MB memory
+
+3. Partitioning Optimization (HIGH IMPACT)
+   Join: trades ⋈ positions
+   Throughput: +230% (12K → 40K records/sec)
+
+Apply optimizations? [Y/n]
+```
+
+**Competitive Advantage**: **"Copilot for Stream SQL"** - Provides high-level productivity and efficiency that even Flink and Materialize lack, appealing to both data engineers and infrastructure teams.
+
+---
+
+### 3. AI-Enhanced Trace Analysis
+
+**Vision**: AI-powered analysis of OpenTelemetry traces to produce human-friendly explanations and root cause identification.
+
+**Capabilities**:
+
+#### 3.1 Automatic Trace Summarization
+```
+AI Trace Analysis for Job: financial_trading
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 Latency Breakdown:
+  • 90% of latency originates in JOIN operator (market_data ⋈ positions)
+  • Root cause: Partition skew on trader_id='TRADER_123' (800ms vs 50ms avg)
+  • Recommendation: Rebalance partitions or add secondary partition key
+
+🔍 Bottleneck Detection:
+  • Operator: price_alerts_agg
+  • Issue: Intermittent stalls due to high watermark skew
+  • Event time lag: 2.3s (normal: 200ms)
+  • Recommendation: Increase watermark interval or reduce batch size
+
+🔍 Resource Utilization:
+  • CPU: 75% avg, 95% peak (operator: volume_aggregation)
+  • Memory: 4.2GB / 8GB (53% utilized)
+  • Recommendation: Increase CPU allocation for volume_aggregation operator
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### 3.2 Grafana Integration
+```yaml
+# Grafana dashboard panel configuration
+panels:
+  - title: "AI Trace Insights"
+    type: "text"
+    datasource: "Velostream-AI"
+    query: |
+      SELECT ai_trace_summary(trace_id)
+      FROM traces
+      WHERE job_name = 'financial_trading'
+      ORDER BY timestamp DESC
+      LIMIT 1
+```
+
+**Output**:
+```
+Latest AI Insights (updated 30s ago):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  Performance Degradation Detected
+
+JOIN operator experiencing 3x slowdown
+Affected: market_data ⋈ trader_positions
+Duration: Last 5 minutes
+
+Root Cause Analysis:
+  1. Partition imbalance on trader_id
+  2. Hot partition: TRADER_123 (15K msgs/sec)
+  3. Cold partitions: avg 2K msgs/sec
+
+Recommended Actions:
+  ✓ Rebalance Kafka topic partitions
+  ✓ Add composite partition key (trader_id, symbol)
+  ✓ Increase parallelism for JOIN operator
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### 3.3 CLI Trace Explorer
+```bash
+$ velo-cli trace analyze --job financial_trading --last 10m
+
+🤖 AI-Powered Trace Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Analyzed 1,247 traces (10 minutes)
+
+🔍 Top Performance Issues:
+  1. JOIN operator latency spike (90th %ile: 800ms → 50ms normal)
+     └─ Partition skew detected on trader_id
+
+  2. Watermark propagation delay (2.3s lag)
+     └─ price_alerts_agg operator stalling
+
+  3. CPU saturation (95% peak on volume_aggregation)
+     └─ Recommend: Increase CPU allocation
+
+🎯 Recommended Fixes (priority order):
+  1. HIGH: Rebalance Kafka partitions (impact: -75% latency)
+  2. MED:  Adjust watermark interval +500ms (impact: -50% stalls)
+  3. LOW:  CPU allocation +2 cores (impact: -20% peak satency)
+
+Apply fixes automatically? [y/N]
+```
+
+**Competitive Advantage**: **Enterprise-grade trace intelligence** - Reduces mean-time-to-resolution (MTTR) for production issues from hours to minutes.
+
+---
+
+### 4. Predictive Capacity Planning
+
+**Vision**: Train lightweight regression models on historical metrics (from ClickHouse) to forecast resource demand and prevent capacity issues.
+
+**Forecasting Capabilities**:
+
+#### 4.1 Throughput Demand Prediction
+```sql
+-- Train forecasting model on historical throughput data
+CREATE FORECAST MODEL throughput_forecast AS
+SELECT
+    timestamp,
+    stream_name,
+    throughput_records_per_sec
+FROM metrics_history
+WHERE timestamp > NOW() - INTERVAL '30' DAY
+MODEL 'ARIMA(7,1,1)';  -- 7-day seasonality
+
+-- Predict next 24 hours
+SELECT
+    timestamp,
+    stream_name,
+    predicted_throughput,
+    confidence_interval_95
+FROM FORECAST(throughput_forecast, INTERVAL '24' HOUR);
+```
+
+**Output**:
+```
+Throughput Forecast (Next 24 Hours):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Stream: market_data_stream
+
+Current:    42K records/sec
+Peak (15h): 85K records/sec (⚠️ +102% from current)
+Confidence: 95% CI [78K - 92K]
+
+⚠️  Capacity Alert:
+    Current capacity: 60K records/sec
+    Predicted peak:   85K records/sec
+    Shortfall:        25K records/sec (-42%)
+
+🎯 Recommended Actions:
+    1. Scale up 2 additional partitions (+30K capacity)
+    2. Schedule scale-up for 14:30 (30min before peak)
+    3. Estimated cost: $12/hour during peak
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### 4.2 Stream Lag Accumulation Prediction
+```sql
+-- Detect lag accumulation trends
+CREATE FORECAST MODEL lag_forecast AS
+SELECT
+    timestamp,
+    stream_name,
+    consumer_lag_seconds
+FROM metrics_history
+WHERE stream_name = 'market_data_stream'
+MODEL 'LinearRegression';
+
+-- Alert if lag will exceed threshold in next hour
+SELECT
+    stream_name,
+    predicted_lag_1h,
+    CASE
+        WHEN predicted_lag_1h > 300 THEN 'CRITICAL'
+        WHEN predicted_lag_1h > 120 THEN 'WARNING'
+        ELSE 'OK'
+    END as alert_level
+FROM FORECAST(lag_forecast, INTERVAL '1' HOUR);
+```
+
+#### 4.3 Resource Usage Forecasting
+```sql
+-- Forecast CPU and memory usage
+CREATE FORECAST MODEL resource_forecast AS
+SELECT
+    timestamp,
+    operator_name,
+    cpu_percent,
+    memory_mb
+FROM metrics_history
+WHERE timestamp > NOW() - INTERVAL '7' DAY
+MODEL 'Prophet';  -- Facebook Prophet for multiple seasonality
+
+-- Predict resource saturation
+SELECT
+    operator_name,
+    predicted_cpu_percent,
+    predicted_memory_mb,
+    CASE
+        WHEN predicted_cpu_percent > 90 THEN 'Scale CPU'
+        WHEN predicted_memory_mb > 7500 THEN 'Scale Memory'
+        ELSE 'No Action'
+    END as recommendation
+FROM FORECAST(resource_forecast, INTERVAL '2' HOUR);
+```
+
+**DevOps Integration**:
+```yaml
+# Kubernetes HPA integration
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: velostream-predictive-scaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: velostream-worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: External
+    external:
+      metric:
+        name: velostream_predicted_throughput
+        selector:
+          matchLabels:
+            stream: market_data
+      target:
+        type: Value
+        value: "60000"  # Scale when predicted > 60K records/sec
+```
+
+**Competitive Advantage**: **Proactive capacity management** - Scale infrastructure ahead of demand, preventing incidents and optimizing cloud costs.
+
+---
+
+### 5. Declarative AI Hooks in SQL
+
+**Vision**: Just like `@metric` annotations, introduce `@ai` annotations for declarative ML integration directly in SQL.
+
+**Annotation Syntax**:
+```sql
+-- @ai: anomaly_detector
+-- @ai.model: "EWMAOutlier"
+-- @ai.target: "price_volatility"
+-- @ai.threshold: 3.0
+-- @ai.emit_stream: "volatility_anomalies"
+CREATE STREAM volatility_monitoring AS
+SELECT
+    symbol,
+    STDDEV(price) OVER (
+        PARTITION BY symbol
+        ORDER BY event_time
+        RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+    ) as price_volatility
+FROM market_data;
+
+-- Anomalies automatically emitted
+CREATE STREAM volatility_anomalies AS
+SELECT
+    symbol,
+    price_volatility,
+    anomaly_score,
+    anomaly_type,
+    timestamp
+FROM AI_ANOMALIES('volatility_monitoring');
+```
+
+**Built-in AI Models**:
+
+| Model | Use Case | Annotation |
+|-------|----------|------------|
+| **EWMAOutlier** | Simple statistical anomalies | `@ai.model: "EWMAOutlier"` |
+| **IsolationForest** | Multivariate anomalies | `@ai.model: "IsolationForest"` |
+| **ARIMA** | Time series forecasting | `@ai.model: "ARIMA(7,1,1)"` |
+| **Prophet** | Multiple seasonality forecasting | `@ai.model: "Prophet"` |
+| **Kalman Filter** | Adaptive signal filtering | `@ai.model: "KalmanFilter"` |
+| **Change Point Detection** | Structural shifts | `@ai.model: "Bayesian ChangePoint"` |
+
+**Runtime Behavior**:
+```rust
+// Velostream runtime automatically:
+// 1. Trains lightweight online model
+// 2. Continuously evaluates model on new data
+// 3. Emits anomaly events to side stream
+// 4. Updates model parameters adaptively
+
+impl AIAnnotationProcessor {
+    fn process_batch(&mut self, batch: RecordBatch) -> Result<(), ProcessingError> {
+        for annotation in &self.ai_annotations {
+            match annotation.model {
+                "EWMAOutlier" => {
+                    let anomalies = self.ewma_detector.detect(batch, annotation)?;
+                    self.emit_to_stream(&annotation.emit_stream, anomalies)?;
+                }
+                "IsolationForest" => {
+                    let anomalies = self.isolation_forest.detect(batch, annotation)?;
+                    self.emit_to_stream(&annotation.emit_stream, anomalies)?;
+                }
+                // ... other models
+            }
+        }
+        Ok(())
+    }
+}
+```
+
+**Example Use Cases**:
+
+#### Fraud Detection
+```sql
+-- @ai: anomaly_detector
+-- @ai.model: "IsolationForest"
+-- @ai.features: "transaction_amount, merchant_id, user_id, time_of_day"
+-- @ai.contamination: 0.01
+-- @ai.emit_stream: "fraud_alerts"
+CREATE STREAM transaction_monitoring AS
+SELECT
+    transaction_id,
+    transaction_amount,
+    merchant_id,
+    user_id,
+    EXTRACT(HOUR FROM timestamp) as time_of_day
+FROM transactions;
+```
+
+#### Predictive Maintenance
+```sql
+-- @ai: forecasting
+-- @ai.model: "ARIMA(1,1,1)"
+-- @ai.target: "sensor_temperature"
+-- @ai.horizon: "2 hours"
+-- @ai.emit_stream: "maintenance_alerts"
+CREATE STREAM equipment_monitoring AS
+SELECT
+    equipment_id,
+    sensor_temperature,
+    sensor_vibration,
+    timestamp
+FROM iot_sensors;
+```
+
+#### Traffic Spike Prediction
+```sql
+-- @ai: forecasting
+-- @ai.model: "Prophet"
+-- @ai.target: "request_rate"
+-- @ai.horizon: "30 minutes"
+-- @ai.emit_stream: "scaling_triggers"
+CREATE STREAM traffic_forecasting AS
+SELECT
+    endpoint,
+    COUNT(*) OVER (
+        PARTITION BY endpoint
+        ORDER BY timestamp
+        RANGE BETWEEN INTERVAL '1' MINUTE PRECEDING AND CURRENT ROW
+    ) as request_rate
+FROM api_requests;
+```
+
+**Competitive Advantage**: **Stream-native AI operators** - Developers can use AI declaratively in SQL without writing separate Python/Java ML code. No other streaming engine offers this.
+
+---
+
+## Strategic Positioning: "Velostream — The AI-Native Streaming Engine"
+
+### Market Differentiation
+
+| Feature | Velostream | Apache Flink | Arroyo | Materialize |
+|---------|------------|--------------|--------|-------------|
+| **SQL-Driven Observability** | ✅ Declarative `@metric` | ❌ Requires Java code | ❌ Limited | ❌ Basic metrics |
+| **Built-in Anomaly Detection** | ✅ `@ai` annotations | ❌ External tools | ❌ Not supported | ❌ Not supported |
+| **Predictive Capacity Planning** | ✅ Time series forecasting | ❌ Manual analysis | ❌ Not supported | ❌ Not supported |
+| **AI-Powered Query Optimization** | ✅ SQL Copilot | ❌ Manual tuning | ❌ Manual tuning | ❌ Basic optimizer |
+| **Autonomous Self-Healing** | ✅ Adaptive thresholds | ❌ Not supported | ❌ Not supported | ❌ Not supported |
+| **OpenTelemetry AI Analysis** | ✅ Trace summarization | ❌ External tools | ❌ Not supported | ❌ Not supported |
+
+### Value Proposition
+
+**For Data Engineers**:
+- **10x Productivity**: Declarative AI in SQL vs writing separate ML pipelines
+- **Self-Documenting**: Metrics, AI models, and business logic co-located
+- **Faster Iteration**: No deployment of separate services
+
+**For DevOps/SRE Teams**:
+- **Proactive Monitoring**: Predict issues before they impact users
+- **Autonomous Operation**: Self-tuning parameters reduce manual intervention
+- **Cost Optimization**: Predictive scaling reduces over-provisioning
+
+**For Enterprise Users**:
+- **Reduced MTTR**: AI-powered root cause analysis
+- **Compliance**: Audit trail of model decisions in SQL
+- **Vendor Lock-in Avoidance**: Standard SQL syntax, not proprietary APIs
+
+### Marketing Messaging
+
+> **"Velostream — The AI-Native Streaming Engine for Real-Time Analytics, Observability, and Automation"**
+
+**Key Messages**:
+1. **Declarative AI**: Machine learning as first-class SQL feature
+2. **Autonomous Operation**: Self-monitoring, self-correcting, self-optimizing
+3. **Enterprise Intelligence**: Predictive alerting and capacity planning
+4. **Developer Productivity**: 10x faster implementation vs traditional approaches
+
+### Roadmap Integration
+
+**Phase 1** (Current): SQL Metrics Annotation (FR-073)
+- Foundation for declarative observability
+
+**Phase 2** (6 months): AI-Enhanced Observability
+- Anomaly detection on metrics
+- AI-powered trace analysis
+- SQL Copilot prototype
+
+**Phase 3** (12 months): Predictive Intelligence
+- Time series forecasting
+- Capacity planning automation
+- Auto-scaling integration
+
+**Phase 4** (18 months): Autonomous Streaming
+- Self-tuning parameters
+- Automatic query optimization
+- Full autonomic computing capabilities
+
+---
+
 ## Conclusion
 
 SQL-based metrics annotation provides Velostream with a significant competitive advantage over Apache Flink by making observability a first-class, declarative part of stream processing. This feature aligns with modern DevOps practices of co-locating code with observability declarations and dramatically simplifies the path from SQL query to production dashboard.
