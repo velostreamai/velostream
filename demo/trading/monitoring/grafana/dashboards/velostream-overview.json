@@ -25,7 +25,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Overall system health and uptime",
       "fieldConfig": {
@@ -92,9 +92,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
-          "expr": "up{job=\"velo-sql\"}",
+          "expr": "up{job=\"velostream-telemetry\"}",
           "interval": "",
           "legendFormat": "VeloSQL Server",
           "refId": "A"
@@ -106,7 +106,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Kafka cluster health metrics",
       "fieldConfig": {
@@ -182,7 +182,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "kafka_server_replica_manager_leader_count",
           "interval": "",
@@ -192,7 +192,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "kafka_server_replica_manager_partition_count",
           "interval": "",
@@ -206,7 +206,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Stream processing throughput",
       "fieldConfig": {
@@ -282,9 +282,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_messages_processed_total[5m])",
+          "expr": "rate(velo_sql_records_processed_total[5m])",
           "interval": "",
           "legendFormat": "Messages Processed/sec - {{job}}",
           "refId": "A"
@@ -292,9 +292,9 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_queries_executed_total[5m])",
+          "expr": "rate(velo_sql_queries_total[5m])",
           "interval": "",
           "legendFormat": "SQL Queries/sec - {{job}}",
           "refId": "B"
@@ -306,7 +306,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Memory usage of Velostream components",
       "fieldConfig": {
@@ -382,7 +382,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "process_resident_memory_bytes{job=~\"velo.*\"}",
           "interval": "",
@@ -396,7 +396,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "CPU usage of Velostream components",
       "fieldConfig": {
@@ -472,7 +472,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "rate(process_cpu_seconds_total{job=~\"velo.*\"}[5m]) * 100",
           "interval": "",

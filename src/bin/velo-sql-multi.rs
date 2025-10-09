@@ -110,7 +110,7 @@ async fn start_stream_job_server(
         group_id.clone(),
         max_jobs,
         enable_metrics,
-    );
+    ).await;
 
     if enable_metrics {
         let metrics_port = metrics_port.unwrap_or(port + 1000); // Default to main port + 1000
@@ -518,7 +518,7 @@ async fn deploy_sql_application_from_file(
         "Creating StreamJobServer with brokers: {}, group_id: {}",
         brokers, group_id
     );
-    let server = StreamJobServer::new(brokers, group_id, 100); // High limit for app deployment
+    let server = StreamJobServer::new_with_monitoring(brokers, group_id, 100, true).await; // High limit for app deployment with monitoring
 
     // Deploy the application
     println!(
@@ -553,6 +553,23 @@ async fn deploy_sql_application_from_file(
 
     if let Some(author) = &app.metadata.author {
         println!("Author: {}", author);
+    }
+
+    // Start metrics HTTP server if metrics are enabled
+    if enable_metrics {
+        let server_clone = server.clone();
+        tokio::spawn(async move {
+            start_metrics_server_multi(server_clone, metrics_port)
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Failed to start metrics server: {}", e);
+                });
+        });
+        println!(
+            "📊 Metrics server started on http://0.0.0.0:{}/metrics",
+            metrics_port
+        );
+        info!("Metrics server listening on port {}", metrics_port);
     }
 
     if no_monitor {

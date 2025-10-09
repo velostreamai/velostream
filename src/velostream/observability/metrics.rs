@@ -4,8 +4,10 @@ use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
     register_gauge_with_registry, register_histogram_with_registry,
-    register_int_counter_with_registry, register_int_gauge_with_registry, Encoder, Gauge,
-    Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+    register_int_counter_with_registry, register_int_gauge_with_registry,
+    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
+    register_gauge_vec_with_registry, Encoder, Gauge, GaugeVec,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::time::Duration;
 
@@ -126,9 +128,9 @@ impl MetricsProvider {
         MetricsStats {
             sql_queries_total: self.sql_metrics.query_total.get(),
             sql_errors_total: self.sql_metrics.query_errors.get(),
-            streaming_operations_total: self.streaming_metrics.operations_total.get(),
+            streaming_operations_total: self.streaming_metrics.get_total_operations(),
             records_processed_total: self.sql_metrics.records_processed.get(),
-            records_streamed_total: self.streaming_metrics.records_streamed.get(),
+            records_streamed_total: self.streaming_metrics.get_total_records(),
             active_connections: self.system_metrics.active_connections.get(),
         }
     }
@@ -263,19 +265,20 @@ impl SqlMetrics {
 /// Streaming operation metrics
 #[derive(Debug)]
 struct StreamingMetrics {
-    operations_total: IntCounter,
-    operation_duration: Histogram,
-    throughput: Gauge,
-    records_streamed: IntCounter,
+    operations_total: IntCounterVec,
+    operation_duration: HistogramVec,
+    throughput: GaugeVec,
+    records_streamed: IntCounterVec,
 }
 
 impl StreamingMetrics {
     fn new(registry: &Registry, config: &PrometheusConfig) -> Result<Self, SqlError> {
-        let operations_total = register_int_counter_with_registry!(
+        let operations_total = register_int_counter_vec_with_registry!(
             Opts::new(
                 "velo_streaming_operations_total",
                 "Total number of streaming operations"
             ),
+            &["operation"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
@@ -283,23 +286,25 @@ impl StreamingMetrics {
         })?;
 
         let operation_duration = if config.enable_histograms {
-            register_histogram_with_registry!(
+            register_histogram_vec_with_registry!(
                 HistogramOpts::new(
                     "velo_streaming_duration_seconds",
                     "Streaming operation duration"
                 ),
+                &["operation"],
                 registry
             )
             .map_err(|e| SqlError::ConfigurationError {
                 message: format!("Failed to register streaming histogram: {}", e),
             })?
         } else {
-            register_histogram_with_registry!(
+            register_histogram_vec_with_registry!(
                 HistogramOpts::new(
                     "velo_streaming_duration_seconds",
                     "Streaming operation duration"
                 )
                 .buckets(vec![0.01, 0.1, 1.0, 10.0]),
+                &["operation"],
                 registry
             )
             .map_err(|e| SqlError::ConfigurationError {
@@ -307,22 +312,24 @@ impl StreamingMetrics {
             })?
         };
 
-        let throughput = register_gauge_with_registry!(
+        let throughput = register_gauge_vec_with_registry!(
             Opts::new(
                 "velo_streaming_throughput_rps",
                 "Current streaming throughput in records per second"
             ),
+            &["operation"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
             message: format!("Failed to register throughput gauge: {}", e),
         })?;
 
-        let records_streamed = register_int_counter_with_registry!(
+        let records_streamed = register_int_counter_vec_with_registry!(
             Opts::new(
                 "velo_streaming_records_total",
                 "Total number of records streamed"
             ),
+            &["operation"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
@@ -339,15 +346,38 @@ impl StreamingMetrics {
 
     fn record_operation(
         &self,
-        _operation: &str,
+        operation: &str,
         duration: Duration,
         record_count: u64,
         throughput: f64,
     ) {
-        self.operations_total.inc();
-        self.operation_duration.observe(duration.as_secs_f64());
-        self.throughput.set(throughput);
-        self.records_streamed.inc_by(record_count);
+        self.operations_total.with_label_values(&[operation]).inc();
+        self.operation_duration.with_label_values(&[operation]).observe(duration.as_secs_f64());
+        self.throughput.with_label_values(&[operation]).set(throughput);
+        self.records_streamed.with_label_values(&[operation]).inc_by(record_count);
+    }
+
+    /// Get total operations count across all operation types
+    fn get_total_operations(&self) -> u64 {
+        // Sum across all label values
+        let mut total = 0u64;
+        for (operation, count) in [
+            ("deserialization", self.operations_total.with_label_values(&["deserialization"]).get()),
+            ("sql_processing", self.operations_total.with_label_values(&["sql_processing"]).get()),
+            ("serialization", self.operations_total.with_label_values(&["serialization"]).get()),
+        ] {
+            total += count;
+        }
+        total
+    }
+
+    /// Get total records streamed across all operation types
+    fn get_total_records(&self) -> u64 {
+        let mut total = 0u64;
+        for operation in ["deserialization", "sql_processing", "serialization"] {
+            total += self.records_streamed.with_label_values(&[operation]).get();
+        }
+        total
     }
 }
 

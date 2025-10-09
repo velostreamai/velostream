@@ -95,10 +95,26 @@ pub struct JobSummary {
 
 impl StreamJobServer {
     pub fn new(_brokers: String, base_group_id: String, max_jobs: usize) -> Self {
-        Self::new_with_monitoring(_brokers, base_group_id, max_jobs, false)
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            base_group_id,
+            max_jobs,
+            job_counter: Arc::new(Mutex::new(0)),
+            performance_monitor: None,
+            table_registry: TableRegistry::with_config(table_registry_config),
+            observability: None,
+        }
     }
 
-    pub fn new_with_monitoring(
+    pub async fn new_with_monitoring(
         _brokers: String,
         base_group_id: String,
         max_jobs: usize,
@@ -108,6 +124,29 @@ impl StreamJobServer {
             let monitor = Arc::new(PerformanceMonitor::new());
             info!("Performance monitoring enabled for StreamJobServer");
             Some(monitor)
+        } else {
+            None
+        };
+
+        // Initialize shared observability manager for Prometheus metrics
+        let observability = if enable_monitoring {
+            use crate::velostream::sql::execution::config::StreamingConfig;
+            use crate::velostream::observability::ObservabilityManager;
+
+            let streaming_config = StreamingConfig::default()
+                .with_prometheus_metrics();
+
+            let mut obs_manager = ObservabilityManager::new(streaming_config);
+            match obs_manager.initialize().await {
+                Ok(()) => {
+                    info!("✅ Server-level observability initialized (shared by all jobs)");
+                    Some(Arc::new(RwLock::new(obs_manager)))
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.", e);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -127,12 +166,38 @@ impl StreamJobServer {
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
-            observability: None, // Will be initialized per-job based on SQL WITH clause
+            observability,
         }
     }
 
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
+        // First try to get metrics from server-level ObservabilityManager (Phase 4)
+        if let Some(ref obs_manager) = self.observability {
+            if let Ok(obs_lock) = obs_manager.try_read() {
+                if let Some(metrics_provider) = obs_lock.metrics() {
+                    // Export Prometheus metrics from the MetricsProvider
+                    return metrics_provider.get_metrics_text().ok();
+                }
+            }
+        }
+
+        // Try to get metrics from any running job's ObservabilityManager
+        if let Ok(jobs) = self.jobs.try_read() {
+            for job in jobs.values() {
+                if let Some(ref job_obs) = job.observability {
+                    if let Ok(obs_lock) = job_obs.try_read() {
+                        if let Some(metrics_provider) = obs_lock.metrics() {
+                            // Return metrics from the first job that has them
+                            // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
+                            return metrics_provider.get_metrics_text().ok();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to performance monitor metrics
         self.performance_monitor
             .as_ref()
             .map(|monitor| monitor.export_prometheus_metrics())
@@ -140,6 +205,29 @@ impl StreamJobServer {
 
     /// Check if performance monitoring is enabled
     pub fn has_performance_monitoring(&self) -> bool {
+        // Check if server-level observability metrics are enabled (Phase 4)
+        if let Some(ref obs_manager) = self.observability {
+            if let Ok(obs_lock) = obs_manager.try_read() {
+                if obs_lock.metrics().is_some() {
+                    return true;
+                }
+            }
+        }
+
+        // Check if any job has observability metrics enabled
+        if let Ok(jobs) = self.jobs.try_read() {
+            for job in jobs.values() {
+                if let Some(ref job_obs) = job.observability {
+                    if let Ok(obs_lock) = job_obs.try_read() {
+                        if obs_lock.metrics().is_some() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to checking performance monitor
         self.performance_monitor.is_some()
     }
 
@@ -352,36 +440,38 @@ impl StreamJobServer {
         // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
         execution_engine.set_streaming_config(streaming_config.clone());
 
-        // Initialize observability if enabled (Phase 4)
+        // Use shared observability manager for all jobs (Phase 4)
+        // This ensures all metrics are collected in a single Prometheus registry
         let observability_manager = if streaming_config.enable_distributed_tracing
             || streaming_config.enable_prometheus_metrics
             || streaming_config.enable_performance_profiling
         {
-            info!(
-                "🔍 Initializing observability for job '{}' (tracing={}, metrics={}, profiling={})",
+            if let Some(shared_obs) = self.observability.clone() {
+                info!(
+                    "✅ Job '{}': Using shared observability manager (tracing={}, metrics={}, profiling={})",
+                    name,
+                    streaming_config.enable_distributed_tracing,
+                    streaming_config.enable_prometheus_metrics,
+                    streaming_config.enable_performance_profiling
+                );
+                Some(shared_obs)
+            } else {
+                warn!(
+                    "⚠️ Job '{}': Observability requested but server has no shared observability manager. Continuing without observability.",
+                    name
+                );
+                None
+            }
+        } else {
+            info!("Job '{}': Observability NOT enabled (tracing={}, metrics={}, profiling={})",
                 name,
                 streaming_config.enable_distributed_tracing,
                 streaming_config.enable_prometheus_metrics,
                 streaming_config.enable_performance_profiling
             );
-
-            let mut obs_manager = ObservabilityManager::new(streaming_config.clone());
-            match obs_manager.initialize().await {
-                Ok(()) => {
-                    info!("✅ Observability initialized for job '{}'", name);
-                    Some(Arc::new(RwLock::new(obs_manager)))
-                }
-                Err(e) => {
-                    warn!(
-                        "⚠️ Failed to initialize observability for job '{}': {}. Continuing without observability.",
-                        name, e
-                    );
-                    None
-                }
-            }
-        } else {
             None
         };
+        info!("Job '{}': Using shared observability: {}", name, observability_manager.is_some());
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -427,6 +517,7 @@ impl StreamJobServer {
         let job_name = name.clone();
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
+        let observability_for_spawn = observability_manager.clone();
 
         // Spawn output handler task to consume from SQL engine output channel
         let output_job_name = job_name.clone();
@@ -526,7 +617,10 @@ impl StreamJobServer {
 
                             if use_transactions {
                                 info!("Job '{}' using transactional processor for multi-source processing", job_name);
-                                let processor = TransactionalJobProcessor::new(config);
+                                let processor = TransactionalJobProcessor::with_observability(
+                                    config,
+                                    observability_for_spawn.clone(),
+                                );
 
                                 match processor
                                     .process_multi_job(
@@ -557,7 +651,11 @@ impl StreamJobServer {
                                     "Job '{}' using simple processor for multi-source processing",
                                     job_name
                                 );
-                                let processor = SimpleJobProcessor::new(config);
+                                let processor = SimpleJobProcessor::with_observability(
+                                    config,
+                                    observability_for_spawn.clone(),
+                                );
+                                info!("Job '{}': Created processor with observability: {}", job_name, observability_for_spawn.is_some());
 
                                 match processor
                                     .process_multi_job(
@@ -598,7 +696,11 @@ impl StreamJobServer {
 
                             // Still proceed with processing using simple processor
                             let config = Self::extract_job_config_from_query(&parsed_query);
-                            let processor = SimpleJobProcessor::new(config);
+                            let processor = SimpleJobProcessor::with_observability(
+                                config,
+                                observability_for_spawn.clone(),
+                            );
+                            info!("Job '{}': Created processor with observability: {}", job_name, observability_for_spawn.is_some());
 
                             match processor
                                 .process_multi_job(
