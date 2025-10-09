@@ -404,6 +404,304 @@ tracing:
 CREATE STREAM imbalance_alerts AS ...
 ```
 
+#### Grafana + Tempo: Best Open-Source Tracing Stack
+
+**Recommended Stack**: Grafana Tempo is the optimal distributed tracing backend for VeloStream.
+
+**Why Tempo is the Perfect Fit for VeloStream**:
+
+1. **Zero Database Dependencies**
+   - Stores traces in object storage (S3, MinIO, local filesystem)
+   - No need for Cassandra, Elasticsearch, or other heavy databases
+   - Simple operational model: just object storage + Tempo binary
+   - Cost-effective: object storage is cheap and scales infinitely
+
+2. **Native Grafana Integration**
+   - Built by Grafana Labs specifically for the Grafana ecosystem
+   - Seamless integration with Prometheus metrics and Loki logs
+   - **Full "metrics-logs-traces" correlation** in a single Grafana dashboard
+   - Jump from a metric spike → related logs → distributed trace in one click
+
+3. **OpenTelemetry Native**
+   - Works perfectly with OpenTelemetry SDK (Rust has full OTEL support)
+   - No vendor-specific instrumentation required
+   - Future-proof: OTEL is the industry standard
+   - Easy migration path if needed (OTEL data is portable)
+
+4. **Production-Ready for Streaming Workloads**
+   - Handles high-cardinality traces (critical for streaming systems)
+   - Efficient trace querying without indexing everything
+   - Supports sampling strategies to control trace volume
+   - Scales horizontally with object storage
+
+**Architecture Overview**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      VeloStream Pipeline                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Kafka → Deserialize → SQL Processing → Serialize → Kafka       │
+│     ↓         ↓              ↓              ↓          ↓         │
+│  [OTEL Span] [OTEL Span] [OTEL Span]  [OTEL Span] [OTEL Span]  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    OTLP Exporter (gRPC/HTTP)
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                      Grafana Tempo                               │
+│  - Receives OTLP traces via gRPC (port 4317) or HTTP (4318)    │
+│  - Writes traces to object storage (S3/MinIO/filesystem)        │
+│  - Provides query API for Grafana                               │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                         Grafana UI                               │
+│  ┌────────────┬────────────┬────────────┐                       │
+│  │ Prometheus │    Loki    │   Tempo    │                       │
+│  │  Metrics   │    Logs    │   Traces   │                       │
+│  └────────────┴────────────┴────────────┘                       │
+│                                                                   │
+│  Unified Dashboard:                                              │
+│  - See metric spike at 10:15:32                                 │
+│  - Click "Related Logs" → see error messages                    │
+│  - Click "View Trace" → see full pipeline flamegraph            │
+│  - Identify bottleneck: SQL processing took 450ms               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**VeloStream Implementation**:
+
+```rust
+// src/velostream/observability/tracing.rs
+use opentelemetry::{
+    global,
+    sdk::{trace, Resource},
+    trace::{TraceError, Tracer},
+    KeyValue,
+};
+use opentelemetry_otlp::WithExportConfig;
+
+pub struct TracingConfig {
+    pub enabled: bool,
+    pub endpoint: String,           // "http://tempo:4317"
+    pub service_name: String,       // "velostream"
+    pub sampling_rate: f64,         // 0.1 = 10% sampling
+}
+
+pub fn init_tracing(config: &TracingConfig) -> Result<Tracer, TraceError> {
+    if !config.enabled {
+        return Ok(global::tracer("noop"));
+    }
+
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(&config.endpoint)
+        )
+        .with_trace_config(
+            trace::config()
+                .with_sampler(trace::Sampler::TraceIdRatioBased(config.sampling_rate))
+                .with_resource(Resource::new(vec![
+                    KeyValue::new("service.name", config.service_name.clone()),
+                    KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+                ]))
+        )
+        .install_batch(opentelemetry::runtime::Tokio)?;
+
+    Ok(tracer)
+}
+```
+
+**Instrumented Pipeline Example**:
+
+```rust
+// TransactionalJobProcessor with OTEL tracing
+use opentelemetry::trace::{Tracer, SpanKind};
+
+async fn process_batch_with_tracing(&self, batch: RecordBatch) -> Result<()> {
+    let tracer = global::tracer("velostream");
+
+    // 1. Deserialization span
+    let mut deser_span = tracer
+        .span_builder("stream.deserialize")
+        .with_kind(SpanKind::Internal)
+        .with_attributes(vec![
+            KeyValue::new("job.name", self.job_name.clone()),
+            KeyValue::new("batch.size", batch.len() as i64),
+        ])
+        .start(&tracer);
+
+    let records = self.deserialize(batch)?;
+    deser_span.set_attribute(KeyValue::new("records.count", records.len() as i64));
+    deser_span.end();
+
+    // 2. SQL processing span (child of pipeline span)
+    let mut sql_span = tracer
+        .span_builder("stream.sql_processing")
+        .with_kind(SpanKind::Internal)
+        .with_attributes(vec![
+            KeyValue::new("query.name", self.query_name.clone()),
+            KeyValue::new("input.records", records.len() as i64),
+        ])
+        .start(&tracer);
+
+    let results = self.engine.process(records).await?;
+    sql_span.set_attribute(KeyValue::new("output.records", results.len() as i64));
+    sql_span.end();
+
+    // 3. Serialization span
+    let mut ser_span = tracer
+        .span_builder("stream.serialize")
+        .with_kind(SpanKind::Internal)
+        .start(&tracer);
+
+    self.serialize_and_write(results).await?;
+    ser_span.end();
+
+    Ok(())
+}
+```
+
+**Docker Compose Setup** (for demo environment):
+
+```yaml
+# demo/trading/monitoring/docker-compose.yml
+services:
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml
+      - ./tempo-data:/tmp/tempo
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "3200:3200"  # Tempo query API
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    networks:
+      - monitoring
+```
+
+**Tempo Configuration** (`tempo.yaml`):
+
+```yaml
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/traces
+    wal:
+      path: /tmp/tempo/wal
+
+# Keep traces for 24 hours (demo setting)
+compactor:
+  compaction:
+    block_retention: 24h
+```
+
+**Grafana Datasource Configuration** (`grafana/datasources.yaml`):
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    # Enable trace-to-metrics correlation
+    jsonData:
+      tracesToMetrics:
+        datasourceUid: 'prometheus'
+        tags: [{ key: 'job.name', value: 'job' }]
+      tracesToLogs:
+        datasourceUid: 'loki'
+        tags: ['job_name', 'stream_name']
+      nodeGraph:
+        enabled: true
+```
+
+**End-to-End Correlation Example**:
+
+```
+User sees metric spike in Grafana:
+┌─────────────────────────────────────────────────┐
+│ velo_sql_processing_duration_ms                │
+│                                                  │
+│   ┌────────────────────────────────────┐       │
+│   │         📈 Spike at 10:15:32       │       │
+│   │              450ms latency          │       │
+│   └────────────────────────────────────┘       │
+│                                                  │
+│   [View Related Traces] ← Click here           │
+└─────────────────────────────────────────────────┘
+                    ↓
+            Tempo trace view:
+┌─────────────────────────────────────────────────┐
+│  Trace ID: 7f3a2b1c...                         │
+│                                                  │
+│  ├─ stream.pipeline           500ms            │
+│  │  ├─ stream.deserialize      20ms            │
+│  │  ├─ stream.sql_processing  450ms ← Problem! │
+│  │  │  ├─ join_operator       380ms            │
+│  │  │  └─ aggregate_operator   70ms            │
+│  │  └─ stream.serialize        30ms            │
+│                                                  │
+│  Root Cause: Join operator on large state      │
+│  Recommendation: Add index or reduce join key   │
+└─────────────────────────────────────────────────┘
+```
+
+**Key Benefits for VeloStream Users**:
+
+1. **Zero-Config Observability**: Users just enable tracing in SQL, everything flows to Grafana automatically
+2. **Debug Complex Pipelines**: See exactly where time is spent across 6 interconnected queries
+3. **Production-Ready**: Scales with VeloStream's throughput, handles high-cardinality workloads
+4. **Cost-Effective**: Object storage is 10-100x cheaper than indexed trace databases
+5. **Future-Proof**: Built on OpenTelemetry standard, integrates with entire ecosystem
+
+**Migration Path**:
+
+- **Phase 1** (MVP): Emit basic OTEL spans, view in Tempo
+- **Phase 2** (Enhanced): Add span attributes (query names, record counts, symbols)
+- **Phase 3** (Correlation): Link Prometheus metrics → Tempo traces → Loki logs
+- **Phase 4** (AI-Assisted): Use traces as input to AI anomaly detection (FR-073 future work)
+
 ### Unified Observability Layer (The Real Edge)
 
 **Product Differentiation**: Velostream can unify **metrics, logs, and traces** under a single declarative schema driven by SQL annotations.
