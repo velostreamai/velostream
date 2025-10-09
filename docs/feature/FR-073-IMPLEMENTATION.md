@@ -6,18 +6,19 @@
 
 ## Implementation Status
 
-**Overall Progress**: 2 of 6 phases complete (33%)
+**Overall Progress**: 3 of 7 phases complete (43%)
 
 | Phase | Status | Duration | LOC | Tests | Completion Date |
 |-------|--------|----------|-----|-------|-----------------|
 | Phase 0: Comment Preservation | ✅ Complete | 2-3 days | ~150 | 5 | October 2025 |
 | Phase 1: Annotation Parser | ✅ Complete | 1 week | ~350 | 16 | October 2025 |
-| Phase 2: Runtime Integration | 📋 Ready | 2 weeks | ~600 | 12 | TBD |
+| Phase 2A: Runtime - Counters | ✅ Complete | 1 week | ~240 | 13 | October 2025 |
+| Phase 2B: Runtime - Gauges/Histograms | 📋 Ready | 1 week | ~300 | 10 | TBD |
 | Phase 3: Label Extraction | ⏳ Waiting | 0.5 weeks | ~200 | 6 | TBD |
 | Phase 4: Condition Evaluation | ⏳ Waiting | 3 days | ~200 | 6 | TBD |
 | Phase 5: Registry Management | ⏳ Waiting | 1 week | ~250 | 5 | TBD |
 | Phase 6: Documentation | ⏳ Waiting | 1 week | ~500 | - | TBD |
-| **TOTAL** | **Phase 0-1 Done** | **6 weeks** | **~2,250** | **50** | - |
+| **TOTAL** | **Phase 0-1-2A Done** | **6.5 weeks** | **~2,390** | **66** | - |
 
 ---
 
@@ -254,64 +255,161 @@ match query {
 
 ---
 
-## 📋 Phase 2: Runtime Integration (Ready to Start)
+## ✅ Phase 2A: Runtime Integration - Counters (COMPLETE)
 
-**Duration**: 2 weeks
-**Complexity**: High
-**LOC**: ~600 lines
-**Status**: 📋 **READY TO START** (Phase 1 complete)
+**Duration**: 1 week (actual)
+**Complexity**: Medium
+**LOC**: ~240 lines
+**Status**: ✅ **COMPLETED** (October 2025)
 
 ### Overview
 
-Integrate metric emission into the stream processing runtime. When records flow through a stream with metric annotations, the runtime will:
-1. Evaluate conditions to determine if metrics should be emitted
-2. Extract label values from record fields
-3. Increment counters or observe gauge/histogram values
-4. Export metrics via Prometheus endpoint
+Implemented counter metric integration into SimpleStreamProcessor. When records flow through a stream with counter annotations, the runtime:
+1. ✅ Registers counters on job start
+2. ✅ Extracts label values from record fields
+3. ✅ Increments counters after SQL processing
+4. ✅ Exports metrics via Prometheus endpoint
 
-### Files to Modify
+### Files Modified/Created
 
-- `src/velostream/server/processors/simple.rs` (~200 LOC modifications)
-  - Add metric emission logic in `process_batch()`
-  - Evaluate annotation conditions
-  - Extract label values from records
+- ✅ `src/velostream/observability/metrics.rs` (+150 LOC)
+  - Added `dynamic_counters: Arc<Mutex<HashMap<String, IntCounterVec>>>`
+  - Implemented `register_counter_metric()` for runtime registration
+  - Implemented `emit_counter()` for metric emission
 
-- `src/velostream/observability/metrics.rs` (~150 LOC additions)
-  - Add methods for counter/gauge/histogram emission
-  - Support dynamic label creation
-  - Handle metric registration
+- ✅ `src/velostream/server/processors/simple.rs` (+90 LOC)
+  - Added `register_counter_metrics()` method
+  - Added `emit_counter_metrics()` method
+  - Integrated registration in `process_job()`
+  - Integrated emission in `process_simple_batch()`
 
-- `src/velostream/server/stream_job_server.rs` (~50 LOC modifications)
-  - Register metrics when stream is deployed
-  - Pass annotations to processor
-  - Cleanup metrics when stream is dropped
+- ✅ `tests/integration/sql_metrics_integration_test.rs` (~250 LOC new)
+  - Test counter registration and emission
+  - Test multiple label combinations
+  - Test multiple metrics per query
 
-- `tests/integration/metrics/sql_annotations_integration_test.rs` (~200 LOC new)
-  - End-to-end integration tests
-  - Verify metrics appear in Prometheus
-  - Test label extraction
-  - Test condition evaluation
+### Implementation Details
+
+**Counter Registration** (on job start):
+```rust
+async fn register_counter_metrics(&self, query: &StreamingQuery, job_name: &str) {
+    let counter_annotations = match query {
+        StreamingQuery::CreateStream { metric_annotations, .. } => {
+            metric_annotations.iter()
+                .filter(|a| a.metric_type == MetricType::Counter)
+                .collect()
+        }
+        _ => return,
+    };
+
+    for annotation in counter_annotations {
+        metrics.register_counter_metric(
+            &annotation.name,
+            help,
+            &annotation.labels,
+        )?;
+    }
+}
+```
+
+**Counter Emission** (after SQL processing):
+```rust
+async fn emit_counter_metrics(&self, query: &StreamingQuery, output_records: &[StreamRecord], job_name: &str) {
+    for record in output_records {
+        for annotation in &counter_annotations {
+            let label_values: Vec<String> = annotation.labels.iter()
+                .filter_map(|label| record.fields.get(label).map(|v| v.to_display_string()))
+                .collect();
+
+            if label_values.len() == annotation.labels.len() {
+                metrics.emit_counter(&annotation.name, &label_values)?;
+            }
+        }
+    }
+}
+```
+
+### Test Coverage (3 integration tests + 10 unit tests)
+
+**Integration Tests**:
+```
+✅ test_counter_metric_registration_and_emission
+✅ test_counter_metric_with_multiple_labels
+✅ test_multiple_counter_metrics
+```
+
+**Unit Tests** (metrics.rs):
+```
+✅ test_register_counter_metric_basic
+✅ test_register_counter_metric_with_labels
+✅ test_register_counter_idempotent
+✅ test_emit_counter_basic
+✅ test_emit_counter_with_labels
+✅ test_emit_counter_multiple_label_combinations
+✅ test_emit_counter_before_register_error
+✅ test_register_counter_when_inactive
+✅ test_emit_counter_when_inactive_succeeds_silently
+✅ test_dynamic_counter_in_metrics_export
+```
+
+### Validation Status
+
+- ✅ `cargo fmt --all -- --check` - Passed
+- ✅ `cargo check --no-default-features` - Passed
+- ✅ All 21 metrics unit tests passing
+- ✅ All 3 integration tests passing
+- ✅ Zero breaking changes
+- ✅ Label extraction working correctly
+
+### Usage Example
+
+```sql
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Total volume spikes detected"
+-- @metric_labels: symbol
+CREATE STREAM volume_spikes AS
+SELECT symbol, volume, avg_volume
+FROM market_data
+WHERE volume > avg_volume * 2;
+```
+
+**Result**: Every record emits counter increment with `symbol` label.
+
+---
+
+## 📋 Phase 2B: Runtime Integration - Gauges/Histograms (Ready to Start)
+
+**Duration**: 1 week (estimated)
+**Complexity**: Medium
+**LOC**: ~300 lines
+**Status**: 📋 **READY TO START** (Phase 2A complete)
+
+### Overview
+
+Extend runtime integration to support gauge and histogram metrics:
+1. Add gauge metric registration and observation
+2. Add histogram metric registration and observation
+3. Handle `@metric_field` for value extraction
+4. Handle `@metric_buckets` for histogram configuration
 
 ### Implementation Tasks
 
-- [ ] Modify `SimpleStreamProcessor` to accept `MetricAnnotation` list
-- [ ] Implement condition evaluation in `process_batch()`
-- [ ] Add metric emission for counters
-- [ ] Add metric emission for gauges
-- [ ] Add metric emission for histograms
-- [ ] Add label extraction from `StreamRecord` fields
-- [ ] Integrate with existing `MetricsProvider`
-- [ ] Add metric registration in `StreamJobServer`
-- [ ] Add metric cleanup on stream drop
-- [ ] Write integration tests
+- [ ] Add `dynamic_gauges: Arc<Mutex<HashMap<String, GaugeVec>>>` to MetricsProvider
+- [ ] Add `dynamic_histograms: Arc<Mutex<HashMap<String, HistogramVec>>>` to MetricsProvider
+- [ ] Implement `register_gauge_metric()` method
+- [ ] Implement `register_histogram_metric()` method
+- [ ] Implement `emit_gauge()` method
+- [ ] Implement `emit_histogram()` method
+- [ ] Add `emit_gauge_metrics()` to SimpleStreamProcessor
+- [ ] Add `emit_histogram_metrics()` to SimpleStreamProcessor
+- [ ] Write integration tests for gauges
+- [ ] Write integration tests for histograms
 
 ### Success Criteria
 
-- [ ] Counters increment when conditions are met
-- [ ] Gauges track current values
-- [ ] Histograms observe value distributions
-- [ ] Labels are correctly extracted from record fields
-- [ ] Metrics appear in Prometheus `/metrics` endpoint
+- [ ] Gauges track current values from `@metric_field`
+- [ ] Histograms observe value distributions with buckets
 - [ ] All integration tests pass
 - [ ] Performance overhead < 5%
 
