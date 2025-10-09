@@ -25,7 +25,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Overview of Velostream Trading Demo System Health",
       "fieldConfig": {
@@ -101,7 +101,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "up",
           "interval": "",
@@ -115,7 +115,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Real-time trading data flow rates",
       "fieldConfig": {
@@ -191,7 +191,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "rate(kafka_server_brokertopicmetrics_messagesin_total[5m])",
           "interval": "",
@@ -205,7 +205,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Market data statistics and price movements",
       "fieldConfig": {
@@ -256,7 +256,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "velo_trading_active_symbols",
           "interval": "",
@@ -270,7 +270,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Number of price alerts generated",
       "fieldConfig": {
@@ -325,7 +325,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "velo_trading_price_alerts_total",
           "interval": "",
@@ -339,7 +339,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Volume spike detections",
       "fieldConfig": {
@@ -394,7 +394,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "velo_trading_volume_spikes_total",
           "interval": "",
@@ -408,7 +408,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Risk management alerts",
       "fieldConfig": {
@@ -463,7 +463,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "velo_trading_risk_alerts_total",
           "interval": "",
@@ -477,7 +477,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "SQL job execution metrics",
       "fieldConfig": {
@@ -553,7 +553,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "velo_sql_query_duration_ms",
           "interval": "",
@@ -567,7 +567,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "description": "Memory and CPU usage of Velostream components",
       "fieldConfig": {
@@ -643,7 +643,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "PBFA97CFB590B2093"
           },
           "expr": "rate(process_cpu_seconds_total[5m]) * 100",
           "interval": "",

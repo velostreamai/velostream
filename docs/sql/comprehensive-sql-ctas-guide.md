@@ -547,6 +547,55 @@ WITH (
 );
 ```
 
+### Event-Time Configuration
+
+Extract event-time from timestamp fields in your data for accurate time-based processing:
+
+```sql
+-- ISO 8601 timestamps
+CREATE STREAM trades_with_event_time AS
+SELECT symbol, price, volume, event_time
+FROM kafka://trades-topic
+WITH (
+    'event.time.field' = 'trade_timestamp',
+    'event.time.format' = 'iso8601'
+)
+EMIT CHANGES;
+
+-- Epoch milliseconds (JavaScript Date.now())
+CREATE STREAM orders_with_event_time AS
+SELECT order_id, amount, event_time
+FROM kafka://orders-topic
+WITH (
+    'event.time.field' = 'created_at',
+    'event.time.format' = 'epoch_millis'
+)
+EMIT CHANGES;
+
+-- Custom datetime format with milliseconds
+CREATE STREAM logs_with_event_time AS
+SELECT level, message, event_time
+FROM file:///logs/app.log
+WITH (
+    'event.time.field' = 'timestamp',
+    'event.time.format' = '%Y-%m-%d %H:%M:%S%.3f'
+)
+EMIT CHANGES;
+```
+
+**Event-Time Format Options:**
+
+| Format | Configuration Value | Example Field Value |
+|--------|-------------------|---------------------|
+| ISO 8601 / RFC 3339 | `iso8601` | `"2024-01-15T10:30:00Z"` |
+| Epoch milliseconds | `epoch_millis` | `1705318200000` |
+| Epoch seconds | `epoch_seconds` or `epoch` | `1705318200` |
+| Custom with milliseconds | `%Y-%m-%d %H:%M:%S%.3f` | `"2024-01-15 10:30:00.123"` |
+| Custom without milliseconds | `%Y-%m-%d %H:%M:%S` | `"2024-01-15 10:30:00"` |
+| Auto-detect | Omit format property | Tries epoch, then ISO 8601 |
+
+See [Watermarks & Time Semantics Guide](watermarks-time-semantics.md) for complete event-time documentation.
+
 ---
 
 ## Advanced Window Operations
@@ -1016,6 +1065,26 @@ The `WITH` clause configures table and stream behavior. Properties are specified
 | **`protobuf.schema.registry.url`** | string | None | Protobuf schema registry URL | `'protobuf.schema.registry.url' = 'http://schema-registry:8081'` |
 | **`protobuf.message.type`** | string | None | Protobuf message type name | `'protobuf.message.type' = 'trading.Order'` |
 
+### Event-Time Properties
+
+| Property | Type | Default | Description | Example |
+|----------|------|---------|-------------|---------|
+| **`event.time.field`** | string | None | Field name containing event timestamp | `'event.time.field' = 'timestamp'` |
+| **`event.time.format`** | string | Auto-detect | Timestamp format (see table below) | `'event.time.format' = 'iso8601'` |
+
+**Supported Event-Time Formats:**
+
+| Format Value | Description | Field Example |
+|--------------|-------------|---------------|
+| `iso8601` or `ISO8601` | ISO 8601 / RFC 3339 timestamps | `"2024-01-15T10:30:00Z"` |
+| `epoch_millis` | Unix epoch milliseconds | `1705318200000` |
+| `epoch_seconds` or `epoch` | Unix epoch seconds | `1705318200` |
+| `%Y-%m-%d %H:%M:%S%.3f` | Custom with milliseconds | `"2024-01-15 10:30:00.123"` |
+| `%Y-%m-%d %H:%M:%S` | Custom without milliseconds | `"2024-01-15 10:30:00"` |
+| _(omit)_ | Auto-detection | Tries epoch, then ISO 8601 |
+
+See [Watermarks & Time Semantics Guide](watermarks-time-semantics.md#event-time-format-options) for complete format documentation.
+
 ### Multi-Config Properties (INTO Clause)
 
 | Property | Type | Default | Description | Example |
@@ -1056,6 +1125,10 @@ WITH (
     -- Schema registry
     'value.format' = 'avro',
     'avro.schema.registry.url' = 'http://schema-registry:8081',
+
+    -- Event-time extraction
+    'event.time.field' = 'event_timestamp',
+    'event.time.format' = 'iso8601',
 
     -- Error handling
     'error.handling' = 'skip',

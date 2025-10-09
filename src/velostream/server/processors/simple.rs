@@ -4,22 +4,48 @@
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 
 /// Simple (non-transactional) job processor
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
+    observability: Option<SharedObservabilityManager>,
 }
 
 impl SimpleJobProcessor {
     pub fn new(config: JobProcessingConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            observability: None,
+        }
+    }
+
+    pub fn new_with_observability(
+        config: JobProcessingConfig,
+        observability: Option<SharedObservabilityManager>,
+    ) -> Self {
+        Self {
+            config,
+            observability,
+        }
+    }
+
+    /// Create processor with observability support
+    pub fn with_observability(
+        config: JobProcessingConfig,
+        observability: Option<SharedObservabilityManager>,
+    ) -> Self {
+        Self {
+            config,
+            observability,
+        }
     }
 
     /// Get reference to the job processing configuration
@@ -61,6 +87,10 @@ impl SimpleJobProcessor {
             // Context is already prepared by engine.prepare_context() above
         }
 
+        // Track if we've seen empty batches from all sources (lazy check)
+        let mut consecutive_empty_batches = 0;
+        const MAX_EMPTY_BATCHES: usize = 3; // Check has_more() after 3 empty batches
+
         loop {
             // Check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
@@ -68,12 +98,64 @@ impl SimpleJobProcessor {
                 break;
             }
 
+            // Only check has_more() after seeing empty batches (optimization)
+            if consecutive_empty_batches >= MAX_EMPTY_BATCHES {
+                let sources_finished = {
+                    let source_names = context.list_sources();
+                    let mut all_finished = true;
+                    for source_name in source_names {
+                        match context.has_more_data(&source_name).await {
+                            Ok(has_more) => {
+                                if has_more {
+                                    all_finished = false;
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Job '{}': Failed to check has_more for source '{}': {:?}",
+                                    job_name, source_name, e
+                                );
+                                // On error, assume source has more data to avoid premature exit
+                                all_finished = false;
+                                break;
+                            }
+                        }
+                    }
+                    all_finished
+                };
+
+                if sources_finished {
+                    info!(
+                        "Job '{}': All sources have finished - no more data to process",
+                        job_name
+                    );
+                    break;
+                }
+
+                // Reset counter after checking
+                consecutive_empty_batches = 0;
+            }
+
+            // Track records processed before this batch
+            let records_before = stats.records_processed;
+
             // Process from all sources
             match self
                 .process_multi_source_batch(&mut context, &engine, &query, &job_name, &mut stats)
                 .await
             {
                 Ok(()) => {
+                    // Check if we actually processed any records
+                    let records_processed = stats.records_processed - records_before;
+                    if records_processed > 0 {
+                        // Reset empty batch counter on successful processing
+                        consecutive_empty_batches = 0;
+                    } else {
+                        // No records processed - increment empty batch counter
+                        consecutive_empty_batches += 1;
+                    }
+
                     if self.config.log_progress
                         && stats.batches_processed % self.config.progress_interval == 0
                     {
@@ -86,6 +168,7 @@ impl SimpleJobProcessor {
                         job_name, e
                     );
                     stats.batches_failed += 1;
+                    consecutive_empty_batches += 1; // Increment on failure (likely empty batch)
 
                     // Apply retry backoff
                     tokio::time::sleep(self.config.retry_backoff).await;
@@ -228,8 +311,60 @@ impl SimpleJobProcessor {
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch processing cycle", job_name);
 
-        // Step 1: Read batch from datasource
+        // Step 1: Read batch from datasource (with telemetry)
+        let deser_start = Instant::now();
         let batch = reader.read().await?;
+        let deser_duration = deser_start.elapsed().as_millis() as u64;
+
+        // Record deserialization telemetry and metrics
+        if let Some(obs) = &self.observability {
+            info!("Job '{}': Observability manager present, recording deserialization metrics (batch_size={}, duration={}ms)", job_name, batch.len(), deser_duration);
+            if let Ok(obs_lock) = obs.try_read() {
+                // Record telemetry span
+                if let Some(telemetry) = obs_lock.telemetry() {
+                    let mut span =
+                        telemetry.start_streaming_span("deserialization", batch.len() as u64);
+                    span.set_processing_time(deser_duration);
+                    span.set_success();
+                    info!(
+                        "Job '{}': Telemetry span recorded for deserialization",
+                        job_name
+                    );
+                }
+
+                // Record Prometheus metrics
+                if let Some(metrics) = obs_lock.metrics() {
+                    let throughput = if deser_duration > 0 {
+                        (batch.len() as f64 / deser_duration as f64) * 1000.0 // records per second
+                    } else {
+                        0.0
+                    };
+                    metrics.record_streaming_operation(
+                        "deserialization",
+                        std::time::Duration::from_millis(deser_duration),
+                        batch.len() as u64,
+                        throughput,
+                    );
+                    info!("Job '{}': Prometheus metrics recorded for deserialization (throughput={:.2} rec/s)", job_name, throughput);
+                } else {
+                    warn!(
+                        "Job '{}': Observability manager present but NO metrics provider",
+                        job_name
+                    );
+                }
+            } else {
+                warn!(
+                    "Job '{}': Observability manager present but could not acquire read lock",
+                    job_name
+                );
+            }
+        } else {
+            warn!(
+                "Job '{}': NO observability manager - metrics will not be recorded",
+                job_name
+            );
+        }
+
         if batch.is_empty() {
             debug!(
                 "Job '{}': No data available, checking if more data exists",
@@ -260,8 +395,39 @@ impl SimpleJobProcessor {
             batch.len()
         );
 
-        // Step 2: Process batch through SQL engine and capture output
+        // Step 2: Process batch through SQL engine and capture output (with telemetry)
+        let sql_start = Instant::now();
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        let sql_duration = sql_start.elapsed().as_millis() as u64;
+
+        // Record SQL processing telemetry and metrics
+        if let Some(obs) = &self.observability {
+            if let Ok(obs_lock) = obs.try_read() {
+                // Record telemetry span
+                if let Some(telemetry) = obs_lock.telemetry() {
+                    let mut span = telemetry.start_sql_query_span("sql_processing", job_name);
+                    span.set_execution_time(sql_duration);
+                    span.set_record_count(batch_result.records_processed as u64);
+                    if batch_result.records_failed > 0 {
+                        span.set_error(&format!("{} records failed", batch_result.records_failed));
+                    } else {
+                        span.set_success();
+                    }
+                }
+
+                // Record Prometheus metrics
+                if let Some(metrics) = obs_lock.metrics() {
+                    let success = batch_result.records_failed == 0;
+                    metrics.record_sql_query(
+                        "stream_processing",
+                        std::time::Duration::from_millis(sql_duration),
+                        success,
+                        batch_result.records_processed as u64,
+                    );
+                }
+            }
+        }
+
         debug!(
             "Job '{}': SQL processing complete - {} records processed, {} failed",
             job_name, batch_result.records_processed, batch_result.records_failed
@@ -274,7 +440,8 @@ impl SimpleJobProcessor {
             job_name,
         );
 
-        // Step 4: Write processed data to sink if we have one
+        // Step 4: Write processed data to sink if we have one (with telemetry)
+        let mut sink_write_failed = false;
         if let Some(w) = writer.as_mut() {
             if should_commit && !batch_result.output_records.is_empty() {
                 debug!(
@@ -283,22 +450,85 @@ impl SimpleJobProcessor {
                     batch_result.output_records.len()
                 );
 
-                // Attempt to write to sink with retry logic
+                // Attempt to write to sink with retry logic (with telemetry)
+                let ser_start = Instant::now();
+                let record_count = batch_result.output_records.len();
                 match w.write_batch(batch_result.output_records.clone()).await {
                     Ok(()) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization success telemetry and metrics
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                // Record telemetry span
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry
+                                        .start_streaming_span("serialization", record_count as u64);
+                                    span.set_processing_time(ser_duration);
+                                    span.set_success();
+                                }
+
+                                // Record Prometheus metrics
+                                if let Some(metrics) = obs_lock.metrics() {
+                                    let throughput = if ser_duration > 0 {
+                                        (record_count as f64 / ser_duration as f64) * 1000.0
+                                    } else {
+                                        0.0
+                                    };
+                                    metrics.record_streaming_operation(
+                                        "serialization",
+                                        std::time::Duration::from_millis(ser_duration),
+                                        record_count as u64,
+                                        throughput,
+                                    );
+                                }
+                            }
+                        }
+
                         debug!(
                             "Job '{}': Successfully wrote {} records to sink",
-                            job_name,
-                            batch_result.output_records.len()
+                            job_name, record_count
                         );
                     }
                     Err(e) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization failure telemetry and metrics
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                // Record telemetry span
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry
+                                        .start_streaming_span("serialization", record_count as u64);
+                                    span.set_processing_time(ser_duration);
+                                    span.set_error(&format!("{:?}", e));
+                                }
+
+                                // Record Prometheus metrics (still record the attempt)
+                                if let Some(metrics) = obs_lock.metrics() {
+                                    let throughput = if ser_duration > 0 {
+                                        (record_count as f64 / ser_duration as f64) * 1000.0
+                                    } else {
+                                        0.0
+                                    };
+                                    metrics.record_streaming_operation(
+                                        "serialization_failed",
+                                        std::time::Duration::from_millis(ser_duration),
+                                        record_count as u64,
+                                        throughput,
+                                    );
+                                }
+                            }
+                        }
+
                         warn!(
                             "Job '{}': Failed to write {} records to sink: {:?}",
                             job_name,
                             batch_result.output_records.len(),
                             e
                         );
+
+                        sink_write_failed = true;
 
                         // Apply backoff and return error to trigger retry at batch level
                         if matches!(
@@ -311,8 +541,12 @@ impl SimpleJobProcessor {
                             );
                             tokio::time::sleep(self.config.retry_backoff).await;
                             return Err(format!("Sink write failed, will retry: {}", e).into());
+                        } else if matches!(self.config.failure_strategy, FailureStrategy::FailBatch)
+                        {
+                            warn!("Job '{}': Sink write failed with FailBatch strategy - batch will fail",
+                                  job_name);
                         } else {
-                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})", 
+                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})",
                                   job_name, self.config.failure_strategy);
                         }
                     }
@@ -321,7 +555,7 @@ impl SimpleJobProcessor {
         }
 
         // Step 5: Commit with simple semantics (no rollback if sink fails)
-        if should_commit {
+        if should_commit && !sink_write_failed {
             self.commit_simple(reader, writer, job_name).await?;
 
             // Update stats from batch result
@@ -334,28 +568,37 @@ impl SimpleJobProcessor {
                 );
             }
         } else {
-            // Batch failed or RetryWithBackoff strategy triggered
-            match self.config.failure_strategy {
-                FailureStrategy::RetryWithBackoff => {
-                    warn!(
-                        "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
-                        job_name, batch_result.records_failed
-                    );
-                    stats.batches_failed += 1;
-                    // Return error to trigger retry at the calling level
-                    return Err(format!(
-                        "Batch processing failed with {} record failures - will retry with backoff",
-                        batch_result.records_failed
-                    )
-                    .into());
-                }
-                _ => {
-                    // FailBatch strategy - don't commit, just log
-                    warn!(
-                        "Job '{}': Skipping commit due to {} batch failures",
-                        job_name, batch_result.records_failed
-                    );
-                    stats.batches_failed += 1;
+            // Batch failed due to SQL processing errors or sink write failures
+            if sink_write_failed {
+                warn!(
+                    "Job '{}': Batch failed due to sink write failure (strategy: {:?})",
+                    job_name, self.config.failure_strategy
+                );
+                stats.batches_failed += 1;
+            } else {
+                // Batch failed or RetryWithBackoff strategy triggered
+                match self.config.failure_strategy {
+                    FailureStrategy::RetryWithBackoff => {
+                        warn!(
+                            "Job '{}': Batch failed with {} record failures - applying retry backoff and will retry",
+                            job_name, batch_result.records_failed
+                        );
+                        stats.batches_failed += 1;
+                        // Return error to trigger retry at the calling level
+                        return Err(format!(
+                            "Batch processing failed with {} record failures - will retry with backoff",
+                            batch_result.records_failed
+                        )
+                        .into());
+                    }
+                    _ => {
+                        // FailBatch strategy - don't commit, just log
+                        warn!(
+                            "Job '{}': Skipping commit due to {} batch failures",
+                            job_name, batch_result.records_failed
+                        );
+                        stats.batches_failed += 1;
+                    }
                 }
             }
         }
@@ -423,16 +666,62 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
+        let sink_names = context.list_sinks();
+        if sink_names.is_empty() {
+            debug!(
+                "Job '{}': No sinks configured - processed records will not be written",
+                job_name
+            );
+        }
+
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
-        let _all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> = Vec::new();
+        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+            Vec::new();
 
         // Process records from each source
         for source_name in &source_names {
             context.set_active_reader(source_name)?;
 
-            // Read batch from current source
+            // Read batch from current source (with telemetry)
+            let deser_start = Instant::now();
             let batch = context.read().await?;
+            let deser_duration = deser_start.elapsed().as_millis() as u64;
+
+            // Record deserialization metrics
+            if let Some(obs) = &self.observability {
+                debug!("Job '{}': Recording deserialization metrics for source '{}' (batch_size={}, duration={}ms)", job_name, source_name, batch.len(), deser_duration);
+                match obs.read().await {
+                    obs_lock => {
+                        if let Some(metrics) = obs_lock.metrics() {
+                            let throughput = if deser_duration > 0 {
+                                (batch.len() as f64 / deser_duration as f64) * 1000.0
+                            } else {
+                                0.0
+                            };
+                            metrics.record_streaming_operation(
+                                "deserialization",
+                                std::time::Duration::from_millis(deser_duration),
+                                batch.len() as u64,
+                                throughput,
+                            );
+                            info!("Job '{}': ✅ Metrics recorded: deserialization from '{}' ({} records, {:.2} rec/s)",
+                                  job_name, source_name, batch.len(), throughput);
+                        } else {
+                            warn!(
+                                "Job '{}': ❌ Metrics unavailable (no metrics provider)",
+                                job_name
+                            );
+                        }
+                    }
+                }
+            } else {
+                warn!(
+                    "Job '{}': NO observability manager for multi-source processing",
+                    job_name
+                );
+            }
+
             if batch.is_empty() {
                 debug!(
                     "Job '{}': No data from source '{}', skipping",
@@ -448,57 +737,104 @@ impl SimpleJobProcessor {
                 source_name
             );
 
-            // Process batch through SQL engine using execute_with_sources
-            {
-                let mut engine_lock = engine.lock().await;
+            // Process batch through SQL engine and capture output records (with telemetry)
+            // Use process_batch_with_output to get actual query results
+            let sql_start = Instant::now();
+            let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+            let sql_duration = sql_start.elapsed().as_millis() as u64;
 
-                for record in batch {
-                    match engine_lock.execute_with_record(query, record).await {
-                        Ok(()) => {
-                            total_records_processed += 1;
-                        }
-                        Err(e) => {
-                            total_records_failed += 1;
-                            match self.config.failure_strategy {
-                                FailureStrategy::LogAndContinue => {
-                                    warn!(
-                                        "Job '{}': Record processing failed (continuing): {:?}",
-                                        job_name, e
-                                    );
-                                }
-                                FailureStrategy::FailBatch => {
-                                    error!(
-                                        "Job '{}': Record processing failed (failing batch): {:?}",
-                                        job_name, e
-                                    );
-                                    return Err(format!(
-                                        "Batch failed due to record processing error: {:?}",
-                                        e
-                                    )
-                                    .into());
-                                }
-                                FailureStrategy::RetryWithBackoff => {
-                                    error!(
-                                        "Job '{}': Record processing failed (will retry): {:?}",
-                                        job_name, e
-                                    );
-                                    return Err(format!(
-                                        "Record processing failed, will retry: {:?}",
-                                        e
-                                    )
-                                    .into());
-                                }
-                                FailureStrategy::SendToDLQ => {
-                                    warn!("Job '{}': Record processing failed, would send to DLQ (not implemented): {:?}", job_name, e);
-                                    // TODO: Implement DLQ functionality
-                                }
-                            }
+            // Record SQL processing metrics
+            if let Some(obs) = &self.observability {
+                match obs.read().await {
+                    obs_lock => {
+                        if let Some(metrics) = obs_lock.metrics() {
+                            let throughput = if sql_duration > 0 {
+                                (batch_result.records_processed as f64 / sql_duration as f64)
+                                    * 1000.0
+                            } else {
+                                0.0
+                            };
+                            metrics.record_streaming_operation(
+                                "sql_processing",
+                                std::time::Duration::from_millis(sql_duration),
+                                batch_result.records_processed as u64,
+                                throughput,
+                            );
+
+                            // Also record SQL-specific metrics
+                            metrics.record_sql_query(
+                                "streaming_query",
+                                std::time::Duration::from_millis(sql_duration),
+                                batch_result.records_failed == 0,
+                                batch_result.records_processed as u64,
+                            );
+
+                            info!("Job '{}': ✅ Metrics recorded: sql_processing from '{}' ({} records, {:.2} rec/s)",
+                                  job_name, source_name, batch_result.records_processed, throughput);
+                        } else {
+                            warn!(
+                                "Job '{}': ❌ Metrics unavailable (no metrics provider)",
+                                job_name
+                            );
                         }
                     }
                 }
+            }
 
-                // Sync state back to context
-                // Context state already updated by engine.execute_batch() above
+            total_records_processed += batch_result.records_processed;
+            total_records_failed += batch_result.records_failed;
+
+            debug!(
+                "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
+                job_name,
+                source_name,
+                batch_result.records_processed,
+                batch_result.records_failed,
+                batch_result.output_records.len()
+            );
+
+            // Collect output records for writing to sinks
+            all_output_records.extend(batch_result.output_records);
+
+            // Handle failures according to strategy
+            if batch_result.records_failed > 0 {
+                match self.config.failure_strategy {
+                    FailureStrategy::LogAndContinue => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures (continuing)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                    }
+                    FailureStrategy::FailBatch => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (failing batch)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        return Err(format!(
+                            "Batch failed due to {} record processing errors from source '{}'",
+                            batch_result.records_failed, source_name
+                        )
+                        .into());
+                    }
+                    FailureStrategy::RetryWithBackoff => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (will retry)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        return Err(format!(
+                            "Record processing failed for source '{}', will retry",
+                            source_name
+                        )
+                        .into());
+                    }
+                    FailureStrategy::SendToDLQ => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        // TODO: Implement DLQ functionality
+                    }
+                }
             }
         }
 
@@ -507,6 +843,152 @@ impl SimpleJobProcessor {
             should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
 
         if should_commit {
+            // Write output records to all sinks
+            if !all_output_records.is_empty() && !sink_names.is_empty() {
+                debug!(
+                    "Job '{}': Writing {} output records to {} sink(s)",
+                    job_name,
+                    all_output_records.len(),
+                    sink_names.len()
+                );
+
+                // Optimize for multi-sink scenario: use shared slice instead of cloning for each sink
+                if sink_names.len() == 1 {
+                    // Single sink: use move semantics (no clone)
+                    let ser_start = Instant::now();
+                    match context
+                        .write_batch_to(&sink_names[0], all_output_records.clone())
+                        .await
+                    {
+                        Ok(()) => {
+                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                            // Record serialization metrics
+                            if let Some(obs) = &self.observability {
+                                match obs.read().await {
+                                    obs_lock => {
+                                        if let Some(metrics) = obs_lock.metrics() {
+                                            let throughput = if ser_duration > 0 {
+                                                (all_output_records.len() as f64
+                                                    / ser_duration as f64)
+                                                    * 1000.0
+                                            } else {
+                                                0.0
+                                            };
+                                            metrics.record_streaming_operation(
+                                                "serialization",
+                                                std::time::Duration::from_millis(ser_duration),
+                                                all_output_records.len() as u64,
+                                                throughput,
+                                            );
+                                            info!("Job '{}': ✅ Metrics recorded: serialization to '{}' ({} records, {:.2} rec/s)",
+                                                  job_name, &sink_names[0], all_output_records.len(), throughput);
+                                        } else {
+                                            warn!("Job '{}': ❌ Metrics unavailable (no metrics provider)", job_name);
+                                        }
+                                    }
+                                }
+                            }
+
+                            debug!(
+                                "Job '{}': Successfully wrote {} records to sink '{}'",
+                                job_name,
+                                all_output_records.len(),
+                                &sink_names[0]
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to write {} records to sink '{}': {:?}",
+                                job_name,
+                                all_output_records.len(),
+                                &sink_names[0],
+                                e
+                            );
+                            if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                                return Err(format!(
+                                    "Failed to write to sink '{}': {:?}",
+                                    &sink_names[0], e
+                                )
+                                .into());
+                            }
+                        }
+                    }
+                } else {
+                    // Multiple sinks: use shared slice to avoid N clones
+                    for sink_name in &sink_names {
+                        let ser_start = Instant::now();
+                        match context
+                            .write_batch_to_shared(sink_name, &all_output_records)
+                            .await
+                        {
+                            Ok(()) => {
+                                let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                                // Record serialization metrics
+                                if let Some(obs) = &self.observability {
+                                    match obs.read().await {
+                                        obs_lock => {
+                                            if let Some(metrics) = obs_lock.metrics() {
+                                                let throughput = if ser_duration > 0 {
+                                                    (all_output_records.len() as f64
+                                                        / ser_duration as f64)
+                                                        * 1000.0
+                                                } else {
+                                                    0.0
+                                                };
+                                                metrics.record_streaming_operation(
+                                                    "serialization",
+                                                    std::time::Duration::from_millis(ser_duration),
+                                                    all_output_records.len() as u64,
+                                                    throughput,
+                                                );
+                                                info!("Job '{}': ✅ Metrics recorded: serialization to '{}' ({} records, {:.2} rec/s)",
+                                                      job_name, sink_name, all_output_records.len(), throughput);
+                                            } else {
+                                                warn!("Job '{}': ❌ Metrics unavailable (no metrics provider)", job_name);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                debug!(
+                                    "Job '{}': Successfully wrote {} records to sink '{}'",
+                                    job_name,
+                                    all_output_records.len(),
+                                    sink_name
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Job '{}': Failed to write {} records to sink '{}': {:?}",
+                                    job_name,
+                                    all_output_records.len(),
+                                    sink_name,
+                                    e
+                                );
+                                if matches!(
+                                    self.config.failure_strategy,
+                                    FailureStrategy::FailBatch
+                                ) {
+                                    return Err(format!(
+                                        "Failed to write to sink '{}': {:?}",
+                                        sink_name, e
+                                    )
+                                    .into());
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if !all_output_records.is_empty() {
+                debug!(
+                    "Job '{}': Processed {} output records but no sinks configured",
+                    job_name,
+                    all_output_records.len()
+                );
+            }
+
             // Commit all sources
             for source_name in &source_names {
                 if let Err(e) = context.commit_source(source_name).await {
@@ -536,8 +1018,8 @@ impl SimpleJobProcessor {
             stats.records_failed += total_records_failed as u64;
 
             debug!(
-                "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed",
-                job_name, total_records_processed, total_records_failed
+                "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed, {} written to sinks",
+                job_name, total_records_processed, total_records_failed, all_output_records.len()
             );
         } else {
             stats.batches_failed += 1;

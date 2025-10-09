@@ -24,6 +24,13 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
+  - job_name: 'velostream-telemetry'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 3s
+
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['host.docker.internal:9100']

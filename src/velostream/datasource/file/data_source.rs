@@ -31,6 +31,7 @@ pub struct FileDataSource {
     config: Option<FileSourceConfig>,
     metadata: Option<SourceMetadata>,
     watcher: Option<FileWatcher>,
+    event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
 }
 
 impl FileDataSource {
@@ -40,6 +41,7 @@ impl FileDataSource {
             config: None,
             metadata: None,
             watcher: None,
+            event_time_config: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl FileDataSource {
                 format: generic_format,
                 properties: std::collections::HashMap::new(),
                 batch_config: crate::velostream::datasource::BatchConfig::default(),
+                event_time_config: None,
             }
         } else {
             // Return default if not configured
@@ -140,6 +143,7 @@ impl FileDataSource {
                 },
                 properties: std::collections::HashMap::new(),
                 batch_config: crate::velostream::datasource::BatchConfig::default(),
+                event_time_config: None,
             }
         }
     }
@@ -374,6 +378,14 @@ impl DataSource for FileDataSource {
         &mut self,
         config: SourceConfig,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Extract event_time_config from SourceConfig before conversion
+        let event_time_config = match &config {
+            SourceConfig::File {
+                event_time_config, ..
+            } => event_time_config.clone(),
+            _ => None,
+        };
+
         let file_config = FileSourceConfig::from_generic(&config).map_err(|e| {
             Box::new(FileDataSourceError::UnsupportedFormat(e)) as Box<dyn Error + Send + Sync>
         })?;
@@ -394,6 +406,9 @@ impl DataSource for FileDataSource {
                 .await?;
             self.watcher = Some(watcher);
         }
+
+        // Store event_time_config
+        self.event_time_config = event_time_config;
 
         // Store configuration
         self.config = Some(file_config);
@@ -436,7 +451,12 @@ impl DataSource for FileDataSource {
             )) as Box<dyn Error + Send + Sync>
         })?;
 
-        let reader = FileReader::new(config.clone()).await?;
+        let reader = FileReader::new_with_batch_config(
+            config.clone(),
+            crate::velostream::datasource::BatchConfig::default(),
+            self.event_time_config.clone(),
+        )
+        .await?;
         Ok(Box::new(reader))
     }
 
@@ -450,7 +470,12 @@ impl DataSource for FileDataSource {
             )) as Box<dyn Error + Send + Sync>
         })?;
 
-        let reader = FileReader::new_with_batch_config(config.clone(), batch_config).await?;
+        let reader = FileReader::new_with_batch_config(
+            config.clone(),
+            batch_config,
+            self.event_time_config.clone(),
+        )
+        .await?;
         Ok(Box::new(reader))
     }
 

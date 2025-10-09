@@ -132,7 +132,7 @@ fn test_complete_financial_trading_sql_parsing() {
                     );
 
                     println!("✅ Complete financial trading SQL parsed successfully!");
-                    println!("   - CREATE STREAM with INTO and WITH clauses");
+                    println!("   - CREATE STREAM with named sink and WITH configuration");
                     println!("   - 10 SELECT fields including aggregations and TUMBLE_END");
                     println!("   - Table aliases in window functions (m.price, p.trader_id)");
                     println!("   - JOIN with ON condition");

@@ -1,0 +1,32 @@
+# Market Data Exchange A Source Configuration
+# Market data from exchange A for arbitrage detection
+
+extends: common_kafka_source.yaml
+
+# Topic-specific settings
+topic:
+  name: "market_data_exchange_a"
+
+# Consumer group for this specific use case
+consumer.group: "arbitrage_analytics_group"
+
+# Performance profile
+performance_profile: ultra_low_latency
+
+# Topic-specific schema
+schema:
+  key.field: symbol
+  value.serializer: "avro"
+  value.schema.file: "schemas/market_data.avsc"
+
+# Topic properties
+topic_config:
+  partitions: 12
+  retention.ms: 86400000  # 1 day retention
+
+# Business context
+metadata:
+  description: "Market data from Exchange A"
+  data.classification: "real_time_financial"
+  update.frequency: "microseconds"
+  exchange: "A"

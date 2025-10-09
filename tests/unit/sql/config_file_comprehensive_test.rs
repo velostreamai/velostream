@@ -249,9 +249,25 @@ nested_object:
         Some(&"null".to_string())
     );
 
-    // Complex types should be formatted as debug strings
-    assert!(source.properties.get("array_value").is_some());
-    assert!(source.properties.get("nested_object").is_some());
+    // Complex types are flattened with indices/dot notation
+    // Arrays become array_value[0], array_value[1], array_value[2]
+    assert_eq!(
+        source.properties.get("array_value[0]"),
+        Some(&"1".to_string())
+    );
+    assert_eq!(
+        source.properties.get("array_value[1]"),
+        Some(&"2".to_string())
+    );
+    assert_eq!(
+        source.properties.get("array_value[2]"),
+        Some(&"3".to_string())
+    );
+    // Nested objects become nested_object.key
+    assert_eq!(
+        source.properties.get("nested_object.key"),
+        Some(&"nested_value".to_string())
+    );
 }
 
 #[test]

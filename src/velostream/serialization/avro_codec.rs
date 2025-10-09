@@ -82,15 +82,79 @@ impl AvroCodec {
         let mut avro_fields = Vec::new();
 
         for (key, field_value) in record {
-            let avro_value = self.field_value_to_avro(field_value)?;
+            // Pass field name for schema-aware conversion (especially for decimal types)
+            let avro_value = self.field_value_to_avro_with_name(field_value, Some(key.as_str()))?;
             avro_fields.push((key.clone(), avro_value));
         }
 
         Ok(AvroValue::Record(avro_fields))
     }
 
-    /// Convert FieldValue to Avro Value
+    /// Convert FieldValue to Avro Value with schema-aware field name context
+    fn field_value_to_avro_with_name(
+        &self,
+        field_value: &FieldValue,
+        field_name: Option<&str>,
+    ) -> Result<AvroValue, SerializationError> {
+        // Check if this field is a decimal type in the schema
+        let decimal_scale = field_name.and_then(|name| self.get_decimal_scale_from_schema(name));
+
+        match field_value {
+            FieldValue::Null => Ok(AvroValue::Null),
+            FieldValue::Boolean(b) => Ok(AvroValue::Boolean(*b)),
+            FieldValue::Integer(i) if decimal_scale.is_some() => {
+                // Convert Integer to Decimal when schema expects it
+                let scale = decimal_scale.unwrap();
+                let scaled_value = i * 10_i64.pow(scale as u32);
+                self.scaled_integer_to_decimal_bytes(scaled_value, scale)
+            }
+            FieldValue::Integer(i) => Ok(AvroValue::Long(*i)),
+            FieldValue::Float(f) if decimal_scale.is_some() => {
+                // Convert Float to Decimal when schema expects it
+                let scale = decimal_scale.unwrap();
+                let scaled_value = (f * 10_f64.powi(scale as i32)).round() as i64;
+                self.scaled_integer_to_decimal_bytes(scaled_value, scale)
+            }
+            FieldValue::Float(f) => Ok(AvroValue::Double(*f)),
+            FieldValue::ScaledInteger(value, _scale) if decimal_scale.is_some() => {
+                // Use schema scale, not the FieldValue scale
+                let schema_scale = decimal_scale.unwrap();
+                self.scaled_integer_to_decimal_bytes(*value, schema_scale)
+            }
+            FieldValue::ScaledInteger(value, scale) => {
+                // No decimal schema - convert to string representation
+                let scale_factor = 10_i64.pow(*scale as u32);
+                let integer_part = value / scale_factor;
+                let fractional_part = (value % scale_factor).abs();
+
+                let decimal_string = if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    let frac_str = format!("{:0width$}", fractional_part, width = *scale as usize);
+                    let frac_trimmed = frac_str.trim_end_matches('0');
+                    if frac_trimmed.is_empty() {
+                        integer_part.to_string()
+                    } else {
+                        format!("{}.{}", integer_part, frac_trimmed)
+                    }
+                };
+
+                Ok(AvroValue::String(decimal_string))
+            }
+            _ => self.field_value_to_avro_non_decimal(field_value),
+        }
+    }
+
+    /// Convert FieldValue to Avro Value (non-schema-aware, for backwards compatibility)
     fn field_value_to_avro(
+        &self,
+        field_value: &FieldValue,
+    ) -> Result<AvroValue, SerializationError> {
+        self.field_value_to_avro_with_name(field_value, None)
+    }
+
+    /// Convert non-decimal FieldValue types to Avro Value
+    fn field_value_to_avro_non_decimal(
         &self,
         field_value: &FieldValue,
     ) -> Result<AvroValue, SerializationError> {
@@ -319,6 +383,7 @@ impl AvroCodec {
     fn get_decimal_scale_from_schema(&self, field_name: &str) -> Option<u8> {
         // Parse the schema to find decimal logical type definitions
         let schema_json = self.schema.canonical_form();
+
         if let Ok(schema_value) = serde_json::from_str::<serde_json::Value>(&schema_json) {
             if let Some(fields) = schema_value.get("fields").and_then(|f| f.as_array()) {
                 for field in fields {
@@ -349,6 +414,23 @@ impl AvroCodec {
 
         // Handle direct type objects
         if let Some(type_obj) = type_def.as_object() {
+            // In canonical form, logicalType is stripped, so check for bytes/fixed type with precision/scale
+            let has_precision = type_obj.get("precision").and_then(|p| p.as_u64()).is_some();
+            let scale_value = type_obj.get("scale").and_then(|s| s.as_u64());
+            let type_name = type_obj.get("type").and_then(|t| t.as_str());
+
+            // Decimal is bytes or fixed type with precision and scale
+            if has_precision
+                && scale_value.is_some()
+                && (type_name == Some("bytes") || type_name == Some("fixed"))
+            {
+                let scale = scale_value.unwrap();
+                if scale <= 255 {
+                    return Some(scale as u8);
+                }
+            }
+
+            // Also check for explicit logicalType (in case schema isn't canonical)
             if let (Some(logical_type), Some(scale)) = (
                 type_obj.get("logicalType").and_then(|lt| lt.as_str()),
                 type_obj.get("scale").and_then(|s| s.as_u64()),
@@ -360,6 +442,23 @@ impl AvroCodec {
         }
 
         None
+    }
+
+    /// Convert scaled integer to Avro Decimal bytes (big-endian two's complement)
+    fn scaled_integer_to_decimal_bytes(
+        &self,
+        value: i64,
+        _scale: u8,
+    ) -> Result<AvroValue, SerializationError> {
+        use apache_avro::Decimal as AvroDecimal;
+
+        // Convert i64 to bytes (big-endian two's complement)
+        let bytes = value.to_be_bytes().to_vec();
+
+        // Create Avro Decimal from bytes
+        let decimal = AvroDecimal::from(bytes);
+
+        Ok(AvroValue::Decimal(decimal))
     }
 }
 

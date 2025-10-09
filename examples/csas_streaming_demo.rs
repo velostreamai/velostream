@@ -328,7 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--------------------------------------------------");
 
     let avro_orders_csas = r#"
-        CREATE STREAM orders_avro INTO orders_avro_topic AS
+        CREATE STREAM orders_avro AS
         SELECT
             order_id,
             customer_id,
@@ -336,12 +336,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             status,
             timestamp
         FROM orders_json_stream
+        EMIT CHANGES
+        INTO orders_avro_sink
         WITH (
-            'sink.format' = 'avro',
-            'sink.schema.registry.url' = 'http://schema-registry:8081',
-            'sink.topic' = 'orders-avro'
-        )
-        EMIT CHANGES;
+            'orders_avro_sink.format' = 'avro',
+            'orders_avro_sink.schema.registry.url' = 'http://schema-registry:8081',
+            'orders_avro_sink.topic' = 'orders-avro'
+        );
     "#;
 
     println!("SQL:\n{}\n", avro_orders_csas);

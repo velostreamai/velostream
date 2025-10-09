@@ -142,8 +142,11 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
-    /// File system source configuration  
+    /// File system source configuration
     File {
         path: String,
         format: FileFormat,
@@ -151,6 +154,9 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
     /// S3 source configuration
     S3 {
@@ -164,6 +170,9 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
     /// Database source configuration (for CDC)
     Database {
@@ -174,6 +183,9 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
     /// ClickHouse source configuration
     ClickHouse {
@@ -185,6 +197,9 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
     /// Generic configuration for custom sources
     Generic {
@@ -193,6 +208,9 @@ pub enum SourceConfig {
         /// Batch processing configuration
         #[serde(default)]
         batch_config: BatchConfig,
+        /// Event-time extraction configuration
+        #[serde(skip)]
+        event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
     },
 }
 
@@ -448,12 +466,17 @@ impl ConnectionString {
                     ));
                 }
 
+                // Parse event-time configuration from properties
+                let event_time_config =
+                    crate::velostream::datasource::EventTimeConfig::from_properties(&self.params);
+
                 Ok(SourceConfig::Kafka {
                     brokers,
                     topic,
                     group_id: self.params.get("group_id").cloned(),
                     properties: self.params.clone(),
                     batch_config: Default::default(),
+                    event_time_config,
                 })
             }
             "file" => {
@@ -483,11 +506,16 @@ impl ConnectionString {
                     _ => FileFormat::Json, // Default
                 };
 
+                // Parse event-time configuration from properties
+                let event_time_config =
+                    crate::velostream::datasource::EventTimeConfig::from_properties(&self.params);
+
                 Ok(SourceConfig::File {
                     path: self.path.clone(),
                     format,
                     properties: self.params.clone(),
                     batch_config: Default::default(),
+                    event_time_config,
                 })
             }
             "s3" => {
@@ -526,6 +554,10 @@ impl ConnectionString {
                     })
                     .unwrap_or(FileFormat::Parquet);
 
+                // Parse event-time configuration from properties
+                let event_time_config =
+                    crate::velostream::datasource::EventTimeConfig::from_properties(&self.params);
+
                 Ok(SourceConfig::S3 {
                     bucket,
                     prefix,
@@ -535,6 +567,7 @@ impl ConnectionString {
                     format,
                     properties: self.params.clone(),
                     batch_config: Default::default(),
+                    event_time_config,
                 })
             }
             "clickhouse" => {
@@ -565,6 +598,10 @@ impl ConnectionString {
                     })?
                     .clone();
 
+                // Parse event-time configuration from properties
+                let event_time_config =
+                    crate::velostream::datasource::EventTimeConfig::from_properties(&self.params);
+
                 Ok(SourceConfig::ClickHouse {
                     connection_string,
                     database,
@@ -572,13 +609,21 @@ impl ConnectionString {
                     query: self.params.get("query").cloned(),
                     properties: self.params.clone(),
                     batch_config: Default::default(),
+                    event_time_config,
                 })
             }
-            _ => Ok(SourceConfig::Generic {
-                source_type: self.scheme.clone(),
-                properties: self.params.clone(),
-                batch_config: Default::default(),
-            }),
+            _ => {
+                // Parse event-time configuration from properties
+                let event_time_config =
+                    crate::velostream::datasource::EventTimeConfig::from_properties(&self.params);
+
+                Ok(SourceConfig::Generic {
+                    source_type: self.scheme.clone(),
+                    properties: self.params.clone(),
+                    batch_config: Default::default(),
+                    event_time_config,
+                })
+            }
         }
     }
 

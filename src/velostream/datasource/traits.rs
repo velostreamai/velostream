@@ -142,6 +142,21 @@ pub trait DataWriter: Send + Sync + 'static {
         records: Vec<StreamRecord>,
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
+    /// Write multiple records from a shared slice (zero-copy for multi-sink scenarios)
+    ///
+    /// This method is used when the same batch needs to be written to multiple sinks.
+    /// Instead of cloning the entire Vec for each sink, we pass a slice reference.
+    ///
+    /// Default implementation clones the slice into a Vec and calls write_batch.
+    /// Implementations can override this for better performance.
+    async fn write_batch_shared(
+        &mut self,
+        records: &[StreamRecord],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Default: clone the slice and call write_batch
+        self.write_batch(records.to_vec()).await
+    }
+
     /// Update an existing record (for sinks that support it)
     async fn update(
         &mut self,

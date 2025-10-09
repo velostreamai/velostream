@@ -43,6 +43,52 @@ SELECT
 FROM products;
 ```
 
+### Creating Composite Keys
+
+Use concatenation to create composite keys for partitioning, grouping, or uniqueness:
+
+```sql
+-- Create composite key from multiple fields
+CREATE STREAM orders_with_key AS
+SELECT
+    customer_id || '_' || order_id as composite_key,
+    customer_id,
+    order_id,
+    amount,
+    status
+FROM orders_stream
+EMIT CHANGES;
+
+-- Multi-field key for partitioning (Kafka message key)
+CREATE STREAM trades_partitioned AS
+SELECT
+    symbol || '-' || trader_id as partition_key,
+    symbol,
+    trader_id,
+    price,
+    volume,
+    timestamp
+FROM trades_stream
+EMIT CHANGES;
+
+-- Time-based composite key
+CREATE STREAM events_with_time_key AS
+SELECT
+    region || ':' || DATE_FORMAT(timestamp, 'yyyy-MM-dd') || ':' || event_id as unique_key,
+    region,
+    event_id,
+    event_type,
+    timestamp
+FROM events_stream
+EMIT CHANGES;
+```
+
+**Use Cases:**
+- **Kafka Partitioning**: Concatenated field determines which partition receives the message
+- **JOIN Keys**: Create composite keys for multi-column joins
+- **Deduplication**: Unique identifiers across multiple dimensions
+- **Grouping**: Aggregate by multiple fields in a single key
+
 ## String Length and Measurement
 
 ### LENGTH and LEN - String Length
@@ -516,6 +562,7 @@ WHERE POSITION(',', csv_data) > 0;
 | Function | Purpose | Example |
 |----------|---------|---------|
 | `CONCAT(a, b, c)` | Join strings | `CONCAT('Hello', ' ', 'World')` |
+| `a \|\| b` | Concatenation operator | `'customer_' \|\| id` |
 | `LENGTH(text)` / `LEN(text)` | String length | `LENGTH('Hello')` → 5 |
 | `UPPER(text)` | Convert to uppercase | `UPPER('hello')` → 'HELLO' |
 | `LOWER(text)` | Convert to lowercase | `LOWER('HELLO')` → 'hello' |
@@ -526,6 +573,15 @@ WHERE POSITION(',', csv_data) > 0;
 | `RIGHT(text, n)` | Right n characters | `RIGHT('hello', 2)` → 'lo' |
 | `POSITION(substr, text)` | Find position | `POSITION('l', 'hello')` → 3 |
 | `text LIKE pattern` | Pattern matching | `'hello' LIKE 'h%'` → true |
+
+### Common Key Creation Patterns
+
+| Pattern | Example | Use Case |
+|---------|---------|----------|
+| **Composite ID** | `customer_id \|\| '_' \|\| order_id` | Unique order identifier |
+| **Partitioning Key** | `region \|\| '-' \|\| customer_id` | Kafka partition distribution |
+| **Time-based Key** | `symbol \|\| ':' \|\| timestamp` | Trading event tracking |
+| **Hierarchical Key** | `country \|\| '/' \|\| state \|\| '/' \|\| city` | Geographic grouping |
 
 ## Next Steps
 

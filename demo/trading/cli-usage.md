@@ -269,10 +269,10 @@ Override with command-line options:
 
 ### **Scripting with CLI**
 ```bash
-# Check if system is healthy before starting demo  
+# Check if system is healthy before starting demo
 if ./velo-cli health | grep -q "All systems healthy"; then
     echo "System ready - starting demo"
-    ./run_demo.sh
+    ./start-demo.sh
 else
     echo "System not ready - check status"
     ./velo-cli status --verbose

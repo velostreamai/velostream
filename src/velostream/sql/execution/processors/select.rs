@@ -1296,11 +1296,127 @@ impl SelectProcessor {
                     }),
                 }
             }
+            // Support arithmetic operations in HAVING clause (e.g., SUM(a) / SUM(b) > 0.7)
+            Expr::BinaryOp { left, op, right } => {
+                use crate::velostream::sql::ast::BinaryOperator;
+
+                // Recursively evaluate left and right operands
+                let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
+                let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
+
+                // Perform the arithmetic operation using FieldValue methods
+                match op {
+                    BinaryOperator::Add => left_val.add(&right_val),
+                    BinaryOperator::Subtract => left_val.subtract(&right_val),
+                    BinaryOperator::Multiply => left_val.multiply(&right_val),
+                    BinaryOperator::Divide => left_val.divide(&right_val),
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Unsupported binary operator in HAVING value expression: {:?}. \
+                             Only +, -, *, / are supported.",
+                            op
+                        ),
+                        query: None,
+                    }),
+                }
+            }
+            // Phase 2: Support column aliases in HAVING clause
+            // Example: SELECT SUM(quantity) as total ... HAVING total > 10000
+            Expr::Column(name) => {
+                // Look for a SELECT field with matching alias
+                Self::lookup_aggregated_field_by_alias(name, accumulator, fields)
+            }
+            // Phase 3: Support CASE expressions in HAVING clause
+            // Example: HAVING CASE WHEN SUM(x) > 100 THEN 1 ELSE 0 END = 1
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Evaluate each WHEN clause in order
+                for (condition, result) in when_clauses {
+                    // Evaluate the condition expression (returns bool)
+                    let condition_result =
+                        Self::evaluate_having_expression(condition, accumulator, fields)?;
+
+                    // Check if condition is true
+                    if condition_result {
+                        // Condition matched - evaluate and return the result expression
+                        return Self::evaluate_having_value_expression(result, accumulator, fields);
+                    }
+                }
+
+                // No WHEN clause matched - evaluate ELSE clause if present
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_having_value_expression(else_expr, accumulator, fields)
+                } else {
+                    // No ELSE clause - return NULL
+                    Ok(FieldValue::Null)
+                }
+            }
             _ => Err(SqlError::ExecutionError {
                 message: format!("Unsupported expression in HAVING clause: {:?}", expr),
                 query: None,
             }),
         }
+    }
+
+    /// Look up an aggregated field by its alias (Phase 2 implementation)
+    ///
+    /// When HAVING references a column name, check if it's an alias for an aggregate
+    /// expression in the SELECT clause and compute its value.
+    fn lookup_aggregated_field_by_alias(
+        alias: &str,
+        accumulator: &GroupAccumulator,
+        fields: &[SelectField],
+    ) -> Result<FieldValue, SqlError> {
+        use crate::velostream::sql::ast::SelectField;
+
+        // Search through SELECT fields for matching alias
+        for field in fields {
+            match field {
+                SelectField::AliasedColumn {
+                    column,
+                    alias: field_alias,
+                } if field_alias == alias => {
+                    // Simple aliased column - not an aggregate, shouldn't be in HAVING
+                    return Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Column alias '{}' in HAVING clause references non-aggregate column '{}'. \
+                             HAVING requires aggregate expressions.",
+                            alias, column
+                        ),
+                        query: None,
+                    });
+                }
+                SelectField::Expression {
+                    expr,
+                    alias: Some(field_alias),
+                } if field_alias == alias => {
+                    // Found matching alias - evaluate the aggregate expression
+                    return Self::evaluate_having_value_expression(expr, accumulator, fields);
+                }
+                _ => continue,
+            }
+        }
+
+        // No matching alias found - might be a column reference (which is an error in HAVING without GROUP BY)
+        Err(SqlError::ExecutionError {
+            message: format!(
+                "Column '{}' in HAVING clause is not an aggregate or aliased aggregate expression. \
+                 Available aliases: {}",
+                alias,
+                fields
+                    .iter()
+                    .filter_map(|f| match f {
+                        SelectField::Expression { alias: Some(a), .. } => Some(a.as_str()),
+                        SelectField::AliasedColumn { alias: a, .. } => Some(a.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            query: None,
+        })
     }
 
     /// Extract aggregate functions from expressions and compute their values
@@ -1564,14 +1680,146 @@ impl SelectProcessor {
                         return false;
                     }
                 }
+                // Phase 4: Support CASE expression matching
+                (Expr::Case { .. }, Expr::Case { .. }) => {
+                    if !Self::case_expressions_match(arg1, arg2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support literal matching
+                (Expr::Literal(l1), Expr::Literal(l2)) => {
+                    if !Self::literals_match(l1, l2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support binary operation matching
+                (Expr::BinaryOp { .. }, Expr::BinaryOp { .. }) => {
+                    if !Self::binary_ops_match(arg1, arg2) {
+                        return false;
+                    }
+                }
+                // Phase 4: Support function matching
+                (Expr::Function { name: n1, args: a1 }, Expr::Function { name: n2, args: a2 }) => {
+                    if n1 != n2 || !Self::args_match(a1, a2) {
+                        return false;
+                    }
+                }
                 _ => {
-                    // For simplicity, assume other expressions match if they're the same type
-                    // A more sophisticated implementation would do deeper comparison
+                    // Different expression types don't match
                     return false;
                 }
             }
         }
         true
+    }
+
+    /// Check if two CASE expressions are structurally equivalent (Phase 4)
+    fn case_expressions_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (
+                Expr::Case {
+                    when_clauses: w1,
+                    else_clause: e1,
+                },
+                Expr::Case {
+                    when_clauses: w2,
+                    else_clause: e2,
+                },
+            ) => {
+                // Check same number of WHEN clauses
+                if w1.len() != w2.len() {
+                    return false;
+                }
+
+                // Check each WHEN clause matches
+                for ((cond1, result1), (cond2, result2)) in w1.iter().zip(w2.iter()) {
+                    if !Self::expressions_match(cond1, cond2) {
+                        return false;
+                    }
+                    if !Self::expressions_match(result1, result2) {
+                        return false;
+                    }
+                }
+
+                // Check ELSE clauses match
+                match (e1, e2) {
+                    (Some(else1), Some(else2)) => Self::expressions_match(else1, else2),
+                    (None, None) => true,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if two expressions are structurally equivalent (Phase 4 helper)
+    fn expressions_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (Expr::Column(n1), Expr::Column(n2)) => n1 == n2,
+            (Expr::Literal(l1), Expr::Literal(l2)) => Self::literals_match(l1, l2),
+            (Expr::BinaryOp { .. }, Expr::BinaryOp { .. }) => Self::binary_ops_match(expr1, expr2),
+            (Expr::Case { .. }, Expr::Case { .. }) => Self::case_expressions_match(expr1, expr2),
+            (
+                Expr::Function {
+                    name: n1, args: a1, ..
+                },
+                Expr::Function {
+                    name: n2, args: a2, ..
+                },
+            ) => n1 == n2 && Self::args_match(a1, a2),
+            _ => false,
+        }
+    }
+
+    /// Check if two literals are equivalent (Phase 4)
+    fn literals_match(lit1: &LiteralValue, lit2: &LiteralValue) -> bool {
+        use LiteralValue::*;
+        match (lit1, lit2) {
+            (Integer(i1), Integer(i2)) => i1 == i2,
+            (Float(f1), Float(f2)) => (f1 - f2).abs() < f64::EPSILON,
+            (String(s1), String(s2)) => s1 == s2,
+            (Boolean(b1), Boolean(b2)) => b1 == b2,
+            (Null, Null) => true,
+            (Decimal(d1), Decimal(d2)) => d1 == d2,
+            (
+                Interval {
+                    value: v1,
+                    unit: u1,
+                },
+                Interval {
+                    value: v2,
+                    unit: u2,
+                },
+            ) => v1 == v2 && u1 == u2,
+            _ => false,
+        }
+    }
+
+    /// Check if two binary operations are structurally equivalent (Phase 4)
+    fn binary_ops_match(expr1: &Expr, expr2: &Expr) -> bool {
+        match (expr1, expr2) {
+            (
+                Expr::BinaryOp {
+                    left: l1,
+                    op: op1,
+                    right: r1,
+                },
+                Expr::BinaryOp {
+                    left: l2,
+                    op: op2,
+                    right: r2,
+                },
+            ) => {
+                // Operators must match
+                if op1 != op2 {
+                    return false;
+                }
+
+                // Recursively check left and right operands
+                Self::expressions_match(l1, l2) && Self::expressions_match(r1, r2)
+            }
+            _ => false,
+        }
     }
 
     /// Convert FieldValue to boolean for HAVING clause evaluation

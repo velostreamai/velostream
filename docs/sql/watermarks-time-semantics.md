@@ -116,21 +116,154 @@ LateDataStrategy::UpdatePrevious
 
 ### Event-Time Extraction
 
-Configure event-time extraction from JSON fields:
+Configure event-time extraction from data source fields:
 
 ```sql
 CREATE STREAM trades AS
-SELECT 
-    ticker, 
-    price, 
+SELECT
+    ticker,
+    price,
     volume,
-    EXTRACT_TIMESTAMP('event_timestamp') as event_time
+    event_time
 FROM kafka_source
 WITH (
     'event.time.field' = 'event_timestamp',
-    'event.time.format' = 'yyyy-MM-dd HH:mm:ss.SSS'
+    'event.time.format' = 'iso8601'
 );
 ```
+
+### Event-Time Format Options
+
+Velostream supports multiple timestamp formats for extracting event-time from string fields:
+
+#### ISO 8601 Format (Recommended)
+
+For standard timestamp strings with timezone information:
+
+```sql
+CREATE STREAM orders AS
+SELECT order_id, amount, event_time
+FROM kafka_source
+WITH (
+    'event.time.field' = 'timestamp',
+    'event.time.format' = 'iso8601'
+);
+```
+
+**Supported ISO 8601 examples:**
+- `2024-01-15T10:30:00Z` (UTC with Z suffix)
+- `2024-01-15T10:30:00+00:00` (UTC with offset)
+- `2024-01-15T10:30:00-05:00` (Eastern Time with offset)
+- `2024-01-15T10:30:00.123Z` (With milliseconds)
+
+#### Epoch Timestamps
+
+For numeric Unix timestamps:
+
+```sql
+-- Milliseconds since epoch (e.g., 1705318200000)
+CREATE STREAM trades AS
+SELECT symbol, price, event_time
+FROM kafka_source
+WITH (
+    'event.time.field' = 'timestamp_ms',
+    'event.time.format' = 'epoch_millis'
+);
+
+-- Seconds since epoch (e.g., 1705318200)
+CREATE STREAM trades AS
+SELECT symbol, price, event_time
+FROM kafka_source
+WITH (
+    'event.time.field' = 'timestamp_sec',
+    'event.time.format' = 'epoch_seconds'
+);
+```
+
+**Note:** Epoch formats accept both integer and string field values.
+
+#### Custom Formats
+
+For application-specific timestamp formats using [chrono format specifiers](https://docs.rs/chrono/latest/chrono/format/strftime/index.html):
+
+```sql
+-- Custom datetime format with milliseconds
+CREATE STREAM logs AS
+SELECT level, message, event_time
+FROM file_source
+WITH (
+    'event.time.field' = 'log_timestamp',
+    'event.time.format' = '%Y-%m-%d %H:%M:%S%.3f'
+);
+
+-- Without milliseconds
+CREATE STREAM events AS
+SELECT event_type, event_time
+FROM file_source
+WITH (
+    'event.time.field' = 'occurred_at',
+    'event.time.format' = '%Y-%m-%d %H:%M:%S'
+);
+
+-- US date format with AM/PM and milliseconds
+CREATE STREAM activities AS
+SELECT activity_type, event_time
+FROM file_source
+WITH (
+    'event.time.field' = 'timestamp',
+    'event.time.format' = '%m/%d/%Y %I:%M:%S%.3f %p'
+);
+```
+
+**Common chrono format specifiers:**
+- `%Y` - Year (4 digits, e.g., 2024)
+- `%m` - Month (01-12)
+- `%d` - Day (01-31)
+- `%H` - Hour 24-hour format (00-23)
+- `%I` - Hour 12-hour format (01-12)
+- `%M` - Minute (00-59)
+- `%S` - Second (00-59)
+- `%.3f` - Milliseconds (3 digits, e.g., .123)
+- `%.6f` - Microseconds (6 digits, e.g., .123456)
+- `%.9f` - Nanoseconds (9 digits, e.g., .123456789)
+- `%p` - AM/PM
+- `%Z` - Timezone name
+- `%z` - Timezone offset (+0000)
+
+#### Auto-Detection
+
+When no format is specified, Velostream attempts automatic format detection:
+
+```sql
+CREATE STREAM data AS
+SELECT id, value, event_time
+FROM kafka_source
+WITH (
+    'event.time.field' = 'timestamp'
+    -- No format specified, auto-detection enabled
+);
+```
+
+**Auto-detection strategy:**
+1. Try parsing as epoch milliseconds (integer)
+2. If that fails, try ISO 8601 format
+3. If both fail, log warning and set `event_time` to None
+
+**When to use auto-detection:**
+- ✅ Prototyping and development
+- ✅ Data sources with consistent but unknown format
+- ❌ Production (explicit format is more reliable)
+
+#### Complete Format Reference
+
+| Format Type | Configuration Value | Field Example | Notes |
+|-------------|-------------------|---------------|-------|
+| ISO 8601 | `iso8601` or `ISO8601` | `"2024-01-15T10:30:00Z"` | Recommended for string timestamps |
+| Epoch milliseconds | `epoch_millis` | `1705318200000` or `"1705318200000"` | JavaScript `Date.now()` |
+| Epoch seconds | `epoch_seconds` or `epoch` | `1705318200` or `"1705318200"` | Unix timestamp |
+| Custom with millis | `%Y-%m-%d %H:%M:%S%.3f` | `"2024-01-15 10:30:00.123"` | Chrono format with milliseconds |
+| Custom without millis | `%Y-%m-%d %H:%M:%S` | `"2024-01-15 10:30:00"` | Any chrono format |
+| Auto-detect | Omit format property | Integer or ISO 8601 string | Development only |
 
 ### Event-Time Windows
 

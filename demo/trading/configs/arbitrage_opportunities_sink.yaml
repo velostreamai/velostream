@@ -1,0 +1,29 @@
+# Arbitrage Opportunities Sink - Cross-exchange price discrepancy alerts
+# Critical alerts for arbitrage trading opportunities
+
+datasink:
+  type: kafka
+
+  producer_config:
+    bootstrap.servers: "broker:9092"
+    retries: 3
+    acks: "all"
+    linger.ms: 0
+    compression.type: "lz4"
+    max_in_flight_requests_per_connection: 1
+    batch.size: 16384
+
+  schema:
+    key.format: string
+    value.format: avro
+    schema.registry.url: "http://schema-registry:8081"
+
+  topic:
+    name: "arbitrage-opportunities"
+    partitions: 6
+    replication.factor: 3
+
+  headers:
+    source_system: "velostream"
+    alert_type: "arbitrage"
+    priority: "critical"

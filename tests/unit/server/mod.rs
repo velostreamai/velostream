@@ -3,6 +3,9 @@
 // pub mod ctas_end_to_end_integration_test;
 // pub mod ctas_simple_integration_test;
 
+// Processor tests
+pub mod processors;
+
 // Stream-Table coordination tests
 pub mod table_coordination_test;
 

@@ -99,8 +99,7 @@ async fn test_create_multi_source_readers() {
     let batch_config = None;
 
     // This will fail in CI without actual Kafka, but tests the creation logic
-    let result =
-        create_multi_source_readers(&sources, "default-topic", "test-job", &batch_config).await;
+    let result = create_multi_source_readers(&sources, "test-job", &batch_config).await;
 
     match result {
         Ok(readers) => {
@@ -239,10 +238,13 @@ async fn test_transactional_processor_multi_job_interface() {
     )
     .await;
 
-    // Should timeout quickly since no sources
-    assert!(result.is_err(), "Should timeout quickly with no sources");
+    // Should complete immediately since no sources to process
+    assert!(
+        result.is_ok(),
+        "Should complete immediately with no sources"
+    );
 
-    // Signal shutdown
+    // Signal shutdown (may already be dropped if task completed)
     let _ = shutdown_tx.send(()).await;
 }
 
@@ -353,8 +355,7 @@ async fn test_error_handling_partial_source_failures() {
         properties: HashMap::new(),
     });
 
-    let result =
-        create_multi_source_readers(&sources, "default-topic", "test-error-handling", &None).await;
+    let result = create_multi_source_readers(&sources, "test-error-handling", &None).await;
 
     // Should fail gracefully and provide meaningful error message
     match result {
@@ -394,7 +395,7 @@ async fn test_batch_config_propagation_multi_source() {
                 "bootstrap.servers".to_string(),
                 "localhost:9092".to_string(),
             );
-            props.insert("topic".to_string(), "test".to_string());
+            props.insert("topic".to_string(), "test_batch_config_topic".to_string());
             props
         },
     }];
@@ -406,8 +407,7 @@ async fn test_batch_config_propagation_multi_source() {
         enable_batching: true,
     });
 
-    let result =
-        create_multi_source_readers(&sources, "default", "test-batch-config", &batch_config).await;
+    let result = create_multi_source_readers(&sources, "test-batch-config", &batch_config).await;
 
     // Test that batch config is properly propagated (will fail in CI but tests the interface)
     match result {
@@ -436,7 +436,8 @@ async fn test_multi_source_job_server_integration() {
         "test-group".to_string(),
         10,   // max jobs
         true, // enable monitoring
-    );
+    )
+    .await;
 
     let multi_source_sql = r#"
         CREATE STREAM enriched_orders AS
@@ -531,13 +532,8 @@ async fn test_complete_multi_source_workflow() {
 
     // 3. Test source creation (will fail but tests interface)
     if !analysis.required_sources.is_empty() {
-        let result = create_multi_source_readers(
-            &analysis.required_sources,
-            "default-topic",
-            "workflow-test",
-            &None,
-        )
-        .await;
+        let result =
+            create_multi_source_readers(&analysis.required_sources, "workflow-test", &None).await;
 
         match result {
             Ok(readers) => {

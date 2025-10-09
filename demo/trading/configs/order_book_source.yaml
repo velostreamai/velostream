@@ -1,0 +1,31 @@
+# Order Book Source Configuration
+# Order book updates for imbalance detection
+
+extends: common_kafka_source.yaml
+
+# Topic-specific settings
+topic:
+  name: "order_book_updates"
+
+# Consumer group for this specific use case
+consumer.group: "order_flow_analytics_group"
+
+# Performance profile
+performance_profile: low_latency
+
+# Topic-specific schema
+schema:
+  key.field: symbol
+  value.serializer: "avro"
+  value.schema.file: "schemas/order_book_updates.avsc"
+
+# Topic properties
+topic_config:
+  partitions: 6
+  retention.ms: 3600000  # 1 hour retention
+
+# Business context
+metadata:
+  description: "Order book updates for flow analysis"
+  data.classification: "real_time_financial"
+  update.frequency: "milliseconds"

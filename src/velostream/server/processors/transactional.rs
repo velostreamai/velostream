@@ -5,12 +5,13 @@
 //! each batch, but may deliver duplicates on retry scenarios (at-least-once guarantee).
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 
 /// Transactional job processor with at-least-once delivery semantics
@@ -20,11 +21,26 @@ use tokio::sync::{mpsc, Mutex};
 /// for idempotent operations or scenarios where occasional duplicates are acceptable.
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
+    observability: Option<SharedObservabilityManager>,
 }
 
 impl TransactionalJobProcessor {
     pub fn new(config: JobProcessingConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            observability: None,
+        }
+    }
+
+    /// Create processor with observability support
+    pub fn with_observability(
+        config: JobProcessingConfig,
+        observability: Option<SharedObservabilityManager>,
+    ) -> Self {
+        Self {
+            config,
+            observability,
+        }
     }
 
     /// Get reference to the job processing configuration
@@ -88,6 +104,40 @@ impl TransactionalJobProcessor {
             // Check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
                 info!("Job '{}' received shutdown signal", job_name);
+                break;
+            }
+
+            // Check if all sources have finished processing
+            let sources_finished = {
+                let source_names = context.list_sources();
+                let mut all_finished = true;
+                for source_name in source_names {
+                    match context.has_more_data(&source_name).await {
+                        Ok(has_more) => {
+                            if has_more {
+                                all_finished = false;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to check has_more for source '{}': {:?}",
+                                job_name, source_name, e
+                            );
+                            // On error, assume source has more data to avoid premature exit
+                            all_finished = false;
+                            break;
+                        }
+                    }
+                }
+                all_finished
+            };
+
+            if sources_finished {
+                info!(
+                    "Job '{}': All sources have finished - no more data to process",
+                    job_name
+                );
                 break;
             }
 
@@ -310,8 +360,23 @@ impl TransactionalJobProcessor {
             false
         };
 
-        // Step 2: Read batch from datasource
+        // Step 2: Read batch from datasource (with deserialization telemetry)
+        let deser_start = Instant::now();
         let batch = reader.read().await?;
+        let deser_duration = deser_start.elapsed().as_millis() as u64;
+
+        // Record deserialization telemetry
+        if let Some(obs) = &self.observability {
+            if let Ok(obs_lock) = obs.try_read() {
+                if let Some(telemetry) = obs_lock.telemetry() {
+                    let mut span =
+                        telemetry.start_streaming_span("deserialization", batch.len() as u64);
+                    span.set_processing_time(deser_duration);
+                    span.set_success();
+                }
+            }
+        }
+
         if batch.is_empty() {
             // No data available - abort any active transactions and return
             self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
@@ -319,8 +384,26 @@ impl TransactionalJobProcessor {
             return Ok(());
         }
 
-        // Step 3: Process batch through SQL engine and capture output
+        // Step 3: Process batch through SQL engine and capture output (with SQL telemetry)
+        let sql_start = Instant::now();
         let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        let sql_duration = sql_start.elapsed().as_millis() as u64;
+
+        // Record SQL processing telemetry
+        if let Some(obs) = &self.observability {
+            if let Ok(obs_lock) = obs.try_read() {
+                if let Some(telemetry) = obs_lock.telemetry() {
+                    let mut span = telemetry.start_sql_query_span("sql_processing", job_name);
+                    span.set_execution_time(sql_duration);
+                    span.set_record_count(batch_result.records_processed as u64);
+                    if batch_result.records_failed > 0 {
+                        span.set_error(&format!("{} records failed", batch_result.records_failed));
+                    } else {
+                        span.set_success();
+                    }
+                }
+            }
+        }
 
         // Step 4: Handle results based on failure strategy
         let should_commit = should_commit_batch(
@@ -329,7 +412,7 @@ impl TransactionalJobProcessor {
             job_name,
         );
 
-        // Step 5: Write processed data to sink if we have one
+        // Step 5: Write processed data to sink if we have one (with serialization telemetry)
         if let Some(w) = writer.as_mut() {
             if should_commit && !batch_result.output_records.is_empty() {
                 debug!(
@@ -337,20 +420,47 @@ impl TransactionalJobProcessor {
                     job_name,
                     batch_result.output_records.len()
                 );
+                let ser_start = Instant::now();
+                let record_count = batch_result.output_records.len();
                 match w.write_batch(batch_result.output_records.clone()).await {
                     Ok(()) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization telemetry on success
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry
+                                        .start_streaming_span("serialization", record_count as u64);
+                                    span.set_processing_time(ser_duration);
+                                    span.set_success();
+                                }
+                            }
+                        }
+
                         debug!(
                             "Job '{}': Successfully wrote {} records to sink",
-                            job_name,
-                            batch_result.output_records.len()
+                            job_name, record_count
                         );
                     }
                     Err(e) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization telemetry on failure
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry
+                                        .start_streaming_span("serialization", record_count as u64);
+                                    span.set_processing_time(ser_duration);
+                                    span.set_error(&format!("Write failed: {:?}", e));
+                                }
+                            }
+                        }
+
                         warn!(
                             "Job '{}': Failed to write {} records to sink: {:?}",
-                            job_name,
-                            batch_result.output_records.len(),
-                            e
+                            job_name, record_count, e
                         );
 
                         // Apply backoff and return error to trigger retry at batch level
@@ -647,12 +757,31 @@ impl TransactionalJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         let mut processing_successful = true;
+        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+            Vec::new();
 
         // Process records from all sources within the transaction
         for source_name in &source_names {
             context.set_active_reader(source_name)?;
 
+            // Deserialization telemetry
+            let deser_start = Instant::now();
             let batch = context.read().await?;
+            let deser_duration = deser_start.elapsed().as_millis() as u64;
+
+            if let Some(obs) = &self.observability {
+                if let Ok(obs_lock) = obs.try_read() {
+                    if let Some(telemetry) = obs_lock.telemetry() {
+                        let mut span = telemetry.start_streaming_span(
+                            &format!("deserialization:{}", source_name),
+                            batch.len() as u64,
+                        );
+                        span.set_processing_time(deser_duration);
+                        span.set_success();
+                    }
+                }
+            }
+
             if batch.is_empty() {
                 debug!(
                     "Job '{}': No data from source '{}', skipping",
@@ -668,53 +797,222 @@ impl TransactionalJobProcessor {
                 source_name
             );
 
-            // Process batch through SQL engine
-            {
-                let mut engine_lock = engine.lock().await;
+            // Process batch through SQL engine and capture output records (with SQL telemetry)
+            let sql_start = Instant::now();
+            let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+            let sql_duration = sql_start.elapsed().as_millis() as u64;
 
-                for record in batch {
-                    match engine_lock.execute_with_record(query, record).await {
-                        Ok(()) => {
-                            total_records_processed += 1;
-                        }
-                        Err(e) => {
-                            total_records_failed += 1;
-                            error!(
-                                "Job '{}': Record processing failed within transaction: {:?}",
-                                job_name, e
-                            );
-
-                            match self.config.failure_strategy {
-                                FailureStrategy::FailBatch => {
-                                    processing_successful = false;
-                                    break; // Exit record processing loop
-                                }
-                                FailureStrategy::LogAndContinue => {
-                                    warn!(
-                                        "Job '{}': Record failed but continuing within transaction",
-                                        job_name
-                                    );
-                                }
-                                FailureStrategy::RetryWithBackoff => {
-                                    processing_successful = false;
-                                    break; // Exit to retry
-                                }
-                                FailureStrategy::SendToDLQ => {
-                                    warn!("Job '{}': Record failed, would send to DLQ (not implemented)", job_name);
-                                    // TODO: Implement DLQ functionality
-                                }
-                            }
+            // Record SQL processing telemetry
+            if let Some(obs) = &self.observability {
+                if let Ok(obs_lock) = obs.try_read() {
+                    if let Some(telemetry) = obs_lock.telemetry() {
+                        let mut span = telemetry.start_sql_query_span(
+                            &format!("sql_processing:{}", source_name),
+                            job_name,
+                        );
+                        span.set_execution_time(sql_duration);
+                        span.set_record_count(batch_result.records_processed as u64);
+                        if batch_result.records_failed > 0 {
+                            span.set_error(&format!(
+                                "{} records failed",
+                                batch_result.records_failed
+                            ));
+                        } else {
+                            span.set_success();
                         }
                     }
                 }
-
-                // Sync state
-                // Context state already updated by engine.execute_batch() above
             }
 
-            if !processing_successful {
-                break; // Exit source processing loop
+            total_records_processed += batch_result.records_processed;
+            total_records_failed += batch_result.records_failed;
+
+            debug!(
+                "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
+                job_name,
+                source_name,
+                batch_result.records_processed,
+                batch_result.records_failed,
+                batch_result.output_records.len()
+            );
+
+            // Collect output records for writing to sinks
+            all_output_records.extend(batch_result.output_records);
+
+            // Handle failures according to strategy
+            if batch_result.records_failed > 0 {
+                match self.config.failure_strategy {
+                    FailureStrategy::FailBatch => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (failing batch)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        processing_successful = false;
+                        break; // Exit source processing loop
+                    }
+                    FailureStrategy::LogAndContinue => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures (continuing within transaction)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                    }
+                    FailureStrategy::RetryWithBackoff => {
+                        error!(
+                            "Job '{}': Source '{}' had {} failures (will retry)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        processing_successful = false;
+                        break; // Exit to retry
+                    }
+                    FailureStrategy::SendToDLQ => {
+                        warn!(
+                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            job_name, source_name, batch_result.records_failed
+                        );
+                        // TODO: Implement DLQ functionality
+                    }
+                }
             }
+        }
+
+        // Write output records to all sinks within the transaction
+        if processing_successful && !all_output_records.is_empty() && !sink_names.is_empty() {
+            debug!(
+                "Job '{}': Writing {} output records to {} sink(s) within transaction",
+                job_name,
+                all_output_records.len(),
+                sink_names.len()
+            );
+
+            // Optimize for multi-sink scenario: use shared slice instead of cloning for each sink
+            if sink_names.len() == 1 {
+                // Single sink: use move semantics (no clone) with serialization telemetry
+                let ser_start = Instant::now();
+                let record_count = all_output_records.len();
+                match context
+                    .write_batch_to(&sink_names[0], all_output_records.clone())
+                    .await
+                {
+                    Ok(()) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization telemetry on success
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry.start_streaming_span(
+                                        &format!("serialization:{}", &sink_names[0]),
+                                        record_count as u64,
+                                    );
+                                    span.set_processing_time(ser_duration);
+                                    span.set_success();
+                                }
+                            }
+                        }
+
+                        debug!(
+                            "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
+                            job_name,
+                            record_count,
+                            &sink_names[0]
+                        );
+                    }
+                    Err(e) => {
+                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                        // Record serialization telemetry on failure
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(telemetry) = obs_lock.telemetry() {
+                                    let mut span = telemetry.start_streaming_span(
+                                        &format!("serialization:{}", &sink_names[0]),
+                                        record_count as u64,
+                                    );
+                                    span.set_processing_time(ser_duration);
+                                    span.set_error(&format!("Write failed: {:?}", e));
+                                }
+                            }
+                        }
+
+                        error!(
+                            "Job '{}': Failed to write {} records to sink '{}' within transaction: {:?}",
+                            job_name,
+                            record_count,
+                            &sink_names[0],
+                            e
+                        );
+                        processing_successful = false;
+                    }
+                }
+            } else {
+                // Multiple sinks: use shared slice to avoid N clones with serialization telemetry
+                for sink_name in &sink_names {
+                    let ser_start = Instant::now();
+                    let record_count = all_output_records.len();
+                    match context
+                        .write_batch_to_shared(sink_name, &all_output_records)
+                        .await
+                    {
+                        Ok(()) => {
+                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                            // Record serialization telemetry on success
+                            if let Some(obs) = &self.observability {
+                                if let Ok(obs_lock) = obs.try_read() {
+                                    if let Some(telemetry) = obs_lock.telemetry() {
+                                        let mut span = telemetry.start_streaming_span(
+                                            &format!("serialization:{}", sink_name),
+                                            record_count as u64,
+                                        );
+                                        span.set_processing_time(ser_duration);
+                                        span.set_success();
+                                    }
+                                }
+                            }
+
+                            debug!(
+                                "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
+                                job_name,
+                                record_count,
+                                sink_name
+                            );
+                        }
+                        Err(e) => {
+                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+
+                            // Record serialization telemetry on failure
+                            if let Some(obs) = &self.observability {
+                                if let Ok(obs_lock) = obs.try_read() {
+                                    if let Some(telemetry) = obs_lock.telemetry() {
+                                        let mut span = telemetry.start_streaming_span(
+                                            &format!("serialization:{}", sink_name),
+                                            record_count as u64,
+                                        );
+                                        span.set_processing_time(ser_duration);
+                                        span.set_error(&format!("Write failed: {:?}", e));
+                                    }
+                                }
+                            }
+
+                            error!(
+                                "Job '{}': Failed to write {} records to sink '{}' within transaction: {:?}",
+                                job_name,
+                                record_count,
+                                sink_name,
+                                e
+                            );
+                            processing_successful = false;
+                            break; // Exit sink write loop - will abort transaction
+                        }
+                    }
+                }
+            }
+        } else if processing_successful && !all_output_records.is_empty() {
+            debug!(
+                "Job '{}': Processed {} output records but no sinks configured",
+                job_name,
+                all_output_records.len()
+            );
         }
 
         // Determine transaction outcome

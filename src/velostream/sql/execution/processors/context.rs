@@ -390,6 +390,32 @@ impl ProcessorContext {
             })
     }
 
+    /// Write a shared batch of records to a specific sink (zero-copy for multi-sink scenarios)
+    ///
+    /// This method is more efficient when writing the same batch to multiple sinks,
+    /// as it avoids cloning the entire Vec for each sink.
+    pub async fn write_batch_to_shared(
+        &mut self,
+        sink_name: &str,
+        records: &[StreamRecord],
+    ) -> Result<(), SqlError> {
+        let writer =
+            self.data_writers
+                .get_mut(sink_name)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!("Data sink '{}' not found in context", sink_name),
+                    query: None,
+                })?;
+
+        writer
+            .write_batch_shared(records)
+            .await
+            .map_err(|e| SqlError::ExecutionError {
+                message: format!("Failed to write batch to sink '{}': {}", sink_name, e),
+                query: None,
+            })
+    }
+
     /// Commit reads from a specific source
     pub async fn commit_source(&mut self, source_name: &str) -> Result<(), SqlError> {
         let reader =

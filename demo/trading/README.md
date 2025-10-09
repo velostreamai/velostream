@@ -36,92 +36,124 @@ demo/trading/
 ### Prerequisites
 
 1. **Docker & Docker Compose** (for Kafka)
-2. **Rust toolchain** (latest stable)
-3. **Python 3.8+** (for visualization dashboard)
+2. **Rust toolchain** (latest stable) - Install from https://rustup.rs/
+3. **Python 3.8+** (optional, for visualization dashboard)
 
-### 1. Build the Project (First Time)
+### Start the Demo (Single Command!)
 
 ```bash
 cd demo/trading
-
-# Option 1: Use Makefile (recommended)
-make build
-
-# Option 2: Use build script
-./build_cli.sh
+./start-demo.sh
 ```
 
-This will build the main Velostream project and create symlinks for easy access.
-
-### 2. Start the Demo
-
-```bash
-./run_demo.sh
-```
-
-The script will:
-- Check/build binaries if needed
-- Start Kafka and create necessary topics
-- Launch the multi-job SQL server with 5 trading analytics jobs
-- Generate realistic trading data for 5 minutes
-- Display sample alerts and data
+**That's it!** The script will automatically:
+- ✅ Validate all prerequisites (Rust, Docker, ports)
+- ✅ Build binaries if needed (first run takes ~5 minutes)
+- ✅ Start Kafka and create necessary topics
+- ✅ Deploy 8 streaming SQL queries
+- ✅ Generate realistic trading data (default: 10 minutes)
+- ✅ Display monitoring dashboard URLs
 
 **Quick Options:**
 ```bash
-make run           # Build and run full demo
-make run-short     # Build and run 1-minute demo
-DEMO_DURATION=1 ./run_demo.sh  # Custom duration
+# Quick 1-minute demo
+./start-demo.sh -q
+./start-demo.sh --quick
+
+# Custom duration (in minutes)
+./start-demo.sh 5
+
+# Interactive/foreground mode
+./start-demo.sh -i
+
+# Release builds (optimized)
+./start-demo.sh -r 30
+
+# Setup dashboard environment
+./start-demo.sh -d
+
+# Show monitoring info early (before deployment)
+./start-demo.sh -m
+
+# Combine options
+./start-demo.sh -q -d    # Quick demo + dashboard setup
+./start-demo.sh -q -m    # Quick demo + early monitoring display
+
+# Note: Monitoring info is ALWAYS displayed at the end automatically
 ```
 
 **To stop the demo:**
 ```bash
-./stop_demo.sh
+./stop-demo.sh
+```
+
+**Get help:**
+```bash
+./start-demo.sh --help
 ```
 
 ### 2. Monitor with Velostream CLI
 
-Build and use the CLI tool to monitor all components:
+The CLI tool is automatically built by `start-demo.sh`. Use it to monitor all components:
 
 ```bash
-# Build the CLI tool (creates convenient ./velo-cli symlink)
-./build_cli.sh
-
 # Check overall health
-./velo-cli health
+../../target/debug/velo-cli health
 
 # Monitor in real-time (refreshes every 5 seconds)
-./velo-cli status --refresh 5
+../../target/debug/velo-cli status --refresh 5
 
 # View Kafka topics and data
-./velo-cli kafka --topics
+../../target/debug/velo-cli kafka --topics
 
-# Monitor jobs and tasks (NEW!)
-./velo-cli jobs
+# Monitor jobs and tasks
+../../target/debug/velo-cli jobs
+```
+
+**Tip**: Create a symlink for convenience:
+```bash
+ln -sf ../../target/debug/velo-cli velo-cli
+./velo-cli health
 ```
 
 ### 3. Access Grafana Dashboards
 
-The demo automatically starts Grafana with pre-configured dashboards:
+The demo **automatically starts Grafana and Prometheus** as part of the Docker Compose infrastructure. You can access them immediately once the demo is running:
 
 ```bash
 # Access Grafana at http://localhost:3000
 # Login: admin / admin
+
+# Access Prometheus at http://localhost:9090
+
+# Kafka UI at http://localhost:8090
 ```
 
 **Available Dashboards:**
 - **Velostream Trading Demo** - Real-time trading analytics, alerts, and market data
-- **Velostream Overview** - System health, throughput, and resource usage  
+- **Velostream Overview** - System health, throughput, and resource usage
 - **Kafka Metrics** - Broker performance, topic statistics, and consumer lag
+
+> **Note**: Grafana, Prometheus, and Kafka UI are always available when running the demo. All URLs and dashboard info are **automatically displayed** at the end of startup. Use the `-m` flag if you want to see this info early (before deployment starts).
 
 ### 4. Launch the Python Visualization Dashboard
 
-In a separate terminal:
+The dashboard can be set up automatically when starting the demo:
+
+```bash
+# Option 1: Setup dashboard when starting demo
+./start-demo.sh -d
+
+# Option 2: Manual setup (if needed)
+python3 -m venv dashboard_env
+source dashboard_env/bin/activate
+pip install -r requirements.txt
+```
+
+Then in a separate terminal:
 
 ```bash
 cd demo/trading
-
-# Setup virtual environment and install dependencies
-./setup_dashboard.sh
 
 # Activate virtual environment and start dashboard
 source dashboard_env/bin/activate
@@ -292,49 +324,112 @@ if iteration % 5 == 0 {
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+### Common Issues & Solutions
 
-#### Kafka Connection Errors
+#### ❌ "Rust/Cargo is not installed"
+```bash
+# Install Rust toolchain
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+#### ❌ "Docker is not running"
+```bash
+# macOS/Windows: Start Docker Desktop application
+# Linux: Start Docker daemon
+sudo systemctl start docker
+```
+
+#### ❌ "Port already in use" (9092, 3000, 9090, etc.)
+```bash
+# Find what's using the port
+lsof -i :9092
+
+# Stop the conflicting service, then run:
+./stop-demo.sh
+./start-demo.sh
+```
+
+#### ❌ "Build failed" or compilation errors
+```bash
+# Update Rust to latest stable
+rustup update stable
+
+# Clean and rebuild
+./stop-demo.sh
+cd ../..
+cargo clean
+cd demo/trading
+./start-demo.sh
+```
+
+#### ❌ Kafka Connection Errors
 ```bash
 # Check if Kafka is running
-docker-compose ps kafka
+docker ps | grep kafka
 
-# Restart Kafka
-docker-compose restart kafka zookeeper
+# Restart Kafka infrastructure
+docker-compose -f kafka-compose.yml restart
 ```
 
-#### SQL Server Not Starting
+#### ❌ "0 records processed" - Jobs not processing data
 ```bash
-# Check port availability
-netstat -an | grep 8080
+# Check if data generator is running
+ps aux | grep trading_data_generator
 
-# Use different port
-export SQL_SERVER_PORT=8081
+# Verify data in topics
+docker exec simple-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic market_data_stream \
+  --from-beginning --max-messages 5
+
+# Restart with clean state
+./stop-demo.sh
+./start-demo.sh
 ```
 
-#### Python Dependencies
+#### ❌ Python Dashboard Issues
 ```bash
-# The setup script creates a virtual environment automatically
-./setup_dashboard.sh
+# Setup dashboard environment
+./start-demo.sh -d
 
-# If you need to manually recreate the environment:
+# If still having issues, recreate environment
 rm -rf dashboard_env
 python3 -m venv dashboard_env
 source dashboard_env/bin/activate
 pip install -r requirements.txt
-
-# Or use conda (alternative)
-conda create -n trading_dashboard python=3.9
-conda activate trading_dashboard
-pip install -r requirements.txt
+python3 dashboard.py
 ```
 
-#### Dashboard Not Updating
-- **Check virtual environment**: Ensure you activated it with `source dashboard_env/bin/activate`
-- **Dependencies missing**: Run `./setup_dashboard.sh` to install/update dependencies
-- **No data**: Ensure Kafka topics have data: `docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-console-consumer --bootstrap-server localhost:9092 --topic market_data --max-messages 5`
-- **Connection issues**: Verify dashboard is connecting to correct Kafka brokers
-- **Font cache**: First run may take 30-60 seconds while matplotlib builds font cache
+#### ❌ Out of disk space
+```bash
+# Clean up Docker volumes
+docker system prune -a --volumes
+
+# Clean Rust build artifacts
+cargo clean
+```
+
+### Getting Help
+
+**Check logs:**
+```bash
+tail -f /tmp/velo_deployment.log      # SQL job logs
+tail -f /tmp/trading_generator.log    # Data generator logs
+docker-compose -f kafka-compose.yml logs kafka  # Kafka logs
+```
+
+**Health check:**
+```bash
+./check-demo-health.sh
+```
+
+**Complete reset:**
+```bash
+./stop-demo.sh
+docker-compose -f kafka-compose.yml down -v
+./start-demo.sh
+```
 
 ### Performance Tips
 
@@ -344,9 +439,16 @@ pip install -r requirements.txt
 
 ## 📊 Monitoring & Observability
 
-### Grafana Dashboards
+### Grafana & Prometheus (Always Available)
 
-The demo includes comprehensive Grafana dashboards accessible at **http://localhost:3000** (admin/admin):
+The demo **automatically starts** comprehensive monitoring infrastructure via Docker Compose. Access it anytime during your demo:
+
+**🔗 Access Points:**
+- **Grafana**: http://localhost:3000 (login: `admin` / `admin`)
+- **Prometheus**: http://localhost:9090
+- **Kafka UI**: http://localhost:8090
+
+**💡 Tip**: All monitoring endpoints are displayed automatically at the end of startup. Use `./start-demo.sh -m` to see them earlier (before deployment starts).
 
 **🏦 Velostream Trading Demo Dashboard:**
 - Real-time trading alerts and price movements
@@ -363,46 +465,61 @@ The demo includes comprehensive Grafana dashboards accessible at **http://localh
 
 **🔗 Kafka Metrics Dashboard:**
 - Topic throughput and message rates
-- Consumer group lag monitoring  
+- Consumer group lag monitoring
 - Partition and replica statistics
 - Disk usage and log size tracking
 
+**🔍 Velostream Telemetry & Tracing Dashboard (NEW!):**
+- **Deserialization latency** (avg, p95, p99)
+- **SQL processing latency** (p50, p95, p99)
+- **Serialization latency** (avg, p95, p99)
+- **Pipeline throughput** (records/sec for each stage)
+- **Error rates** and success metrics
+- **Pipeline time distribution** (where time is spent)
+- **Cumulative record counts**
+- Real-time visualization of the complete data pipeline
+
+> 📊 **Access**: Open Grafana (http://localhost:3000) → Search for "Velostream Telemetry & Tracing"
+
 ### Velostream CLI Tool
 
-The `velo-cli` provides comprehensive monitoring and management capabilities:
+The `velo-cli` is automatically built when you run `start-demo.sh` and provides comprehensive monitoring:
 
 ```bash
-# Build the CLI tool first (only needed once)
-./build_cli.sh
-
 # Quick health check of all components
-./velo-cli health
+../../target/debug/velo-cli health
 
 # Detailed status with verbose output
-./velo-cli status --verbose
+../../target/debug/velo-cli status --verbose
 
 # Real-time monitoring (refresh every 5 seconds)
-./velo-cli status --refresh 5
+../../target/debug/velo-cli status --refresh 5
 
 # Check Kafka cluster and topics
-./velo-cli kafka --topics --groups
+../../target/debug/velo-cli kafka --topics --groups
 
 # Monitor Docker containers
-./velo-cli docker --velo-only
+../../target/debug/velo-cli docker --velo-only
 
 # View Velostream processes
-./velo-cli processes
+../../target/debug/velo-cli processes
 
 # Monitor active jobs and streaming tasks
-./velo-cli jobs
+../../target/debug/velo-cli jobs
 
 # Check specific job types
-./velo-cli jobs --sql          # SQL processing jobs
-./velo-cli jobs --generators   # Data generators
-./velo-cli jobs --topics       # Topic activity & message counts
+../../target/debug/velo-cli jobs --sql          # SQL processing jobs
+../../target/debug/velo-cli jobs --generators   # Data generators
+../../target/debug/velo-cli jobs --topics       # Topic activity & message counts
 
 # Get help for any command
-./velo-cli --help
+../../target/debug/velo-cli --help
+```
+
+**Tip**: Create a local symlink for shorter commands:
+```bash
+ln -sf ../../target/debug/velo-cli velo-cli
+./velo-cli health  # Much easier!
 ```
 
 ### Kafka Topic Monitoring

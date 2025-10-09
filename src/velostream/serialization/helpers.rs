@@ -376,6 +376,56 @@ pub fn field_value_to_avro_with_decimal_schema(
                 scaled_integer_to_avro_bytes_custom(*value, *_scale)
             }
         }
+        FieldValue::Float(f) if decimal_info.is_some() => {
+            // Convert Float to decimal format when schema expects decimal
+            let info = decimal_info.unwrap();
+            eprintln!(
+                "DEBUG: Converting Float({}) to decimal with schema scale={}",
+                f, info.scale
+            );
+
+            // Convert float to scaled integer based on schema scale
+            let scale_multiplier = 10_f64.powi(info.scale as i32);
+            let scaled_value = (f * scale_multiplier).round() as i64;
+
+            eprintln!(
+                "DEBUG: Converted Float({}) to ScaledInteger({}, {})",
+                f, scaled_value, info.scale
+            );
+
+            if info.is_standard_logical_type {
+                // Use Value::Decimal for standard "logicalType": "decimal"
+                scaled_integer_to_avro_decimal_bytes(scaled_value, info.scale as u8)
+            } else {
+                // Use Value::Bytes for custom properties (Flink compatibility)
+                scaled_integer_to_avro_bytes_custom(scaled_value, info.scale as u8)
+            }
+        }
+        FieldValue::Integer(i) if decimal_info.is_some() => {
+            // Convert Integer to decimal format when schema expects decimal
+            let info = decimal_info.unwrap();
+            eprintln!(
+                "DEBUG: Converting Integer({}) to decimal with schema scale={}",
+                i, info.scale
+            );
+
+            // Scale the integer value
+            let scale_multiplier = 10_i64.pow(info.scale);
+            let scaled_value = i * scale_multiplier;
+
+            eprintln!(
+                "DEBUG: Converted Integer({}) to ScaledInteger({}, {})",
+                i, scaled_value, info.scale
+            );
+
+            if info.is_standard_logical_type {
+                // Use Value::Decimal for standard "logicalType": "decimal"
+                scaled_integer_to_avro_decimal_bytes(scaled_value, info.scale as u8)
+            } else {
+                // Use Value::Bytes for custom properties (Flink compatibility)
+                scaled_integer_to_avro_bytes_custom(scaled_value, info.scale as u8)
+            }
+        }
         _ => {
             // Fall back to standard conversion
             field_value_to_avro(field_value)

@@ -5,6 +5,7 @@
 //! hardcoded Kafka-only processing.
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::observability::{ObservabilityManager, SharedObservabilityManager};
 use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
@@ -34,9 +35,10 @@ pub struct StreamJobServer {
     performance_monitor: Option<Arc<PerformanceMonitor>>,
     /// Shared table registry for managing CTAS-created tables
     table_registry: TableRegistry,
+    /// Observability manager for distributed tracing, metrics, and profiling
+    observability: Option<SharedObservabilityManager>,
 }
 
-#[derive(Debug)]
 pub struct RunningJob {
     pub name: String,
     pub version: String,
@@ -48,6 +50,7 @@ pub struct RunningJob {
     pub execution_handle: JoinHandle<()>,
     pub shutdown_sender: mpsc::Sender<()>,
     pub metrics: JobMetrics,
+    pub observability: Option<SharedObservabilityManager>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -92,10 +95,26 @@ pub struct JobSummary {
 
 impl StreamJobServer {
     pub fn new(_brokers: String, base_group_id: String, max_jobs: usize) -> Self {
-        Self::new_with_monitoring(_brokers, base_group_id, max_jobs, false)
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            base_group_id,
+            max_jobs,
+            job_counter: Arc::new(Mutex::new(0)),
+            performance_monitor: None,
+            table_registry: TableRegistry::with_config(table_registry_config),
+            observability: None,
+        }
     }
 
-    pub fn new_with_monitoring(
+    pub async fn new_with_monitoring(
         _brokers: String,
         base_group_id: String,
         max_jobs: usize,
@@ -105,6 +124,28 @@ impl StreamJobServer {
             let monitor = Arc::new(PerformanceMonitor::new());
             info!("Performance monitoring enabled for StreamJobServer");
             Some(monitor)
+        } else {
+            None
+        };
+
+        // Initialize shared observability manager for Prometheus metrics
+        let observability = if enable_monitoring {
+            use crate::velostream::observability::ObservabilityManager;
+            use crate::velostream::sql::execution::config::StreamingConfig;
+
+            let streaming_config = StreamingConfig::default().with_prometheus_metrics();
+
+            let mut obs_manager = ObservabilityManager::new(streaming_config);
+            match obs_manager.initialize().await {
+                Ok(()) => {
+                    info!("✅ Server-level observability initialized (shared by all jobs)");
+                    Some(Arc::new(RwLock::new(obs_manager)))
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.", e);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -124,11 +165,38 @@ impl StreamJobServer {
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
+            observability,
         }
     }
 
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
+        // First try to get metrics from server-level ObservabilityManager (Phase 4)
+        if let Some(ref obs_manager) = self.observability {
+            if let Ok(obs_lock) = obs_manager.try_read() {
+                if let Some(metrics_provider) = obs_lock.metrics() {
+                    // Export Prometheus metrics from the MetricsProvider
+                    return metrics_provider.get_metrics_text().ok();
+                }
+            }
+        }
+
+        // Try to get metrics from any running job's ObservabilityManager
+        if let Ok(jobs) = self.jobs.try_read() {
+            for job in jobs.values() {
+                if let Some(ref job_obs) = job.observability {
+                    if let Ok(obs_lock) = job_obs.try_read() {
+                        if let Some(metrics_provider) = obs_lock.metrics() {
+                            // Return metrics from the first job that has them
+                            // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
+                            return metrics_provider.get_metrics_text().ok();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to performance monitor metrics
         self.performance_monitor
             .as_ref()
             .map(|monitor| monitor.export_prometheus_metrics())
@@ -136,6 +204,29 @@ impl StreamJobServer {
 
     /// Check if performance monitoring is enabled
     pub fn has_performance_monitoring(&self) -> bool {
+        // Check if server-level observability metrics are enabled (Phase 4)
+        if let Some(ref obs_manager) = self.observability {
+            if let Ok(obs_lock) = obs_manager.try_read() {
+                if obs_lock.metrics().is_some() {
+                    return true;
+                }
+            }
+        }
+
+        // Check if any job has observability metrics enabled
+        if let Ok(jobs) = self.jobs.try_read() {
+            for job in jobs.values() {
+                if let Some(ref job_obs) = job.observability {
+                    if let Ok(obs_lock) = job_obs.try_read() {
+                        if obs_lock.metrics().is_some() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to checking performance monitor
         self.performance_monitor.is_some()
     }
 
@@ -346,7 +437,45 @@ impl StreamJobServer {
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
-        execution_engine.set_streaming_config(streaming_config);
+        execution_engine.set_streaming_config(streaming_config.clone());
+
+        // Use shared observability manager for all jobs (Phase 4)
+        // This ensures all metrics are collected in a single Prometheus registry
+        let observability_manager = if streaming_config.enable_distributed_tracing
+            || streaming_config.enable_prometheus_metrics
+            || streaming_config.enable_performance_profiling
+        {
+            if let Some(shared_obs) = self.observability.clone() {
+                info!(
+                    "✅ Job '{}': Using shared observability manager (tracing={}, metrics={}, profiling={})",
+                    name,
+                    streaming_config.enable_distributed_tracing,
+                    streaming_config.enable_prometheus_metrics,
+                    streaming_config.enable_performance_profiling
+                );
+                Some(shared_obs)
+            } else {
+                warn!(
+                    "⚠️ Job '{}': Observability requested but server has no shared observability manager. Continuing without observability.",
+                    name
+                );
+                None
+            }
+        } else {
+            info!(
+                "Job '{}': Observability NOT enabled (tracing={}, metrics={}, profiling={})",
+                name,
+                streaming_config.enable_distributed_tracing,
+                streaming_config.enable_prometheus_metrics,
+                streaming_config.enable_performance_profiling
+            );
+            None
+        };
+        info!(
+            "Job '{}': Using shared observability: {}",
+            name,
+            observability_manager.is_some()
+        );
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -392,6 +521,7 @@ impl StreamJobServer {
         let job_name = name.clone();
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
+        let observability_for_spawn = observability_manager.clone();
 
         // Spawn output handler task to consume from SQL engine output channel
         let output_job_name = job_name.clone();
@@ -432,7 +562,6 @@ impl StreamJobServer {
             // Use multi-source processing for all jobs (handles single-source as special case)
             match create_multi_source_readers(
                 &analysis.required_sources,
-                &topic_clone,
                 &job_name,
                 &batch_config_clone,
             )
@@ -492,7 +621,10 @@ impl StreamJobServer {
 
                             if use_transactions {
                                 info!("Job '{}' using transactional processor for multi-source processing", job_name);
-                                let processor = TransactionalJobProcessor::new(config);
+                                let processor = TransactionalJobProcessor::with_observability(
+                                    config,
+                                    observability_for_spawn.clone(),
+                                );
 
                                 match processor
                                     .process_multi_job(
@@ -523,7 +655,15 @@ impl StreamJobServer {
                                     "Job '{}' using simple processor for multi-source processing",
                                     job_name
                                 );
-                                let processor = SimpleJobProcessor::new(config);
+                                let processor = SimpleJobProcessor::with_observability(
+                                    config,
+                                    observability_for_spawn.clone(),
+                                );
+                                info!(
+                                    "Job '{}': Created processor with observability: {}",
+                                    job_name,
+                                    observability_for_spawn.is_some()
+                                );
 
                                 match processor
                                     .process_multi_job(
@@ -564,7 +704,15 @@ impl StreamJobServer {
 
                             // Still proceed with processing using simple processor
                             let config = Self::extract_job_config_from_query(&parsed_query);
-                            let processor = SimpleJobProcessor::new(config);
+                            let processor = SimpleJobProcessor::with_observability(
+                                config,
+                                observability_for_spawn.clone(),
+                            );
+                            info!(
+                                "Job '{}': Created processor with observability: {}",
+                                job_name,
+                                observability_for_spawn.is_some()
+                            );
 
                             match processor
                                 .process_multi_job(
@@ -608,6 +756,7 @@ impl StreamJobServer {
             execution_handle,
             shutdown_sender,
             metrics: JobMetrics::default(),
+            observability: observability_manager,
         };
 
         // Store the job
@@ -1214,6 +1363,24 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling distributed tracing");
                 config.enable_distributed_tracing = true;
+
+                // Initialize tracing config if not already set
+                if config.tracing_config.is_none() {
+                    use crate::velostream::sql::execution::config::TracingConfig;
+                    let mut tracing_config = TracingConfig::development();
+
+                    // Parse span name if provided
+                    if let Some(span_name) = properties.get("observability.span.name") {
+                        tracing_config.service_name = span_name.clone();
+                    }
+
+                    // Parse OTLP endpoint if provided
+                    if let Some(endpoint) = properties.get("tracing.otlp_endpoint") {
+                        tracing_config.otlp_endpoint = Some(endpoint.clone());
+                    }
+
+                    config.tracing_config = Some(tracing_config);
+                }
             }
         }
 
@@ -1222,6 +1389,28 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling Prometheus metrics export");
                 config.enable_prometheus_metrics = true;
+
+                // Initialize Prometheus config if not already set
+                if config.prometheus_config.is_none() {
+                    use crate::velostream::sql::execution::config::PrometheusConfig;
+                    let mut prometheus_config = PrometheusConfig::default();
+
+                    // Parse port if provided
+                    if let Some(port_str) = properties.get("prometheus.port") {
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            info!("Setting Prometheus metrics port: {}", port);
+                            prometheus_config.port = port;
+                        }
+                    }
+
+                    // Parse histogram buckets if provided
+                    if let Some(buckets_str) = properties.get("prometheus.histogram.buckets") {
+                        info!("Custom histogram buckets specified: {}", buckets_str);
+                        // Store for later use - the MetricsProvider will parse this
+                    }
+
+                    config.prometheus_config = Some(prometheus_config);
+                }
             }
         }
 
@@ -1230,6 +1419,12 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling performance profiling");
                 config.enable_performance_profiling = true;
+
+                // Initialize profiling config if not already set
+                if config.profiling_config.is_none() {
+                    use crate::velostream::sql::execution::config::ProfilingConfig;
+                    config.profiling_config = Some(ProfilingConfig::development());
+                }
             }
         }
 

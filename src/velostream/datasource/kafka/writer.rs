@@ -63,6 +63,7 @@ impl KafkaDataWriter {
         // Extract format from properties
         let format_str = properties
             .get("value.serializer")
+            .or_else(|| properties.get("schema.value.serializer"))
             .or_else(|| properties.get("serializer.format"))
             .or_else(|| properties.get("format"))
             .map(|s| s.as_str())
@@ -74,6 +75,7 @@ impl KafkaDataWriter {
         let key_field = properties
             .get("key.field")
             .or_else(|| properties.get("message.key.field"))
+            .or_else(|| properties.get("schema.key.field"))
             .cloned();
 
         // Extract schema based on format
@@ -101,6 +103,7 @@ impl KafkaDataWriter {
         // Extract format from properties
         let format_str = properties
             .get("value.serializer")
+            .or_else(|| properties.get("schema.value.serializer"))
             .or_else(|| properties.get("serializer.format"))
             .or_else(|| properties.get("format"))
             .map(|s| s.as_str())
@@ -112,6 +115,7 @@ impl KafkaDataWriter {
         let key_field = properties
             .get("key.field")
             .or_else(|| properties.get("message.key.field"))
+            .or_else(|| properties.get("schema.key.field"))
             .cloned();
 
         // Extract schema based on format
@@ -139,6 +143,9 @@ impl KafkaDataWriter {
         properties: &HashMap<String, String>,
         batch_config: Option<BatchConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // FAIL FAST: Validate topic is properly configured
+        Self::validate_topic_configuration(&topic)?;
+
         // Validate schema requirements based on format
         Self::validate_schema_requirements(&format, schema)?;
 
@@ -196,6 +203,72 @@ impl KafkaDataWriter {
         );
 
         Ok(writer)
+    }
+
+    /// FAIL FAST: Validate topic configuration to prevent silent data loss
+    ///
+    /// This prevents the catastrophic bug where records are processed successfully
+    /// but written to a misconfigured topic that doesn't exist, causing silent data
+    /// loss with no error messages.
+    fn validate_topic_configuration(topic: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Check for empty topic name - ALWAYS fail
+        if topic.is_empty() {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka sink topic name is empty.\n\
+                 \n\
+                 A valid Kafka topic name MUST be configured. Please configure via:\n\
+                 1. YAML config file: 'topic.name: <topic_name>'\n\
+                 2. SQL properties: '<sink_name>.topic = <topic_name>'\n\
+                 3. Direct parameter when creating KafkaDataWriter\n\
+                 \n\
+                 This validation prevents silent data loss from writing to misconfigured topics."
+            )
+            .into());
+        }
+
+        // Warn about suspicious topic names that might indicate misconfiguration
+        // These are common fallback/placeholder values that suggest config wasn't loaded
+        let suspicious_names = [
+            "default",
+            "test",
+            "temp",
+            "placeholder",
+            "undefined",
+            "null",
+            "none",
+            "example",
+            "my-topic",
+            "topic-name",
+        ];
+
+        if suspicious_names.contains(&topic.to_lowercase().as_str()) {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka sink configured with suspicious topic name '{}'.\n\
+                 \n\
+                 This is a common placeholder/fallback value that indicates configuration \
+                 was not properly loaded.\n\
+                 \n\
+                 Valid topic names should be:\n\
+                 1. Extracted from sink name in SQL: CREATE STREAM <sink_name> ...\n\
+                 2. Configured in YAML: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
+                 \n\
+                 Common misconfiguration causes:\n\
+                 - YAML file not found or not loaded\n\
+                 - Missing 'topic' or 'topic.name' in YAML\n\
+                 - Hardcoded fallback value not updated\n\
+                 \n\
+                 This validation prevents silent data loss from writing to misconfigured topics.",
+                topic
+            )
+            .into());
+        }
+
+        log::info!(
+            "KafkaDataWriter: Topic validation passed - will write to topic '{}'",
+            topic
+        );
+
+        Ok(())
     }
 
     /// Validate that required schemas are provided for formats that need them
@@ -269,6 +342,8 @@ impl KafkaDataWriter {
                     // Check for schema file path (dot notation preferred, underscore fallback)
                     if let Some(schema_file) = properties
                         .get("avro.schema.file")
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("avro_schema_file"))
                         .or_else(|| properties.get("schema_file"))
@@ -293,6 +368,8 @@ impl KafkaDataWriter {
                     if let Some(schema_file) = properties
                         .get("protobuf.schema.file")
                         .or_else(|| properties.get("proto.schema.file"))
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
                         .or_else(|| properties.get("schema.file"))
                         .or_else(|| properties.get("protobuf_schema_file"))
                         .or_else(|| properties.get("schema_file"))

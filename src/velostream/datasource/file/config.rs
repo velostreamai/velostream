@@ -418,6 +418,7 @@ impl From<FileSourceConfig> for SourceConfig {
             format: generic_format,
             properties,
             batch_config: Default::default(),
+            event_time_config: None,
         }
     }
 }

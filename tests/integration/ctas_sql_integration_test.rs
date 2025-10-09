@@ -384,6 +384,7 @@ async fn test_load_and_query_financial_data() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     financial_source.initialize(source_config).await.unwrap();
@@ -437,6 +438,7 @@ async fn test_time_series_analytics() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     time_series_source.initialize(source_config).await.unwrap();
@@ -498,6 +500,7 @@ async fn test_multi_table_join_simulation() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
     financial_source.initialize(config1).await.unwrap();
 
@@ -522,6 +525,7 @@ async fn test_multi_table_join_simulation() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
     time_series_source.initialize(config2).await.unwrap();
 
@@ -584,6 +588,7 @@ async fn test_complex_aggregation_queries() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     financial_source.initialize(source_config).await.unwrap();
@@ -651,6 +656,7 @@ async fn test_data_integrity_after_loading() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     financial_source.initialize(source_config).await.unwrap();
@@ -677,6 +683,7 @@ async fn test_data_integrity_after_loading() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         })
         .await
         .unwrap();
@@ -739,6 +746,7 @@ async fn test_query_performance_on_loaded_data() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     financial_source.initialize(source_config).await.unwrap();
@@ -817,6 +825,7 @@ async fn test_streaming_analytics_simulation() {
         group_id: Some("test-group".to_string()),
         properties: HashMap::new(),
         batch_config: BatchConfig::default(),
+        event_time_config: None,
     };
 
     time_series_source.initialize(source_config).await.unwrap();
@@ -876,6 +885,7 @@ async fn test_streaming_analytics_simulation() {
             group_id: Some("test-group".to_string()),
             properties: HashMap::new(),
             batch_config: BatchConfig::default(),
+            event_time_config: None,
         })
         .await
         .unwrap();

@@ -20,6 +20,7 @@ pub struct KafkaDataSource {
     topic: String,
     group_id: Option<String>,
     config: HashMap<String, String>,
+    event_time_config: Option<crate::velostream::datasource::EventTimeConfig>,
 }
 
 impl KafkaDataSource {
@@ -39,8 +40,19 @@ impl KafkaDataSource {
 
         let brokers = get_source_prop("brokers")
             .or_else(|| get_source_prop("bootstrap.servers"))
+            .or_else(|| {
+                props
+                    .get("datasource.consumer_config.bootstrap.servers")
+                    .cloned()
+            })
             .unwrap_or_else(|| "localhost:9092".to_string());
-        let topic = get_source_prop("topic").unwrap_or_else(|| default_topic.to_string());
+        let topic = get_source_prop("topic")
+            .or_else(|| props.get("datasource.topic.name").cloned())
+            .unwrap_or_else(|| default_topic.to_string());
+
+        // FAIL FAST validation for suspicious topic names
+        Self::validate_topic_name(&topic).expect("Topic validation failed");
+
         let group_id =
             get_source_prop("group_id").unwrap_or_else(|| format!("velo-sql-{}", job_name));
 
@@ -62,7 +74,66 @@ impl KafkaDataSource {
             topic,
             group_id: Some(group_id),
             config: source_config,
+            event_time_config: None,
         }
+    }
+
+    /// FAIL FAST: Validate topic name to prevent silent data loss
+    fn validate_topic_name(topic: &str) -> Result<(), String> {
+        // Check for empty topic name
+        if topic.is_empty() {
+            return Err("CONFIGURATION ERROR: Kafka source topic name is empty.\n\
+                 \n\
+                 A valid Kafka topic name MUST be configured. Please configure via:\n\
+                 1. YAML config file: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
+                 2. SQL properties: '<source_name>.topic = <topic_name>'\n\
+                 3. Named source in SQL: FROM <source_name> (uses source_name as topic)\n\
+                 \n\
+                 This validation prevents reading from misconfigured topics."
+                .to_string());
+        }
+
+        // Warn about suspicious topic names that might indicate misconfiguration
+        let suspicious_names = [
+            "default",
+            "test",
+            "temp",
+            "placeholder",
+            "undefined",
+            "null",
+            "none",
+            "example",
+            "my-topic",
+            "topic-name",
+        ];
+
+        if suspicious_names.contains(&topic.to_lowercase().as_str()) {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka source configured with suspicious topic name '{}'.\n\
+                 \n\
+                 This is a common placeholder/fallback value that indicates configuration \
+                 was not properly loaded.\n\
+                 \n\
+                 Valid topic names should be:\n\
+                 1. Extracted from source name in SQL: FROM <source_name> ...\n\
+                 2. Configured in YAML: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
+                 \n\
+                 Common misconfiguration causes:\n\
+                 - YAML file not found or not loaded\n\
+                 - Missing 'topic' or 'topic.name' in YAML\n\
+                 - Hardcoded fallback value not updated\n\
+                 \n\
+                 This validation prevents reading from misconfigured topics.",
+                topic
+            ));
+        }
+
+        log::info!(
+            "KafkaDataSource: Topic validation passed - will read from topic '{}'",
+            topic
+        );
+
+        Ok(())
     }
 
     /// Apply BatchConfig settings to Kafka consumer properties
@@ -176,6 +247,7 @@ impl KafkaDataSource {
             topic,
             group_id: None,
             config: HashMap::new(),
+            event_time_config: None,
         }
     }
 
@@ -199,6 +271,7 @@ impl KafkaDataSource {
             group_id: self.group_id.clone(),
             properties: self.config.clone(),
             batch_config: Default::default(),
+            event_time_config: self.event_time_config.clone(),
         }
     }
 
@@ -260,6 +333,7 @@ impl KafkaDataSource {
                 ..Default::default()
             }),
             schema.as_deref(), // Pass schema if available
+            self.event_time_config.clone(),
         )
         .await
     }
@@ -294,6 +368,7 @@ impl KafkaDataSource {
             format,
             batch_config,
             schema.as_deref(), // Pass schema if available
+            self.event_time_config.clone(),
         )
         .await
     }
@@ -412,26 +487,37 @@ impl KafkaDataSource {
             )
         }
 
-        // Build required configuration keys
-        let bootstrap_servers_key = format!(
-            "{}.{}.{}",
-            DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS
-        );
-        let required_keys = vec![bootstrap_servers_key.as_str(), TOPIC];
-
-        // Recommended properties with fallback support
-        let recommended_keys = vec![(GROUP_ID_DOT, GROUP_ID_UNDERSCORE)];
-
         let mut missing_required = Vec::new();
         let mut missing_recommended = Vec::new();
         let mut warnings = Vec::new();
 
-        // Check required properties
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_required.push(missing_required_msg(name, key));
-            }
+        // Check for bootstrap.servers in standard Kafka consumer_config location
+        let has_bootstrap_servers = properties.contains_key(&format!(
+            "{}.{}.{}",
+            DATASOURCE_PREFIX, CONSUMER_CONFIG, BOOTSTRAP_SERVERS
+        ));
+
+        if !has_bootstrap_servers {
+            missing_required.push(format!(
+                "Missing required property for source '{}': 'datasource.consumer_config.bootstrap.servers'. \
+                This should be defined in your YAML config file under datasource -> consumer_config -> bootstrap.servers",
+                name
+            ));
         }
+
+        // Check for topic in standard Kafka location
+        let has_topic = properties.contains_key(&format!("{}.topic.name", DATASOURCE_PREFIX));
+
+        if !has_topic {
+            missing_required.push(format!(
+                "Missing required property for source '{}': 'datasource.topic.name'. \
+                This should be defined in your YAML config file under datasource -> topic -> name",
+                name
+            ));
+        }
+
+        // Recommended properties with fallback support
+        let recommended_keys = vec![(GROUP_ID_DOT, GROUP_ID_UNDERSCORE)];
 
         // Check recommended properties with fallback support
         for (dot_key, underscore_key) in &recommended_keys {
@@ -469,11 +555,13 @@ impl DataSource for KafkaDataSource {
                 group_id,
                 properties,
                 batch_config,
+                event_time_config,
                 ..
             } => {
                 self.brokers = brokers;
                 self.topic = topic;
                 self.group_id = group_id;
+                self.event_time_config = event_time_config;
 
                 // Start with provided properties
                 let mut kafka_config = properties;
@@ -1045,6 +1133,7 @@ impl Default for KafkaDataSource {
             topic: "default_topic".to_string(),
             group_id: Some("default_group".to_string()),
             config: HashMap::new(),
+            event_time_config: None,
         }
     }
 }

@@ -185,7 +185,7 @@ impl CtasExecutor {
         }
     }
 
-    /// Handle source info creation - eliminates duplication between CreateTable and CreateTableInto
+    /// Handle source info creation - processes source configuration for CreateTable queries
     async fn handle_source_info(
         &self,
         table_name: &str,
@@ -886,12 +886,17 @@ impl CtasExecutor {
         // Apply any Kafka-specific properties from CTAS WITH clause
         self.apply_kafka_properties_to_source_config(&mut kafka_properties, properties);
 
+        // Parse event-time configuration from CTAS properties
+        let event_time_config =
+            crate::velostream::datasource::EventTimeConfig::from_properties(properties);
+
         let source_config = SourceConfig::Kafka {
             brokers: self.kafka_brokers.clone(),
             topic: topic.to_string(),
             group_id: Some(consumer_group),
             properties: kafka_properties,
             batch_config: self.create_batch_config_from_properties(properties),
+            event_time_config,
         };
 
         // Initialize the DataSource
@@ -941,6 +946,7 @@ impl CtasExecutor {
                 group_id: Some(consumer_group),
                 properties: HashMap::new(),
                 batch_config: BatchConfig::default(),
+                event_time_config: None,
             };
 
             if let Err(e) = bg_kafka_source.initialize(bg_source_config).await {
@@ -1165,11 +1171,16 @@ impl CtasExecutor {
             FileFormat::Avro => ConfigFileFormat::Avro,
         };
 
+        // Parse event-time configuration from CTAS properties
+        let event_time_config =
+            crate::velostream::datasource::EventTimeConfig::from_properties(&file_props);
+
         let source_config = SourceConfig::File {
             path: path.to_string(),
             format: config_format,
             properties: file_props.clone(),
             batch_config: BatchConfig::default(),
+            event_time_config,
         };
 
         file_source
@@ -1258,11 +1269,16 @@ impl CtasExecutor {
             _ => crate::velostream::datasource::config::FileFormat::Json,
         };
 
+        // Parse event-time configuration from properties
+        let event_time_config =
+            crate::velostream::datasource::EventTimeConfig::from_properties(file_props);
+
         let source_config = SourceConfig::File {
             path,
             format: config_format,
             properties: file_props.clone(),
             batch_config: crate::velostream::datasource::BatchConfig::default(),
+            event_time_config,
         };
 
         file_source.initialize(source_config).await?;

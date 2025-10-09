@@ -36,6 +36,7 @@
 
 pub mod batch_buffer;
 pub mod config;
+pub mod event_time;
 pub mod file;
 pub mod kafka;
 pub mod registry;
@@ -45,6 +46,10 @@ pub mod types;
 
 // Re-export core types from config.rs
 pub use config::{BatchConfig, BatchStrategy, FileFormat, SinkConfig, SourceConfig};
+
+// Re-export event-time extraction types
+pub use event_time::{extract_event_time, EventTimeConfig, EventTimeError, TimestampFormat};
+
 pub use traits::{DataReader, DataSink, DataSource, DataWriter};
 pub use types::{DataSourceError, SinkMetadata, SourceMetadata, SourceOffset};
 
