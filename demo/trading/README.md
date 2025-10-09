@@ -469,6 +469,18 @@ The demo **automatically starts** comprehensive monitoring infrastructure via Do
 - Partition and replica statistics
 - Disk usage and log size tracking
 
+**🔍 Velostream Telemetry & Tracing Dashboard (NEW!):**
+- **Deserialization latency** (avg, p95, p99)
+- **SQL processing latency** (p50, p95, p99)
+- **Serialization latency** (avg, p95, p99)
+- **Pipeline throughput** (records/sec for each stage)
+- **Error rates** and success metrics
+- **Pipeline time distribution** (where time is spent)
+- **Cumulative record counts**
+- Real-time visualization of the complete data pipeline
+
+> 📊 **Access**: Open Grafana (http://localhost:3000) → Search for "Velostream Telemetry & Tracing"
+
 ### Velostream CLI Tool
 
 The `velo-cli` is automatically built when you run `start-demo.sh` and provides comprehensive monitoring:

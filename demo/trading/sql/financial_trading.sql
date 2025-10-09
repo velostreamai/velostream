@@ -42,7 +42,11 @@ WITH (
     'market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
-    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml'
+    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml',
+
+    -- Observability
+    'observability.metrics.enabled' = 'true',
+    'observability.tracing.enabled' = 'true'
 );
 
 CREATE STREAM tick_buckets AS
@@ -66,7 +70,11 @@ WITH (
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
-    'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml'
+    'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml',
+
+    -- Observability
+    'observability.metrics.enabled' = 'true',
+    'observability.tracing.enabled' = 'true'
 );
 
 -- ====================================================================================
@@ -297,7 +305,11 @@ WITH (
     'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml'
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
+
+    -- Observability
+    'observability.metrics.enabled' = 'true',
+    'observability.tracing.enabled' = 'true'
 );
 
 CREATE STREAM comprehensive_risk_monitor AS
@@ -496,7 +508,11 @@ WITH (
     'order_book_stream.config_file' = 'configs/order_book_source.yaml',
 
     'order_flow_imbalance_detection.type' = 'kafka_sink',
-    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml'
+    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml',
+
+    -- Observability
+    'observability.metrics.enabled' = 'true',
+    'observability.tracing.enabled' = 'true'
 );
 
 -- ====================================================================================
@@ -529,5 +545,9 @@ WITH (
     'market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
-    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
+    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml',
+
+    -- Observability
+    'observability.metrics.enabled' = 'true',
+    'observability.tracing.enabled' = 'true'
 );
