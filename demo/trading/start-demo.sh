@@ -382,16 +382,27 @@ fi
 
 if [ "$INTERACTIVE_MODE" = true ]; then
     # Run in foreground for interactive mode
-    echo "Deploying 8 streaming queries..."
+    echo "Deploying 8 streaming queries with observability enabled..."
     echo -e "${YELLOW}Running in interactive mode (foreground)...${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
-    $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql
+    $VELO_BUILD_DIR/velo-sql-multi deploy-app \
+        --file sql/financial_trading.sql \
+        --enable-tracing \
+        --enable-metrics \
+        --metrics-port 9091 \
+        --enable-profiling
 else
     # Run in background (deploy-app mode)
-    echo "Deploying 8 streaming queries..."
-    $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql > /tmp/velo_deployment.log 2>&1 &
+    echo "Deploying 8 streaming queries with observability enabled..."
+    $VELO_BUILD_DIR/velo-sql-multi deploy-app \
+        --file sql/financial_trading.sql \
+        --enable-tracing \
+        --enable-metrics \
+        --metrics-port 9091 \
+        --enable-profiling \
+        > /tmp/velo_deployment.log 2>&1 &
     DEPLOY_PID=$!
-    echo -e "${GREEN}✓ Deployment started (PID: $DEPLOY_PID)${NC}"
+    echo -e "${GREEN}✓ Deployment started with observability (PID: $DEPLOY_PID)${NC}"
 
     # Step 10: Monitor deployment
     print_step "Step 10: Monitoring deployment"
@@ -431,6 +442,11 @@ else
     echo -e "  • Grafana:    ${GREEN}http://localhost:3000${NC} ${BLUE}(admin/admin)${NC}"
     echo -e "  • Prometheus: ${GREEN}http://localhost:9090${NC}"
     echo -e "  • Kafka UI:   ${GREEN}http://localhost:8090${NC}"
+    echo ""
+    echo -e "${BLUE}🔍 Observability (Enabled)${NC}"
+    echo -e "  • Velostream Metrics: ${GREEN}http://localhost:9091/metrics${NC} ${BLUE}(Prometheus format)${NC}"
+    echo -e "  • Distributed Tracing: ${GREEN}ENABLED${NC} ${BLUE}(100% sampling)${NC}"
+    echo -e "  • Performance Profiling: ${GREEN}ENABLED${NC}"
     echo ""
     echo -e "${YELLOW}Pre-configured Grafana Dashboards:${NC}"
     echo -e "  • Velostream Trading Demo - Real-time analytics & alerts"

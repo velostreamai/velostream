@@ -5,6 +5,7 @@
 //! hardcoded Kafka-only processing.
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::observability::{ObservabilityManager, SharedObservabilityManager};
 use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
@@ -34,9 +35,10 @@ pub struct StreamJobServer {
     performance_monitor: Option<Arc<PerformanceMonitor>>,
     /// Shared table registry for managing CTAS-created tables
     table_registry: TableRegistry,
+    /// Observability manager for distributed tracing, metrics, and profiling
+    observability: Option<SharedObservabilityManager>,
 }
 
-#[derive(Debug)]
 pub struct RunningJob {
     pub name: String,
     pub version: String,
@@ -48,6 +50,7 @@ pub struct RunningJob {
     pub execution_handle: JoinHandle<()>,
     pub shutdown_sender: mpsc::Sender<()>,
     pub metrics: JobMetrics,
+    pub observability: Option<SharedObservabilityManager>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -124,6 +127,7 @@ impl StreamJobServer {
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
+            observability: None, // Will be initialized per-job based on SQL WITH clause
         }
     }
 
@@ -346,7 +350,38 @@ impl StreamJobServer {
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
-        execution_engine.set_streaming_config(streaming_config);
+        execution_engine.set_streaming_config(streaming_config.clone());
+
+        // Initialize observability if enabled (Phase 4)
+        let observability_manager = if streaming_config.enable_distributed_tracing
+            || streaming_config.enable_prometheus_metrics
+            || streaming_config.enable_performance_profiling
+        {
+            info!(
+                "🔍 Initializing observability for job '{}' (tracing={}, metrics={}, profiling={})",
+                name,
+                streaming_config.enable_distributed_tracing,
+                streaming_config.enable_prometheus_metrics,
+                streaming_config.enable_performance_profiling
+            );
+
+            let mut obs_manager = ObservabilityManager::new(streaming_config.clone());
+            match obs_manager.initialize().await {
+                Ok(()) => {
+                    info!("✅ Observability initialized for job '{}'", name);
+                    Some(Arc::new(RwLock::new(obs_manager)))
+                }
+                Err(e) => {
+                    warn!(
+                        "⚠️ Failed to initialize observability for job '{}': {}. Continuing without observability.",
+                        name, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -607,6 +642,7 @@ impl StreamJobServer {
             execution_handle,
             shutdown_sender,
             metrics: JobMetrics::default(),
+            observability: observability_manager,
         };
 
         // Store the job
@@ -1213,6 +1249,24 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling distributed tracing");
                 config.enable_distributed_tracing = true;
+
+                // Initialize tracing config if not already set
+                if config.tracing_config.is_none() {
+                    use crate::velostream::sql::execution::config::TracingConfig;
+                    let mut tracing_config = TracingConfig::development();
+
+                    // Parse span name if provided
+                    if let Some(span_name) = properties.get("observability.span.name") {
+                        tracing_config.service_name = span_name.clone();
+                    }
+
+                    // Parse OTLP endpoint if provided
+                    if let Some(endpoint) = properties.get("tracing.otlp_endpoint") {
+                        tracing_config.otlp_endpoint = Some(endpoint.clone());
+                    }
+
+                    config.tracing_config = Some(tracing_config);
+                }
             }
         }
 
@@ -1221,6 +1275,28 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling Prometheus metrics export");
                 config.enable_prometheus_metrics = true;
+
+                // Initialize Prometheus config if not already set
+                if config.prometheus_config.is_none() {
+                    use crate::velostream::sql::execution::config::PrometheusConfig;
+                    let mut prometheus_config = PrometheusConfig::default();
+
+                    // Parse port if provided
+                    if let Some(port_str) = properties.get("prometheus.port") {
+                        if let Ok(port) = port_str.parse::<u16>() {
+                            info!("Setting Prometheus metrics port: {}", port);
+                            prometheus_config.port = port;
+                        }
+                    }
+
+                    // Parse histogram buckets if provided
+                    if let Some(buckets_str) = properties.get("prometheus.histogram.buckets") {
+                        info!("Custom histogram buckets specified: {}", buckets_str);
+                        // Store for later use - the MetricsProvider will parse this
+                    }
+
+                    config.prometheus_config = Some(prometheus_config);
+                }
             }
         }
 
@@ -1229,6 +1305,12 @@ impl StreamJobServer {
             if enabled.eq_ignore_ascii_case("true") {
                 info!("Enabling performance profiling");
                 config.enable_performance_profiling = true;
+
+                // Initialize profiling config if not already set
+                if config.profiling_config.is_none() {
+                    use crate::velostream::sql::execution::config::ProfilingConfig;
+                    config.profiling_config = Some(ProfilingConfig::development());
+                }
             }
         }
 

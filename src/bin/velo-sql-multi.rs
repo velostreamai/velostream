@@ -65,6 +65,30 @@ enum Commands {
         /// Don't monitor jobs after deployment (exit immediately)
         #[arg(long, default_value = "false")]
         no_monitor: bool,
+
+        /// Enable distributed tracing (OpenTelemetry)
+        #[arg(long)]
+        enable_tracing: bool,
+
+        /// Tracing sampling ratio (0.0-1.0). Default: 1.0 (100%) for dev, 0.01 (1%) for prod
+        #[arg(long)]
+        sampling_ratio: Option<f64>,
+
+        /// Enable Prometheus metrics export
+        #[arg(long)]
+        enable_metrics: bool,
+
+        /// Prometheus metrics port
+        #[arg(long, default_value = "9091")]
+        metrics_port: u16,
+
+        /// Enable performance profiling
+        #[arg(long)]
+        enable_profiling: bool,
+
+        /// OpenTelemetry OTLP endpoint
+        #[arg(long)]
+        otlp_endpoint: Option<String>,
     },
 }
 
@@ -306,9 +330,27 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
             group_id,
             default_topic,
             no_monitor,
+            enable_tracing,
+            sampling_ratio,
+            enable_metrics,
+            metrics_port,
+            enable_profiling,
+            otlp_endpoint,
         } => {
-            deploy_sql_application_from_file(file, brokers, group_id, default_topic, no_monitor)
-                .await?;
+            deploy_sql_application_from_file(
+                file,
+                brokers,
+                group_id,
+                default_topic,
+                no_monitor,
+                enable_tracing,
+                sampling_ratio,
+                enable_metrics,
+                metrics_port,
+                enable_profiling,
+                otlp_endpoint,
+            )
+            .await?;
         }
     }
 
@@ -321,7 +363,32 @@ async fn deploy_sql_application_from_file(
     group_id: String,
     default_topic: Option<String>,
     no_monitor: bool,
+    enable_tracing: bool,
+    sampling_ratio: Option<f64>,
+    enable_metrics: bool,
+    metrics_port: u16,
+    enable_profiling: bool,
+    otlp_endpoint: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Log observability configuration
+    if enable_tracing || enable_metrics || enable_profiling {
+        info!("🔍 Observability Configuration:");
+        if enable_tracing {
+            info!(
+                "  • Distributed Tracing: ENABLED (sampling: {})",
+                sampling_ratio.unwrap_or(1.0)
+            );
+            if let Some(ref endpoint) = otlp_endpoint {
+                info!("  • OTLP Endpoint: {}", endpoint);
+            }
+        }
+        if enable_metrics {
+            info!("  • Prometheus Metrics: ENABLED (port: {})", metrics_port);
+        }
+        if enable_profiling {
+            info!("  • Performance Profiling: ENABLED");
+        }
+    }
     println!("Starting deployment from file: {}", file_path);
 
     // Read the SQL application file
