@@ -1,12 +1,21 @@
 # Velostream Active Development TODO
 
-**Last Updated**: October 8, 2025 (Morning)
-**Status**: ✅ **ALL TESTS PASSING** - Performance Optimizations Complete
-**Current Priority**: **Production-Ready with Optimized Execution Chain**
+**Last Updated**: October 9, 2025 (Evening)
+**Status**: ✅ **ALL TESTS PASSING** - Observability & Metrics Complete
+**Current Priority**: **Production-Ready with Comprehensive Observability**
 
 ---
 
 ## 📋 **RECENT COMPLETIONS**
+
+### **October 9, 2025**
+- ✅ **Complete Observability and Grafana Dashboard Integration** (commits 8cf22db, 66a6b55)
+  - Fixed shared ObservabilityManager initialization using `.with_prometheus_metrics()` builder
+  - Added operation-labeled metrics (deserialization, serialization, sql_processing)
+  - Fixed Grafana dashboard datasource UIDs and metric names
+  - Grafana "Velostream Overview" dashboard fully functional
+  - All metrics properly exported on port 9091
+  - See [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md) for future enhancement roadmap
 
 ### **October 8, 2025**
 - ✅ **Multi-Sink Write Performance Optimization** (commit 10832d3)
@@ -1650,6 +1659,57 @@ WITH (
 **Timeline**: 12 weeks
 **Dependencies**: Stream-Table joins completion
 **Status**: ❌ **PENDING** (depends on Priority 1)
+
+### 🌟 **PRIORITY 6: SQL-Based Metrics Annotation (FR-073)**
+**Timeline**: 7 weeks (2 weeks MVP)
+**Dependencies**: ✅ ObservabilityManager infrastructure complete
+**Status**: 📋 **RFC APPROVED** - Ready for implementation
+**Priority**: 🔥 **HIGH** - Major competitive differentiator vs Apache Flink
+
+**Overview**: Enable declarative Prometheus metrics definition directly in SQL using `@metric` annotations, eliminating need for separate metrics exporter services.
+
+**Key Innovation**:
+```sql
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_labels: symbol, spike_ratio
+CREATE STREAM volume_spikes AS
+SELECT * FROM market_data WHERE volume > avg_volume * 2.0;
+```
+
+**Competitive Advantage**:
+- Flink requires separate Java/Scala code for custom metrics
+- Velostream makes metrics first-class SQL feature
+- Reduces implementation from 50+ lines → 5 lines
+- Self-documenting pipelines with co-located observability
+
+**Implementation Plan**:
+- **Phase 1** (Weeks 1-2): SQL parser enhancement for @metric annotations
+- **Phase 2** (Weeks 3-4): Metrics runtime integration
+- **Phase 3** (Week 5): Label extraction from record fields
+- **Phase 4** (Week 6): Condition evaluation for filtered metrics
+- **Phase 5** (Week 7): Metrics registry enhancement
+
+**MVP Scope** (2 weeks):
+- Counter metrics only
+- Basic @metric annotation syntax
+- Simple label extraction
+- Integration with existing ObservabilityManager
+
+**Benefits**:
+- 🚀 Eliminates separate metrics exporter services
+- 📊 Makes Grafana "Trading Demo" dashboard instantly functional
+- 🎯 Self-documenting SQL with built-in observability
+- ⚡ Version control integration (metrics + logic together)
+
+**RFC Document**: [docs/feature/FR-073-SQL-METRICS-ANNOTATION.md](docs/feature/FR-073-SQL-METRICS-ANNOTATION.md)
+
+**Next Steps**:
+1. Review RFC with stakeholders
+2. Create detailed implementation plan
+3. Prototype counter metrics annotation (MVP)
+4. Demo to validate approach
+5. Full implementation (all metric types)
 
 ---
 
