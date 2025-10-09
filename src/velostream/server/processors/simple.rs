@@ -326,7 +326,10 @@ impl SimpleJobProcessor {
                         telemetry.start_streaming_span("deserialization", batch.len() as u64);
                     span.set_processing_time(deser_duration);
                     span.set_success();
-                    info!("Job '{}': Telemetry span recorded for deserialization", job_name);
+                    info!(
+                        "Job '{}': Telemetry span recorded for deserialization",
+                        job_name
+                    );
                 }
 
                 // Record Prometheus metrics
@@ -344,13 +347,22 @@ impl SimpleJobProcessor {
                     );
                     info!("Job '{}': Prometheus metrics recorded for deserialization (throughput={:.2} rec/s)", job_name, throughput);
                 } else {
-                    warn!("Job '{}': Observability manager present but NO metrics provider", job_name);
+                    warn!(
+                        "Job '{}': Observability manager present but NO metrics provider",
+                        job_name
+                    );
                 }
             } else {
-                warn!("Job '{}': Observability manager present but could not acquire read lock", job_name);
+                warn!(
+                    "Job '{}': Observability manager present but could not acquire read lock",
+                    job_name
+                );
             }
         } else {
-            warn!("Job '{}': NO observability manager - metrics will not be recorded", job_name);
+            warn!(
+                "Job '{}': NO observability manager - metrics will not be recorded",
+                job_name
+            );
         }
 
         if batch.is_empty() {
@@ -696,12 +708,18 @@ impl SimpleJobProcessor {
                             info!("Job '{}': ✅ Metrics recorded: deserialization from '{}' ({} records, {:.2} rec/s)",
                                   job_name, source_name, batch.len(), throughput);
                         } else {
-                            warn!("Job '{}': ❌ Metrics unavailable (no metrics provider)", job_name);
+                            warn!(
+                                "Job '{}': ❌ Metrics unavailable (no metrics provider)",
+                                job_name
+                            );
                         }
                     }
                 }
             } else {
-                warn!("Job '{}': NO observability manager for multi-source processing", job_name);
+                warn!(
+                    "Job '{}': NO observability manager for multi-source processing",
+                    job_name
+                );
             }
 
             if batch.is_empty() {
@@ -731,7 +749,8 @@ impl SimpleJobProcessor {
                     obs_lock => {
                         if let Some(metrics) = obs_lock.metrics() {
                             let throughput = if sql_duration > 0 {
-                                (batch_result.records_processed as f64 / sql_duration as f64) * 1000.0
+                                (batch_result.records_processed as f64 / sql_duration as f64)
+                                    * 1000.0
                             } else {
                                 0.0
                             };
@@ -753,7 +772,10 @@ impl SimpleJobProcessor {
                             info!("Job '{}': ✅ Metrics recorded: sql_processing from '{}' ({} records, {:.2} rec/s)",
                                   job_name, source_name, batch_result.records_processed, throughput);
                         } else {
-                            warn!("Job '{}': ❌ Metrics unavailable (no metrics provider)", job_name);
+                            warn!(
+                                "Job '{}': ❌ Metrics unavailable (no metrics provider)",
+                                job_name
+                            );
                         }
                     }
                 }
@@ -847,7 +869,9 @@ impl SimpleJobProcessor {
                                     obs_lock => {
                                         if let Some(metrics) = obs_lock.metrics() {
                                             let throughput = if ser_duration > 0 {
-                                                (all_output_records.len() as f64 / ser_duration as f64) * 1000.0
+                                                (all_output_records.len() as f64
+                                                    / ser_duration as f64)
+                                                    * 1000.0
                                             } else {
                                                 0.0
                                             };
@@ -907,7 +931,9 @@ impl SimpleJobProcessor {
                                         obs_lock => {
                                             if let Some(metrics) = obs_lock.metrics() {
                                                 let throughput = if ser_duration > 0 {
-                                                    (all_output_records.len() as f64 / ser_duration as f64) * 1000.0
+                                                    (all_output_records.len() as f64
+                                                        / ser_duration as f64)
+                                                        * 1000.0
                                                 } else {
                                                     0.0
                                                 };

@@ -110,7 +110,8 @@ async fn start_stream_job_server(
         group_id.clone(),
         max_jobs,
         enable_metrics,
-    ).await;
+    )
+    .await;
 
     if enable_metrics {
         let metrics_port = metrics_port.unwrap_or(port + 1000); // Default to main port + 1000

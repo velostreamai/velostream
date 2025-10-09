@@ -3,11 +3,11 @@
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
-    register_gauge_with_registry, register_histogram_with_registry,
-    register_int_counter_with_registry, register_int_gauge_with_registry,
-    register_histogram_vec_with_registry, register_int_counter_vec_with_registry,
-    register_gauge_vec_with_registry, Encoder, Gauge, GaugeVec,
-    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
+    register_gauge_vec_with_registry, register_gauge_with_registry,
+    register_histogram_vec_with_registry, register_histogram_with_registry,
+    register_int_counter_vec_with_registry, register_int_counter_with_registry,
+    register_int_gauge_with_registry, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::time::Duration;
 
@@ -352,9 +352,15 @@ impl StreamingMetrics {
         throughput: f64,
     ) {
         self.operations_total.with_label_values(&[operation]).inc();
-        self.operation_duration.with_label_values(&[operation]).observe(duration.as_secs_f64());
-        self.throughput.with_label_values(&[operation]).set(throughput);
-        self.records_streamed.with_label_values(&[operation]).inc_by(record_count);
+        self.operation_duration
+            .with_label_values(&[operation])
+            .observe(duration.as_secs_f64());
+        self.throughput
+            .with_label_values(&[operation])
+            .set(throughput);
+        self.records_streamed
+            .with_label_values(&[operation])
+            .inc_by(record_count);
     }
 
     /// Get total operations count across all operation types
@@ -362,9 +368,24 @@ impl StreamingMetrics {
         // Sum across all label values
         let mut total = 0u64;
         for (operation, count) in [
-            ("deserialization", self.operations_total.with_label_values(&["deserialization"]).get()),
-            ("sql_processing", self.operations_total.with_label_values(&["sql_processing"]).get()),
-            ("serialization", self.operations_total.with_label_values(&["serialization"]).get()),
+            (
+                "deserialization",
+                self.operations_total
+                    .with_label_values(&["deserialization"])
+                    .get(),
+            ),
+            (
+                "sql_processing",
+                self.operations_total
+                    .with_label_values(&["sql_processing"])
+                    .get(),
+            ),
+            (
+                "serialization",
+                self.operations_total
+                    .with_label_values(&["serialization"])
+                    .get(),
+            ),
         ] {
             total += count;
         }

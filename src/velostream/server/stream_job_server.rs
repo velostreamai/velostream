@@ -130,11 +130,10 @@ impl StreamJobServer {
 
         // Initialize shared observability manager for Prometheus metrics
         let observability = if enable_monitoring {
-            use crate::velostream::sql::execution::config::StreamingConfig;
             use crate::velostream::observability::ObservabilityManager;
+            use crate::velostream::sql::execution::config::StreamingConfig;
 
-            let streaming_config = StreamingConfig::default()
-                .with_prometheus_metrics();
+            let streaming_config = StreamingConfig::default().with_prometheus_metrics();
 
             let mut obs_manager = ObservabilityManager::new(streaming_config);
             match obs_manager.initialize().await {
@@ -463,7 +462,8 @@ impl StreamJobServer {
                 None
             }
         } else {
-            info!("Job '{}': Observability NOT enabled (tracing={}, metrics={}, profiling={})",
+            info!(
+                "Job '{}': Observability NOT enabled (tracing={}, metrics={}, profiling={})",
                 name,
                 streaming_config.enable_distributed_tracing,
                 streaming_config.enable_prometheus_metrics,
@@ -471,7 +471,11 @@ impl StreamJobServer {
             );
             None
         };
-        info!("Job '{}': Using shared observability: {}", name, observability_manager.is_some());
+        info!(
+            "Job '{}': Using shared observability: {}",
+            name,
+            observability_manager.is_some()
+        );
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -655,7 +659,11 @@ impl StreamJobServer {
                                     config,
                                     observability_for_spawn.clone(),
                                 );
-                                info!("Job '{}': Created processor with observability: {}", job_name, observability_for_spawn.is_some());
+                                info!(
+                                    "Job '{}': Created processor with observability: {}",
+                                    job_name,
+                                    observability_for_spawn.is_some()
+                                );
 
                                 match processor
                                     .process_multi_job(
@@ -700,7 +708,11 @@ impl StreamJobServer {
                                 config,
                                 observability_for_spawn.clone(),
                             );
-                            info!("Job '{}': Created processor with observability: {}", job_name, observability_for_spawn.is_some());
+                            info!(
+                                "Job '{}': Created processor with observability: {}",
+                                job_name,
+                                observability_for_spawn.is_some()
+                            );
 
                             match processor
                                 .process_multi_job(
