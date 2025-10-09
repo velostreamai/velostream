@@ -474,7 +474,12 @@ mod tests {
         provider.record_sql_query("insert", Duration::from_millis(250), false, 50);
 
         // Test streaming metrics
-        provider.record_streaming_operation("deserialization", Duration::from_millis(100), 1000, 500.0);
+        provider.record_streaming_operation(
+            "deserialization",
+            Duration::from_millis(100),
+            1000,
+            500.0,
+        );
 
         // Test system metrics
         provider.update_system_metrics(45.5, 1024 * 1024 * 1024, 10);
