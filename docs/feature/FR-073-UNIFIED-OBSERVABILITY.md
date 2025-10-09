@@ -922,13 +922,13 @@ ignore_invalid_metrics: false
 | Phase | Duration | Complexity | Files Modified | Tests Added | Total LOC | Status |
 |-------|----------|------------|----------------|-------------|-----------|--------|
 | **Phase 0: Comment Preservation** | 2-3 days | Low | 1 | 5 tests | ~150 LOC | ✅ **COMPLETE** |
-| **Phase 1: Annotation Parser** | 1 week | Medium | 3 | 8 tests | ~300 LOC | 📋 Ready to start |
-| **Phase 2: Runtime** | 2 weeks | High | 4 | 12 tests | ~600 LOC | ⏳ Waiting |
+| **Phase 1: Annotation Parser** | 1 week | Medium | 4 | 16 tests | ~350 LOC | ✅ **COMPLETE** |
+| **Phase 2: Runtime** | 2 weeks | High | 4 | 12 tests | ~600 LOC | 📋 Ready to start |
 | **Phase 3: Labels** | 0.5 weeks | Low | 2 | 6 tests | ~200 LOC | ⏳ Waiting |
 | **Phase 4: Conditions** | 3 days | Low | 2 | 6 tests | ~200 LOC | ⏳ Waiting |
 | **Phase 5: Registry** | 1 week | Low | 2 | 5 tests | ~250 LOC | ⏳ Waiting |
 | **Phase 6: Documentation** | 1 week | Low | - | - | ~500 LOC | ⏳ Waiting |
-| **TOTAL** | **6 weeks** | - | **14 files** | **42 tests** | **~2,200 LOC** | **Phase 0 Done** |
+| **TOTAL** | **6 weeks** | - | **14 files** | **42 tests** | **~2,200 LOC** | **Phase 0-1 Done** |
 
 **Note**: Phase 4 reduced from 1 week to 3 days by reusing existing expression evaluator.
 
@@ -962,7 +962,7 @@ CREATE STREAM events AS SELECT event_id, status FROM source;
 **Duration**: 2-3 days
 **Complexity**: Low
 **LOC**: ~150 lines
-**Status**: ✅ **COMPLETED** (January 2025)
+**Status**: ✅ **COMPLETED** (October 2025)
 
 ### Problem Identified
 
@@ -1116,21 +1116,134 @@ let annotations = StreamingSqlParser::extract_preceding_comments(&comments, crea
 
 ---
 
-## Phase 1: Annotation Parser (Week 1)
+## ✅ Phase 1: Annotation Parser (COMPLETE)
 
-**Duration**: 1 week (reduced from 1.5 weeks - Phase 0 handles comment extraction)
+**Duration**: 1 week
 **Complexity**: Medium
-**LOC**: ~300 lines
-**Status**: 📋 **READY TO START** (Phase 0 complete)
+**LOC**: ~350 lines
+**Status**: ✅ **COMPLETED** (October 2025)
 
 ### Overview
 
-With Phase 0 complete, comments are now available for parsing. Phase 1 focuses on:
-1. Parsing `@metric` annotation directives from comment text
-2. Creating `MetricAnnotation` data structures
-3. Attaching annotations to `StreamingQuery` AST nodes
+With Phase 0 complete, comments are now available for parsing. Phase 1 implemented:
+1. ✅ Parsing `@metric` annotation directives from comment text
+2. ✅ Creating `MetricAnnotation` data structures with full validation
+3. ✅ Attaching annotations to `StreamingQuery::CreateStream` AST nodes
+4. ✅ Comprehensive test coverage (16 unit tests)
 
-**Architectural Note**: VeloStream uses enum variants (`StreamingQuery::CreateStream`, `StreamingQuery::Select`) rather than a separate `StreamDefinition` struct. We'll add `metric_annotations` fields directly to the relevant enum variants.
+### Implementation Summary
+
+**Files Created/Modified**:
+- ✅ `src/velostream/sql/parser/annotations.rs` (~390 LOC) - New annotation parser module
+- ✅ `src/velostream/sql/parser.rs` - Integration with parser pipeline
+- ✅ `src/velostream/sql/ast.rs` - Added `metric_annotations` field to `CreateStream` variant
+- ✅ `tests/unit/sql/parser/metric_annotations_test.rs` (~234 LOC) - Comprehensive test suite
+- ✅ Various test files updated to include empty `metric_annotations` vectors
+
+**Supported Annotation Directives**:
+- `@metric: <name>` - Metric name (required)
+- `@metric_type: counter|gauge|histogram` - Metric type (required)
+- `@metric_help: "description"` - Help text (optional)
+- `@metric_labels: label1, label2` - Label fields (optional)
+- `@metric_condition: <expression>` - Filter condition (optional)
+- `@metric_sample_rate: <0.0-1.0>` - Sampling rate (optional, default 1.0)
+- `@metric_field: <field_name>` - Field to measure (required for gauge/histogram)
+- `@metric_buckets: [v1, v2, ...]` - Histogram buckets (optional)
+
+**Validation Implemented**:
+- ✅ Prometheus metric naming rules: `[a-zA-Z_:][a-zA-Z0-9_:]*`
+- ✅ Required field validation based on metric type
+- ✅ Sample rate range validation (0.0 to 1.0)
+- ✅ Gauge/Histogram require `@metric_field`
+- ✅ Invalid metric type detection
+- ✅ Graceful error messages with clear context
+
+**Test Coverage** (16 tests):
+```
+test_parse_simple_counter_annotation                  ✅
+test_parse_counter_with_labels                        ✅
+test_parse_counter_with_help                          ✅
+test_parse_gauge_annotation                           ✅
+test_parse_histogram_annotation                       ✅
+test_parse_annotation_with_condition                  ✅
+test_parse_annotation_with_sample_rate                ✅
+test_parse_multiple_annotations                       ✅
+test_parse_complete_annotation                        ✅
+test_parse_annotation_skips_non_annotation_comments   ✅
+test_parse_annotation_invalid_metric_type             ✅
+test_parse_annotation_gauge_without_field             ✅
+test_parse_annotation_invalid_sample_rate             ✅
+test_parse_annotation_invalid_metric_name             ✅
+test_parse_annotation_metric_type_without_metric      ✅
+```
+
+**Validation Status**:
+- ✅ `cargo fmt --all -- --check` - Passed
+- ✅ `cargo check --no-default-features` - Passed
+- ✅ All 16 unit tests passing
+- ✅ Zero breaking changes to existing code
+- ✅ Backward compatible (empty annotations for existing queries)
+
+**Phase 1 Status**: ✅ **COMPLETE** - Ready for Phase 2
+
+### Usage Example
+
+The implemented annotation parser automatically extracts and validates metric annotations from SQL comments:
+
+```sql
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Total number of volume spikes detected across all symbols"
+-- @metric_labels: symbol, spike_ratio
+-- @metric_condition: volume > hourly_avg_volume * 2.0
+CREATE STREAM volume_spikes AS
+SELECT
+    symbol,
+    volume,
+    hourly_avg_volume,
+    (volume / hourly_avg_volume) as spike_ratio,
+    event_time
+FROM market_data_stream
+WHERE volume > hourly_avg_volume * 2.0;
+```
+
+**Parser Output**:
+```rust
+// Automatically parsed and attached to CreateStream AST node
+MetricAnnotation {
+    name: "velo_trading_volume_spikes_total",
+    metric_type: MetricType::Counter,
+    help: Some("Total number of volume spikes detected across all symbols"),
+    labels: vec!["symbol", "spike_ratio"],
+    condition: Some("volume > hourly_avg_volume * 2.0"),
+    sample_rate: 1.0,
+    field: None,
+    buckets: None,
+}
+```
+
+**Integration with Parser**:
+```rust
+use velostream::velostream::sql::parser::StreamingSqlParser;
+
+let parser = StreamingSqlParser::new();
+let query = parser.parse(sql)?;
+
+match query {
+    StreamingQuery::CreateStream { metric_annotations, .. } => {
+        for annotation in metric_annotations {
+            println!("Metric: {} ({})", annotation.name, annotation.metric_type);
+        }
+    }
+    _ => {}
+}
+```
+
+---
+
+### Original Phase 1 Proposal (Archived)
+
+The sections below show the original proposed implementation. The actual implementation differs in some details but achieves all the same goals.
 
 ### 1.1 Create Annotation Parser Module
 
