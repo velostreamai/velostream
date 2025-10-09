@@ -436,7 +436,8 @@ async fn test_multi_source_job_server_integration() {
         "test-group".to_string(),
         10,   // max jobs
         true, // enable monitoring
-    );
+    )
+    .await;
 
     let multi_source_sql = r#"
         CREATE STREAM enriched_orders AS
