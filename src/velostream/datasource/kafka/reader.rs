@@ -657,11 +657,25 @@ impl KafkaDataReader {
                     );
                 }
                 Err(e) => {
-                    log::debug!(
-                        "🔍 read_fixed_size: poll error/timeout: {:?}, records so far: {}",
-                        e,
-                        records.len()
-                    );
+                    // Check if this is a deserialization error (CRITICAL) vs timeout (normal)
+                    let is_deserialization_error = format!("{:?}", e).contains("SerializationError");
+
+                    if is_deserialization_error {
+                        log::error!(
+                            "🚨 DESERIALIZATION FAILURE: {:?}, records so far: {}",
+                            e,
+                            records.len()
+                        );
+                        log::error!("🚨 This indicates a schema mismatch or format incompatibility");
+                        log::error!("🚨 Check that source and sink serialization formats match");
+                    } else {
+                        log::debug!(
+                            "🔍 read_fixed_size: poll error/timeout: {:?}, records so far: {}",
+                            e,
+                            records.len()
+                        );
+                    }
+
                     // Timeout or error - break if we have some records, otherwise continue
                     if !records.is_empty() {
                         break;
