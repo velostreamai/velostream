@@ -189,6 +189,343 @@ impl SimpleJobProcessor {
         }
     }
 
+    /// Register gauge metrics from SQL annotations
+    async fn register_gauge_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Extract gauge annotations from the query
+        let gauge_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Gauge)
+                .collect::<Vec<_>>(),
+            _ => return Ok(()), // Only CreateStream queries have annotations
+        };
+
+        if gauge_annotations.is_empty() {
+            debug!("Job '{}': No gauge metrics to register", job_name);
+            return Ok(());
+        }
+
+        // Register each gauge metric with the metrics provider
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for annotation in gauge_annotations {
+                            let help = annotation
+                                .help
+                                .as_deref()
+                                .unwrap_or("SQL-annotated gauge metric");
+
+                            metrics.register_gauge_metric(
+                                &annotation.name,
+                                help,
+                                &annotation.labels,
+                            )?;
+
+                            info!(
+                                "Job '{}': Registered gauge metric '{}' with labels {:?}",
+                                job_name, annotation.name, annotation.labels
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "Job '{}': No metrics provider available for annotation registration",
+                            job_name
+                        );
+                    }
+                }
+            }
+        } else {
+            debug!(
+                "Job '{}': No observability manager - skipping metric registration",
+                job_name
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Emit gauge metrics for processed records
+    async fn emit_gauge_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        // Extract gauge annotations from the query
+        let gauge_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Gauge)
+                .collect::<Vec<_>>(),
+            _ => return, // Only CreateStream queries have annotations
+        };
+
+        if gauge_annotations.is_empty() || output_records.is_empty() {
+            return;
+        }
+
+        // Emit metrics for each output record
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for record in output_records {
+                            for annotation in &gauge_annotations {
+                                // Extract label values from the record
+                                let label_values: Vec<String> = annotation
+                                    .labels
+                                    .iter()
+                                    .filter_map(|label_name| {
+                                        record
+                                            .fields
+                                            .get(label_name)
+                                            .map(|value| value.to_display_string())
+                                    })
+                                    .collect();
+
+                                // Only emit if we have all required labels
+                                if label_values.len() == annotation.labels.len() {
+                                    // Extract the gauge value from the specified field
+                                    if let Some(field_name) = &annotation.field {
+                                        if let Some(field_value) = record.fields.get(field_name) {
+                                            // Convert FieldValue to f64
+                                            let value = match field_value {
+                                                crate::velostream::sql::execution::FieldValue::Float(v) => *v,
+                                                crate::velostream::sql::execution::FieldValue::Integer(v) => *v as f64,
+                                                crate::velostream::sql::execution::FieldValue::ScaledInteger(v, scale) => {
+                                                    (*v as f64) / 10_f64.powi(*scale as i32)
+                                                }
+                                                _ => {
+                                                    debug!(
+                                                        "Job '{}': Gauge '{}' field '{}' is not numeric, skipping",
+                                                        job_name, annotation.name, field_name
+                                                    );
+                                                    continue;
+                                                }
+                                            };
+
+                                            if let Err(e) = metrics.emit_gauge(
+                                                &annotation.name,
+                                                &label_values,
+                                                value,
+                                            ) {
+                                                debug!(
+                                                    "Job '{}': Failed to emit gauge '{}': {:?}",
+                                                    job_name, annotation.name, e
+                                                );
+                                            } else {
+                                                debug!(
+                                                    "Job '{}': Emitted gauge '{}' = {} with labels {:?}",
+                                                    job_name, annotation.name, value, label_values
+                                                );
+                                            }
+                                        } else {
+                                            debug!(
+                                                "Job '{}': Gauge '{}' field '{}' not found in record",
+                                                job_name, annotation.name, field_name
+                                            );
+                                        }
+                                    } else {
+                                        debug!(
+                                            "Job '{}': Gauge '{}' has no field specified",
+                                            job_name, annotation.name
+                                        );
+                                    }
+                                } else {
+                                    debug!(
+                                        "Job '{}': Skipping gauge '{}' - missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Register histogram metrics from SQL annotations
+    async fn register_histogram_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Extract histogram annotations from the query
+        let histogram_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Histogram)
+                .collect::<Vec<_>>(),
+            _ => return Ok(()), // Only CreateStream queries have annotations
+        };
+
+        if histogram_annotations.is_empty() {
+            debug!("Job '{}': No histogram metrics to register", job_name);
+            return Ok(());
+        }
+
+        // Register each histogram metric with the metrics provider
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for annotation in histogram_annotations {
+                            let help = annotation
+                                .help
+                                .as_deref()
+                                .unwrap_or("SQL-annotated histogram metric");
+
+                            metrics.register_histogram_metric(
+                                &annotation.name,
+                                help,
+                                &annotation.labels,
+                                annotation.buckets.clone(),
+                            )?;
+
+                            info!(
+                                "Job '{}': Registered histogram metric '{}' with labels {:?}",
+                                job_name, annotation.name, annotation.labels
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "Job '{}': No metrics provider available for annotation registration",
+                            job_name
+                        );
+                    }
+                }
+            }
+        } else {
+            debug!(
+                "Job '{}': No observability manager - skipping metric registration",
+                job_name
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Emit histogram metrics for processed records
+    async fn emit_histogram_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        // Extract histogram annotations from the query
+        let histogram_annotations = match query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations
+                .iter()
+                .filter(|a| a.metric_type == MetricType::Histogram)
+                .collect::<Vec<_>>(),
+            _ => return, // Only CreateStream queries have annotations
+        };
+
+        if histogram_annotations.is_empty() || output_records.is_empty() {
+            return;
+        }
+
+        // Emit metrics for each output record
+        if let Some(obs) = &self.observability {
+            match obs.read().await {
+                obs_lock => {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        for record in output_records {
+                            for annotation in &histogram_annotations {
+                                // Extract label values from the record
+                                let label_values: Vec<String> = annotation
+                                    .labels
+                                    .iter()
+                                    .filter_map(|label_name| {
+                                        record
+                                            .fields
+                                            .get(label_name)
+                                            .map(|value| value.to_display_string())
+                                    })
+                                    .collect();
+
+                                // Only emit if we have all required labels
+                                if label_values.len() == annotation.labels.len() {
+                                    // Extract the histogram value from the specified field
+                                    if let Some(field_name) = &annotation.field {
+                                        if let Some(field_value) = record.fields.get(field_name) {
+                                            // Convert FieldValue to f64
+                                            let value = match field_value {
+                                                crate::velostream::sql::execution::FieldValue::Float(v) => *v,
+                                                crate::velostream::sql::execution::FieldValue::Integer(v) => *v as f64,
+                                                crate::velostream::sql::execution::FieldValue::ScaledInteger(v, scale) => {
+                                                    (*v as f64) / 10_f64.powi(*scale as i32)
+                                                }
+                                                _ => {
+                                                    debug!(
+                                                        "Job '{}': Histogram '{}' field '{}' is not numeric, skipping",
+                                                        job_name, annotation.name, field_name
+                                                    );
+                                                    continue;
+                                                }
+                                            };
+
+                                            if let Err(e) = metrics.emit_histogram(
+                                                &annotation.name,
+                                                &label_values,
+                                                value,
+                                            ) {
+                                                debug!(
+                                                    "Job '{}': Failed to emit histogram '{}': {:?}",
+                                                    job_name, annotation.name, e
+                                                );
+                                            } else {
+                                                debug!(
+                                                    "Job '{}': Emitted histogram '{}' observed value {} with labels {:?}",
+                                                    job_name, annotation.name, value, label_values
+                                                );
+                                            }
+                                        } else {
+                                            debug!(
+                                                "Job '{}': Histogram '{}' field '{}' not found in record",
+                                                job_name, annotation.name, field_name
+                                            );
+                                        }
+                                    } else {
+                                        debug!(
+                                            "Job '{}': Histogram '{}' has no field specified",
+                                            job_name, annotation.name
+                                        );
+                                    }
+                                } else {
+                                    debug!(
+                                        "Job '{}': Skipping histogram '{}' - missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Process records from multiple datasources with multiple sinks (multi-source/sink processing)
     pub async fn process_multi_job(
         &self,
@@ -372,6 +709,22 @@ impl SimpleJobProcessor {
         if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
             warn!(
                 "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register gauge metrics from SQL annotations
+        if let Err(e) = self.register_gauge_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register gauge metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register histogram metrics from SQL annotations
+        if let Err(e) = self.register_histogram_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register histogram metrics: {:?}",
                 job_name, e
             );
         }
@@ -579,6 +932,14 @@ impl SimpleJobProcessor {
 
         // Emit counter metrics for successfully processed records
         self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+            .await;
+
+        // Emit gauge metrics for successfully processed records
+        self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
+            .await;
+
+        // Emit histogram metrics for successfully processed records
+        self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
             .await;
 
         // Step 3: Handle results based on failure strategy
