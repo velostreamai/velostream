@@ -16,7 +16,6 @@
 6. [Best Practices](#best-practices)
 7. [Advanced Features](#advanced-features)
 8. [Troubleshooting](#troubleshooting)
-9. [Migration Guide](#migration-guide)
 
 ---
 
@@ -794,64 +793,6 @@ RUST_LOG=debug velo-sql-multi deploy-app --file query.sql
   ```rust
   metrics_provider.unregister_job_metrics("job_name")?;
   ```
-
----
-
-## Migration Guide
-
-### Migrating from External Metrics
-
-**Before** (Rust code with manual metrics):
-```rust
-// metrics.rs
-use prometheus::{IntCounterVec, Registry};
-
-pub fn register_metrics(registry: &Registry) -> Result<IntCounterVec> {
-    let counter = IntCounterVec::new(
-        Opts::new("velo_trades_total", "Total trades"),
-        &["symbol", "exchange"]
-    )?;
-    registry.register(Box::new(counter.clone()))?;
-    Ok(counter)
-}
-
-// processor.rs
-fn process_record(&self, record: &StreamRecord) {
-    let symbol = record.get_field("symbol");
-    let exchange = record.get_field("exchange");
-
-    self.metrics_counter
-        .with_label_values(&[symbol, exchange])
-        .inc();
-}
-```
-
-**After** (SQL-native):
-```sql
--- @metric: velo_trades_total
--- @metric_type: counter
--- @metric_help: "Total trades processed"
--- @metric_labels: symbol, exchange
-CREATE STREAM trades AS
-SELECT symbol, exchange, volume, price
-FROM market_data;
-```
-
-**Benefits**:
-- ❌ Delete ~50 lines of Rust boilerplate
-- ✅ Metrics defined with data definition
-- ✅ Automatic label extraction
-- ✅ No processor code changes
-
-### Migration Checklist
-
-- [ ] Identify external metric registration code
-- [ ] Add `@metric` annotations to SQL
-- [ ] Test with sample data
-- [ ] Verify metrics in Prometheus
-- [ ] Remove Rust metric code
-- [ ] Update documentation
-- [ ] Deploy to production
 
 ---
 
