@@ -38,6 +38,9 @@ pub mod stream_job_processors_failure_test;
 /// Conditional metrics evaluation tests (FR-073 Phase 4)
 pub mod conditional_metrics_test;
 
+/// Direct ProcessorMetricsHelper tests (performance optimizations)
+pub mod processor_metrics_helper_test;
+
 /// Template for adding new processor tests
 pub mod stream_job_future_handler_test_template;
 

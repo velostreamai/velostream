@@ -7,6 +7,7 @@ use crate::velostream::observability::label_extraction::{
     extract_label_values, LabelExtractionConfig,
 };
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::FieldValue;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
@@ -15,7 +16,7 @@ use crate::velostream::sql::StreamingQuery;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 /// Helper for managing SQL-annotated metrics across different processor types
 ///
@@ -23,34 +24,56 @@ use tokio::sync::Mutex;
 /// - Condition parsing and evaluation (Phase 4)
 /// - Metric registration from SQL annotations
 /// - Metric emission for processed records
+///
+/// # Performance Optimizations
+/// - Conditions are parsed once at registration time and cached
+/// - Uses RwLock for efficient concurrent read access
+/// - Minimal lock contention on hot paths
 pub struct ProcessorMetricsHelper {
-    /// Condition strings for conditional metric emission
-    /// Key: metric name, Value: condition string
-    metric_conditions: Arc<Mutex<HashMap<String, String>>>,
+    /// Parsed condition expressions for conditional metric emission
+    /// Key: metric name, Value: parsed SQL expression (Arc for cheap cloning)
+    metric_conditions: Arc<RwLock<HashMap<String, Arc<Expr>>>>,
 }
 
 impl ProcessorMetricsHelper {
     /// Create a new metrics helper
     pub fn new() -> Self {
         Self {
-            metric_conditions: Arc::new(Mutex::new(HashMap::new())),
+            metric_conditions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    /// Store condition string from annotation
+    /// Parse and store condition expression from annotation
+    ///
+    /// This method parses the condition once and stores the parsed expression
+    /// for efficient evaluation on every record. Parse errors are logged but
+    /// don't prevent metric registration.
     pub async fn compile_condition(
         &self,
         annotation: &MetricAnnotation,
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(condition_str) = &annotation.condition {
-            // Store condition string for evaluation
-            let mut conditions = self.metric_conditions.lock().await;
-            conditions.insert(annotation.name.clone(), condition_str.clone());
-            info!(
-                "Job '{}': Registered condition for metric '{}': {}",
-                job_name, annotation.name, condition_str
-            );
+            // Parse condition to expression (only once, at registration time)
+            match Self::parse_condition_to_expr(condition_str) {
+                Ok(expr) => {
+                    // Store parsed expression for fast evaluation
+                    let mut conditions = self.metric_conditions.write().await;
+                    conditions.insert(annotation.name.clone(), Arc::new(expr));
+                    info!(
+                        "Job '{}': Compiled condition for metric '{}': {}",
+                        job_name, annotation.name, condition_str
+                    );
+                }
+                Err(e) => {
+                    // Log parse error but don't fail registration
+                    // Metric will emit unconditionally if condition fails to parse
+                    warn!(
+                        "Job '{}': Failed to parse condition for metric '{}' (will emit unconditionally): {} - Error: {}",
+                        job_name, annotation.name, condition_str, e
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -111,53 +134,41 @@ impl ProcessorMetricsHelper {
         }
     }
 
-    /// Evaluate condition for a record by parsing it on-demand
+    /// Evaluate condition for a record using cached parsed expression
     ///
     /// # Error Handling Strategy
     ///
     /// - **No condition present**: Returns `true` (always emit metric)
-    /// - **Parse errors**: Returns `true` (emit metric, log warning at registration time)
+    /// - **Parse errors**: Returns `true` (emit metric, warning logged at registration time)
     ///   - Rationale: Invalid syntax should be caught at registration, not silently skip all metrics
     /// - **Evaluation errors**: Returns `false` (don't emit metric, log debug)
     ///   - Rationale: Runtime errors (missing fields, type mismatches) are data-dependent
     /// - **Non-boolean results**: Returns `false` (don't emit metric, log debug)
     ///   - Rationale: Conditions must be boolean expressions
     ///
-    /// # Performance Notes
+    /// # Performance
     ///
-    /// Conditions are parsed on-demand for each record. For high-throughput scenarios,
-    /// consider:
-    /// - Using simple conditions (single field comparisons)
-    /// - Avoiding complex expressions with multiple operations
-    /// - Pre-filtering data with WHERE clauses before metric emission
+    /// This method uses a cached parsed expression for O(1) lookup with shared read lock.
+    /// No parsing overhead on the hot path - expressions are parsed once at registration time.
     async fn evaluate_condition(
         &self,
         metric_name: &str,
         record: &crate::velostream::sql::execution::StreamRecord,
         job_name: &str,
     ) -> bool {
-        let conditions = self.metric_conditions.lock().await;
-        let condition_str = match conditions.get(metric_name) {
-            Some(cond) => cond,
-            None => return true, // No condition - always emit
-        };
+        // Use read lock for concurrent access (no contention)
+        let conditions = self.metric_conditions.read().await;
 
-        // Parse condition to expression
-        let expr = match Self::parse_condition_to_expr(condition_str) {
-            Ok(expr) => expr,
-            Err(e) => {
-                // Parse error: This should have been caught at registration time
-                // Emit metric to avoid silently dropping all metrics due to syntax error
-                debug!(
-                    "Job '{}': Failed to parse condition for metric '{}': {}. Treating as always true.",
-                    job_name, metric_name, e
-                );
-                return true;
+        match conditions.get(metric_name) {
+            Some(expr) => {
+                // Evaluate cached expression (no parsing!)
+                Self::evaluate_condition_expr(expr, record, metric_name, job_name)
             }
-        };
-
-        // Evaluate expression against record
-        Self::evaluate_condition_expr(&expr, record, metric_name, job_name)
+            None => {
+                // No condition - always emit
+                true
+            }
+        }
     }
 
     /// Check if a metric should be emitted based on its condition
@@ -183,52 +194,60 @@ impl ProcessorMetricsHelper {
         true
     }
 
-    /// Register counter metrics from SQL annotations
-    pub async fn register_counter_metrics(
-        &self,
-        query: &StreamingQuery,
-        observability: &Option<SharedObservabilityManager>,
-        job_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Extract counter annotations from the query
-        let counter_annotations = match query {
+    /// Extract annotations of a specific type from a query
+    fn extract_annotations_by_type<'a>(
+        query: &'a StreamingQuery,
+        metric_type: MetricType,
+    ) -> Vec<&'a MetricAnnotation> {
+        match query {
             StreamingQuery::CreateStream {
                 metric_annotations, ..
             } => metric_annotations
                 .iter()
-                .filter(|a| a.metric_type == MetricType::Counter)
-                .collect::<Vec<_>>(),
-            _ => return Ok(()), // Only CreateStream queries have annotations
-        };
+                .filter(|a| a.metric_type == metric_type)
+                .collect(),
+            _ => vec![],
+        }
+    }
 
-        if counter_annotations.is_empty() {
-            debug!("Job '{}': No counter metrics to register", job_name);
+    /// Common logic for registering metrics with the metrics provider
+    async fn register_metrics_common<F>(
+        &self,
+        annotations: Vec<&MetricAnnotation>,
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+        metric_type_name: &str,
+        register_fn: F,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: Fn(
+            &crate::velostream::observability::metrics::MetricsProvider,
+            &MetricAnnotation,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    {
+        if annotations.is_empty() {
+            debug!(
+                "Job '{}': No {} metrics to register",
+                job_name, metric_type_name
+            );
             return Ok(());
         }
 
-        // Register each counter metric with the metrics provider and compile conditions
         if let Some(obs) = observability {
             match obs.read().await {
                 obs_lock => {
                     if let Some(metrics) = obs_lock.metrics() {
-                        for annotation in counter_annotations {
-                            let help = annotation
-                                .help
-                                .as_deref()
-                                .unwrap_or("SQL-annotated counter metric");
-
-                            metrics.register_counter_metric(
-                                &annotation.name,
-                                help,
-                                &annotation.labels,
-                            )?;
+                        for annotation in annotations {
+                            // Register the metric using the provided function
+                            register_fn(metrics, annotation)?;
 
                             // Compile condition expression if present
                             self.compile_condition(annotation, job_name).await?;
 
                             info!(
-                                "Job '{}': Registered counter metric '{}' with labels {:?}{}",
+                                "Job '{}': Registered {} metric '{}' with labels {:?}{}",
                                 job_name,
+                                metric_type_name,
                                 annotation.name,
                                 annotation.labels,
                                 if annotation.condition.is_some() {
@@ -254,6 +273,33 @@ impl ProcessorMetricsHelper {
         }
 
         Ok(())
+    }
+
+    /// Register counter metrics from SQL annotations
+    pub async fn register_counter_metrics(
+        &self,
+        query: &StreamingQuery,
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let annotations = Self::extract_annotations_by_type(query, MetricType::Counter);
+
+        self.register_metrics_common(
+            annotations,
+            observability,
+            job_name,
+            "counter",
+            |metrics, annotation| {
+                let help = annotation
+                    .help
+                    .as_deref()
+                    .unwrap_or("SQL-annotated counter metric");
+                metrics
+                    .register_counter_metric(&annotation.name, help, &annotation.labels)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            },
+        )
+        .await
     }
 
     /// Emit counter metrics for processed records
@@ -335,70 +381,24 @@ impl ProcessorMetricsHelper {
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Extract gauge annotations from the query
-        let gauge_annotations = match query {
-            StreamingQuery::CreateStream {
-                metric_annotations, ..
-            } => metric_annotations
-                .iter()
-                .filter(|a| a.metric_type == MetricType::Gauge)
-                .collect::<Vec<_>>(),
-            _ => return Ok(()), // Only CreateStream queries have annotations
-        };
+        let annotations = Self::extract_annotations_by_type(query, MetricType::Gauge);
 
-        if gauge_annotations.is_empty() {
-            debug!("Job '{}': No gauge metrics to register", job_name);
-            return Ok(());
-        }
-
-        // Register each gauge metric with the metrics provider and compile conditions
-        if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for annotation in gauge_annotations {
-                            let help = annotation
-                                .help
-                                .as_deref()
-                                .unwrap_or("SQL-annotated gauge metric");
-
-                            metrics.register_gauge_metric(
-                                &annotation.name,
-                                help,
-                                &annotation.labels,
-                            )?;
-
-                            // Compile condition expression if present
-                            self.compile_condition(annotation, job_name).await?;
-
-                            info!(
-                                "Job '{}': Registered gauge metric '{}' with labels {:?}{}",
-                                job_name,
-                                annotation.name,
-                                annotation.labels,
-                                if annotation.condition.is_some() {
-                                    " (with condition)"
-                                } else {
-                                    ""
-                                }
-                            );
-                        }
-                    } else {
-                        warn!(
-                            "Job '{}': No metrics provider available for annotation registration",
-                            job_name
-                        );
-                    }
-                }
-            }
-        } else {
-            debug!(
-                "Job '{}': No observability manager - skipping metric registration",
-                job_name
-            );
-        }
-
-        Ok(())
+        self.register_metrics_common(
+            annotations,
+            observability,
+            job_name,
+            "gauge",
+            |metrics, annotation| {
+                let help = annotation
+                    .help
+                    .as_deref()
+                    .unwrap_or("SQL-annotated gauge metric");
+                metrics
+                    .register_gauge_metric(&annotation.name, help, &annotation.labels)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            },
+        )
+        .await
     }
 
     /// Emit gauge metrics for processed records
@@ -513,71 +513,29 @@ impl ProcessorMetricsHelper {
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Extract histogram annotations from the query
-        let histogram_annotations = match query {
-            StreamingQuery::CreateStream {
-                metric_annotations, ..
-            } => metric_annotations
-                .iter()
-                .filter(|a| a.metric_type == MetricType::Histogram)
-                .collect::<Vec<_>>(),
-            _ => return Ok(()), // Only CreateStream queries have annotations
-        };
+        let annotations = Self::extract_annotations_by_type(query, MetricType::Histogram);
 
-        if histogram_annotations.is_empty() {
-            debug!("Job '{}': No histogram metrics to register", job_name);
-            return Ok(());
-        }
-
-        // Register each histogram metric with the metrics provider and compile conditions
-        if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for annotation in histogram_annotations {
-                            let help = annotation
-                                .help
-                                .as_deref()
-                                .unwrap_or("SQL-annotated histogram metric");
-
-                            metrics.register_histogram_metric(
-                                &annotation.name,
-                                help,
-                                &annotation.labels,
-                                annotation.buckets.clone(),
-                            )?;
-
-                            // Compile condition expression if present
-                            self.compile_condition(annotation, job_name).await?;
-
-                            info!(
-                                "Job '{}': Registered histogram metric '{}' with labels {:?}{}",
-                                job_name,
-                                annotation.name,
-                                annotation.labels,
-                                if annotation.condition.is_some() {
-                                    " (with condition)"
-                                } else {
-                                    ""
-                                }
-                            );
-                        }
-                    } else {
-                        warn!(
-                            "Job '{}': No metrics provider available for annotation registration",
-                            job_name
-                        );
-                    }
-                }
-            }
-        } else {
-            debug!(
-                "Job '{}': No observability manager - skipping metric registration",
-                job_name
-            );
-        }
-
-        Ok(())
+        self.register_metrics_common(
+            annotations,
+            observability,
+            job_name,
+            "histogram",
+            |metrics, annotation| {
+                let help = annotation
+                    .help
+                    .as_deref()
+                    .unwrap_or("SQL-annotated histogram metric");
+                metrics
+                    .register_histogram_metric(
+                        &annotation.name,
+                        help,
+                        &annotation.labels,
+                        annotation.buckets.clone(),
+                    )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            },
+        )
+        .await
     }
 
     /// Emit histogram metrics for processed records
