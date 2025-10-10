@@ -6,7 +6,7 @@
 use crate::velostream::sql::{
     ast::{Expr, SelectField, StreamingQuery, SubqueryType},
     config::with_clause_parser::WithClauseParser,
-    parser::StreamingSqlParser,
+    parser::{annotations::parse_metric_annotations, StreamingSqlParser},
     query_analyzer::{
         DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,
     },
@@ -605,6 +605,9 @@ impl SqlValidator {
 
         // Extract application name from comments
         result.application_name = self.extract_application_name(&content);
+
+        // Validate @metric annotations (FR-073)
+        self.validate_metric_annotations(&content, &mut result);
 
         // Split into individual queries with line tracking
         let queries = self.split_sql_statements(&content);
@@ -1274,6 +1277,46 @@ impl SqlValidator {
                 column: None,
                 severity: ErrorSeverity::Warning,
             });
+        }
+    }
+
+    /// Validate @metric annotations in SQL comments (FR-073)
+    fn validate_metric_annotations(
+        &self,
+        content: &str,
+        result: &mut ApplicationValidationResult,
+    ) {
+        // Extract all comment lines
+        let comments: Vec<String> = content
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                if trimmed.starts_with("--") {
+                    // Remove the leading "--" and trim
+                    Some(trimmed[2..].trim().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Parse metric annotations
+        match parse_metric_annotations(&comments) {
+            Ok(annotations) => {
+                if !annotations.is_empty() {
+                    result.recommendations.push(format!(
+                        "✓ Found {} valid @metric annotation(s) (FR-073 SQL-Native Observability)",
+                        annotations.len()
+                    ));
+                }
+            }
+            Err(e) => {
+                result.global_errors.push(format!(
+                    "❌ @metric annotation error: {}",
+                    e
+                ));
+                result.is_valid = false;
+            }
         }
     }
 }
