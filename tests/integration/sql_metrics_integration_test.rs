@@ -567,9 +567,11 @@ mod tests {
         let sql = r#"
             -- @metric: test_event_count
             -- @metric_type: counter
+            -- @metric_labels: symbol
             -- @metric: test_current_value
             -- @metric_type: gauge
             -- @metric_field: value
+            -- @metric_labels: symbol
             -- @metric: test_value_distribution
             -- @metric_type: histogram
             -- @metric_field: value
