@@ -17,10 +17,7 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("symbol".to_string(), FieldValue::String(symbol));
         fields.insert("volume".to_string(), FieldValue::Integer(volume));
-        fields.insert(
-            "avg_volume".to_string(),
-            FieldValue::Integer(avg_volume),
-        );
+        fields.insert("avg_volume".to_string(), FieldValue::Integer(avg_volume));
         fields.insert("event_time".to_string(), FieldValue::Integer(1000));
 
         StreamRecord {
@@ -65,8 +62,7 @@ mod tests {
         // Extract metric annotations
         let annotations = match &query {
             StreamingQuery::CreateStream {
-                metric_annotations,
-                ..
+                metric_annotations, ..
             } => metric_annotations.clone(),
             _ => panic!("Expected CreateStream query"),
         };
@@ -111,8 +107,8 @@ mod tests {
         // Verify metrics were recorded by checking the Prometheus registry
         if let Some(metrics) = obs_manager.metrics() {
             let metrics_text = metrics
-                .gather()
-                .expect("Failed to gather Prometheus metrics");
+                .get_metrics_text()
+                .expect("Failed to get Prometheus metrics");
 
             // Verify the metric appears in the output
             assert!(
@@ -179,7 +175,7 @@ mod tests {
                 .expect("Failed to emit counter");
 
             // Verify metrics
-            let metrics_text = metrics.gather().expect("Failed to gather metrics");
+            let metrics_text = metrics.get_metrics_text().expect("Failed to get metrics");
 
             assert!(metrics_text.contains("test_events_total"));
             assert!(metrics_text.contains(r#"symbol="AAPL",exchange="NYSE""#));
@@ -218,8 +214,7 @@ mod tests {
 
         let annotations = match &query {
             StreamingQuery::CreateStream {
-                metric_annotations,
-                ..
+                metric_annotations, ..
             } => metric_annotations.clone(),
             _ => panic!("Expected CreateStream query"),
         };
@@ -243,7 +238,7 @@ mod tests {
                 .expect("Failed to emit");
 
             // Verify both metrics exist
-            let metrics_text = metrics.gather().expect("Failed to gather metrics");
+            let metrics_text = metrics.get_metrics_text().expect("Failed to get metrics");
             assert!(metrics_text.contains("test_total_events"));
             assert!(metrics_text.contains("test_high_volume_events"));
         }

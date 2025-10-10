@@ -17,6 +17,39 @@ use crate::velostream::sql::execution::config::StreamingConfig;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Simplified Prometheus configuration for tests
+#[derive(Debug, Clone)]
+pub struct PrometheusConfig {
+    pub port: u16,
+    pub enabled: bool,
+}
+
+/// Simplified Telemetry configuration for tests
+#[derive(Debug, Clone, Default)]
+pub struct TelemetryConfig {
+    // Empty for now, can be expanded later
+}
+
+impl PrometheusConfig {
+    /// Convert to full PrometheusConfig from execution config
+    fn to_full_config(&self) -> crate::velostream::sql::execution::config::PrometheusConfig {
+        crate::velostream::sql::execution::config::PrometheusConfig {
+            metrics_path: "/metrics".to_string(),
+            bind_address: if self.port == 0 {
+                "127.0.0.1".to_string()
+            } else {
+                "0.0.0.0".to_string()
+            },
+            port: self.port,
+            enable_histograms: false,
+            enable_query_metrics: true,
+            enable_streaming_metrics: false,
+            collection_interval_seconds: 15,
+            max_labels_per_metric: 10,
+        }
+    }
+}
+
 /// Central observability manager for Velostream Phase 4
 #[derive(Debug)]
 pub struct ObservabilityManager {
@@ -29,7 +62,7 @@ pub struct ObservabilityManager {
 
 impl ObservabilityManager {
     /// Create a new observability manager with the given configuration
-    pub fn new(config: StreamingConfig) -> Self {
+    pub fn from_streaming_config(config: StreamingConfig) -> Self {
         Self {
             config,
             telemetry: None,
@@ -37,6 +70,24 @@ impl ObservabilityManager {
             profiling: None,
             initialized: false,
         }
+    }
+
+    /// Create and initialize a new observability manager with simplified configs (for tests)
+    pub async fn new(
+        prometheus_config: PrometheusConfig,
+        _telemetry_config: TelemetryConfig,
+    ) -> Result<Self, SqlError> {
+        let full_prometheus = prometheus_config.to_full_config();
+
+        let streaming_config = if prometheus_config.enabled {
+            StreamingConfig::default().with_prometheus_config(full_prometheus)
+        } else {
+            StreamingConfig::default()
+        };
+
+        let mut manager = Self::from_streaming_config(streaming_config);
+        manager.initialize().await?;
+        Ok(manager)
     }
 
     /// Initialize all enabled observability features
@@ -135,7 +186,9 @@ pub type SharedObservabilityManager = Arc<RwLock<ObservabilityManager>>;
 
 /// Create a shared observability manager with the given configuration
 pub fn create_shared_manager(config: StreamingConfig) -> SharedObservabilityManager {
-    Arc::new(RwLock::new(ObservabilityManager::new(config)))
+    Arc::new(RwLock::new(ObservabilityManager::from_streaming_config(
+        config,
+    )))
 }
 
 /// Initialize observability features for the given configuration
@@ -160,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn test_observability_manager_creation() {
         let config = StreamingConfig::default();
-        let manager = ObservabilityManager::new(config);
+        let manager = ObservabilityManager::from_streaming_config(config);
 
         assert!(!manager.initialized);
         assert!(!manager.is_any_feature_enabled());
@@ -176,7 +229,7 @@ mod tests {
             .with_prometheus_metrics()
             .with_performance_profiling();
 
-        let manager = ObservabilityManager::new(config);
+        let manager = ObservabilityManager::from_streaming_config(config);
         assert!(manager.is_any_feature_enabled());
     }
 

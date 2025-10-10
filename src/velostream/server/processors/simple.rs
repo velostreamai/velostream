@@ -63,8 +63,7 @@ impl SimpleJobProcessor {
         // Extract counter annotations from the query
         let counter_annotations = match query {
             StreamingQuery::CreateStream {
-                metric_annotations,
-                ..
+                metric_annotations, ..
             } => metric_annotations
                 .iter()
                 .filter(|a| a.metric_type == MetricType::Counter)
@@ -127,8 +126,7 @@ impl SimpleJobProcessor {
         // Extract counter annotations from the query
         let counter_annotations = match query {
             StreamingQuery::CreateStream {
-                metric_annotations,
-                ..
+                metric_annotations, ..
             } => metric_annotations
                 .iter()
                 .filter(|a| a.metric_type == MetricType::Counter)

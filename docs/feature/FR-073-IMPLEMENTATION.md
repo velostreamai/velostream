@@ -8,17 +8,17 @@
 
 **Overall Progress**: 3 of 7 phases complete (43%)
 
-| Phase | Status | Duration | LOC | Tests | Completion Date |
-|-------|--------|----------|-----|-------|-----------------|
-| Phase 0: Comment Preservation | ✅ Complete | 2-3 days | ~150 | 5 | October 2025 |
-| Phase 1: Annotation Parser | ✅ Complete | 1 week | ~350 | 16 | October 2025 |
-| Phase 2A: Runtime - Counters | ✅ Complete | 1 week | ~240 | 13 | October 2025 |
-| Phase 2B: Runtime - Gauges/Histograms | 📋 Ready | 1 week | ~300 | 10 | TBD |
-| Phase 3: Label Extraction | ⏳ Waiting | 0.5 weeks | ~200 | 6 | TBD |
-| Phase 4: Condition Evaluation | ⏳ Waiting | 3 days | ~200 | 6 | TBD |
-| Phase 5: Registry Management | ⏳ Waiting | 1 week | ~250 | 5 | TBD |
-| Phase 6: Documentation | ⏳ Waiting | 1 week | ~500 | - | TBD |
-| **TOTAL** | **Phase 0-1-2A Done** | **6.5 weeks** | **~2,390** | **66** | - |
+| Phase                                 | Status                | Duration      | LOC        | Tests  | Completion Date |
+|---------------------------------------|-----------------------|---------------|------------|--------|-----------------|
+| Phase 0: Comment Preservation         | ✅ Complete            | 2-3 days      | ~150       | 5      | October 2025    |
+| Phase 1: Annotation Parser            | ✅ Complete            | 1 week        | ~350       | 16     | October 2025    |
+| Phase 2A: Runtime - Counters          | ✅ Complete            | 1 week        | ~240       | 13     | October 2025    |
+| Phase 2B: Runtime - Gauges/Histograms | 📋 Ready              | 1 week        | ~300       | 10     | TBD             |
+| Phase 3: Label Extraction             | ⏳ Waiting             | 0.5 weeks     | ~200       | 6      | TBD             |
+| Phase 4: Condition Evaluation         | ⏳ Waiting             | 3 days        | ~200       | 6      | TBD             |
+| Phase 5: Registry Management          | ⏳ Waiting             | 1 week        | ~250       | 5      | TBD             |
+| Phase 6: Documentation                | ⏳ Waiting             | 1 week        | ~500       | -      | TBD             |
+| **TOTAL**                             | **Phase 0-1-2A Done** | **6.5 weeks** | **~2,390** | **66** | -               |
 
 ---
 
