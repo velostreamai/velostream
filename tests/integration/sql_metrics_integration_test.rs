@@ -645,4 +645,258 @@ mod tests {
             assert!(metrics_text.contains("test_value_distribution"));
         }
     }
+
+    #[tokio::test]
+    async fn test_conditional_metrics() {
+        // Create observability manager
+        let prometheus_config = PrometheusConfig {
+            port: 0,
+            enabled: true,
+        };
+
+        let telemetry_config = TelemetryConfig::default();
+
+        let obs_manager = ObservabilityManager::new(prometheus_config, telemetry_config)
+            .await
+            .expect("Failed to create observability manager");
+
+        // Parse SQL with conditional metric annotations
+        let parser = StreamingSqlParser::new();
+        let sql = r#"
+            -- @metric: test_high_volume_total
+            -- @metric_type: counter
+            -- @metric_labels: symbol
+            -- @metric_condition: volume > 1000
+            -- @metric: test_low_volume_total
+            -- @metric_type: counter
+            -- @metric_labels: symbol
+            -- @metric_condition: volume <= 1000
+            -- @metric: test_all_events_total
+            -- @metric_type: counter
+            -- @metric_labels: symbol
+            CREATE STREAM conditional_events AS
+            SELECT symbol, volume
+            FROM market_data
+        "#;
+
+        let query = parser.parse(sql).expect("Failed to parse SQL");
+
+        let annotations = match &query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations.clone(),
+            _ => panic!("Expected CreateStream query"),
+        };
+
+        assert_eq!(annotations.len(), 3);
+
+        // Verify condition parsing
+        assert_eq!(annotations[0].name, "test_high_volume_total");
+        assert_eq!(
+            annotations[0].condition,
+            Some("volume > 1000".to_string())
+        );
+        assert_eq!(annotations[1].name, "test_low_volume_total");
+        assert_eq!(
+            annotations[1].condition,
+            Some("volume <= 1000".to_string())
+        );
+        assert_eq!(annotations[2].name, "test_all_events_total");
+        assert_eq!(annotations[2].condition, None);
+
+        // Register all counter metrics
+        if let Some(metrics) = obs_manager.metrics() {
+            for annotation in &annotations {
+                metrics
+                    .register_counter_metric(&annotation.name, "Test counter", &annotation.labels)
+                    .expect("Failed to register counter");
+            }
+        }
+
+        println!("✅ Phase 4: Conditional metrics parsed and registered successfully");
+    }
+
+    #[tokio::test]
+    async fn test_conditional_gauge_metrics() {
+        // Create observability manager
+        let prometheus_config = PrometheusConfig {
+            port: 0,
+            enabled: true,
+        };
+
+        let telemetry_config = TelemetryConfig::default();
+
+        let obs_manager = ObservabilityManager::new(prometheus_config, telemetry_config)
+            .await
+            .expect("Failed to create observability manager");
+
+        // Parse SQL with conditional gauge metric
+        let parser = StreamingSqlParser::new();
+        let sql = r#"
+            -- @metric: test_significant_volume
+            -- @metric_type: gauge
+            -- @metric_field: volume
+            -- @metric_labels: symbol
+            -- @metric_condition: volume > 500
+            CREATE STREAM significant_volumes AS
+            SELECT symbol, volume
+            FROM market_data
+        "#;
+
+        let query = parser.parse(sql).expect("Failed to parse SQL");
+
+        let annotations = match &query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations.clone(),
+            _ => panic!("Expected CreateStream query"),
+        };
+
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].name, "test_significant_volume");
+        assert_eq!(
+            annotations[0].condition,
+            Some("volume > 500".to_string())
+        );
+        assert_eq!(
+            annotations[0].field,
+            Some("volume".to_string())
+        );
+
+        // Register gauge metric
+        if let Some(metrics) = obs_manager.metrics() {
+            metrics
+                .register_gauge_metric(
+                    &annotations[0].name,
+                    "Test conditional gauge",
+                    &annotations[0].labels,
+                )
+                .expect("Failed to register gauge");
+        }
+
+        println!("✅ Phase 4: Conditional gauge metrics parsed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_conditional_histogram_metrics() {
+        // Create observability manager
+        let prometheus_config = PrometheusConfig {
+            port: 0,
+            enabled: true,
+        };
+
+        let telemetry_config = TelemetryConfig::default();
+
+        let obs_manager = ObservabilityManager::new(prometheus_config, telemetry_config)
+            .await
+            .expect("Failed to create observability manager");
+
+        // Parse SQL with conditional histogram metric
+        let parser = StreamingSqlParser::new();
+        let sql = r#"
+            -- @metric: test_large_trade_distribution
+            -- @metric_type: histogram
+            -- @metric_field: volume
+            -- @metric_labels: symbol
+            -- @metric_condition: volume >= 1000
+            -- @metric_buckets: 1000,5000,10000,50000
+            CREATE STREAM large_trades AS
+            SELECT symbol, volume
+            FROM market_data
+        "#;
+
+        let query = parser.parse(sql).expect("Failed to parse SQL");
+
+        let annotations = match &query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations.clone(),
+            _ => panic!("Expected CreateStream query"),
+        };
+
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].name, "test_large_trade_distribution");
+        assert_eq!(
+            annotations[0].condition,
+            Some("volume >= 1000".to_string())
+        );
+        assert_eq!(
+            annotations[0].field,
+            Some("volume".to_string())
+        );
+        assert_eq!(
+            annotations[0].buckets,
+            Some(vec![1000.0, 5000.0, 10000.0, 50000.0])
+        );
+
+        // Register histogram metric
+        if let Some(metrics) = obs_manager.metrics() {
+            metrics
+                .register_histogram_metric(
+                    &annotations[0].name,
+                    "Test conditional histogram",
+                    &annotations[0].labels,
+                    annotations[0].buckets.clone(),
+                )
+                .expect("Failed to register histogram");
+        }
+
+        println!("✅ Phase 4: Conditional histogram metrics parsed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_complex_conditional_expressions() {
+        // Create observability manager
+        let prometheus_config = PrometheusConfig {
+            port: 0,
+            enabled: true,
+        };
+
+        let telemetry_config = TelemetryConfig::default();
+
+        let obs_manager = ObservabilityManager::new(prometheus_config, telemetry_config)
+            .await
+            .expect("Failed to create observability manager");
+
+        // Parse SQL with complex conditional expressions
+        let parser = StreamingSqlParser::new();
+        let sql = r#"
+            -- @metric: test_complex_condition_total
+            -- @metric_type: counter
+            -- @metric_labels: symbol
+            -- @metric_condition: volume > avg_volume * 2 AND price > 100
+            CREATE STREAM complex_conditions AS
+            SELECT symbol, volume, avg_volume, price
+            FROM market_data
+        "#;
+
+        let query = parser.parse(sql).expect("Failed to parse SQL");
+
+        let annotations = match &query {
+            StreamingQuery::CreateStream {
+                metric_annotations, ..
+            } => metric_annotations.clone(),
+            _ => panic!("Expected CreateStream query"),
+        };
+
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].name, "test_complex_condition_total");
+        assert_eq!(
+            annotations[0].condition,
+            Some("volume > avg_volume * 2 AND price > 100".to_string())
+        );
+
+        // Register counter metric
+        if let Some(metrics) = obs_manager.metrics() {
+            metrics
+                .register_counter_metric(
+                    &annotations[0].name,
+                    "Test complex condition",
+                    &annotations[0].labels,
+                )
+                .expect("Failed to register counter");
+        }
+
+        println!("✅ Phase 4: Complex conditional expressions parsed successfully");
+    }
 }

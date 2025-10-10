@@ -101,13 +101,17 @@ impl MetricType {
 /// * `Err(SqlError)` - Parse error with details
 ///
 /// # Example
-/// ```
+/// ```no_run
+/// use velostream::velostream::sql::parser::annotations::parse_metric_annotations;
+///
 /// let comments = vec![
-///     "-- @metric: my_metric_total",
-///     "-- @metric_type: counter",
-///     "-- @metric_labels: symbol, status",
+///     "-- @metric: my_metric_total".to_string(),
+///     "-- @metric_type: counter".to_string(),
+///     "-- @metric_labels: symbol, status".to_string(),
 /// ];
-/// let annotations = parse_metric_annotations(&comments)?;
+/// let annotations = parse_metric_annotations(&comments).unwrap();
+/// assert_eq!(annotations.len(), 1);
+/// assert_eq!(annotations[0].name, "my_metric_total");
 /// ```
 pub fn parse_metric_annotations(comments: &[String]) -> Result<Vec<MetricAnnotation>, SqlError> {
     let mut annotations = Vec::new();

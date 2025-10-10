@@ -9,7 +9,10 @@ use crate::velostream::observability::label_extraction::{
 };
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
+use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::FieldValue;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
+use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -21,6 +24,9 @@ use tokio::sync::{mpsc, Mutex};
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
     observability: Option<SharedObservabilityManager>,
+    /// Condition strings for conditional metric emission
+    /// Key: metric name, Value: condition string
+    metric_conditions: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl SimpleJobProcessor {
@@ -28,6 +34,7 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability: None,
+            metric_conditions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -38,6 +45,7 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability,
+            metric_conditions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -49,12 +57,95 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability,
+            metric_conditions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Get reference to the job processing configuration
     pub fn get_config(&self) -> &JobProcessingConfig {
         &self.config
+    }
+
+    /// Store condition string from annotation
+    async fn compile_condition(
+        &self,
+        annotation: &MetricAnnotation,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(condition_str) = &annotation.condition {
+            // Store condition string for evaluation
+            let mut conditions = self.metric_conditions.lock().await;
+            conditions.insert(annotation.name.clone(), condition_str.clone());
+            info!(
+                "Job '{}': Registered condition for metric '{}': {}",
+                job_name, annotation.name, condition_str
+            );
+        }
+        Ok(())
+    }
+
+    /// Evaluate condition for a record by parsing it on-demand
+    async fn evaluate_condition(
+        &self,
+        metric_name: &str,
+        record: &crate::velostream::sql::execution::StreamRecord,
+        job_name: &str,
+    ) -> bool {
+        let conditions = self.metric_conditions.lock().await;
+        if let Some(condition_str) = conditions.get(metric_name) {
+            // Parse condition by wrapping in a dummy SELECT query
+            let dummy_sql = format!("SELECT * FROM dummy WHERE {}", condition_str);
+            let parser = StreamingSqlParser::new();
+
+            match parser.parse(&dummy_sql) {
+                Ok(query) => {
+                    match query {
+                        crate::velostream::sql::StreamingQuery::Select { where_clause, .. } => {
+                            if let Some(expr) = where_clause {
+                                // Evaluate the expression
+                                match ExpressionEvaluator::evaluate_expression_value(&expr, record) {
+                                    Ok(FieldValue::Boolean(result)) => result,
+                                    Ok(other_value) => {
+                                        debug!(
+                                            "Job '{}': Condition for metric '{}' returned non-boolean value: {:?}. Treating as false.",
+                                            job_name, metric_name, other_value
+                                        );
+                                        false
+                                    }
+                                    Err(e) => {
+                                        debug!(
+                                            "Job '{}': Condition evaluation failed for metric '{}': {:?}. Treating as false.",
+                                            job_name, metric_name, e
+                                        );
+                                        false
+                                    }
+                                }
+                            } else {
+                                // No WHERE clause extracted - treat as always true
+                                true
+                            }
+                        }
+                        _ => {
+                            debug!(
+                                "Job '{}': Failed to parse condition for metric '{}' as SELECT query. Treating as always true.",
+                                job_name, metric_name
+                            );
+                            true
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!(
+                        "Job '{}': Failed to parse condition for metric '{}': {:?}. Treating as always true.",
+                        job_name, metric_name, e
+                    );
+                    true
+                }
+            }
+        } else {
+            // No condition - always emit
+            true
+        }
     }
 
     /// Register counter metrics from SQL annotations
@@ -79,7 +170,7 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
-        // Register each counter metric with the metrics provider
+        // Register each counter metric with the metrics provider and compile conditions
         if let Some(obs) = &self.observability {
             match obs.read().await {
                 obs_lock => {
@@ -96,9 +187,19 @@ impl SimpleJobProcessor {
                                 &annotation.labels,
                             )?;
 
+                            // Compile condition expression if present
+                            self.compile_condition(annotation, job_name).await?;
+
                             info!(
-                                "Job '{}': Registered counter metric '{}' with labels {:?}",
-                                job_name, annotation.name, annotation.labels
+                                "Job '{}': Registered counter metric '{}' with labels {:?}{}",
+                                job_name,
+                                annotation.name,
+                                annotation.labels,
+                                if annotation.condition.is_some() {
+                                    " (with condition)"
+                                } else {
+                                    ""
+                                }
                             );
                         }
                     } else {
@@ -148,6 +249,18 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &counter_annotations {
+                                // Evaluate condition if present
+                                if !self
+                                    .evaluate_condition(&annotation.name, record, job_name)
+                                    .await
+                                {
+                                    debug!(
+                                        "Job '{}': Skipping counter '{}' - condition not met",
+                                        job_name, annotation.name
+                                    );
+                                    continue;
+                                }
+
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
@@ -207,7 +320,7 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
-        // Register each gauge metric with the metrics provider
+        // Register each gauge metric with the metrics provider and compile conditions
         if let Some(obs) = &self.observability {
             match obs.read().await {
                 obs_lock => {
@@ -224,9 +337,19 @@ impl SimpleJobProcessor {
                                 &annotation.labels,
                             )?;
 
+                            // Compile condition expression if present
+                            self.compile_condition(annotation, job_name).await?;
+
                             info!(
-                                "Job '{}': Registered gauge metric '{}' with labels {:?}",
-                                job_name, annotation.name, annotation.labels
+                                "Job '{}': Registered gauge metric '{}' with labels {:?}{}",
+                                job_name,
+                                annotation.name,
+                                annotation.labels,
+                                if annotation.condition.is_some() {
+                                    " (with condition)"
+                                } else {
+                                    ""
+                                }
                             );
                         }
                     } else {
@@ -276,6 +399,18 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &gauge_annotations {
+                                // Evaluate condition if present
+                                if !self
+                                    .evaluate_condition(&annotation.name, record, job_name)
+                                    .await
+                                {
+                                    debug!(
+                                        "Job '{}': Skipping gauge '{}' - condition not met",
+                                        job_name, annotation.name
+                                    );
+                                    continue;
+                                }
+
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
@@ -368,7 +503,7 @@ impl SimpleJobProcessor {
             return Ok(());
         }
 
-        // Register each histogram metric with the metrics provider
+        // Register each histogram metric with the metrics provider and compile conditions
         if let Some(obs) = &self.observability {
             match obs.read().await {
                 obs_lock => {
@@ -386,9 +521,19 @@ impl SimpleJobProcessor {
                                 annotation.buckets.clone(),
                             )?;
 
+                            // Compile condition expression if present
+                            self.compile_condition(annotation, job_name).await?;
+
                             info!(
-                                "Job '{}': Registered histogram metric '{}' with labels {:?}",
-                                job_name, annotation.name, annotation.labels
+                                "Job '{}': Registered histogram metric '{}' with labels {:?}{}",
+                                job_name,
+                                annotation.name,
+                                annotation.labels,
+                                if annotation.condition.is_some() {
+                                    " (with condition)"
+                                } else {
+                                    ""
+                                }
                             );
                         }
                     } else {
@@ -438,6 +583,18 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &histogram_annotations {
+                                // Evaluate condition if present
+                                if !self
+                                    .evaluate_condition(&annotation.name, record, job_name)
+                                    .await
+                                {
+                                    debug!(
+                                        "Job '{}': Skipping histogram '{}' - condition not met",
+                                        job_name, annotation.name
+                                    );
+                                    continue;
+                                }
+
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
