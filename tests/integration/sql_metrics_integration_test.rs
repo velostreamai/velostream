@@ -178,8 +178,11 @@ mod tests {
             let metrics_text = metrics.get_metrics_text().expect("Failed to get metrics");
 
             assert!(metrics_text.contains("test_events_total"));
-            assert!(metrics_text.contains(r#"symbol="AAPL",exchange="NYSE""#));
-            assert!(metrics_text.contains(r#"symbol="GOOGL",exchange="NASDAQ""#));
+            // Check labels individually - Prometheus may format with spaces
+            assert!(metrics_text.contains(r#"symbol="AAPL""#));
+            assert!(metrics_text.contains(r#"exchange="NYSE""#));
+            assert!(metrics_text.contains(r#"symbol="GOOGL""#));
+            assert!(metrics_text.contains(r#"exchange="NASDAQ""#));
         }
     }
 
