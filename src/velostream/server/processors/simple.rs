@@ -150,7 +150,8 @@ impl SimpleJobProcessor {
                             for annotation in &counter_annotations {
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
-                                let label_values = extract_label_values(record, &annotation.labels, &config);
+                                let label_values =
+                                    extract_label_values(record, &annotation.labels, &config);
 
                                 // Emit counter (label values always match expected count with enhanced extraction)
                                 if !label_values.is_empty() || annotation.labels.is_empty() {
@@ -277,7 +278,8 @@ impl SimpleJobProcessor {
                             for annotation in &gauge_annotations {
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
-                                let label_values = extract_label_values(record, &annotation.labels, &config);
+                                let label_values =
+                                    extract_label_values(record, &annotation.labels, &config);
 
                                 // Emit gauge if labels are available
                                 if !label_values.is_empty() || annotation.labels.is_empty() {
@@ -438,7 +440,8 @@ impl SimpleJobProcessor {
                             for annotation in &histogram_annotations {
                                 // Extract label values using enhanced extraction with nested field support
                                 let config = LabelExtractionConfig::default();
-                                let label_values = extract_label_values(record, &annotation.labels, &config);
+                                let label_values =
+                                    extract_label_values(record, &annotation.labels, &config);
 
                                 // Emit histogram if labels are available
                                 if !label_values.is_empty() || annotation.labels.is_empty() {

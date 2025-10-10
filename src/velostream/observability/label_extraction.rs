@@ -82,12 +82,10 @@ fn extract_nested_field(
     // Navigate through nested fields
     for part in &parts[1..] {
         match current_value {
-            FieldValue::Map(map) => {
-                match map.get(*part) {
-                    Some(v) => current_value = v,
-                    None => return config.default_value.clone(),
-                }
-            }
+            FieldValue::Map(map) => match map.get(*part) {
+                Some(v) => current_value = v,
+                None => return config.default_value.clone(),
+            },
             _ => {
                 // Can't navigate further - not a map
                 return config.default_value.clone();
@@ -106,7 +104,10 @@ fn field_value_to_label_string(value: &FieldValue, config: &LabelExtractionConfi
         FieldValue::Float(f) => {
             // Format floats with reasonable precision (avoid scientific notation)
             if f.is_finite() {
-                format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string()
+                format!("{:.6}", f)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
             } else {
                 config.default_value.clone()
             }
@@ -115,7 +116,10 @@ fn field_value_to_label_string(value: &FieldValue, config: &LabelExtractionConfi
             // Convert scaled integer to decimal representation
             let divisor = 10_f64.powi(*scale as i32);
             let decimal = (*value as f64) / divisor;
-            format!("{:.6}", decimal).trim_end_matches('0').trim_end_matches('.').to_string()
+            format!("{:.6}", decimal)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
         }
         FieldValue::Boolean(b) => b.to_string(),
         FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -182,7 +186,10 @@ mod tests {
         // Nested metadata
         let mut metadata = HashMap::new();
         metadata.insert("region".to_string(), FieldValue::String("US".to_string()));
-        metadata.insert("exchange".to_string(), FieldValue::String("NASDAQ".to_string()));
+        metadata.insert(
+            "exchange".to_string(),
+            FieldValue::String("NASDAQ".to_string()),
+        );
         fields.insert("metadata".to_string(), FieldValue::Map(metadata));
 
         StreamRecord {
@@ -323,7 +330,10 @@ mod tests {
     #[test]
     fn test_sanitize_control_characters() {
         let mut fields = HashMap::new();
-        fields.insert("dirty".to_string(), FieldValue::String("hello\nworld\ttab".to_string()));
+        fields.insert(
+            "dirty".to_string(),
+            FieldValue::String("hello\nworld\ttab".to_string()),
+        );
 
         let record = StreamRecord {
             fields,
