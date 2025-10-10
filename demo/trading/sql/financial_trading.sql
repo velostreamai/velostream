@@ -83,6 +83,21 @@ WITH (
 -- Uses advanced window functions with event-time based windowing
 -- Demonstrates RANK, DENSE_RANK, PERCENT_RANK, and LAG/LEAD functions
 
+-- FR-073 SQL-Native Observability: Price Alerts Counter
+-- @metric: velo_trading_price_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Price movement alerts by severity"
+-- @metric_labels: symbol, movement_severity
+-- @metric_condition: movement_severity IN ('SIGNIFICANT', 'MODERATE')
+
+-- FR-073 SQL-Native Observability: Price Change Distribution
+-- @metric: velo_trading_price_change_percent
+-- @metric_type: histogram
+-- @metric_help: "Distribution of price changes"
+-- @metric_field: price_change_pct
+-- @metric_labels: symbol
+-- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0
+
 CREATE STREAM advanced_price_movement_alerts AS
 SELECT 
     symbol,
@@ -151,6 +166,13 @@ WITH (
 -- ====================================================================================
 -- Demonstrates resource limits, circuit breakers, and retry logic
 -- Includes sophisticated volume anomaly detection with advanced aggregations
+
+-- FR-073 SQL-Native Observability: Volume Spikes Counter
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Volume spike detections by classification"
+-- @metric_labels: symbol, spike_classification
+-- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE', 'STATISTICAL_ANOMALY')
 
 CREATE STREAM volume_spike_analysis AS
 SELECT 
@@ -278,7 +300,7 @@ WITH (
 );
 
 -- ====================================================================================
--- PHASE 1B+3: COMPLEX JOINS WITH EVENT-TIME - Risk Management Monitor  
+-- PHASE 1B+3: COMPLEX JOINS WITH EVENT-TIME - Risk Management Monitor
 -- ====================================================================================
 -- Demonstrates time-based joins with event-time processing and complex aggregations
 -- Shows late data handling across multiple streams
@@ -311,6 +333,13 @@ WITH (
     'observability.metrics.enabled' = 'true',
     'observability.tracing.enabled' = 'true'
 );
+
+-- FR-073 SQL-Native Observability: Risk Alerts Counter
+-- @metric: velo_trading_risk_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Risk management alerts by classification"
+-- @metric_labels: trader_id, risk_classification
+-- @metric_condition: risk_classification IN ('POSITION_LIMIT_EXCEEDED', 'DAILY_LOSS_LIMIT_EXCEEDED', 'HIGH_VOLATILITY_TRADER')
 
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT 
@@ -484,6 +513,13 @@ WITH (
 -- ORDER FLOW IMBALANCE: Detects institutional trading patterns (FR-047)
 -- ====================================================================================
 
+-- FR-073 SQL-Native Observability: Order Flow Imbalance Counter
+-- @metric: velo_trading_order_imbalance_total
+-- @metric_type: counter
+-- @metric_help: "Order flow imbalance detections"
+-- @metric_labels: symbol
+-- @metric_condition: buy_ratio > 0.7 OR sell_ratio > 0.7
+
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
     symbol,
@@ -518,6 +554,12 @@ WITH (
 -- ====================================================================================
 -- ARBITRAGE OPPORTUNITIES: Cross-exchange price discrepancy detection (FR-047)
 -- ====================================================================================
+
+-- FR-073 SQL-Native Observability: Arbitrage Opportunities Counter
+-- @metric: velo_trading_arbitrage_opportunities_total
+-- @metric_type: counter
+-- @metric_help: "Cross-exchange arbitrage opportunities detected"
+-- @metric_labels: symbol, exchange_a, exchange_b
 
 CREATE STREAM arbitrage_opportunities_detection AS
 SELECT 
