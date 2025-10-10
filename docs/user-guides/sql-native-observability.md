@@ -10,12 +10,13 @@
 
 1. [Overview](#overview)
 2. [Quick Start](#quick-start)
-3. [Annotation Reference](#annotation-reference)
-4. [Metric Types](#metric-types)
-5. [Real-World Examples](#real-world-examples)
-6. [Best Practices](#best-practices)
-7. [Advanced Features](#advanced-features)
-8. [Troubleshooting](#troubleshooting)
+3. [Configuration & Infrastructure](#configuration--infrastructure)
+4. [Annotation Reference](#annotation-reference)
+5. [Metric Types](#metric-types)
+6. [Real-World Examples](#real-world-examples)
+7. [Best Practices](#best-practices)
+8. [Advanced Features](#advanced-features)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -102,6 +103,526 @@ my_first_metric_total 42
 ```
 
 That's it! 🎉
+
+---
+
+## Configuration & Infrastructure
+
+### Required Infrastructure
+
+SQL-Native Observability requires the following infrastructure components:
+
+#### 1. VeloStream Server
+
+**Minimum Version**: VeloStream 0.1.0+
+
+**Required Components**:
+- SQL streaming engine with annotation parser (FR-073)
+- Prometheus metrics provider
+- Observability manager
+
+**Verify Installation**:
+```bash
+# Check VeloStream version
+velo-sql-multi --version
+
+# Verify FR-073 support
+velo-cli validate --help | grep "metric annotations"
+```
+
+#### 2. Prometheus Server
+
+**Purpose**: Scrapes and stores metrics from VeloStream
+
+**Minimum Version**: Prometheus 2.0+
+
+**Installation**:
+```bash
+# Docker
+docker run -d -p 9090:9090 \
+  -v /path/to/prometheus.yml:/etc/prometheus/prometheus.yml \
+  prom/prometheus
+
+# Kubernetes
+helm install prometheus prometheus-community/prometheus
+```
+
+**Required**: VeloStream metrics endpoint configured as scrape target
+
+#### 3. Grafana (Optional)
+
+**Purpose**: Visualize Prometheus metrics with dashboards
+
+**Minimum Version**: Grafana 7.0+
+
+**Installation**:
+```bash
+# Docker
+docker run -d -p 3000:3000 grafana/grafana
+
+# Kubernetes
+helm install grafana grafana/grafana
+```
+
+### Configuration Files
+
+#### VeloStream Configuration
+
+**Location**: `config/velostream.yaml` (or via environment variables)
+
+```yaml
+# Observability configuration
+observability:
+  enabled: true
+
+  # Prometheus metrics configuration
+  prometheus:
+    enabled: true
+    port: 9090                    # Metrics HTTP endpoint port
+    path: /metrics                # Metrics endpoint path
+
+  # Metrics provider settings
+  metrics:
+    # Static metrics (always enabled)
+    sql_metrics: true
+    streaming_metrics: true
+    system_metrics: true
+
+    # Dynamic metrics (FR-073 SQL-native observability)
+    dynamic_metrics: true         # Enable @metric annotations
+
+  # Optional: Logging configuration
+  logging:
+    level: info                   # debug for detailed metric logs
+    metrics_debug: false          # Set to true to debug metric emission
+```
+
+**Environment Variable Alternative**:
+```bash
+# Enable observability
+export VELO_OBSERVABILITY_ENABLED=true
+export VELO_PROMETHEUS_ENABLED=true
+export VELO_PROMETHEUS_PORT=9090
+
+# Enable dynamic metrics
+export VELO_DYNAMIC_METRICS_ENABLED=true
+
+# Debug logging
+export RUST_LOG=info
+export RUST_LOG_METRICS=debug  # Detailed metric logs
+```
+
+#### Prometheus Configuration
+
+**Location**: `config/prometheus.yml`
+
+```yaml
+global:
+  scrape_interval: 15s          # How often to scrape metrics
+  evaluation_interval: 15s      # How often to evaluate rules
+
+scrape_configs:
+  # VeloStream metrics endpoint
+  - job_name: 'velostream'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          environment: 'production'
+          cluster: 'main'
+
+    # Optional: Scrape timeout
+    scrape_timeout: 10s
+
+    # Optional: Metrics path (default: /metrics)
+    metrics_path: '/metrics'
+
+  # Multiple VeloStream instances
+  - job_name: 'velostream-cluster'
+    static_configs:
+      - targets:
+          - 'velostream-1:9090'
+          - 'velostream-2:9090'
+          - 'velostream-3:9090'
+        labels:
+          environment: 'production'
+          cluster: 'main'
+```
+
+**Kubernetes Service Discovery**:
+```yaml
+scrape_configs:
+  - job_name: 'velostream-k8s'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: velostream
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+```
+
+#### Grafana Data Source
+
+**Add Prometheus as Data Source**:
+
+1. Open Grafana UI: `http://localhost:3000`
+2. Navigate to: Configuration → Data Sources → Add data source
+3. Select: Prometheus
+4. Configure:
+   ```
+   Name: VeloStream Prometheus
+   URL: http://prometheus:9090
+   Access: Server (default)
+   ```
+5. Click "Save & Test"
+
+**Dashboard JSON** (Example):
+```json
+{
+  "dashboard": {
+    "title": "VeloStream SQL-Native Metrics",
+    "panels": [
+      {
+        "title": "High Volume Trades",
+        "targets": [
+          {
+            "expr": "rate(velo_trading_volume_spikes_total[5m])",
+            "legendFormat": "{{symbol}} - {{exchange}}"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Network Ports
+
+| Service | Port | Protocol | Purpose |
+|---------|------|----------|---------|
+| **VeloStream Metrics** | 9090 | HTTP | Prometheus metrics endpoint (`/metrics`) |
+| **VeloStream SQL Server** | 8080 | HTTP | SQL job management API (optional) |
+| **Prometheus** | 9090 | HTTP | Prometheus UI and query API |
+| **Grafana** | 3000 | HTTP | Grafana dashboards |
+
+**Port Configuration**:
+```yaml
+# config/velostream.yaml
+observability:
+  prometheus:
+    port: 9090              # Change if port conflicts
+
+# Or via environment variable
+export VELO_PROMETHEUS_PORT=9091
+```
+
+**Firewall Rules** (if needed):
+```bash
+# Allow Prometheus to scrape VeloStream
+sudo ufw allow from <prometheus-ip> to any port 9090
+
+# Allow Grafana access to Prometheus
+sudo ufw allow from <grafana-ip> to any port 9090
+```
+
+### Metrics Endpoint
+
+#### HTTP Endpoint
+
+**URL**: `http://<velostream-host>:9090/metrics`
+
+**Example Request**:
+```bash
+curl http://localhost:9090/metrics
+```
+
+**Example Response**:
+```prometheus
+# HELP velo_trading_volume_spikes_total Number of volume spikes detected (>2x hourly average)
+# TYPE velo_trading_volume_spikes_total counter
+velo_trading_volume_spikes_total{symbol="AAPL",exchange="NASDAQ"} 142
+velo_trading_volume_spikes_total{symbol="GOOGL",exchange="NASDAQ"} 89
+
+# HELP velo_current_price_dollars Current trading price in dollars
+# TYPE velo_current_price_dollars gauge
+velo_current_price_dollars{symbol="AAPL",exchange="NASDAQ"} 175.23
+
+# HELP velo_trade_volume_shares Distribution of trade volumes in shares
+# TYPE velo_trade_volume_shares histogram
+velo_trade_volume_shares_bucket{symbol="AAPL",exchange="NASDAQ",le="100"} 450
+velo_trade_volume_shares_bucket{symbol="AAPL",exchange="NASDAQ",le="500"} 1250
+velo_trade_volume_shares_bucket{symbol="AAPL",exchange="NASDAQ",le="+Inf"} 5430
+velo_trade_volume_shares_sum{symbol="AAPL",exchange="NASDAQ"} 15234567
+velo_trade_volume_shares_count{symbol="AAPL",exchange="NASDAQ"} 5430
+```
+
+#### Prometheus Query Examples
+
+**Query Metrics**:
+```bash
+# Query via Prometheus HTTP API
+curl 'http://localhost:9090/api/v1/query?query=velo_trading_volume_spikes_total'
+
+# Query with time range
+curl 'http://localhost:9090/api/v1/query_range?query=rate(velo_trading_volume_spikes_total[5m])&start=2025-10-10T00:00:00Z&end=2025-10-10T12:00:00Z&step=1m'
+```
+
+**PromQL Queries**:
+```promql
+# Rate of volume spikes (per second)
+rate(velo_trading_volume_spikes_total[5m])
+
+# Current price by symbol
+velo_current_price_dollars{symbol="AAPL"}
+
+# P95 latency
+histogram_quantile(0.95, rate(velo_order_latency_seconds_bucket[5m]))
+
+# Total trades across all symbols
+sum(rate(velo_trades_total[5m]))
+
+# Trades by exchange
+sum by (exchange) (rate(velo_trades_total[5m]))
+```
+
+### Docker Deployment
+
+**Complete Stack** (docker-compose.yml):
+```yaml
+version: '3.8'
+
+services:
+  velostream:
+    image: velostream:latest
+    ports:
+      - "8080:8080"    # SQL Server
+      - "9090:9090"    # Metrics
+    environment:
+      - VELO_OBSERVABILITY_ENABLED=true
+      - VELO_PROMETHEUS_ENABLED=true
+      - VELO_PROMETHEUS_PORT=9090
+      - VELO_DYNAMIC_METRICS_ENABLED=true
+      - RUST_LOG=info
+    volumes:
+      - ./config:/config
+      - ./sql:/sql
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"    # Prometheus UI (avoid conflict)
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+```
+
+**Start Services**:
+```bash
+docker-compose up -d
+
+# Verify metrics endpoint
+curl http://localhost:9090/metrics | grep velo_
+
+# Access Prometheus UI
+open http://localhost:9091
+
+# Access Grafana
+open http://localhost:3000
+```
+
+### Kubernetes Deployment
+
+**VeloStream Deployment** (with metrics):
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: velostream
+  labels:
+    app: velostream
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: velostream
+  template:
+    metadata:
+      labels:
+        app: velostream
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: velostream
+        image: velostream:latest
+        ports:
+        - name: sql
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
+        env:
+        - name: VELO_OBSERVABILITY_ENABLED
+          value: "true"
+        - name: VELO_PROMETHEUS_ENABLED
+          value: "true"
+        - name: VELO_PROMETHEUS_PORT
+          value: "9090"
+        - name: VELO_DYNAMIC_METRICS_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: velostream-metrics
+  labels:
+    app: velostream
+spec:
+  selector:
+    app: velostream
+  ports:
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+```
+
+**Prometheus ServiceMonitor** (Prometheus Operator):
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: velostream-metrics
+  labels:
+    app: velostream
+spec:
+  selector:
+    matchLabels:
+      app: velostream
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+```
+
+### Health Checks
+
+**Verify Metrics Endpoint**:
+```bash
+# Check if metrics endpoint is accessible
+curl -f http://localhost:9090/metrics || echo "Metrics endpoint not available"
+
+# Check for SQL-native metrics
+curl http://localhost:9090/metrics | grep "^velo_" | head -10
+
+# Count total metrics
+curl -s http://localhost:9090/metrics | grep "^velo_" | wc -l
+```
+
+**Verify Prometheus Scraping**:
+```bash
+# Check Prometheus targets
+curl http://localhost:9091/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="velostream")'
+
+# Check if metrics are in Prometheus
+curl 'http://localhost:9091/api/v1/query?query=up{job="velostream"}' | jq '.data.result[].value'
+```
+
+### Troubleshooting Configuration
+
+#### Metrics Not Appearing
+
+**Check 1: VeloStream Configuration**
+```bash
+# Verify observability is enabled
+grep -i "observability" config/velostream.yaml
+
+# Check environment variables
+env | grep VELO_
+```
+
+**Check 2: Metrics Endpoint**
+```bash
+# Test metrics endpoint directly
+curl -v http://localhost:9090/metrics
+
+# Expected: HTTP 200 with Prometheus text format
+```
+
+**Check 3: Prometheus Scraping**
+```bash
+# Check Prometheus config
+docker exec prometheus cat /etc/prometheus/prometheus.yml | grep velostream
+
+# Reload Prometheus config
+curl -X POST http://localhost:9091/-/reload
+```
+
+#### Port Conflicts
+
+**Check Port Usage**:
+```bash
+# Check if port 9090 is in use
+lsof -i :9090
+
+# Check if port is accessible
+nc -zv localhost 9090
+```
+
+**Change Ports**:
+```yaml
+# config/velostream.yaml
+observability:
+  prometheus:
+    port: 9091  # Use different port
+
+# prometheus.yml
+scrape_configs:
+  - job_name: 'velostream'
+    static_configs:
+      - targets: ['localhost:9091']  # Match new port
+```
 
 ---
 
