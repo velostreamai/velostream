@@ -7,6 +7,7 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
+use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use tokio::sync::{mpsc, Mutex};
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     observability: Option<SharedObservabilityManager>,
+    metrics_helper: ProcessorMetricsHelper,
 }
 
 impl TransactionalJobProcessor {
@@ -29,6 +31,7 @@ impl TransactionalJobProcessor {
         Self {
             config,
             observability: None,
+            metrics_helper: ProcessorMetricsHelper::new(),
         }
     }
 
@@ -40,6 +43,7 @@ impl TransactionalJobProcessor {
         Self {
             config,
             observability,
+            metrics_helper: ProcessorMetricsHelper::new(),
         }
     }
 
@@ -87,6 +91,38 @@ impl TransactionalJobProcessor {
 
         // Log comprehensive configuration details
         log_job_configuration(&job_name, &self.config);
+
+        // Register SQL-annotated metrics
+        if let Err(e) = self
+            .metrics_helper
+            .register_counter_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .metrics_helper
+            .register_gauge_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register gauge metrics: {:?}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .metrics_helper
+            .register_histogram_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register histogram metrics: {:?}",
+                job_name, e
+            );
+        }
 
         // Create enhanced context with multiple sources and sinks
         let mut context =
@@ -240,6 +276,38 @@ impl TransactionalJobProcessor {
             "Job '{}' starting transactional processing (reader_tx: {}, writer_tx: {})",
             job_name, reader_supports_tx, writer_supports_tx
         );
+
+        // Register SQL-annotated metrics
+        if let Err(e) = self
+            .metrics_helper
+            .register_counter_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .metrics_helper
+            .register_gauge_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register gauge metrics: {:?}",
+                job_name, e
+            );
+        }
+        if let Err(e) = self
+            .metrics_helper
+            .register_histogram_metrics(&query, &self.observability, &job_name)
+            .await
+        {
+            warn!(
+                "Job '{}': Failed to register histogram metrics: {:?}",
+                job_name, e
+            );
+        }
 
         loop {
             // Check for shutdown signal
@@ -404,6 +472,32 @@ impl TransactionalJobProcessor {
                 }
             }
         }
+
+        // Emit SQL-annotated metrics for output records
+        self.metrics_helper
+            .emit_counter_metrics(
+                query,
+                &batch_result.output_records,
+                &self.observability,
+                job_name,
+            )
+            .await;
+        self.metrics_helper
+            .emit_gauge_metrics(
+                query,
+                &batch_result.output_records,
+                &self.observability,
+                job_name,
+            )
+            .await;
+        self.metrics_helper
+            .emit_histogram_metrics(
+                query,
+                &batch_result.output_records,
+                &self.observability,
+                job_name,
+            )
+            .await;
 
         // Step 4: Handle results based on failure strategy
         let should_commit = should_commit_batch(
@@ -823,6 +917,32 @@ impl TransactionalJobProcessor {
                     }
                 }
             }
+
+            // Emit SQL-annotated metrics for output records from this source
+            self.metrics_helper
+                .emit_counter_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
+                .await;
+            self.metrics_helper
+                .emit_gauge_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
+                .await;
+            self.metrics_helper
+                .emit_histogram_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
+                .await;
 
             total_records_processed += batch_result.records_processed;
             total_records_failed += batch_result.records_failed;
