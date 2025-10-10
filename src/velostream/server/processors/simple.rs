@@ -4,6 +4,9 @@
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::label_extraction::{
+    extract_label_values, LabelExtractionConfig,
+};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
@@ -145,20 +148,12 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &counter_annotations {
-                                // Extract label values from the record
-                                let label_values: Vec<String> = annotation
-                                    .labels
-                                    .iter()
-                                    .filter_map(|label_name| {
-                                        record.fields.get(label_name).map(|value| {
-                                            // Convert FieldValue to String for label
-                                            value.to_display_string()
-                                        })
-                                    })
-                                    .collect();
+                                // Extract label values using enhanced extraction with nested field support
+                                let config = LabelExtractionConfig::default();
+                                let label_values = extract_label_values(record, &annotation.labels, &config);
 
-                                // Only emit if we have all required labels
-                                if label_values.len() == annotation.labels.len() {
+                                // Emit counter (label values always match expected count with enhanced extraction)
+                                if !label_values.is_empty() || annotation.labels.is_empty() {
                                     if let Err(e) =
                                         metrics.emit_counter(&annotation.name, &label_values)
                                     {
@@ -280,20 +275,12 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &gauge_annotations {
-                                // Extract label values from the record
-                                let label_values: Vec<String> = annotation
-                                    .labels
-                                    .iter()
-                                    .filter_map(|label_name| {
-                                        record
-                                            .fields
-                                            .get(label_name)
-                                            .map(|value| value.to_display_string())
-                                    })
-                                    .collect();
+                                // Extract label values using enhanced extraction with nested field support
+                                let config = LabelExtractionConfig::default();
+                                let label_values = extract_label_values(record, &annotation.labels, &config);
 
-                                // Only emit if we have all required labels
-                                if label_values.len() == annotation.labels.len() {
+                                // Emit gauge if labels are available
+                                if !label_values.is_empty() || annotation.labels.is_empty() {
                                     // Extract the gauge value from the specified field
                                     if let Some(field_name) = &annotation.field {
                                         if let Some(field_value) = record.fields.get(field_name) {
@@ -449,20 +436,12 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &histogram_annotations {
-                                // Extract label values from the record
-                                let label_values: Vec<String> = annotation
-                                    .labels
-                                    .iter()
-                                    .filter_map(|label_name| {
-                                        record
-                                            .fields
-                                            .get(label_name)
-                                            .map(|value| value.to_display_string())
-                                    })
-                                    .collect();
+                                // Extract label values using enhanced extraction with nested field support
+                                let config = LabelExtractionConfig::default();
+                                let label_values = extract_label_values(record, &annotation.labels, &config);
 
-                                // Only emit if we have all required labels
-                                if label_values.len() == annotation.labels.len() {
+                                // Emit histogram if labels are available
+                                if !label_values.is_empty() || annotation.labels.is_empty() {
                                     // Extract the histogram value from the specified field
                                     if let Some(field_name) = &annotation.field {
                                         if let Some(field_value) = record.fields.get(field_name) {
