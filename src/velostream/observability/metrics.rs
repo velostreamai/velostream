@@ -9,7 +9,7 @@ use prometheus::{
     register_int_gauge_with_registry, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts,
     HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +25,8 @@ pub struct MetricsProvider {
     dynamic_counters: Arc<Mutex<HashMap<String, IntCounterVec>>>,
     dynamic_gauges: Arc<Mutex<HashMap<String, GaugeVec>>>,
     dynamic_histograms: Arc<Mutex<HashMap<String, HistogramVec>>>,
+    // Phase 5: Job-to-metrics tracking for lifecycle management
+    job_metrics: Arc<Mutex<HashMap<String, HashSet<String>>>>,
 }
 
 impl MetricsProvider {
@@ -55,6 +57,7 @@ impl MetricsProvider {
             dynamic_counters: Arc::new(Mutex::new(HashMap::new())),
             dynamic_gauges: Arc::new(Mutex::new(HashMap::new())),
             dynamic_histograms: Arc::new(Mutex::new(HashMap::new())),
+            job_metrics: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -471,6 +474,135 @@ impl MetricsProvider {
         );
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Phase 5: Metrics Lifecycle Management
+    // =========================================================================
+
+    /// Register a metric as belonging to a specific job (Phase 5)
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job that owns this metric
+    /// * `metric_name` - Name of the metric to track
+    ///
+    /// # Returns
+    /// * `Ok(())` - Metric ownership tracked successfully
+    /// * `Err(SqlError)` - Failed to acquire lock
+    pub fn register_job_metric(&self, job_name: &str, metric_name: &str) -> Result<(), SqlError> {
+        let mut job_metrics = self
+            .job_metrics
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on job_metrics: {}", e),
+            })?;
+
+        job_metrics
+            .entry(job_name.to_string())
+            .or_insert_with(HashSet::new)
+            .insert(metric_name.to_string());
+
+        log::debug!(
+            "📊 Phase 5: Registered metric '{}' for job '{}'",
+            metric_name,
+            job_name
+        );
+
+        Ok(())
+    }
+
+    /// Get all metrics registered for a specific job (Phase 5)
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job to query
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - List of metric names for this job
+    /// * `Err(SqlError)` - Failed to acquire lock
+    pub fn get_job_metrics(&self, job_name: &str) -> Result<Vec<String>, SqlError> {
+        let job_metrics = self
+            .job_metrics
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on job_metrics: {}", e),
+            })?;
+
+        Ok(job_metrics
+            .get(job_name)
+            .map(|metrics| metrics.iter().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    /// Unregister all metrics for a specific job (Phase 5)
+    ///
+    /// This removes the job-to-metrics tracking. The metrics themselves remain
+    /// registered in Prometheus (following Prometheus best practices where metrics
+    /// are long-lived), but will no longer be updated when the job is stopped.
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job whose metrics should be unregistered
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - List of metrics that were unregistered
+    /// * `Err(SqlError)` - Failed to acquire lock
+    pub fn unregister_job_metrics(&self, job_name: &str) -> Result<Vec<String>, SqlError> {
+        let mut job_metrics = self
+            .job_metrics
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on job_metrics: {}", e),
+            })?;
+
+        let metrics: Vec<String> = job_metrics
+            .remove(job_name)
+            .map(|set| set.into_iter().collect())
+            .unwrap_or_default();
+
+        if !metrics.is_empty() {
+            log::info!(
+                "📊 Phase 5: Unregistered {} metrics for job '{}': {:?}",
+                metrics.len(),
+                job_name,
+                metrics
+            );
+        }
+
+        Ok(metrics)
+    }
+
+    /// List all jobs that have registered metrics (Phase 5)
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - List of job names
+    /// * `Err(SqlError)` - Failed to acquire lock
+    pub fn list_all_jobs(&self) -> Result<Vec<String>, SqlError> {
+        let job_metrics = self
+            .job_metrics
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on job_metrics: {}", e),
+            })?;
+
+        Ok(job_metrics.keys().cloned().collect())
+    }
+
+    /// Get count of jobs and total metrics tracked (Phase 5)
+    ///
+    /// # Returns
+    /// * `Ok((job_count, total_metrics))` - Tuple of job count and total unique metrics
+    /// * `Err(SqlError)` - Failed to acquire lock
+    pub fn get_tracking_stats(&self) -> Result<(usize, usize), SqlError> {
+        let job_metrics = self
+            .job_metrics
+            .lock()
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on job_metrics: {}", e),
+            })?;
+
+        let job_count = job_metrics.len();
+        let total_metrics: usize = job_metrics.values().map(|set| set.len()).sum();
+
+        Ok((job_count, total_metrics))
     }
 }
 
@@ -1101,5 +1233,93 @@ mod tests {
         // AAPL should have value 2, GOOGL should have value 1
         assert!(metrics_text.contains(" 2"));
         assert!(metrics_text.contains(" 1"));
+    }
+
+    // === Phase 5: Lifecycle Management Tests ===
+
+    #[tokio::test]
+    async fn test_register_job_metric() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register metrics for a job
+        let result = provider.register_job_metric("job1", "metric1");
+        assert!(result.is_ok());
+
+        let result = provider.register_job_metric("job1", "metric2");
+        assert!(result.is_ok());
+
+        // Get metrics for job
+        let metrics = provider.get_job_metrics("job1").unwrap();
+        assert_eq!(metrics.len(), 2);
+        assert!(metrics.contains(&"metric1".to_string()));
+        assert!(metrics.contains(&"metric2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_unregister_job_metrics() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register metrics
+        provider.register_job_metric("job1", "metric1").unwrap();
+        provider.register_job_metric("job1", "metric2").unwrap();
+
+        // Unregister all metrics for job
+        let unregistered = provider.unregister_job_metrics("job1").unwrap();
+        assert_eq!(unregistered.len(), 2);
+
+        // Verify job has no metrics now
+        let metrics = provider.get_job_metrics("job1").unwrap();
+        assert_eq!(metrics.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_all_jobs() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register metrics for multiple jobs
+        provider.register_job_metric("job1", "metric1").unwrap();
+        provider.register_job_metric("job2", "metric2").unwrap();
+        provider.register_job_metric("job3", "metric3").unwrap();
+
+        // List all jobs
+        let jobs = provider.list_all_jobs().unwrap();
+        assert_eq!(jobs.len(), 3);
+        assert!(jobs.contains(&"job1".to_string()));
+        assert!(jobs.contains(&"job2".to_string()));
+        assert!(jobs.contains(&"job3".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_tracking_stats() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register metrics for multiple jobs
+        provider.register_job_metric("job1", "metric1").unwrap();
+        provider.register_job_metric("job1", "metric2").unwrap();
+        provider.register_job_metric("job2", "metric3").unwrap();
+
+        // Get tracking stats
+        let (job_count, total_metrics) = provider.get_tracking_stats().unwrap();
+        assert_eq!(job_count, 2); // 2 jobs
+        assert_eq!(total_metrics, 3); // 3 total metrics
+    }
+
+    #[tokio::test]
+    async fn test_job_metric_idempotency() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Register same metric multiple times
+        provider.register_job_metric("job1", "metric1").unwrap();
+        provider.register_job_metric("job1", "metric1").unwrap();
+        provider.register_job_metric("job1", "metric1").unwrap();
+
+        // Should only have one metric
+        let metrics = provider.get_job_metrics("job1").unwrap();
+        assert_eq!(metrics.len(), 1);
     }
 }
