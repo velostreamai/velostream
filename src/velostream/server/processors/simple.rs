@@ -6,6 +6,7 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
+use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -17,6 +18,8 @@ use tokio::sync::{mpsc, Mutex};
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
     observability: Option<SharedObservabilityManager>,
+    /// Shared metrics helper for SQL-annotated metrics
+    metrics_helper: ProcessorMetricsHelper,
 }
 
 impl SimpleJobProcessor {
@@ -24,6 +27,7 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability: None,
+            metrics_helper: ProcessorMetricsHelper::new(),
         }
     }
 
@@ -34,6 +38,7 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability,
+            metrics_helper: ProcessorMetricsHelper::new(),
         }
     }
 
@@ -45,12 +50,109 @@ impl SimpleJobProcessor {
         Self {
             config,
             observability,
+            metrics_helper: ProcessorMetricsHelper::new(),
         }
     }
 
     /// Get reference to the job processing configuration
     pub fn get_config(&self) -> &JobProcessingConfig {
         &self.config
+    }
+
+    // =========================================================================
+    // Metric Helper Delegation (Public Methods for Testing)
+    // =========================================================================
+
+    /// Parse a condition string into an SQL expression
+    ///
+    /// # Visibility
+    /// Public for testing purposes. Delegates to ProcessorMetricsHelper.
+    pub fn parse_condition_to_expr(
+        condition_str: &str,
+    ) -> Result<crate::velostream::sql::ast::Expr, String> {
+        ProcessorMetricsHelper::parse_condition_to_expr(condition_str)
+    }
+
+    /// Evaluate a parsed expression against a record
+    ///
+    /// # Visibility
+    /// Public for testing purposes. Delegates to ProcessorMetricsHelper.
+    pub fn evaluate_condition_expr(
+        expr: &crate::velostream::sql::ast::Expr,
+        record: &crate::velostream::sql::execution::StreamRecord,
+        metric_name: &str,
+        job_name: &str,
+    ) -> bool {
+        ProcessorMetricsHelper::evaluate_condition_expr(expr, record, metric_name, job_name)
+    }
+
+    /// Register counter metrics from SQL annotations
+    async fn register_counter_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.metrics_helper
+            .register_counter_metrics(query, &self.observability, job_name)
+            .await
+    }
+
+    /// Emit counter metrics for processed records
+    async fn emit_counter_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        self.metrics_helper
+            .emit_counter_metrics(query, output_records, &self.observability, job_name)
+            .await
+    }
+
+    /// Register gauge metrics from SQL annotations
+    async fn register_gauge_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.metrics_helper
+            .register_gauge_metrics(query, &self.observability, job_name)
+            .await
+    }
+
+    /// Emit gauge metrics for processed records
+    async fn emit_gauge_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        self.metrics_helper
+            .emit_gauge_metrics(query, output_records, &self.observability, job_name)
+            .await
+    }
+
+    /// Register histogram metrics from SQL annotations
+    async fn register_histogram_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.metrics_helper
+            .register_histogram_metrics(query, &self.observability, job_name)
+            .await
+    }
+
+    /// Emit histogram metrics for processed records
+    async fn emit_histogram_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        job_name: &str,
+    ) {
+        self.metrics_helper
+            .emit_histogram_metrics(query, output_records, &self.observability, job_name)
+            .await
     }
 
     /// Process records from multiple datasources with multiple sinks (multi-source/sink processing)
@@ -231,6 +333,30 @@ impl SimpleJobProcessor {
 
         // Log detailed information about the source and sink types
         log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
+
+        // Register counter metrics from SQL annotations
+        if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register gauge metrics from SQL annotations
+        if let Err(e) = self.register_gauge_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register gauge metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register histogram metrics from SQL annotations
+        if let Err(e) = self.register_histogram_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register histogram metrics: {:?}",
+                job_name, e
+            );
+        }
 
         if reader.supports_transactions()
             || writer
@@ -432,6 +558,18 @@ impl SimpleJobProcessor {
             "Job '{}': SQL processing complete - {} records processed, {} failed",
             job_name, batch_result.records_processed, batch_result.records_failed
         );
+
+        // Emit counter metrics for successfully processed records
+        self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+            .await;
+
+        // Emit gauge metrics for successfully processed records
+        self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
+            .await;
+
+        // Emit histogram metrics for successfully processed records
+        self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
+            .await;
 
         // Step 3: Handle results based on failure strategy
         let should_commit = should_commit_batch(

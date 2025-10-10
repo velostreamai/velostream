@@ -193,6 +193,7 @@ fn test_create_stream_analysis() {
         as_select: Box::new(select_query),
         properties,
         emit_mode: None,
+        metric_annotations: Vec::new(),
     };
 
     let analysis = analyzer.analyze(&query).unwrap();

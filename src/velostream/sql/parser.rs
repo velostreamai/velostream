@@ -103,6 +103,8 @@ use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub mod annotations;
+
 /// Main parser for streaming SQL queries.
 ///
 /// The `StreamingSqlParser` handles the complete parsing pipeline from SQL text to AST.
@@ -143,8 +145,10 @@ pub struct StreamingSqlParser {
 ///
 /// Each token type represents a different category of SQL syntax element,
 /// from keywords and operators to literals and punctuation.
+///
+/// Public to allow external code to identify comment tokens.
 #[derive(Debug, Clone, PartialEq)]
-enum TokenType {
+pub enum TokenType {
     // SQL Keywords
     Select,     // SELECT
     From,       // FROM
@@ -266,6 +270,10 @@ enum TokenType {
     Unbounded, // UNBOUNDED
     Over,      // OVER
 
+    // Comments preserved for annotation parsing
+    SingleLineComment, // -- comment text
+    MultiLineComment,  // /* comment text */
+
     // Special
     Eof,       // End of input
     Semicolon, // ; (statement terminator)
@@ -276,14 +284,16 @@ enum TokenType {
 /// Tokens are the atomic units of SQL syntax, produced by the lexer
 /// and consumed by the parser. Position information enables detailed
 /// error reporting.
+///
+/// Public to allow external code to access comment tokens for parsing metric annotations.
 #[derive(Debug, Clone)]
-struct Token {
+pub struct Token {
     /// The type of this token (keyword, operator, literal, etc.)
-    token_type: TokenType,
+    pub token_type: TokenType,
     /// The original text value of the token
-    value: String,
+    pub value: String,
     /// Character position in the original SQL string (for error reporting)
-    position: usize,
+    pub position: usize,
 }
 
 impl StreamingSqlParser {
@@ -439,13 +449,14 @@ impl StreamingSqlParser {
     /// }
     /// ```
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
-        let tokens = self.tokenize(sql)?;
-        self.parse_tokens_with_context(tokens, sql)
+        // Use tokenize_with_comments to extract annotations
+        let (tokens, comments) = self.tokenize_with_comments(sql)?;
+        self.parse_tokens_with_context(tokens, sql, comments)
     }
 
     // Keep the old method for backward compatibility
     fn parse_tokens(&self, tokens: Vec<Token>) -> Result<StreamingQuery, SqlError> {
-        self.parse_tokens_with_context(tokens, "")
+        self.parse_tokens_with_context(tokens, "", Vec::new())
     }
 
     fn tokenize(&self, sql: &str) -> Result<Vec<Token>, SqlError> {
@@ -526,19 +537,30 @@ impl StreamingSqlParser {
                 }
                 '-' => {
                     // Check for single-line comment "--"
+                    let comment_start_pos = position;
                     chars.next();
                     position += 1;
                     if let Some(&'-') = chars.peek() {
-                        // Single-line comment, consume until end of line
+                        // Single-line comment, preserve the text
                         chars.next(); // consume second '-'
                         position += 1;
+
+                        let mut comment_text = String::new();
                         while let Some(&ch) = chars.peek() {
-                            chars.next();
-                            position += 1;
                             if ch == '\n' || ch == '\r' {
                                 break;
                             }
+                            comment_text.push(ch);
+                            chars.next();
+                            position += 1;
                         }
+
+                        // Create comment token with the comment text
+                        tokens.push(Token {
+                            token_type: TokenType::SingleLineComment,
+                            value: comment_text.trim().to_string(),
+                            position: comment_start_pos,
+                        });
                     } else {
                         // Regular minus token
                         tokens.push(Token {
@@ -550,12 +572,15 @@ impl StreamingSqlParser {
                 }
                 '/' => {
                     // Check for multi-line comment "/*"
+                    let comment_start_pos = position;
                     chars.next();
                     position += 1;
                     if let Some(&'*') = chars.peek() {
-                        // Multi-line comment, consume until "*/"
+                        // Multi-line comment, preserve the text
                         chars.next(); // consume '*'
                         position += 1;
+
+                        let mut comment_text = String::new();
                         let mut found_end = false;
                         while let Some(&ch) = chars.peek() {
                             chars.next();
@@ -567,6 +592,10 @@ impl StreamingSqlParser {
                                     found_end = true;
                                     break;
                                 }
+                                // Not the end, keep the '*'
+                                comment_text.push(ch);
+                            } else {
+                                comment_text.push(ch);
                             }
                         }
                         if !found_end {
@@ -575,6 +604,13 @@ impl StreamingSqlParser {
                                 position: Some(position),
                             });
                         }
+
+                        // Create comment token with the comment text
+                        tokens.push(Token {
+                            token_type: TokenType::MultiLineComment,
+                            value: comment_text.trim().to_string(),
+                            position: comment_start_pos,
+                        });
                     } else {
                         // Regular divide token
                         tokens.push(Token {
@@ -784,12 +820,74 @@ impl StreamingSqlParser {
         Ok(tokens)
     }
 
+    /// Tokenize SQL and separate comments from other tokens
+    ///
+    /// Returns a tuple of (non-comment tokens, comment tokens).
+    /// Comments are extracted with their position information for annotation parsing.
+    ///
+    /// # Arguments
+    /// * `sql` - The SQL statement to tokenize
+    ///
+    /// # Returns
+    /// * `Ok((Vec<Token>, Vec<Token>))` - Non-comment tokens and comment tokens separately
+    /// * `Err(SqlError)` - Tokenization error
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let parser = StreamingSqlParser::new();
+    /// let (tokens, comments) = parser.tokenize_with_comments(
+    ///     "-- @metric: my_metric_total\n\
+    ///      -- @metric_type: counter\n\
+    ///      CREATE STREAM my_stream AS SELECT * FROM source"
+    /// )?;
+    /// ```
+    pub fn tokenize_with_comments(&self, sql: &str) -> Result<(Vec<Token>, Vec<Token>), SqlError> {
+        let all_tokens = self.tokenize(sql)?;
+
+        let mut tokens = Vec::new();
+        let mut comments = Vec::new();
+
+        for token in all_tokens {
+            match token.token_type {
+                TokenType::SingleLineComment | TokenType::MultiLineComment => {
+                    comments.push(token);
+                }
+                _ => {
+                    tokens.push(token);
+                }
+            }
+        }
+
+        Ok((tokens, comments))
+    }
+
+    /// Extract comments that appear before a CREATE statement
+    ///
+    /// This method extracts consecutive comments that appear immediately before
+    /// a CREATE STREAM or CREATE TABLE statement, which can contain metric annotations.
+    ///
+    /// # Arguments
+    /// * `comments` - All comment tokens from the SQL statement
+    /// * `create_position` - Position of the CREATE keyword in the SQL text
+    ///
+    /// # Returns
+    /// * `Vec<String>` - Comment text lines that precede the CREATE statement
+    pub fn extract_preceding_comments(comments: &[Token], create_position: usize) -> Vec<String> {
+        comments
+            .iter()
+            .filter(|token| token.position < create_position)
+            .map(|token| token.value.clone())
+            .collect()
+    }
+
     fn parse_tokens_with_context(
         &self,
         tokens: Vec<Token>,
         sql_text: &str,
+        comments: Vec<Token>,
     ) -> Result<StreamingQuery, SqlError> {
-        let mut parser = TokenParser::new(tokens, sql_text);
+        let mut parser = TokenParser::new(tokens, sql_text, comments);
 
         match parser.current_token().token_type {
             TokenType::Select => parser.parse_select(),
@@ -811,14 +909,17 @@ struct TokenParser<'a> {
     tokens: Vec<Token>,
     current: usize,
     sql_text: &'a str,
+    // Store comments for annotation parsing
+    comments: Vec<Token>,
 }
 
 impl<'a> TokenParser<'a> {
-    fn new(tokens: Vec<Token>, sql_text: &'a str) -> Self {
+    fn new(tokens: Vec<Token>, sql_text: &'a str, comments: Vec<Token>) -> Self {
         Self {
             tokens,
             current: 0,
             sql_text,
+            comments,
         }
     }
 
@@ -2997,12 +3098,32 @@ impl<'a> TokenParser<'a> {
         // Consume optional semicolon
         self.consume_semicolon();
 
+        // Extract and parse metric annotations from comments
+        // Get comments that appear before this CREATE STREAM statement
+        let create_position = if self.current > 0 && self.current < self.tokens.len() {
+            self.tokens[self.current - 1].position
+        } else if !self.tokens.is_empty() {
+            self.tokens[0].position
+        } else {
+            0
+        };
+
+        let preceding_comment_texts =
+            StreamingSqlParser::extract_preceding_comments(&self.comments, create_position);
+
+        let metric_annotations = annotations::parse_metric_annotations(&preceding_comment_texts)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to parse metric annotations: {}", e);
+                Vec::new()
+            });
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,
             as_select,
             properties,
             emit_mode,
+            metric_annotations,
         })
     }
 

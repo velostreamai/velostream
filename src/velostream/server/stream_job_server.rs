@@ -135,7 +135,7 @@ impl StreamJobServer {
 
             let streaming_config = StreamingConfig::default().with_prometheus_metrics();
 
-            let mut obs_manager = ObservabilityManager::new(streaming_config);
+            let mut obs_manager = ObservabilityManager::from_streaming_config(streaming_config);
             match obs_manager.initialize().await {
                 Ok(()) => {
                     info!("✅ Server-level observability initialized (shared by all jobs)");
