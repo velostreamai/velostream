@@ -84,7 +84,81 @@ impl SimpleJobProcessor {
         Ok(())
     }
 
+    /// Parse a condition string into an SQL expression
+    ///
+    /// Wraps the condition in a dummy SELECT query to leverage the SQL parser.
+    ///
+    /// # Visibility
+    /// Public for testing purposes.
+    pub fn parse_condition_to_expr(
+        condition_str: &str,
+    ) -> Result<crate::velostream::sql::ast::Expr, String> {
+        let dummy_sql = format!("SELECT * FROM dummy WHERE {}", condition_str);
+        let parser = StreamingSqlParser::new();
+
+        let query = parser
+            .parse(&dummy_sql)
+            .map_err(|e| format!("Failed to parse condition: {:?}", e))?;
+
+        match query {
+            crate::velostream::sql::StreamingQuery::Select { where_clause, .. } => {
+                where_clause.ok_or_else(|| "No WHERE clause extracted from condition".to_string())
+            }
+            _ => Err("Parsed query is not a SELECT statement".to_string()),
+        }
+    }
+
+    /// Evaluate a parsed expression against a record
+    ///
+    /// Returns true if the expression evaluates to a boolean true value.
+    /// Returns false for non-boolean results or evaluation errors.
+    ///
+    /// # Visibility
+    /// Public for testing purposes.
+    pub fn evaluate_condition_expr(
+        expr: &crate::velostream::sql::ast::Expr,
+        record: &crate::velostream::sql::execution::StreamRecord,
+        metric_name: &str,
+        job_name: &str,
+    ) -> bool {
+        match ExpressionEvaluator::evaluate_expression_value(expr, record) {
+            Ok(FieldValue::Boolean(result)) => result,
+            Ok(other_value) => {
+                debug!(
+                    "Job '{}': Condition for metric '{}' returned non-boolean value: {:?}. Treating as false.",
+                    job_name, metric_name, other_value
+                );
+                false
+            }
+            Err(e) => {
+                debug!(
+                    "Job '{}': Condition evaluation failed for metric '{}': {:?}. Treating as false.",
+                    job_name, metric_name, e
+                );
+                false
+            }
+        }
+    }
+
     /// Evaluate condition for a record by parsing it on-demand
+    ///
+    /// # Error Handling Strategy
+    ///
+    /// - **No condition present**: Returns `true` (always emit metric)
+    /// - **Parse errors**: Returns `true` (emit metric, log warning at registration time)
+    ///   - Rationale: Invalid syntax should be caught at registration, not silently skip all metrics
+    /// - **Evaluation errors**: Returns `false` (don't emit metric, log debug)
+    ///   - Rationale: Runtime errors (missing fields, type mismatches) are data-dependent
+    /// - **Non-boolean results**: Returns `false` (don't emit metric, log debug)
+    ///   - Rationale: Conditions must be boolean expressions
+    ///
+    /// # Performance Notes
+    ///
+    /// Conditions are parsed on-demand for each record. For high-throughput scenarios,
+    /// consider:
+    /// - Using simple conditions (single field comparisons)
+    /// - Avoiding complex expressions with multiple operations
+    /// - Pre-filtering data with WHERE clauses before metric emission
     async fn evaluate_condition(
         &self,
         metric_name: &str,
@@ -92,60 +166,50 @@ impl SimpleJobProcessor {
         job_name: &str,
     ) -> bool {
         let conditions = self.metric_conditions.lock().await;
-        if let Some(condition_str) = conditions.get(metric_name) {
-            // Parse condition by wrapping in a dummy SELECT query
-            let dummy_sql = format!("SELECT * FROM dummy WHERE {}", condition_str);
-            let parser = StreamingSqlParser::new();
+        let condition_str = match conditions.get(metric_name) {
+            Some(cond) => cond,
+            None => return true, // No condition - always emit
+        };
 
-            match parser.parse(&dummy_sql) {
-                Ok(query) => {
-                    match query {
-                        crate::velostream::sql::StreamingQuery::Select { where_clause, .. } => {
-                            if let Some(expr) = where_clause {
-                                // Evaluate the expression
-                                match ExpressionEvaluator::evaluate_expression_value(&expr, record) {
-                                    Ok(FieldValue::Boolean(result)) => result,
-                                    Ok(other_value) => {
-                                        debug!(
-                                            "Job '{}': Condition for metric '{}' returned non-boolean value: {:?}. Treating as false.",
-                                            job_name, metric_name, other_value
-                                        );
-                                        false
-                                    }
-                                    Err(e) => {
-                                        debug!(
-                                            "Job '{}': Condition evaluation failed for metric '{}': {:?}. Treating as false.",
-                                            job_name, metric_name, e
-                                        );
-                                        false
-                                    }
-                                }
-                            } else {
-                                // No WHERE clause extracted - treat as always true
-                                true
-                            }
-                        }
-                        _ => {
-                            debug!(
-                                "Job '{}': Failed to parse condition for metric '{}' as SELECT query. Treating as always true.",
-                                job_name, metric_name
-                            );
-                            true
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!(
-                        "Job '{}': Failed to parse condition for metric '{}': {:?}. Treating as always true.",
-                        job_name, metric_name, e
-                    );
-                    true
-                }
+        // Parse condition to expression
+        let expr = match Self::parse_condition_to_expr(condition_str) {
+            Ok(expr) => expr,
+            Err(e) => {
+                // Parse error: This should have been caught at registration time
+                // Emit metric to avoid silently dropping all metrics due to syntax error
+                debug!(
+                    "Job '{}': Failed to parse condition for metric '{}': {}. Treating as always true.",
+                    job_name, metric_name, e
+                );
+                return true;
             }
-        } else {
-            // No condition - always emit
-            true
+        };
+
+        // Evaluate expression against record
+        Self::evaluate_condition_expr(&expr, record, metric_name, job_name)
+    }
+
+    /// Check if a metric should be emitted based on its condition
+    ///
+    /// This is a convenience method that evaluates the condition and logs appropriately.
+    /// Returns true if the metric should be emitted, false otherwise.
+    async fn should_emit_metric(
+        &self,
+        annotation: &MetricAnnotation,
+        record: &crate::velostream::sql::execution::StreamRecord,
+        job_name: &str,
+    ) -> bool {
+        if !self
+            .evaluate_condition(&annotation.name, record, job_name)
+            .await
+        {
+            debug!(
+                "Job '{}': Skipping metric '{}' - condition not met",
+                job_name, annotation.name
+            );
+            return false;
         }
+        true
     }
 
     /// Register counter metrics from SQL annotations
@@ -249,15 +313,8 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &counter_annotations {
-                                // Evaluate condition if present
-                                if !self
-                                    .evaluate_condition(&annotation.name, record, job_name)
-                                    .await
-                                {
-                                    debug!(
-                                        "Job '{}': Skipping counter '{}' - condition not met",
-                                        job_name, annotation.name
-                                    );
+                                // Check if metric should be emitted based on condition
+                                if !self.should_emit_metric(annotation, record, job_name).await {
                                     continue;
                                 }
 
@@ -399,15 +456,8 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &gauge_annotations {
-                                // Evaluate condition if present
-                                if !self
-                                    .evaluate_condition(&annotation.name, record, job_name)
-                                    .await
-                                {
-                                    debug!(
-                                        "Job '{}': Skipping gauge '{}' - condition not met",
-                                        job_name, annotation.name
-                                    );
+                                // Check if metric should be emitted based on condition
+                                if !self.should_emit_metric(annotation, record, job_name).await {
                                     continue;
                                 }
 
@@ -583,15 +633,8 @@ impl SimpleJobProcessor {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
                             for annotation in &histogram_annotations {
-                                // Evaluate condition if present
-                                if !self
-                                    .evaluate_condition(&annotation.name, record, job_name)
-                                    .await
-                                {
-                                    debug!(
-                                        "Job '{}': Skipping histogram '{}' - condition not met",
-                                        job_name, annotation.name
-                                    );
+                                // Check if metric should be emitted based on condition
+                                if !self.should_emit_metric(annotation, record, job_name).await {
                                     continue;
                                 }
 

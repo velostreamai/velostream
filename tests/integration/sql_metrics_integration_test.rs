@@ -692,15 +692,9 @@ mod tests {
 
         // Verify condition parsing
         assert_eq!(annotations[0].name, "test_high_volume_total");
-        assert_eq!(
-            annotations[0].condition,
-            Some("volume > 1000".to_string())
-        );
+        assert_eq!(annotations[0].condition, Some("volume > 1000".to_string()));
         assert_eq!(annotations[1].name, "test_low_volume_total");
-        assert_eq!(
-            annotations[1].condition,
-            Some("volume <= 1000".to_string())
-        );
+        assert_eq!(annotations[1].condition, Some("volume <= 1000".to_string()));
         assert_eq!(annotations[2].name, "test_all_events_total");
         assert_eq!(annotations[2].condition, None);
 
@@ -754,14 +748,8 @@ mod tests {
 
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].name, "test_significant_volume");
-        assert_eq!(
-            annotations[0].condition,
-            Some("volume > 500".to_string())
-        );
-        assert_eq!(
-            annotations[0].field,
-            Some("volume".to_string())
-        );
+        assert_eq!(annotations[0].condition, Some("volume > 500".to_string()));
+        assert_eq!(annotations[0].field, Some("volume".to_string()));
 
         // Register gauge metric
         if let Some(metrics) = obs_manager.metrics() {
@@ -816,14 +804,8 @@ mod tests {
 
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].name, "test_large_trade_distribution");
-        assert_eq!(
-            annotations[0].condition,
-            Some("volume >= 1000".to_string())
-        );
-        assert_eq!(
-            annotations[0].field,
-            Some("volume".to_string())
-        );
+        assert_eq!(annotations[0].condition, Some("volume >= 1000".to_string()));
+        assert_eq!(annotations[0].field, Some("volume".to_string()));
         assert_eq!(
             annotations[0].buckets,
             Some(vec![1000.0, 5000.0, 10000.0, 50000.0])

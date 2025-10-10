@@ -35,6 +35,9 @@ pub mod stream_job_processors_core_test;
 /// Processor failure scenario tests (error handling, resilience)
 pub mod stream_job_processors_failure_test;
 
+/// Conditional metrics evaluation tests (FR-073 Phase 4)
+pub mod conditional_metrics_test;
+
 /// Template for adding new processor tests
 pub mod stream_job_future_handler_test_template;
 
