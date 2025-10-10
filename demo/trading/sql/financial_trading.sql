@@ -14,6 +14,18 @@
 -- Showcases event-time processing with watermarks for handling out-of-order market data
 -- Demonstrates late data detection and proper windowing based on trade execution time
 
+-- FR-073 SQL-Native Observability: Market Data Throughput Counter
+-- @metric: velo_trading_market_data_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol, exchange
+
+-- FR-073 SQL-Native Observability: Current Price Gauge
+-- @metric: velo_trading_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current market price per symbol"
+-- @metric_field: price
+-- @metric_labels: symbol, exchange
 CREATE STREAM market_data_ts AS
 SELECT
     symbol,
@@ -49,6 +61,26 @@ WITH (
     'observability.tracing.enabled' = 'true'
 );
 
+-- FR-073 SQL-Native Observability: Tick Data Processing Rate
+-- @metric: velo_trading_tick_buckets_total
+-- @metric_type: counter
+-- @metric_help: "Tick buckets created per symbol"
+-- @metric_labels: symbol
+
+-- FR-073 SQL-Native Observability: Trade Count per Bucket
+-- @metric: velo_trading_trades_per_bucket
+-- @metric_type: gauge
+-- @metric_help: "Number of trades in each 1-second bucket"
+-- @metric_field: trade_count
+-- @metric_labels: symbol
+
+-- FR-073 SQL-Native Observability: Volume Distribution
+-- @metric: velo_trading_tick_volume_distribution
+-- @metric_type: histogram
+-- @metric_help: "Distribution of trading volume per tick"
+-- @metric_field: total_volume
+-- @metric_labels: symbol
+-- @metric_buckets: 100, 500, 1000, 5000, 10000, 50000, 100000
 CREATE STREAM tick_buckets AS
 SELECT
     symbol,

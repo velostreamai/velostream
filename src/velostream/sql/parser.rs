@@ -3117,6 +3117,23 @@ impl<'a> TokenParser<'a> {
                 Vec::new()
             });
 
+        // FR-073: Debug logging for annotation parsing
+        if !metric_annotations.is_empty() {
+            log::info!(
+                "Parsed {} @metric annotation(s) for CREATE STREAM {}",
+                metric_annotations.len(),
+                name
+            );
+            for annotation in &metric_annotations {
+                log::info!(
+                    "  - {}: {} (type: {:?})",
+                    annotation.name,
+                    annotation.help.as_deref().unwrap_or(""),
+                    annotation.metric_type
+                );
+            }
+        }
+
         Ok(StreamingQuery::CreateStream {
             name,
             columns,

@@ -490,12 +490,12 @@ impl MetricsProvider {
     /// * `Ok(())` - Metric ownership tracked successfully
     /// * `Err(SqlError)` - Failed to acquire lock
     pub fn register_job_metric(&self, job_name: &str, metric_name: &str) -> Result<(), SqlError> {
-        let mut job_metrics = self
-            .job_metrics
-            .lock()
-            .map_err(|e| SqlError::ConfigurationError {
-                message: format!("Failed to acquire lock on job_metrics: {}", e),
-            })?;
+        let mut job_metrics =
+            self.job_metrics
+                .lock()
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to acquire lock on job_metrics: {}", e),
+                })?;
 
         job_metrics
             .entry(job_name.to_string())
@@ -546,12 +546,12 @@ impl MetricsProvider {
     /// * `Ok(Vec<String>)` - List of metrics that were unregistered
     /// * `Err(SqlError)` - Failed to acquire lock
     pub fn unregister_job_metrics(&self, job_name: &str) -> Result<Vec<String>, SqlError> {
-        let mut job_metrics = self
-            .job_metrics
-            .lock()
-            .map_err(|e| SqlError::ConfigurationError {
-                message: format!("Failed to acquire lock on job_metrics: {}", e),
-            })?;
+        let mut job_metrics =
+            self.job_metrics
+                .lock()
+                .map_err(|e| SqlError::ConfigurationError {
+                    message: format!("Failed to acquire lock on job_metrics: {}", e),
+                })?;
 
         let metrics: Vec<String> = job_metrics
             .remove(job_name)

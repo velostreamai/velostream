@@ -331,6 +331,29 @@ fn is_recoverable_error(_error: &crate::velostream::sql::SqlError) -> bool {
 pub fn log_job_progress(job_name: &str, stats: &JobExecutionStats) {
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
+    let elapsed = stats.elapsed();
+
+    // Check for data starvation - job running but processing 0 records
+    if stats.records_processed == 0 && elapsed.as_secs() >= 60 {
+        error!(
+            "🚨 DATA STARVATION DETECTED: Job '{}' has processed 0 records for {} seconds",
+            job_name,
+            elapsed.as_secs()
+        );
+        error!("   Possible causes:");
+        error!("   1. Source Kafka topic is empty or not producing messages");
+        error!("   2. Schema deserialization is failing (check for missing schema files)");
+        error!("   3. Consumer group offset is stuck or invalid");
+        error!("   4. Network connectivity issues with data source");
+        error!("   Action required: Investigate source configuration and data flow immediately");
+        error!("   Check: curl http://localhost:9091/metrics | grep velo_streaming_throughput_rps");
+    } else if stats.records_processed == 0 {
+        warn!(
+            "Job '{}': 0 records processed after {} seconds (waiting for data...)",
+            job_name,
+            elapsed.as_secs()
+        );
+    }
 
     info!(
         "Job '{}': {} records processed ({} batches), {:.2} records/sec, {:.1}% success rate, {:.1}ms avg batch time",

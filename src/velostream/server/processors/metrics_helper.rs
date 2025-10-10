@@ -284,6 +284,13 @@ impl ProcessorMetricsHelper {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let annotations = Self::extract_annotations_by_type(query, MetricType::Counter);
 
+        // FR-073: Debug logging for registration attempts
+        info!(
+            "Job '{}': Attempting to register counter metrics (found {} annotations)",
+            job_name,
+            annotations.len()
+        );
+
         self.register_metrics_common(
             annotations,
             observability,
@@ -382,6 +389,13 @@ impl ProcessorMetricsHelper {
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let annotations = Self::extract_annotations_by_type(query, MetricType::Gauge);
+
+        // FR-073: Debug logging for registration attempts
+        info!(
+            "Job '{}': Attempting to register gauge metrics (found {} annotations)",
+            job_name,
+            annotations.len()
+        );
 
         self.register_metrics_common(
             annotations,
@@ -514,6 +528,13 @@ impl ProcessorMetricsHelper {
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let annotations = Self::extract_annotations_by_type(query, MetricType::Histogram);
+
+        // FR-073: Debug logging for registration attempts
+        info!(
+            "Job '{}': Attempting to register histogram metrics (found {} annotations)",
+            job_name,
+            annotations.len()
+        );
 
         self.register_metrics_common(
             annotations,

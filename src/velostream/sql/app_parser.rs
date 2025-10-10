@@ -242,18 +242,17 @@ impl SqlApplicationParser {
                 continue;
             }
 
-            // Skip empty lines and regular comments
-            if trimmed.is_empty()
-                || (trimmed.starts_with("--")
-                    && !trimmed.starts_with("-- Name:")
-                    && !trimmed.starts_with("-- Property:"))
-            {
+            // Skip empty lines when no statement is being built
+            // Include regular comments in the statement (for @metric annotations)
+            if trimmed.is_empty() {
                 if !current_statement.trim().is_empty() {
                     current_statement.push('\n');
                 }
                 continue;
             }
 
+            // Always include all lines (including comments) in the current statement
+            // This preserves @metric annotations for the SQL parser
             current_statement.push_str(line);
             current_statement.push('\n');
 

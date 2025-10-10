@@ -177,6 +177,36 @@ impl SimpleJobProcessor {
         // Log comprehensive configuration details
         log_job_configuration(&job_name, &self.config);
 
+        // FR-073: Register SQL-native metrics from @metric annotations
+        info!(
+            "Job '{}': ⚡ About to register SQL-native metrics from @metric annotations",
+            job_name
+        );
+
+        // Register counter metrics from SQL annotations
+        if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register counter metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register gauge metrics from SQL annotations
+        if let Err(e) = self.register_gauge_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register gauge metrics: {:?}",
+                job_name, e
+            );
+        }
+
+        // Register histogram metrics from SQL annotations
+        if let Err(e) = self.register_histogram_metrics(&query, &job_name).await {
+            warn!(
+                "Job '{}': Failed to register histogram metrics: {:?}",
+                job_name, e
+            );
+        }
+
         // Create enhanced context with multiple sources and sinks
         let mut context =
             crate::velostream::sql::execution::processors::ProcessorContext::new_with_sources(
@@ -333,6 +363,12 @@ impl SimpleJobProcessor {
 
         // Log detailed information about the source and sink types
         log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
+
+        // FR-073: Debug - verify we're reaching metric registration code
+        info!(
+            "Job '{}': ⚡ About to register SQL-native metrics from @metric annotations",
+            job_name
+        );
 
         // Register counter metrics from SQL annotations
         if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
@@ -932,7 +968,15 @@ impl SimpleJobProcessor {
             );
 
             // Collect output records for writing to sinks
-            all_output_records.extend(batch_result.output_records);
+            all_output_records.extend(batch_result.output_records.clone());
+
+            // FR-073: Emit SQL-native metrics for processed records from this source
+            self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+                .await;
+            self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
+                .await;
+            self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
+                .await;
 
             // Handle failures according to strategy
             if batch_result.records_failed > 0 {

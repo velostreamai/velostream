@@ -25,5 +25,8 @@ pub mod ctas_sql_integration_test;
 pub mod kafka_configurable_serialization_test;
 pub mod post_cleanup_validation_test;
 
+// Datasource integration tests
+pub mod datasource;
+
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

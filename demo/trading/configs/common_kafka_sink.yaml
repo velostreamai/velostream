@@ -7,7 +7,7 @@ datasink:
   
   # Standard producer configuration
   producer_config:
-    bootstrap.servers: "broker:9092"
+    bootstrap.servers: "localhost:9092"
     retries: 3
     batch.size: 16384
     buffer_memory: 33554432
@@ -17,7 +17,8 @@ datasink:
   schema:
     key.format: string
     value.format: avro
-    schema.registry.url: "http://schema-registry:8081"
+    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
+    # schema.registry.url: "http://schema-registry:8081"
     
   # Default topic properties
   topic_config:

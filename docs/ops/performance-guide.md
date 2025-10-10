@@ -39,7 +39,7 @@ Kafka Consumer → KafkaDataReader → Multi-Job Processor → SQL Engine → Ka
 ### Latest Benchmark Results (October 2025)
 
 For detailed benchmark results, see:
-- **Primary**: [`docs/benchmark-results-summary.md`](../benchmark-results-summary.md) - Comprehensive SQL benchmarks (40+ tests)
+- **Primary**: [`docs/benchmark-results-summary.md`](../performance/benchmark-results-summary.md) - Comprehensive SQL benchmarks (40+ tests)
 - **Phase 2**: [`docs/performance-comparison-report.md`](../performance-comparison-report.md) - Hash join optimization (163M rec/sec)
 
 ### Core SQL Engine Performance
@@ -1085,9 +1085,9 @@ RUST_LOG=debug cargo test --test memory_pressure --release
 ## Related Documentation
 
 ### Performance Results and Analysis
-- [`benchmark-results-summary.md`](../benchmark-results-summary.md) - Comprehensive benchmark results (40+ tests)
+- [`benchmark-results-summary.md`](../performance/benchmark-results-summary.md) - Comprehensive benchmark results (40+ tests)
 - [`performance-comparison-report.md`](../performance-comparison-report.md) - Performance comparison analysis
-- [`sql-engine-performance-plan.md`](../sql-engine-performance-plan.md) - Performance optimization roadmap
+- [`sql-engine-performance-plan.md`](../performance/sql-engine-performance-plan.md) - Performance optimization roadmap
 
 ### Configuration Guides
 - [`batch-configuration-guide.md`](../batch-configuration-guide.md) - Complete batch strategy configuration

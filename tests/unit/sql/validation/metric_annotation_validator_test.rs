@@ -1,7 +1,7 @@
 //! Tests for SQL validator @metric annotation validation (FR-073)
 
-use velostream::velostream::sql::validator::SqlValidator;
 use std::path::PathBuf;
+use velostream::velostream::sql::validator::SqlValidator;
 
 #[test]
 fn test_valid_metric_annotations() {
@@ -26,13 +26,24 @@ SELECT * FROM source;
     let result = validator.validate_application_file(&test_file);
 
     // Should be valid
-    assert!(result.is_valid, "Expected valid SQL with metric annotations");
+    assert!(
+        result.is_valid,
+        "Expected valid SQL with metric annotations"
+    );
 
     // Should have recommendation about found annotations
-    let metric_recommendation = result.recommendations.iter()
+    let metric_recommendation = result
+        .recommendations
+        .iter()
         .find(|r| r.contains("@metric annotation"));
-    assert!(metric_recommendation.is_some(), "Expected recommendation about @metric annotations");
-    assert!(metric_recommendation.unwrap().contains("1"), "Expected 1 annotation found");
+    assert!(
+        metric_recommendation.is_some(),
+        "Expected recommendation about @metric annotations"
+    );
+    assert!(
+        metric_recommendation.unwrap().contains("1"),
+        "Expected 1 annotation found"
+    );
 
     // Cleanup
     std::fs::remove_file(&test_file).ok();
@@ -70,12 +81,23 @@ CREATE STREAM stream3 AS SELECT * FROM source3;
 
     let result = validator.validate_application_file(&test_file);
 
-    assert!(result.is_valid, "Expected valid SQL with multiple metric annotations");
+    assert!(
+        result.is_valid,
+        "Expected valid SQL with multiple metric annotations"
+    );
 
-    let metric_recommendation = result.recommendations.iter()
+    let metric_recommendation = result
+        .recommendations
+        .iter()
         .find(|r| r.contains("@metric annotation"));
-    assert!(metric_recommendation.is_some(), "Expected recommendation about @metric annotations");
-    assert!(metric_recommendation.unwrap().contains("3"), "Expected 3 annotations found");
+    assert!(
+        metric_recommendation.is_some(),
+        "Expected recommendation about @metric annotations"
+    );
+    assert!(
+        metric_recommendation.unwrap().contains("3"),
+        "Expected 3 annotations found"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }
@@ -99,12 +121,20 @@ CREATE STREAM test_stream AS SELECT * FROM source;
     let result = validator.validate_application_file(&test_file);
 
     // Should be invalid
-    assert!(!result.is_valid, "Expected invalid SQL with incomplete gauge annotation");
+    assert!(
+        !result.is_valid,
+        "Expected invalid SQL with incomplete gauge annotation"
+    );
 
     // Should have error about missing field
-    let field_error = result.global_errors.iter()
+    let field_error = result
+        .global_errors
+        .iter()
         .find(|e| e.contains("@metric_field"));
-    assert!(field_error.is_some(), "Expected error about missing @metric_field");
+    assert!(
+        field_error.is_some(),
+        "Expected error about missing @metric_field"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }
@@ -128,12 +158,22 @@ CREATE STREAM test_stream AS SELECT * FROM source;
     let result = validator.validate_application_file(&test_file);
 
     // Should be invalid
-    assert!(!result.is_valid, "Expected invalid SQL with invalid metric type");
+    assert!(
+        !result.is_valid,
+        "Expected invalid SQL with invalid metric type"
+    );
 
     // Should have error about invalid type
-    let type_error = result.global_errors.iter()
-        .find(|e| e.contains("metric type") || e.contains("counter") || e.contains("gauge") || e.contains("histogram"));
-    assert!(type_error.is_some(), "Expected error about invalid metric type");
+    let type_error = result.global_errors.iter().find(|e| {
+        e.contains("metric type")
+            || e.contains("counter")
+            || e.contains("gauge")
+            || e.contains("histogram")
+    });
+    assert!(
+        type_error.is_some(),
+        "Expected error about invalid metric type"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }
@@ -157,11 +197,19 @@ CREATE STREAM test_stream AS SELECT * FROM source;
 
     let result = validator.validate_application_file(&test_file);
 
-    assert!(!result.is_valid, "Expected invalid SQL with histogram missing field");
+    assert!(
+        !result.is_valid,
+        "Expected invalid SQL with histogram missing field"
+    );
 
-    let field_error = result.global_errors.iter()
+    let field_error = result
+        .global_errors
+        .iter()
         .find(|e| e.contains("@metric_field"));
-    assert!(field_error.is_some(), "Expected error about missing @metric_field for histogram");
+    assert!(
+        field_error.is_some(),
+        "Expected error about missing @metric_field for histogram"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }
@@ -186,9 +234,14 @@ SELECT * FROM source;
     assert!(result.is_valid, "Expected valid SQL without annotations");
 
     // Should not have any annotation recommendations
-    let metric_recommendation = result.recommendations.iter()
+    let metric_recommendation = result
+        .recommendations
+        .iter()
         .find(|r| r.contains("@metric annotation"));
-    assert!(metric_recommendation.is_none(), "Should not have annotation recommendations when none present");
+    assert!(
+        metric_recommendation.is_none(),
+        "Should not have annotation recommendations when none present"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }
@@ -213,11 +266,19 @@ CREATE STREAM test_stream AS SELECT * FROM source;
 
     let result = validator.validate_application_file(&test_file);
 
-    assert!(result.is_valid, "Expected valid SQL with counter having labels and condition");
+    assert!(
+        result.is_valid,
+        "Expected valid SQL with counter having labels and condition"
+    );
 
-    let metric_recommendation = result.recommendations.iter()
+    let metric_recommendation = result
+        .recommendations
+        .iter()
         .find(|r| r.contains("@metric annotation"));
-    assert!(metric_recommendation.is_some(), "Expected recommendation about @metric annotations");
+    assert!(
+        metric_recommendation.is_some(),
+        "Expected recommendation about @metric annotations"
+    );
 
     std::fs::remove_file(&test_file).ok();
 }

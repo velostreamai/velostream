@@ -1281,11 +1281,7 @@ impl SqlValidator {
     }
 
     /// Validate @metric annotations in SQL comments (FR-073)
-    fn validate_metric_annotations(
-        &self,
-        content: &str,
-        result: &mut ApplicationValidationResult,
-    ) {
+    fn validate_metric_annotations(&self, content: &str, result: &mut ApplicationValidationResult) {
         // Extract all comment lines
         let comments: Vec<String> = content
             .lines()
@@ -1311,10 +1307,9 @@ impl SqlValidator {
                 }
             }
             Err(e) => {
-                result.global_errors.push(format!(
-                    "❌ @metric annotation error: {}",
-                    e
-                ));
+                result
+                    .global_errors
+                    .push(format!("❌ @metric annotation error: {}", e));
                 result.is_valid = false;
             }
         }

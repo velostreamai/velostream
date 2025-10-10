@@ -120,6 +120,30 @@ impl KafkaDataReader {
         passed_schema_json: Option<&str>,
         event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Self::new_with_schema_and_config(
+            brokers,
+            topic,
+            group_id,
+            format,
+            batch_config,
+            passed_schema_json,
+            event_time_config,
+            &HashMap::new(), // No additional config properties
+        )
+        .await
+    }
+
+    /// Create a new Kafka data reader with schema and additional consumer properties
+    pub async fn new_with_schema_and_config(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        format: SerializationFormat,
+        batch_config: Option<BatchConfig>,
+        passed_schema_json: Option<&str>,
+        event_time_config: Option<EventTimeConfig>,
+        consumer_properties: &HashMap<String, String>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Create codec using robust factory pattern
         let codec = Self::create_serialization_codec(&format, passed_schema_json)?;
 
@@ -128,6 +152,11 @@ impl KafkaDataReader {
         // Configure Kafka consumer based on BatchConfig
         let mut consumer_config =
             crate::velostream::kafka::consumer_config::ConsumerConfig::new(brokers, group_id);
+
+        // Apply consumer properties from YAML config FIRST (before batch config)
+        Self::apply_consumer_properties(&mut consumer_config, consumer_properties);
+
+        // Then apply batch config (which may override some properties)
         Self::apply_batch_config_to_consumer(&mut consumer_config, &batch_config);
 
         // Log the applied consumer configuration
@@ -169,7 +198,7 @@ impl KafkaDataReader {
         passed_schema_json: Option<&str>,
         event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        Self::new_with_schema(
+        Self::new_with_schema_and_config(
             brokers,
             topic,
             group_id,
@@ -177,6 +206,31 @@ impl KafkaDataReader {
             Some(batch_config),
             passed_schema_json,
             event_time_config,
+            &HashMap::new(), // No additional config properties
+        )
+        .await
+    }
+
+    /// Create a new Kafka data reader with BatchConfig and consumer properties
+    pub async fn new_with_batch_config_and_properties(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        format: SerializationFormat,
+        batch_config: BatchConfig,
+        passed_schema_json: Option<&str>,
+        event_time_config: Option<EventTimeConfig>,
+        consumer_properties: &HashMap<String, String>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Self::new_with_schema_and_config(
+            brokers,
+            topic,
+            group_id,
+            format,
+            Some(batch_config),
+            passed_schema_json,
+            event_time_config,
+            consumer_properties,
         )
         .await
     }
@@ -321,6 +375,104 @@ impl DataReader for KafkaDataReader {
 }
 
 impl KafkaDataReader {
+    /// Apply consumer properties from YAML config to Kafka consumer configuration
+    fn apply_consumer_properties(
+        consumer_config: &mut crate::velostream::kafka::consumer_config::ConsumerConfig,
+        properties: &HashMap<String, String>,
+    ) {
+        use crate::velostream::kafka::consumer_config::OffsetReset;
+
+        log::info!(
+            "Applying {} consumer properties from config",
+            properties.len()
+        );
+
+        for (key, value) in properties.iter() {
+            // Skip properties that have special handling or are metadata
+            if key.starts_with("schema.")
+                || key.starts_with("value.")
+                || key.starts_with("datasource.")
+                || key == "topic"  // topic is not a Kafka consumer property
+                || key == "consumer.group"  // consumer.group is metadata, group.id is the actual property
+                || key == "performance_profile"
+            // performance_profile is metadata, not a Kafka property
+            {
+                log::debug!("  Skipping property (schema/metadata): {} = {}", key, value);
+                continue;
+            }
+
+            log::info!("  Applying consumer property: {} = {}", key, value);
+
+            // Map common property names to ConsumerConfig fields
+            match key.as_str() {
+                "bootstrap.servers" => {
+                    // Already set via constructor
+                    log::debug!("    (bootstrap.servers handled by constructor)");
+                }
+                "group.id" => {
+                    // Already set via constructor
+                    log::debug!("    (group.id handled by constructor)");
+                }
+                "auto.offset.reset" => {
+                    consumer_config.auto_offset_reset = match value.as_str() {
+                        "earliest" => OffsetReset::Earliest,
+                        "latest" => OffsetReset::Latest,
+                        "none" => OffsetReset::None,
+                        _ => OffsetReset::Earliest, // Default to earliest
+                    };
+                }
+                "enable.auto.commit" => {
+                    consumer_config.enable_auto_commit = value.parse().unwrap_or(true);
+                }
+                "auto.commit.interval.ms" => {
+                    if let Ok(millis) = value.parse() {
+                        consumer_config.auto_commit_interval =
+                            std::time::Duration::from_millis(millis);
+                    }
+                }
+                "session.timeout.ms" => {
+                    if let Ok(millis) = value.parse() {
+                        consumer_config.session_timeout = std::time::Duration::from_millis(millis);
+                    }
+                }
+                "heartbeat.interval.ms" => {
+                    if let Ok(millis) = value.parse() {
+                        consumer_config.heartbeat_interval =
+                            std::time::Duration::from_millis(millis);
+                    }
+                }
+                "max.poll.records" => {
+                    if let Ok(records) = value.parse() {
+                        consumer_config.max_poll_records = records;
+                    }
+                }
+                "fetch.min.bytes" => {
+                    if let Ok(bytes) = value.parse() {
+                        consumer_config.fetch_min_bytes = bytes;
+                    }
+                }
+                "fetch.max.wait.ms" => {
+                    if let Ok(millis) = value.parse() {
+                        consumer_config.fetch_max_wait = std::time::Duration::from_millis(millis);
+                    }
+                }
+                "max.partition.fetch.bytes" => {
+                    if let Ok(bytes) = value.parse() {
+                        consumer_config.max_partition_fetch_bytes = bytes;
+                    }
+                }
+                _ => {
+                    // Add other properties to custom config (via common.custom_config)
+                    log::debug!("    (adding as custom property)");
+                    consumer_config
+                        .common
+                        .custom_config
+                        .insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
     /// Apply BatchConfig settings to Kafka consumer configuration
     fn apply_batch_config_to_consumer(
         consumer_config: &mut crate::velostream::kafka::consumer_config::ConsumerConfig,
@@ -478,13 +630,38 @@ impl KafkaDataReader {
         let mut records = Vec::with_capacity(size.min(self.batch_config.max_batch_size));
         let timeout = Duration::from_millis(1000);
 
-        for _ in 0..size.min(self.batch_config.max_batch_size) {
+        log::debug!(
+            "🔍 read_fixed_size: attempting to read {} records with timeout {:?}",
+            size,
+            timeout
+        );
+
+        for i in 0..size.min(self.batch_config.max_batch_size) {
+            log::debug!(
+                "🔍 read_fixed_size: poll attempt {} of {}",
+                i + 1,
+                size.min(self.batch_config.max_batch_size)
+            );
             match self.consumer.poll(timeout).await {
                 Ok(message) => {
+                    log::debug!(
+                        "🔍 read_fixed_size: poll returned message from partition {} offset {}",
+                        message.partition(),
+                        message.offset()
+                    );
                     let record = self.create_stream_record(message)?;
                     records.push(record);
+                    log::debug!(
+                        "🔍 read_fixed_size: created stream record, total records now: {}",
+                        records.len()
+                    );
                 }
-                Err(_) => {
+                Err(e) => {
+                    log::debug!(
+                        "🔍 read_fixed_size: poll error/timeout: {:?}, records so far: {}",
+                        e,
+                        records.len()
+                    );
                     // Timeout or error - break if we have some records, otherwise continue
                     if !records.is_empty() {
                         break;
@@ -493,6 +670,7 @@ impl KafkaDataReader {
             }
         }
 
+        log::debug!("🔍 read_fixed_size: returning {} records", records.len());
         Ok(records)
     }
 
