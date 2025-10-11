@@ -21,6 +21,7 @@ pub mod producer_config;
 pub mod client_config_builder;
 pub mod common_config;
 pub mod kafka_error;
+mod kafka_fast_consumer;
 pub mod performance_presets;
 
 // Re-export main API

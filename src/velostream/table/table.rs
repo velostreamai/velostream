@@ -1,6 +1,6 @@
 use crate::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use crate::velostream::kafka::kafka_error::ConsumerError;
-use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use crate::velostream::table::retry_utils::{
@@ -68,7 +68,7 @@ use tokio::time::sleep;
 pub struct Table<K, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
-    KS: Serializer<K> + Send + Sync + 'static,
+    KS: Serde<K> + Send + Sync + 'static,
     VS: SerializationFormat + Send + Sync + 'static,
 {
     consumer: Arc<
@@ -103,7 +103,7 @@ pub struct ChangeEvent<K> {
 impl<K, KS, VS> Table<K, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
-    KS: Serializer<K> + Send + Sync + Clone + 'static,
+    KS: Serde<K> + Send + Sync + Clone + 'static,
     VS: SerializationFormat + Send + Sync + Clone + 'static,
 {
     /// Creates a new Table from a Kafka topic
@@ -572,7 +572,7 @@ where
 impl<K, KS, VS> UnifiedTable for Table<K, KS, VS>
 where
     K: Clone + std::hash::Hash + Eq + ToString + Send + Sync + 'static + std::fmt::Debug,
-    KS: Serializer<K> + Send + Sync + Clone + 'static,
+    KS: Serde<K> + Send + Sync + Clone + 'static,
     VS: SerializationFormat + Send + Sync + Clone + 'static,
 {
     /// Enable downcasting (returns self)
@@ -723,7 +723,7 @@ where
 impl<K, KS, VS> Clone for Table<K, KS, VS>
 where
     K: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
-    KS: Serializer<K> + Send + Sync + 'static,
+    KS: Serde<K> + Send + Sync + 'static,
     VS: SerializationFormat + Send + Sync + 'static,
 {
     fn clone(&self) -> Self {

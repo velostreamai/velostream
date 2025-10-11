@@ -344,7 +344,7 @@ mod serialization_format_tests {
         let serializer: JsonSerializer = SerializationFactory::json_serializer::<String>();
 
         // Basic functionality test
-        use velostream::velostream::kafka::serialization::Serializer;
+        use velostream::velostream::kafka::serialization::Serde;
         let test_data = "Hello, World!".to_string();
         let serialized = serializer.serialize(&test_data).unwrap();
         let deserialized: String = serializer.deserialize(&serialized).unwrap();

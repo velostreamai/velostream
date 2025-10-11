@@ -3,7 +3,7 @@ use crate::unit::test_messages::*;
 use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
-use velostream::velostream::kafka::serialization::Serializer;
+use velostream::velostream::kafka::serialization::Serde;
 use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
 
 /// Helper functions
@@ -128,8 +128,8 @@ pub(crate) async fn send_and_flush<K, V, KS, VS>(
     headers: Headers,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     producer.send(key, value, headers, None).await?;
     producer.flush(5000)?;
@@ -209,8 +209,8 @@ pub(crate) fn safe_commit<K, V, KS, VS>(
     consumer: &KafkaConsumer<K, V, KS, VS>,
     received_count: usize,
 ) where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     if received_count > 0 {
         let _ = consumer.commit(); // Make commit optional

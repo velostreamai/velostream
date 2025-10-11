@@ -107,7 +107,7 @@ pub use json_codec::JsonCodec;
 pub use protobuf_codec::ProtobufCodec;
 
 // Serialization codec enum for Kafka integration
-use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::kafka::serialization::Serde;
 use std::collections::HashMap;
 
 /// Unified serialization codec enum that implements Serializer trait
@@ -118,7 +118,7 @@ pub enum SerializationCodec {
     Protobuf(ProtobufCodec),
 }
 
-impl Serializer<HashMap<String, FieldValue>> for SerializationCodec {
+impl Serde<HashMap<String, FieldValue>> for SerializationCodec {
     fn serialize(
         &self,
         value: &HashMap<String, FieldValue>,

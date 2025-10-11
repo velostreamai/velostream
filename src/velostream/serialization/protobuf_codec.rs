@@ -3,7 +3,7 @@
 //! This codec provides direct protobuf serialization for FieldValue types, including
 //! financial precision support through ScaledInteger types and proper decimal handling.
 
-use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::serialization::SerializationError;
 use crate::velostream::sql::execution::types::FieldValue;
 use prost::Message;
@@ -498,7 +498,7 @@ pub fn create_protobuf_serializer(schema: &str) -> Result<ProtobufCodec, Seriali
 }
 
 /// Implement Serializer trait for ProtobufCodec to work with velo_streams KafkaConsumer
-impl Serializer<HashMap<String, FieldValue>> for ProtobufCodec {
+impl Serde<HashMap<String, FieldValue>> for ProtobufCodec {
     fn serialize(
         &self,
         value: &HashMap<String, FieldValue>,

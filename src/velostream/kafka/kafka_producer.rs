@@ -6,7 +6,7 @@ use crate::velostream::kafka::{
     kafka_producer_def_context::LoggingProducerContext,
     performance_presets::PerformancePresets,
     producer_config::{AckMode, CompressionType, ProducerConfig},
-    serialization::Serializer,
+    serialization::Serde,
 };
 use rdkafka::{
     error::KafkaError,
@@ -89,8 +89,8 @@ use std::{marker::PhantomData, time::Duration};
 /// ```
 pub struct KafkaProducer<K, V, KS, VS, C = LoggingProducerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ProducerContext + 'static,
 {
     producer: FutureProducer<C>,
@@ -107,8 +107,8 @@ const SEND_WAIT_SECS: u64 = 30;
 
 impl<K, V, KS, VS> KafkaProducer<K, V, KS, VS, LoggingProducerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     /// Creates a new KafkaProducer with default context and simple configuration
     pub fn new(
@@ -184,8 +184,8 @@ where
 
 impl<K, V, KS, VS, C> KafkaProducer<K, V, KS, VS, C>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ProducerContext + 'static,
 {
     /// Creates a new KafkaProducer with custom context (legacy method)
@@ -434,8 +434,8 @@ where
 /// ```
 pub struct ProducerBuilder<K, V, KS, VS, C = LoggingProducerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ProducerContext + 'static,
 {
     config: ProducerConfig,
@@ -448,8 +448,8 @@ where
 
 impl<K, V, KS, VS> ProducerBuilder<K, V, KS, VS, LoggingProducerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     /// Creates a new builder with required parameters
     pub fn new(
@@ -560,8 +560,8 @@ where
 
 impl<K, V, KS, VS> ProducerBuilder<K, V, KS, VS, LoggingProducerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     /// Sets a custom producer context
     pub fn with_context<NewC>(self, context: NewC) -> ProducerBuilder<K, V, KS, VS, NewC>

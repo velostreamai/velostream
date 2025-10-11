@@ -3,7 +3,7 @@ use crate::velostream::kafka::consumer_config::ConsumerConfig;
 use crate::velostream::kafka::headers::Headers;
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
-use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::kafka::serialization::Serde;
 use futures::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{
@@ -89,13 +89,13 @@ use std::time::Duration;
 /// ```
 pub struct KafkaConsumer<K, V, KS, VS, C = DefaultConsumerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ConsumerContext + 'static,
 {
     consumer: StreamConsumer<C>,
-    key_serializer: KS,
-    value_serializer: VS,
+    key_serde: KS,
+    value_serde: VS,
     group_id: String,
     _phantom_key: PhantomData<K>,
     _phantom_value: PhantomData<V>,
@@ -105,8 +105,8 @@ where
 
 impl<K, V, KS, VS> KafkaConsumer<K, V, KS, VS, DefaultConsumerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     /// Creates a new KafkaConsumer with default context and simple configuration
     pub fn new(
@@ -161,8 +161,8 @@ where
 
         Ok(KafkaConsumer {
             consumer,
-            key_serializer,
-            value_serializer,
+            key_serde: key_serializer,
+            value_serde: value_serializer,
             group_id: config.group_id.clone(),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
@@ -172,8 +172,8 @@ where
 
 impl<K, V, KS, VS, C> KafkaConsumer<K, V, KS, VS, C>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ConsumerContext + 'static,
 {
     /// Creates a new KafkaConsumer with custom context
@@ -192,8 +192,8 @@ where
 
         Ok(KafkaConsumer {
             consumer,
-            key_serializer,
-            value_serializer,
+            key_serde: key_serializer,
+            value_serde: value_serializer,
             group_id: group_id.to_string(),
             _phantom_key: PhantomData,
             _phantom_value: PhantomData,
@@ -250,7 +250,7 @@ where
                 let payload = msg.payload().ok_or(ConsumerError::NoMessage)?;
 
                 // Attempt value deserialization
-                let value = match self.value_serializer.deserialize(payload) {
+                let value = match self.value_serde.deserialize(payload) {
                     Ok(v) => {
                         log::debug!(
                             target: "kafka_consumer",
@@ -277,7 +277,7 @@ where
                 };
 
                 let key = if let Some(key_bytes) = msg.key() {
-                    Some(self.key_serializer.deserialize(key_bytes)?)
+                    Some(self.key_serde.deserialize(key_bytes)?)
                 } else {
                     None
                 };
@@ -390,13 +390,13 @@ where
             Ok(borrowed_message) => {
                 if let Some(payload) = borrowed_message.payload() {
                     let value = self
-                        .value_serializer
+                        .value_serde
                         .deserialize(payload)
                         .map_err(ConsumerError::SerializationError)?;
 
                     let key = if let Some(key_bytes) = borrowed_message.key() {
                         Some(
-                            self.key_serializer
+                            self.key_serde
                                 .deserialize(key_bytes)
                                 .map_err(ConsumerError::SerializationError)?,
                         )
@@ -437,12 +437,12 @@ where
 
     /// Access the key serializer
     pub fn key_serializer(&self) -> &KS {
-        &self.key_serializer
+        &self.key_serde
     }
 
     /// Access the value serializer
     pub fn value_serializer(&self) -> &VS {
-        &self.value_serializer
+        &self.value_serde
     }
 
     /// Get current consumer offsets for transaction coordination
@@ -470,8 +470,8 @@ pub struct MessageMetadata {
 /// Builder for creating KafkaConsumer with configuration options
 pub struct ConsumerBuilder<K, V, KS, VS, C = DefaultConsumerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ConsumerContext + 'static,
 {
     brokers: String,
@@ -485,8 +485,8 @@ where
 
 impl<K, V, KS, VS> ConsumerBuilder<K, V, KS, VS, DefaultConsumerContext>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     /// Creates a new builder with required parameters
     pub fn new(brokers: &str, group_id: &str, key_serializer: KS, value_serializer: VS) -> Self {
@@ -514,8 +514,8 @@ where
 
 impl<K, V, KS, VS, C> ConsumerBuilder<K, V, KS, VS, C>
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
     C: ConsumerContext + 'static,
 {
     /// Sets a custom consumer context
@@ -538,8 +538,8 @@ where
 /// Convenience trait for types that can be consumed from Kafka with specific key and value serializers
 pub trait KafkaConsumable<K, KS, VS>: Sized
 where
-    KS: Serializer<K>,
-    VS: Serializer<Self>,
+    KS: Serde<K>,
+    VS: Serde<Self>,
 {
     /// Creates a consumer for this type
     fn consumer(
@@ -565,8 +565,8 @@ where
 // Implement for any type that can be serialized/deserialized
 impl<K, V, KS, VS> KafkaConsumable<K, KS, VS> for V
 where
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
 }
 

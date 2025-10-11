@@ -36,8 +36,14 @@ struct MarketData {
 impl MarketData {
     fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
         let mut record = HashMap::new();
-        record.insert("symbol".to_string(), FieldValue::String(self.symbol.clone()));
-        record.insert("exchange".to_string(), FieldValue::String(self.exchange.clone()));
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "exchange".to_string(),
+            FieldValue::String(self.exchange.clone()),
+        );
         record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
         record.insert("price".to_string(), FieldValue::Float(self.price));
         record.insert("bid_price".to_string(), FieldValue::Float(self.bid_price));
@@ -45,10 +51,16 @@ impl MarketData {
         record.insert("bid_size".to_string(), FieldValue::Integer(self.bid_size));
         record.insert("ask_size".to_string(), FieldValue::Integer(self.ask_size));
         record.insert("volume".to_string(), FieldValue::Integer(self.volume));
-        record.insert("vwap".to_string(),
-            self.vwap.map(FieldValue::Float).unwrap_or(FieldValue::Null));
-        record.insert("market_cap".to_string(),
-            self.market_cap.map(FieldValue::Float).unwrap_or(FieldValue::Null));
+        record.insert(
+            "vwap".to_string(),
+            self.vwap.map(FieldValue::Float).unwrap_or(FieldValue::Null),
+        );
+        record.insert(
+            "market_cap".to_string(),
+            self.market_cap
+                .map(FieldValue::Float)
+                .unwrap_or(FieldValue::Null),
+        );
         record
     }
 }
@@ -72,18 +84,51 @@ struct TradingPosition {
 impl TradingPosition {
     fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
         let mut record = HashMap::new();
-        record.insert("trader_id".to_string(), FieldValue::String(self.trader_id.clone()));
-        record.insert("account_id".to_string(), FieldValue::String(self.account_id.clone()));
-        record.insert("symbol".to_string(), FieldValue::String(self.symbol.clone()));
-        record.insert("position_size".to_string(), FieldValue::Integer(self.position_size));
-        record.insert("entry_price".to_string(), FieldValue::String(format!("{:.4}", self.entry_price)));
-        record.insert("current_pnl".to_string(), FieldValue::String(format!("{:.2}", self.current_pnl)));
-        record.insert("unrealized_pnl".to_string(), FieldValue::String(format!("{:.2}", self.unrealized_pnl)));
-        record.insert("realized_pnl".to_string(), FieldValue::String(format!("{:.2}", self.realized_pnl)));
-        record.insert("position_value".to_string(), FieldValue::String(format!("{:.2}", self.position_value)));
-        record.insert("margin_used".to_string(), FieldValue::String(format!("{:.2}", self.margin_used)));
+        record.insert(
+            "trader_id".to_string(),
+            FieldValue::String(self.trader_id.clone()),
+        );
+        record.insert(
+            "account_id".to_string(),
+            FieldValue::String(self.account_id.clone()),
+        );
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "position_size".to_string(),
+            FieldValue::Integer(self.position_size),
+        );
+        record.insert(
+            "entry_price".to_string(),
+            FieldValue::String(format!("{:.4}", self.entry_price)),
+        );
+        record.insert(
+            "current_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.current_pnl)),
+        );
+        record.insert(
+            "unrealized_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.unrealized_pnl)),
+        );
+        record.insert(
+            "realized_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.realized_pnl)),
+        );
+        record.insert(
+            "position_value".to_string(),
+            FieldValue::String(format!("{:.2}", self.position_value)),
+        );
+        record.insert(
+            "margin_used".to_string(),
+            FieldValue::String(format!("{:.2}", self.margin_used)),
+        );
         record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
-        record.insert("last_update_source".to_string(), FieldValue::String(self.last_update_source.clone()));
+        record.insert(
+            "last_update_source".to_string(),
+            FieldValue::String(self.last_update_source.clone()),
+        );
         record
     }
 }
@@ -106,17 +151,35 @@ struct OrderBookUpdate {
 impl OrderBookUpdate {
     fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
         let mut record = HashMap::new();
-        record.insert("symbol".to_string(), FieldValue::String(self.symbol.clone()));
-        record.insert("exchange".to_string(), FieldValue::String(self.exchange.clone()));
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "exchange".to_string(),
+            FieldValue::String(self.exchange.clone()),
+        );
         record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
         record.insert("side".to_string(), FieldValue::String(self.side.clone()));
         record.insert("price".to_string(), FieldValue::Float(self.price));
         record.insert("quantity".to_string(), FieldValue::Integer(self.quantity));
-        record.insert("order_count".to_string(), FieldValue::Integer(self.order_count as i64));
-        record.insert("update_type".to_string(), FieldValue::String(self.update_type.clone()));
+        record.insert(
+            "order_count".to_string(),
+            FieldValue::Integer(self.order_count as i64),
+        );
+        record.insert(
+            "update_type".to_string(),
+            FieldValue::String(self.update_type.clone()),
+        );
         record.insert("level".to_string(), FieldValue::Integer(self.level as i64));
-        record.insert("total_volume".to_string(), FieldValue::Integer(self.total_volume));
-        record.insert("sequence_number".to_string(), FieldValue::Integer(self.sequence_number));
+        record.insert(
+            "total_volume".to_string(),
+            FieldValue::Integer(self.total_volume),
+        );
+        record.insert(
+            "sequence_number".to_string(),
+            FieldValue::Integer(self.sequence_number),
+        );
         record
     }
 }
@@ -212,9 +275,12 @@ impl StockState {
 struct TradingSimulator {
     stocks: HashMap<String, StockState>,
     traders: Vec<String>,
-    market_data_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
-    trading_position_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
-    order_book_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    market_data_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    trading_position_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    order_book_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
     rng: ThreadRng,
 }
 
@@ -263,12 +329,13 @@ impl TradingSimulator {
             market_data_codec,
         )?;
 
-        let trading_position_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
-            brokers,
-            "in_trading_positions_stream",
-            StringSerializer,
-            trading_position_codec,
-        )?;
+        let trading_position_producer =
+            KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+                brokers,
+                "in_trading_positions_stream",
+                StringSerializer,
+                trading_position_codec,
+            )?;
 
         let order_book_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
             brokers,
@@ -304,12 +371,7 @@ impl TradingSimulator {
                 // Send to in_market_data_stream topic using market_data_producer
                 match self
                     .market_data_producer
-                    .send(
-                        Some(&market_data.symbol),
-                        &record,
-                        headers.clone(),
-                        None,
-                    )
+                    .send(Some(&market_data.symbol), &record, headers.clone(), None)
                     .await
                 {
                     Ok(_delivery) => {}
@@ -329,12 +391,7 @@ impl TradingSimulator {
                 // but we'll just send to it again (all market data uses the same topic for now)
                 match self
                     .market_data_producer
-                    .send(
-                        Some(&market_data.symbol),
-                        &record,
-                        headers,
-                        None,
-                    )
+                    .send(Some(&market_data.symbol), &record, headers, None)
                     .await
                 {
                     Ok(_delivery) => {}
@@ -427,7 +484,8 @@ impl TradingSimulator {
                     } else {
                         "SELL"
                     };
-                    let exchange = stock.exchanges[self.rng.gen_range(0..stock.exchanges.len())].clone();
+                    let exchange =
+                        stock.exchanges[self.rng.gen_range(0..stock.exchanges.len())].clone();
                     let price_offset = self.rng.gen_range(-0.01..0.01);
                     let price = stock.current_price * (1.0 + price_offset);
                     let quantity = self.rng.gen_range(100..50000);
@@ -443,8 +501,10 @@ impl TradingSimulator {
                     };
 
                     // Use iteration as sequence number (simplified)
-                    static SEQUENCE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-                    let sequence_number = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    static SEQUENCE: std::sync::atomic::AtomicI64 =
+                        std::sync::atomic::AtomicI64::new(0);
+                    let sequence_number =
+                        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
                     let order_update = OrderBookUpdate {
                         symbol: symbol.clone(),

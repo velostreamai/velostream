@@ -1,10 +1,10 @@
 use crate::unit::common::*;
-use velostream::velostream::kafka::serialization::Serializer;
+use velostream::velostream::kafka::serialization::Serde;
 
 /// Custom serializer that always fails for testing error scenarios
 struct FailingSerializer;
 
-impl Serializer<TestMessage> for FailingSerializer {
+impl Serde<TestMessage> for FailingSerializer {
     fn serialize(&self, _value: &TestMessage) -> Result<Vec<u8>, SerializationError> {
         // Create a JSON error by attempting to serialize an invalid value
         let invalid_json = "\x00\x01\x02invalid_json";
@@ -28,7 +28,7 @@ impl Serializer<TestMessage> for FailingSerializer {
     }
 }
 
-impl Serializer<String> for FailingSerializer {
+impl Serde<String> for FailingSerializer {
     fn serialize(&self, _value: &String) -> Result<Vec<u8>, SerializationError> {
         // Create a JSON error by attempting to serialize an invalid value
         let invalid_json = "\x00\x01\x02invalid_json";

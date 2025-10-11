@@ -1,6 +1,6 @@
 //! Avro codec for HashMap<String, FieldValue> serialization/deserialization
 
-use crate::velostream::kafka::serialization::Serializer;
+use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::serialization;
 use crate::velostream::serialization::SerializationError;
 use crate::velostream::sql::execution::types::FieldValue;
@@ -697,7 +697,7 @@ impl AvroCodec {
 }
 
 /// Implement Serializer trait for AvroCodec to work with velo_streams KafkaConsumer
-impl Serializer<HashMap<String, FieldValue>> for AvroCodec {
+impl Serde<HashMap<String, FieldValue>> for AvroCodec {
     fn serialize(
         &self,
         value: &HashMap<String, FieldValue>,
